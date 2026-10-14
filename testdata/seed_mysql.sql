@@ -1,4 +1,5 @@
-CREATE DATABASE IF NOT EXISTS shop;
+DROP DATABASE IF EXISTS shop;
+CREATE DATABASE shop;
 USE shop;
 DROP TABLE IF EXISTS order_items, orders, products, customers;
 CREATE TABLE customers (
