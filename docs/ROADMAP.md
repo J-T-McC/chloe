@@ -3,7 +3,7 @@
 Order reflects dependencies: later features build on the earlier ones. Specs for each area live in `docs/specs/`.
 
 ## Next up
-1. **Structure sync and data sync** (section 8); Data Transfer follow-ups: file target, per-table Advanced
+1. **Data sync** (section 8); Data Transfer follow-ups: file target, per-table Advanced
    mode (rename, fields, filters), functions/procedures/events, MongoDB → MongoDB
 2. **Explain / visual explain** for MySQL and PostgreSQL, with MongoDB's explain
 3. **MongoDB, second pass**: aggregation pipeline builder, GridFS buckets, saved queries in MongoDB databases
@@ -84,7 +84,9 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 - SQL Server, Oracle (each must be testable in Docker; Snowflake is out of scope)
 
 ## 8. Advanced
-- Structure sync and data sync (diff + deploy script)
+- [x] Structure Synchronization (MySQL/MariaDB, PostgreSQL): tables and views compared, results by object type
+  with checkboxes, DDL comparison, per-object and full deployment script, deploy as a job with a message log
+- Data sync (compare rows by key + deploy script)
 - Backup/restore, scheduled automation
 - Query builder, explain/visual explain, find in database
 - Grammar-based (ANTLR) autocomplete layer, preferences window

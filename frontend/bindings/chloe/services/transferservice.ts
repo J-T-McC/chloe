@@ -33,6 +33,13 @@ export function ClearJobs(): $CancellablePromise<void> {
 }
 
 /**
+ * CompareStructure diffs two databases/schemas of the same engine (Structure Synchronization).
+ */
+export function CompareStructure(req: core$0.StructureCompareRequest): $CancellablePromise<core$0.StructureComparison> {
+    return $Call.ByID(555642571, req);
+}
+
+/**
  * DataTransfer copies tables and views between databases, schemas or connections.
  */
 export function DataTransfer(req: core$0.DataTransferRequest): $CancellablePromise<core$0.Job> {
@@ -44,6 +51,13 @@ export function DataTransfer(req: core$0.DataTransferRequest): $CancellablePromi
  */
 export function DefaultTransferOptions(): $CancellablePromise<core$0.TransferOptions> {
     return $Call.ByID(2356222931);
+}
+
+/**
+ * Deploy runs a deployment script on the target as a job.
+ */
+export function Deploy(req: core$0.DeployRequest): $CancellablePromise<core$0.Job> {
+    return $Call.ByID(2949330344, req);
 }
 
 export function Dump(connID: string, req: core$0.DumpRequest): $CancellablePromise<core$0.Job> {
@@ -86,6 +100,13 @@ export function PreviewImport(connID: string, path: string, opts: transfer$0.Imp
  */
 export function SaveFileDialog(defaultName: string, filterName: string, pattern: string): $CancellablePromise<string> {
     return $Call.ByID(2509224056, defaultName, filterName, pattern);
+}
+
+/**
+ * StructureScript orders the chosen comparison items into a deployment script.
+ */
+export function StructureScript(items: core$0.StructItem[] | null): $CancellablePromise<string[] | null> {
+    return $Call.ByID(1536785995, items);
 }
 
 /**

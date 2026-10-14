@@ -19,7 +19,7 @@ export { Format, type ExportOptions, type ImportOptions } from "../bindings/chlo
 export type * as D from "../bindings/chloe/internal/design/models";
 export type { Preset } from "../bindings/chloe/internal/connurl/models";
 export { DBType, ObjectKind, SSHAuth, type Connection, type ServerInfo, type Process, type ServerVar, type ObjectInfo, type ObjectRef, type StatementResult, type ResultColumn, type RowPage, type TableDetail, type Catalog } from "../bindings/chloe/internal/model/models";
-export { ChangeKind, TableAction, ImportMode, MaintainOp, JobStatus, type Job, type DataTransferRequest, type Endpoint, type TransferOptions, type ImportPreview, type ImportRequest, type FieldMap, type MaintainResult, type DesignPreview, type ApplyResult as DesignApplyResult, type RowChange, type BrowseRequest, type SortSpec } from "../bindings/chloe/internal/core/models";
+export { ChangeKind, TableAction, ImportMode, MaintainOp, JobStatus, type Job, type DataTransferRequest, type Endpoint, type TransferOptions, type StructItem, type ImportPreview, type ImportRequest, type FieldMap, type MaintainResult, type DesignPreview, type ApplyResult as DesignApplyResult, type RowChange, type BrowseRequest, type SortSpec } from "../bindings/chloe/internal/core/models";
 export type { Dialect } from "../bindings/chloe/internal/driver/models";
 export { Events } from "@wailsio/runtime";
 

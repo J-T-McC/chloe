@@ -118,6 +118,7 @@ func appMenu() *application.Menu {
 	view.AddRole(application.ToggleFullscreen)
 	tools := menu.AddSubmenu("Tools")
 	tools.Add("Data Transfer…").OnClick(func(*application.Context) { application.Get().Event.Emit("menu:data-transfer") })
+	tools.Add("Structure Synchronization…").OnClick(func(*application.Context) { application.Get().Event.Emit("menu:structure-sync") })
 	tools.AddSeparator()
 	tools.Add("History Log").OnClick(func(*application.Context) { application.Get().Event.Emit("menu:history-log") })
 	menu.AddRole(application.WindowMenu)

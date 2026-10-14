@@ -3576,3 +3576,147 @@ table.mapping select {
   display: flex;
   gap: 16px;
 }
+
+/* ---- structure synchronization ------------------------------------------------- */
+
+.ss-options {
+  margin-top: 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px 8px;
+  display: flex;
+  gap: 18px;
+}
+
+.ss-options legend {
+  font-weight: 600;
+  padding: 0 4px;
+}
+
+.ss-results,
+.ss-deploy {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ss-results > .split {
+  flex: 1;
+  min-height: 0;
+}
+
+.ss-tree {
+  height: 100%;
+  overflow: auto;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.ss-row {
+  display: grid;
+  grid-template-columns: 28px 1fr 90px 1fr;
+  align-items: center;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+  cursor: default;
+}
+
+.ss-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ss-row.head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-2);
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.ss-row.group {
+  background: var(--row-alt);
+  font-weight: 600;
+}
+
+.ss-row.selected {
+  background: var(--sel);
+}
+
+.ss-row.same {
+  color: var(--text-3);
+}
+
+.ss-op {
+  font-weight: 500;
+}
+
+.ss-op.op-create,
+.ss-op.op-modify,
+.ss-op.op-drop {
+  color: var(--accent);
+}
+
+.ss-detail {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ss-script {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.ss-script .code-block {
+  margin: 0;
+}
+
+.ddl-compare {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.ddl-compare > div {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.ddl-label {
+  font-size: 11px;
+  color: var(--text-3);
+  padding: 2px 0;
+}
+
+.ddl-side {
+  flex: 1;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  background: var(--bg-2);
+  user-select: text;
+}
+
+.ddl-side .only-source {
+  background: var(--new);
+}
+
+.ddl-side .only-target {
+  background: var(--deleted);
+}

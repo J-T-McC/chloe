@@ -14,6 +14,7 @@ export type {
     BrowseRequest,
     ChangeResult,
     DataTransferRequest,
+    DeployRequest,
     DesignPreview,
     DumpRequest,
     Endpoint,
@@ -29,5 +30,9 @@ export type {
     RedisConsoleResult,
     RowChange,
     SortSpec,
+    StructItem,
+    StructureCompareRequest,
+    StructureComparison,
+    StructureOptions,
     TransferOptions
 } from "./models.js";

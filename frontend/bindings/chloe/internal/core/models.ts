@@ -87,6 +87,16 @@ export interface DataTransferRequest {
 }
 
 /**
+ * DeployRequest runs a deployment script on a target.
+ */
+export interface DeployRequest {
+    "target": Endpoint;
+    "statements": string[] | null;
+    "continueOnError": boolean;
+    "title"?: string;
+}
+
+/**
  * DesignPreview returns the statements that turn old into new (old nil = create).
  */
 export interface DesignPreview {
@@ -398,6 +408,54 @@ export interface RowChange {
 export interface SortSpec {
     "column": string;
     "desc": boolean;
+}
+
+/**
+ * StructItem is one object's comparison result.
+ */
+export interface StructItem {
+    /**
+     * table, view
+     */
+    "kind": string;
+    "name": string;
+
+    /**
+     * Op is create (only in the source), modify (different), drop (only in the target) or same.
+     */
+    "op": string;
+
+    /**
+     * Pre runs before any table changes (dropping a view that is replaced or
+     * removed); Statements is the object's own change; Post runs once every new
+     * table exists (foreign keys of new tables).
+     */
+    "pre"?: string[] | null;
+    "statements": string[] | null;
+    "post"?: string[] | null;
+    "sourceDdl"?: string;
+    "targetDdl"?: string;
+    "warnings"?: string[] | null;
+}
+
+export interface StructureCompareRequest {
+    "source": Endpoint;
+    "target": Endpoint;
+    "options": StructureOptions;
+}
+
+export interface StructureComparison {
+    "items": StructItem[] | null;
+}
+
+export interface StructureOptions {
+    "compareTables": boolean;
+    "compareViews": boolean;
+
+    /**
+     * DropCascade drops PostgreSQL tables and views with CASCADE.
+     */
+    "dropCascade": boolean;
 }
 
 /**
