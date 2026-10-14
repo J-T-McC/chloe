@@ -1,8 +1,9 @@
-import { CircleStop, Play, PlayCircle } from "lucide-react";
+import { CircleStop, Play, PlayCircle, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { DBType, Events, Explorer, Query, StatementResult, arr, errorText } from "../api";
 import { autoTrigger, clearEditorContext, invalidateCatalog, preloadCatalog, registerSqlCompletion, setEditorContext } from "../editor/completion";
+import { beautifyEditor, registerFormatter } from "../editor/format";
 import { Monaco, editorTheme, monaco } from "../editor/monaco";
 import { Tab, connById, useApp } from "../store";
 import { Cell, DataGrid } from "./DataGrid";
@@ -32,10 +33,12 @@ export function QueryEditor({ tab }: { tab: Tab }) {
   const [elapsed, setElapsed] = useState(0);
   const runRef = useRef<() => void>(() => {});
   const runCurrentRef = useRef<() => void>(() => {});
+  const beautifyRef = useRef<() => void>(() => {});
 
   // ---- editor --------------------------------------------------------------------
   useEffect(() => {
     registerSqlCompletion();
+    registerFormatter();
     const model = monaco.editor.createModel(tab.sql ?? "", isPG ? "pgsql" : "mysql");
     const editor = monaco.editor.create(host.current!, {
       model,
@@ -59,6 +62,7 @@ export function QueryEditor({ tab }: { tab: Tab }) {
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => runCurrentRef.current());
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyR, () => runRef.current());
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter, () => runRef.current());
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, () => beautifyRef.current());
     const trig = autoTrigger(editor);
     const save = editor.onDidChangeModelContent(() => {
       decorations.current?.clear();
@@ -192,6 +196,11 @@ export function QueryEditor({ tab }: { tab: Tab }) {
 
   const stop = () => session && Query.Cancel(session);
 
+  beautifyRef.current = () => {
+    const err = beautifyEditor(editorRef.current!);
+    if (err) setRun((r) => ({ ...r, error: `Beautify failed: ${err}` }));
+  };
+
   const dataResults = run.results.filter((r) => r.resultId);
 
   return (
@@ -205,6 +214,9 @@ export function QueryEditor({ tab }: { tab: Tab }) {
         </button>
         <button onClick={stop} disabled={!run.running} title="Stop">
           <CircleStop size={14} /> Stop
+        </button>
+        <button onClick={() => beautifyRef.current()} title="Beautify SQL (⇧⌘F)">
+          <Sparkles size={14} /> Beautify
         </button>
         <span className="tb-sep" />
         <span className="muted">{conn?.name}</span>
