@@ -45,9 +45,26 @@ monaco.editor.defineTheme("chloe-dark", {
 // which the themes grey out; highlight them as keywords like the rest. Symbolic
 // operators (=, <, +...) have their own rule and stay operators. LEFT and RIGHT are
 // also string functions, but in a query they are mostly joins.
+//
+// The PostgreSQL grammar lists only reserved words, so UPDATE, SET, INSERT... came out
+// plain; every grammar also misses a few statement words. Words that are common column
+// names (TYPE, COMMENT, FIRST, LAST, RANGE, ROWS) stay unlisted.
+const COMMON_KEYWORDS =
+  "SELECT INSERT INTO UPDATE SET DELETE VALUES ALTER ADD DROP CREATE INDEX VIEW TABLE TRUNCATE BEGIN COMMIT ROLLBACK " +
+  "EXPLAIN SCHEMA FUNCTION PROCEDURE TRIGGER RENAME EXISTS IF REPLACE CASCADE RESTRICT KEY RECURSIVE BY TRANSACTION " +
+  "SAVEPOINT RELEASE END OVER PARTITION INTERVAL ESCAPE TEMPORARY TEMP OFFSET";
+const EXTRA_KEYWORDS: Record<string, string> = {
+  mysql: COMMON_KEYWORDS,
+  pgsql:
+    COMMON_KEYWORDS +
+    " RETURNING VACUUM ANALYZE COPY GRANT REVOKE CONFLICT DO NOTHING SEQUENCE OWNER MATERIALIZED REFRESH NULLS LANGUAGE" +
+    " RETURNS EXTENSION LISTEN NOTIFY UNLOGGED CALL ILIKE SIMILAR LATERAL",
+  sql: COMMON_KEYWORDS + " RETURNING PRAGMA ATTACH DETACH REINDEX VACUUM ANALYZE CONFLICT DO NOTHING NULLS",
+};
 for (const [id, lang] of [["mysql", mysqlLanguage], ["pgsql", pgsqlLanguage], ["sql", sqlLanguage]] as const) {
   const builtinFunctions = (lang.builtinFunctions ?? []).filter((f) => f !== "LEFT" && f !== "RIGHT");
-  monaco.languages.setMonarchTokensProvider(id, { ...lang, keywords: [...lang.keywords, ...lang.operators], operators: [], builtinFunctions } as unknown as Monaco.languages.IMonarchLanguage);
+  const keywords = [...new Set([...lang.keywords, ...lang.operators, ...EXTRA_KEYWORDS[id].split(" ")])];
+  monaco.languages.setMonarchTokensProvider(id, { ...lang, keywords, operators: [], builtinFunctions } as unknown as Monaco.languages.IMonarchLanguage);
 }
 
 export const editorTheme = () => (resolvedTheme() === "dark" ? "chloe-dark" : "chloe-light");
