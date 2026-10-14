@@ -5,7 +5,7 @@ Order reflects dependencies: later features build on the earlier ones. Specs for
 ## 1. Foundation ✅
 Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, table viewer, query editor with autocomplete.
 
-## 2. Connections (in progress)
+## 2. Connections ✅
 - [x] Groups (folders), New Group, move connections between groups
 - [x] Open/close databases (closed until opened; Close Database releases sessions)
 - [x] Context menus: empty area (New Connection, Close All, Manage Connections, New Group, Refresh ⌘R), connection, database
