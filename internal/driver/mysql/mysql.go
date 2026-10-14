@@ -339,14 +339,14 @@ func (c *Conn) Catalog(ctx context.Context, db string) (model.Catalog, error) {
 		}
 		cat.Objects = append(cat.Objects, objs...)
 	}
-	recs, err := sqlcommon.QueryStrings(ctx, c.db, `SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, COLUMN_KEY
+	recs, err := sqlcommon.QueryStrings(ctx, c.db, `SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, COLUMN_KEY, IS_NULLABLE
 		FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME, ORDINAL_POSITION`, db)
 	if err != nil {
 		return cat, err
 	}
 	cat.Columns = make([]model.CatalogColumn, len(recs))
 	for i, r := range recs {
-		cat.Columns[i] = model.CatalogColumn{Table: r[0].String, Name: r[1].String, Type: r[2].String, PK: r[3].String == "PRI"}
+		cat.Columns[i] = model.CatalogColumn{Table: r[0].String, Name: r[1].String, Type: r[2].String, PK: r[3].String == "PRI", Nullable: r[4].String == "YES"}
 	}
 	fks, err := c.foreignKeys(ctx, db, "")
 	if err != nil {

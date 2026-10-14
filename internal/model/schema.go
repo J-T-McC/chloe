@@ -82,11 +82,12 @@ type TableDetail struct {
 
 // CatalogColumn is a flattened column row used to seed autocomplete for a whole schema at once.
 type CatalogColumn struct {
-	Schema string `json:"schema,omitempty"`
-	Table  string `json:"table"`
-	Name   string `json:"name"`
-	Type   string `json:"type"`
-	PK     bool   `json:"pk,omitempty"`
+	Schema   string `json:"schema,omitempty"`
+	Table    string `json:"table"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	PK       bool   `json:"pk,omitempty"`
+	Nullable bool   `json:"nullable,omitempty"`
 }
 
 // CatalogFK is a flattened foreign key used for JOIN suggestions.

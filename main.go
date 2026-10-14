@@ -50,6 +50,7 @@ func main() {
 			application.NewService(&services.MonitorService{M: mgr}),
 			application.NewService(&services.DesignService{M: mgr}),
 			application.NewService(&services.TransferService{M: mgr}),
+			application.NewService(&services.LayoutService{M: mgr}),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

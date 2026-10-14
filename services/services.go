@@ -404,3 +404,10 @@ func (s *TransferService) OpenFileDialog(title, filterName, pattern string) (str
 func (s *TransferService) ChooseFolder(title string) (string, error) {
 	return application.Get().Dialog.OpenFile().SetTitle(title).CanChooseDirectories(true).CanChooseFiles(false).CanCreateDirectories(true).PromptForSingleSelection()
 }
+
+// LayoutService stores diagram layouts and other per-view UI state.
+type LayoutService struct{ M *core.Manager }
+
+func (s *LayoutService) Get(key string) (string, error) { return s.M.Store.Layouts().Get(key) }
+func (s *LayoutService) Set(key, doc string) error      { return s.M.Store.Layouts().Set(key, doc) }
+func (s *LayoutService) Delete(key string) error        { return s.M.Store.Layouts().Delete(key) }
