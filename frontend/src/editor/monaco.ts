@@ -42,3 +42,28 @@ export const editorTheme = () => (resolvedTheme() === "dark" ? "chloe-dark" : "c
 
 // Every editor follows the app's appearance.
 onThemeChange(() => monaco.editor.setTheme(editorTheme()));
+
+// A light JSON tokenizer for value panels (the full JSON language service isn't bundled).
+monaco.languages.register({ id: "json" });
+monaco.languages.setMonarchTokensProvider("json", {
+  tokenizer: {
+    root: [
+      [/"(?:[^"\\]|\\.)*"(?=\s*:)/, "type"], // keys
+      [/"(?:[^"\\]|\\.)*"/, "string"],
+      [/-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/, "number"],
+      [/\b(?:true|false|null)\b/, "keyword"],
+      [/[{}[\],:]/, "delimiter"],
+    ],
+  },
+});
+monaco.languages.setLanguageConfiguration("json", {
+  brackets: [
+    ["{", "}"],
+    ["[", "]"],
+  ],
+  autoClosingPairs: [
+    { open: "{", close: "}" },
+    { open: "[", close: "]" },
+    { open: '"', close: '"', notIn: ["string"] },
+  ],
+});

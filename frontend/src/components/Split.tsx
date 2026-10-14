@@ -37,6 +37,8 @@ export interface SplitProps {
   maxFirst?: Size;
   maxSecond?: Size;
   className?: string;
+  /** Hide the second pane; the first keeps its state (it isn't remounted). */
+  collapsed?: boolean;
 }
 
 export function Split(p: SplitProps) {
@@ -46,10 +48,12 @@ export function Split(p: SplitProps) {
       <Panel id="first" defaultSize={p.firstSize} minSize={p.minFirst} maxSize={p.maxFirst}>
         <div className="split-pane">{p.first}</div>
       </Panel>
-      <Separator className={"split-handle " + (p.vertical ? "horizontal" : "vertical")} />
-      <Panel id="second" defaultSize={p.secondSize} minSize={p.minSecond} maxSize={p.maxSecond}>
-        <div className="split-pane">{p.second}</div>
-      </Panel>
+      {!p.collapsed && <Separator className={"split-handle " + (p.vertical ? "horizontal" : "vertical")} />}
+      {!p.collapsed && (
+        <Panel id="second" defaultSize={p.secondSize} minSize={p.minSecond} maxSize={p.maxSecond}>
+          <div className="split-pane">{p.second}</div>
+        </Panel>
+      )}
     </Group>
   );
 }

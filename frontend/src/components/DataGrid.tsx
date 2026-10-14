@@ -31,8 +31,8 @@ export interface DataGridProps {
   onSort?(column: string, desc: boolean | null): void;
   /** Extra context menu items for a cell. */
   extraMenu?(row: number, col: number, value: Cell): MenuItem[];
-  /** Report the row/col under the cursor (for the status bar). */
-  onActiveCell?(row: number, col: number): void;
+  /** Report the row/col under the cursor (status bar, value panel), with its value when loaded. */
+  onActiveCell?(row: number, col: number, value?: Cell): void;
   /** Absolute row number offset shown in the row header (paged table views). */
   rowNumberOffset?: number;
 }
@@ -155,7 +155,7 @@ export function DataGrid(p: DataGridProps) {
     c = Math.max(0, Math.min(p.columns.length - 1, c));
     setSel((s) => (extend && s ? { ...s, r1: r, c1: c } : { r0: r, c0: c, r1: r, c1: c }));
     scrollToCell(r, c);
-    p.onActiveCell?.(r, c);
+    p.onActiveCell?.(r, c, cellValue(r, c));
   };
 
   const startEdit = (r: number, c: number, initial?: string) => {
@@ -223,7 +223,7 @@ export function DataGrid(p: DataGridProps) {
           p.onInsertRow();
           setSel({ r0: r + 1, c0: c, r1: r + 1, c1: c });
           setTimeout(() => scrollToCell(r + 1, c), 0);
-          p.onActiveCell?.(r + 1, c);
+          p.onActiveCell?.(r + 1, c, null);
           break;
         }
         moveTo(meta ? total - 1 : r + 1, c, e.shiftKey);
@@ -422,7 +422,7 @@ export function DataGrid(p: DataGridProps) {
                       if (e.button !== 0) return;
                       dragging.current = true;
                       setSel((s) => (e.shiftKey && s ? { ...s, r1: r, c1: c } : { r0: r, c0: c, r1: r, c1: c }));
-                      p.onActiveCell?.(r, c);
+                      p.onActiveCell?.(r, c, cellValue(r, c));
                     }}
                     onMouseEnter={() => dragging.current && setSel((s) => (s ? { ...s, r1: r, c1: c } : s))}
                     onDoubleClick={() => startEdit(r, c)}

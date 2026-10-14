@@ -1,4 +1,4 @@
-import { CircleStop, Play, PlayCircle, Sparkles } from "lucide-react";
+import { CircleStop, PanelBottom, Play, PlayCircle, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DBType, Events, Explorer, Query, StatementResult, arr, errorText } from "../api";
 import { autoTrigger, clearEditorContext, invalidateCatalog, preloadCatalog, registerSqlCompletion, setEditorContext } from "../editor/completion";
@@ -7,6 +7,8 @@ import { Monaco, editorTheme, monaco } from "../editor/monaco";
 import { Tab, connById, useApp } from "../store";
 import { Cell, DataGrid } from "./DataGrid";
 import { Split } from "./Split";
+import { ValuePanel } from "./ValuePanel";
+import { readFlag, writeFlag } from "../prefs";
 import { openExport } from "./transfer/state";
 
 export interface RunState {
@@ -298,12 +300,45 @@ export function ResultGrid({ result, connId, database, schema }: { result: State
     async (offset: number, limit: number) => arr((await Query.FetchRows(result.resultId!, offset, limit)).rows) as Cell[][],
     [result.resultId],
   );
+  const [panel, setPanel] = useState(() => readFlag("valuePanel"));
+  const [active, setActive] = useState<{ r: number; c: number; value?: Cell } | null>(null);
+  const [fetched, setFetched] = useState<{ key: string; value: Cell } | null>(null);
+  const activeKey = active ? `${result.resultId}:${active.r}:${active.c}` : "";
+  useEffect(() => {
+    if (!panel || !active || active.value !== undefined) return;
+    Query.FetchRows(result.resultId!, active.r, 1)
+      .then((p) => setFetched({ key: activeKey, value: (arr(p.rows)[0] as Cell[] | undefined)?.[active.c] ?? null }))
+      .catch(() => {});
+  }, [panel, active, activeKey, result.resultId]);
+  const toggle = (on: boolean) => (setPanel(on), writeFlag("valuePanel", on));
+  const columns = arr(result.columns);
   return (
     <div className="result-grid">
-      <DataGrid columns={arr(result.columns)} rowCount={result.rowCount} dataKey={result.resultId!} fetchPage={fetchPage} />
+      <Split
+        id="result-value-panel"
+        vertical
+        className="value-split"
+        firstSize="65"
+        minFirst="20"
+        minSecond="12"
+        collapsed={!panel}
+        first={<DataGrid columns={columns} rowCount={result.rowCount} dataKey={result.resultId!} fetchPage={fetchPage} onActiveCell={(r, c, value) => setActive({ r, c, value })} />}
+        second={
+          <ValuePanel
+            cellId={activeKey}
+            column={active ? columns[active.c] : undefined}
+            value={!active ? undefined : active.value !== undefined ? active.value : fetched?.key === activeKey ? fetched.value : undefined}
+            readOnly
+            onClose={() => toggle(false)}
+          />
+        }
+      />
       <div className="statusbar">
         <span className="sql-preview">{result.sql}</span>
         <span className="spacer" />
+        <button className={"small-btn" + (panel ? " on" : "")} title="Show the active cell's full value" onClick={() => toggle(!panel)}>
+          <PanelBottom size={12} /> Value
+        </button>
         <button className="small-btn" title="Export this result (re-runs the query)" onClick={() => openExport({ connId, database: database ?? "", schema, tables: [], sql: result.sql, name: "query_result" })}>
           Export…
         </button>

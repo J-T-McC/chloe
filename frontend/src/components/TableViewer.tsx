@@ -1,9 +1,12 @@
-import { Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Filter, Minus, PencilRuler, Plus, RefreshCw, Upload, X } from "lucide-react";
+import { PanelBottom, Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Filter, Minus, PencilRuler, Plus, RefreshCw, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChangeKind, Explorer, ObjectKind, Query, RowChange, StatementResult, TableDetail, arr, errorText } from "../api";
 import type { Tab } from "../store";
 import { Cell, DataGrid, GridEdits, emptyEdits } from "./DataGrid";
 import { confirm } from "./Dialogs";
+import { Split } from "./Split";
+import { ValuePanel } from "./ValuePanel";
+import { readFlag, writeFlag } from "../prefs";
 import { designTable } from "../tableActions";
 import { openExport, openImport } from "./transfer/state";
 
@@ -26,7 +29,8 @@ export function TableViewer({ tab }: { tab: Tab }) {
   const [pageSize, setPageSize] = useState(1000);
   const [total, setTotal] = useState<number | null>(null);
   const [edits, setEdits] = useState<GridEdits>(emptyEdits);
-  const [active, setActive] = useState<{ r: number; c: number } | null>(null);
+  const [active, setActive] = useState<{ r: number; c: number; value?: Cell } | null>(null);
+  const [panel, setPanel] = useState(() => readFlag("valuePanel"));
   const [message, setMessage] = useState("");
   const loadSeq = useRef(0);
 
@@ -70,6 +74,31 @@ export function TableViewer({ tab }: { tab: Tab }) {
 
   // Release the server-side buffer when the tab closes.
   useEffect(() => () => void (result?.resultId && Query.ReleaseResult(result.resultId)), [result?.resultId]);
+
+  const togglePanel = (on: boolean) => {
+    setPanel(on);
+    writeFlag("valuePanel", on);
+  };
+
+  // The active cell's value: a pending edit, else what the grid had loaded (or a fetch).
+  const [fetched, setFetched] = useState<{ key: string; value: Cell } | null>(null);
+  const activeKey = active ? `${result?.resultId}:${active.r}:${active.c}` : "";
+  useEffect(() => {
+    if (!panel || !active || active.value !== undefined || !result?.resultId || active.r >= (result?.rowCount ?? 0)) return;
+    Query.FetchRows(result.resultId, active.r, 1)
+      .then((p) => setFetched({ key: activeKey, value: (arr(p.rows)[0] as Cell[] | undefined)?.[active.c] ?? null }))
+      .catch(() => {});
+  }, [panel, activeKey, active, result?.resultId, result?.rowCount]);
+  const pendingEdit = active ? edits.updated.get(active.r) : undefined;
+  const activeValue: Cell | undefined = !active
+    ? undefined
+    : pendingEdit?.has(active.c)
+      ? pendingEdit.get(active.c)!
+      : active.value !== undefined
+        ? active.value
+        : fetched?.key === activeKey
+          ? fetched.value
+          : undefined;
 
   const dirty = edits.updated.size > 0 || edits.inserted.size > 0 || edits.deleted.size > 0;
   const columns = arr(result?.columns);
@@ -188,6 +217,9 @@ export function TableViewer({ tab }: { tab: Tab }) {
           <Upload size={14} /> Export
         </button>
         <span className="spacer" />
+        <button title="Show the active cell's full value (Text, JSON, Hex, Image)" className={panel ? "on" : ""} onClick={() => togglePanel(!panel)}>
+          <PanelBottom size={14} /> Value
+        </button>
         {!editable && <span className="badge">read-only</span>}
         {editable && detail && !arr(detail.columns).some((c) => c.primaryKey) && <span className="badge warn" title="Edits match on all column values">no primary key</span>}
       </div>
@@ -240,6 +272,15 @@ export function TableViewer({ tab }: { tab: Tab }) {
           </div>
         )}
         {result && (
+          <Split
+            id="viewer-value-panel"
+            vertical
+            className="value-split"
+            firstSize="65"
+            minFirst="20"
+            minSecond="12"
+            collapsed={!panel}
+            first={
           <DataGrid
             columns={columns}
             rowCount={rowCount}
@@ -256,7 +297,19 @@ export function TableViewer({ tab }: { tab: Tab }) {
               if (!(await guardDirty())) return;
               setSort(desc === null ? [] : [{ column, desc }]);
             }}
-            onActiveCell={(r, c) => setActive({ r, c })}
+            onActiveCell={(r, c, value) => setActive({ r, c, value })}
+          />
+            }
+            second={
+              <ValuePanel
+                cellId={active ? `${active.r}:${active.c}` : ""}
+                column={active ? columns[active.c] : undefined}
+                value={activeValue}
+                readOnly={!editable || (active ? edits.deleted.has(active.r) : true)}
+                onChange={(v) => active && onEditCell(active.r, active.c, v)}
+                onClose={() => togglePanel(false)}
+              />
+            }
           />
         )}
       </div>

@@ -2797,3 +2797,91 @@ table.mapping select {
   outline: none;
   font-size: 12px;
 }
+
+/* ---- value panel ------------------------------------------------------------------ */
+
+.value-split {
+  flex: 1;
+  min-height: 0;
+}
+
+.value-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.value-panel-head {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.value-panel-head .seg-tabs {
+  border: none;
+  padding: 0;
+}
+
+.value-panel-col {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.value-panel-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.value-panel-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.value-panel-body .monaco-host {
+  position: absolute;
+  inset: 0;
+}
+
+.value-null {
+  position: absolute;
+  top: 6px;
+  left: 44px;
+  color: var(--null);
+  font-style: italic;
+  pointer-events: none;
+}
+
+.value-hex {
+  margin: 0;
+  height: 100%;
+  overflow: auto;
+  padding: 8px 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  user-select: text;
+}
+
+.value-image {
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: repeating-conic-gradient(var(--bg-3) 0% 25%, var(--bg) 0% 50%) 50% / 16px 16px;
+}
+
+.value-image img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
