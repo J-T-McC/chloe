@@ -54,6 +54,12 @@ export interface Analysis {
   joinTarget?: TableRef;
   /** True when the cursor sits right after "SELECT *" or "t.*". */
   afterStar: boolean;
+  /**
+   * True when the cursor follows a complete operand (a column, literal or closing
+   * parenthesis), so an operator or clause keyword is expected rather than a value:
+   * "WHERE email |" vs "WHERE email = |".
+   */
+  afterOperand: boolean;
   /** Statement start offset in the full text. */
   statementStart: number;
 }
@@ -159,8 +165,17 @@ export function analyze(text: string, offset: number, dialect: DialectName): Ana
 
   const prevTok = sig[cur - 1];
   const afterStar = !!prevTok && prevTok.text === "*" && prefix === "";
+  const afterOperand =
+    !!prevTok &&
+    qualifier.length === 0 &&
+    (prevTok.type === "quoted" ||
+      prevTok.type === "number" ||
+      prevTok.type === "string" ||
+      prevTok.type === "param" ||
+      (prevTok.type === "punct" && prevTok.text === ")") ||
+      (prevTok.type === "word" && (!OPERAND_BREAKERS.has(prevTok.upper) || ["NULL", "TRUE", "FALSE"].includes(prevTok.upper))));
 
-  return { prefix, prefixStart, prefixQuoted, qualifier, clause, tables, ctes, prevKeyword, joinTarget, afterStar, statementStart };
+  return { prefix, prefixStart, prefixQuoted, qualifier, clause, tables, ctes, prevKeyword, joinTarget, afterStar, afterOperand, statementStart };
 }
 
 function parenDepths(sig: Token[]): number[] {
@@ -186,6 +201,13 @@ const KEYWORD_SET = new Set([
   "HAVING", "LIMIT", "OFFSET", "AS", "TABLE", "USING", "RETURNING", "WITH", "NOT", "IN", "IS", "LIKE", "BETWEEN", "CASE",
   "WHEN", "THEN", "ELSE", "END", "DISTINCT", "UNION", "ALL", "ALTER", "DROP", "TRUNCATE", "CREATE", "INDEX", "VIEW",
   "DESCRIBE", "DESC", "EXPLAIN", "CALL", "USE", "SHOW",
+]);
+
+// Words after which a value (not an operator) comes next.
+const OPERAND_BREAKERS = new Set([
+  ...KEYWORD_SET, "WHERE", "HAVING", "ON", "SET", "VALUES", "SELECT", "BY", "AND", "OR", "NOT", "LIKE", "ILIKE", "IN", "IS",
+  "BETWEEN", "REGEXP", "RLIKE", "SIMILAR", "TO", "WHEN", "THEN", "ELSE", "CASE", "DISTINCT", "FROM", "JOIN", "INTO", "UPDATE",
+  "RETURNING", "LIMIT", "OFFSET", "ALL", "ANY", "SOME", "EXISTS", "INTERVAL", "AS", "SOUNDS", "ESCAPE", "WITH",
 ]);
 
 /** Walk backwards from the cursor at the cursor's paren depth to find the governing clause. */

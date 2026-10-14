@@ -180,3 +180,27 @@ describe("complete", () => {
     }
   });
 });
+
+describe("operators", () => {
+  it("offers REGEXP after a column in MySQL and ranks operators first", () => {
+    const r = at("select * from customers where email REG|", "mysql");
+    expect(r.labels).toContain("REGEXP");
+    expect(r.labels.indexOf("REGEXP")).toBeLessThan(r.labels.indexOf("email"));
+    expect(at("select * from customers where email |", "mysql").sorted[0].kind).toBe("keyword");
+  });
+  it("offers ILIKE / SIMILAR TO in PostgreSQL", () => {
+    const r = at("select * from customers where email |");
+    expect(r.labels).toEqual(expect.arrayContaining(["ILIKE", "SIMILAR TO", "IS DISTINCT FROM"]));
+    expect(r.labels).not.toContain("REGEXP");
+  });
+  it("offers values, not operators, after an operator", () => {
+    const r = at("select * from customers where email = |");
+    expect(r.sorted[0].kind).toBe("column");
+    expect(r.labels).not.toContain("NOT LIKE");
+    expect(at("select * from customers where email like 'a%' and |").sorted[0].kind).toBe("column");
+  });
+  it("offers operators after a closing paren and in ON", () => {
+    expect(at("select * from customers where lower(email) |").labels).toContain("LIKE");
+    expect(at("select * from orders o join customers c on c.id |").labels).toContain("IN");
+  });
+});

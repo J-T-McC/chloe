@@ -177,7 +177,15 @@ const MYSQL_STARTERS = ["SHOW TABLES", "SHOW DATABASES", "SHOW CREATE TABLE", "S
 const PG_STARTERS = ["SET search_path TO", "VACUUM", "ANALYZE", "COPY", "CREATE SCHEMA", "CREATE EXTENSION", "DO", "LISTEN", "NOTIFY"];
 
 const AFTER_TABLE = ["WHERE", "INNER JOIN", "LEFT JOIN", "RIGHT JOIN", "CROSS JOIN", "JOIN", "GROUP BY", "ORDER BY", "LIMIT", "AS", "ON", "USING", "UNION", "UNION ALL", "HAVING", "FULL OUTER JOIN"];
-const EXPR_KEYWORDS = ["AND", "OR", "NOT", "IN", "IS NULL", "IS NOT NULL", "LIKE", "BETWEEN", "EXISTS", "CASE", "WHEN", "THEN", "ELSE", "END", "NULL", "TRUE", "FALSE", "DISTINCT", "AS"];
+// Keywords that start a value or expression.
+const VALUE_KEYWORDS = ["NOT", "EXISTS", "CASE", "WHEN", "THEN", "ELSE", "END", "NULL", "TRUE", "FALSE", "DISTINCT", "INTERVAL"];
+// Operators that follow an operand ("email |").
+const OPERATORS_COMMON = ["AND", "OR", "LIKE", "NOT LIKE", "IN", "NOT IN", "BETWEEN", "NOT BETWEEN", "IS NULL", "IS NOT NULL", "IS TRUE", "IS FALSE"];
+const OPERATORS: Record<DialectName, string[]> = {
+  mysql: [...OPERATORS_COMMON, "REGEXP", "NOT REGEXP", "RLIKE", "NOT RLIKE", "SOUNDS LIKE", "MEMBER OF", "DIV", "MOD", "XOR", "COLLATE"],
+  postgres: [...OPERATORS_COMMON, "ILIKE", "NOT ILIKE", "SIMILAR TO", "NOT SIMILAR TO", "IS DISTINCT FROM", "IS NOT DISTINCT FROM", "COLLATE", "AT TIME ZONE"],
+};
+const EXPR_KEYWORDS = [...VALUE_KEYWORDS, "AND", "OR", "IN", "IS NULL", "IS NOT NULL", "LIKE", "BETWEEN", "AS"];
 const AFTER_WHERE = ["GROUP BY", "ORDER BY", "LIMIT", "HAVING", "UNION", "UNION ALL"];
 const AFTER_ORDER = ["ASC", "DESC", "LIMIT", "NULLS FIRST", "NULLS LAST"];
 
@@ -376,6 +384,7 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
           out.push({ label: cond, kind: "join", insertText: cond, detail: "foreign key", rank: -1 });
         }
       }
+      if (a.afterOperand) out.push(...kw(OPERATORS[d], -0.5, opts));
       addRefNames(1);
       addColumns(2);
       out.push(...kw(["AND", "OR", "WHERE", "INNER JOIN", "LEFT JOIN", "ORDER BY", "GROUP BY"], 3, opts));
@@ -407,10 +416,23 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
         out.push({ label: "Expand * to column list", kind: "snippet", insertText: cols.join(", "), rangeStart: offset - 1, rank: -2, filterText: "*" });
       }
       if (a.clause === "values" || a.clause === "limit") break;
+      // After a complete operand an operator or clause keyword comes next, so those
+      // rank first ("WHERE email REG" -> REGEXP before REGEXP_LIKE()).
+      const conditional = a.clause === "where" || a.clause === "set" || a.clause === "other";
+      if (a.afterOperand && conditional) {
+        out.push(...kw(OPERATORS[d], -1, opts));
+        if (a.clause === "where") out.push(...kw(AFTER_WHERE, 0, opts));
+        addColumns(2);
+        addFunctions(3);
+        break;
+      }
+      if (a.afterOperand && a.clause === "select") {
+        out.push(...kw(["AS", "FROM", ...OPERATORS[d].filter((o) => o !== "AND" && o !== "OR")], -1, opts));
+      }
       addColumns(0);
       addRefNames(1);
       if (a.clause !== "set") addFunctions(2);
-      const kws = a.clause === "orderBy" ? AFTER_ORDER : a.clause === "where" ? [...EXPR_KEYWORDS, ...AFTER_WHERE] : a.clause === "groupBy" ? ["HAVING", "ORDER BY", "LIMIT", "WITH ROLLUP"] : EXPR_KEYWORDS;
+      const kws = a.clause === "orderBy" ? AFTER_ORDER : a.clause === "where" ? [...VALUE_KEYWORDS, ...AFTER_WHERE] : a.clause === "groupBy" ? ["HAVING", "ORDER BY", "LIMIT", "WITH ROLLUP"] : EXPR_KEYWORDS;
       out.push(...kw(a.clause === "select" ? [...kws, "FROM"] : kws, 3, opts));
       // Without any FROM yet, tables are useful too (SELECT t. ...)
       if (a.clause === "select" && !scope.length) addTables(4, undefined, false);
