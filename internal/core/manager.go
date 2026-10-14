@@ -57,6 +57,9 @@ type Manager struct {
 	consolesMu sync.Mutex
 	consoles   map[string]*redisConsole // Redis consoles by ID
 	shells     map[string]*mongoShell   // MongoDB shells (query tabs, consoles) by ID
+
+	syncMu sync.Mutex
+	syncs  map[string]*dataSync // Data Synchronization comparisons by ID
 }
 
 type openConn struct {

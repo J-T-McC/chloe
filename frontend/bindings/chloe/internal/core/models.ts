@@ -72,6 +72,93 @@ export interface ChangeResult {
     "error"?: string;
 }
 
+export interface DataSyncComparison {
+    "id": string;
+    "tables": DataSyncResult[] | null;
+}
+
+/**
+ * DataSyncDeployRequest deploys chosen actions of a comparison.
+ */
+export interface DataSyncDeployRequest {
+    "id": string;
+    "tables": DataSyncSelection[] | null;
+    "continueOnError": boolean;
+    "useTransaction": boolean;
+}
+
+export interface DataSyncPage {
+    "columns": string[] | null;
+
+    /**
+     * the first Key columns are the key
+     */
+    "key": number;
+    "records": DataSyncRecord[] | null;
+    "total": number;
+}
+
+/**
+ * DataSyncRecord is a differing row: the source and/or target values, and the
+ * columns that differ (for updates).
+ */
+export interface DataSyncRecord {
+    /**
+     * insert, update, delete
+     */
+    "op": string;
+    "source"?: (string | null)[] | null;
+    "target"?: (string | null)[] | null;
+    "changed"?: number[] | null;
+}
+
+export interface DataSyncRequest {
+    "source": Endpoint;
+    "target": Endpoint;
+    "tables": DataSyncTable[] | null;
+}
+
+/**
+ * DataSyncResult is one table's comparison.
+ */
+export interface DataSyncResult {
+    "source": string;
+    "target": string;
+    "key": string[] | null;
+    "columns": string[] | null;
+    "insert": number;
+    "update": number;
+    "delete": number;
+    "same": number;
+    "message"?: string;
+}
+
+/**
+ * DataSyncSelection says which actions to deploy for a table.
+ */
+export interface DataSyncSelection {
+    "table": string;
+    "insert": boolean;
+    "update": boolean;
+    "delete": boolean;
+}
+
+/**
+ * DataSyncTable maps a source table to a target table, with an optional WHERE
+ * condition applied to both sides.
+ */
+export interface DataSyncTable {
+    "source": string;
+    "target": string;
+    "condition"?: string;
+
+    /**
+     * Key and Message are filled in by DataSyncTables.
+     */
+    "key"?: string[] | null;
+    "message"?: string;
+}
+
 /**
  * DataTransferRequest says what to copy. With AllTables/AllViews set, the lists
  * are ignored and every object present when the transfer runs is copied.

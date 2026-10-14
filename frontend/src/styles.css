@@ -3720,3 +3720,128 @@ table.mapping select {
 .ddl-side .only-target {
   background: var(--deleted);
 }
+
+/* ---- data synchronization ------------------------------------------------------- */
+
+.dsync-mapping {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.dsync-grid {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.dsync-row {
+  display: grid;
+  grid-template-columns: 28px 1fr 1fr 1fr 1.4fr;
+  gap: 6px;
+  align-items: center;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dsync-row.head,
+.dsr-row.head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-2);
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.dsync-row.same,
+.dsr-row.same {
+  color: var(--text-3);
+}
+
+.dsync-row select,
+.dsync-row input.mono {
+  width: 100%;
+}
+
+.dsr-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1.2fr 90px 90px 90px 70px 1.4fr;
+  align-items: center;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+  cursor: default;
+}
+
+.dsr-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dsr-row.selected {
+  background: var(--sel);
+}
+
+.dsync-records {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.dsync-table {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.dsync-table table {
+  border-collapse: collapse;
+  min-width: 100%;
+}
+
+.dsync-table th,
+.dsync-table td {
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dsync-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-2);
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.dsync-table th.key {
+  text-decoration: underline;
+}
+
+.dsync-table tr.src.op-update td {
+  border-bottom: none;
+}
+
+.dsync-table tr.op-insert td.changed,
+.dsync-table td.changed {
+  background: var(--changed);
+}
+
+.dsync-table tr.src.op-insert {
+  background: var(--new);
+}
+
+.dsync-table tr.dst.op-delete {
+  background: var(--deleted);
+}

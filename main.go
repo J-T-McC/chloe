@@ -119,6 +119,7 @@ func appMenu() *application.Menu {
 	tools := menu.AddSubmenu("Tools")
 	tools.Add("Data Transfer…").OnClick(func(*application.Context) { application.Get().Event.Emit("menu:data-transfer") })
 	tools.Add("Structure Synchronization…").OnClick(func(*application.Context) { application.Get().Event.Emit("menu:structure-sync") })
+	tools.Add("Data Synchronization…").OnClick(func(*application.Context) { application.Get().Event.Emit("menu:data-sync") })
 	tools.AddSeparator()
 	tools.Add("History Log").OnClick(func(*application.Context) { application.Get().Event.Emit("menu:history-log") })
 	menu.AddRole(application.WindowMenu)

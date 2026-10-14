@@ -433,6 +433,33 @@ func (s *TransferService) StructureScript(items []core.StructItem) []string { re
 // Deploy runs a deployment script on the target as a job.
 func (s *TransferService) Deploy(req core.DeployRequest) (core.Job, error) { return s.M.Deploy(req) }
 
+// DataSyncTables lists source tables with their default target table and key (Data Synchronization).
+func (s *TransferService) DataSyncTables(ctx context.Context, source, target core.Endpoint) ([]core.DataSyncTable, error) {
+	return s.M.DataSyncTables(ctx, source, target)
+}
+
+// CompareData compares rows by key; the result is kept until DiscardDataSync.
+func (s *TransferService) CompareData(ctx context.Context, req core.DataSyncRequest) (core.DataSyncComparison, error) {
+	return s.M.CompareData(ctx, req)
+}
+
+// DataSyncRecords pages a table's differing records (op "" for every difference).
+func (s *TransferService) DataSyncRecords(id, table, op string, offset, limit int) (core.DataSyncPage, error) {
+	return s.M.DataSyncRecords(id, table, op, offset, limit)
+}
+
+// DataSyncScript builds the deployment script for the chosen actions.
+func (s *TransferService) DataSyncScript(id string, tables []core.DataSyncSelection) ([]string, error) {
+	return s.M.DataSyncScript(id, tables)
+}
+
+// DeployDataSync runs the chosen actions as a job.
+func (s *TransferService) DeployDataSync(req core.DataSyncDeployRequest) (core.Job, error) {
+	return s.M.DeployDataSync(req)
+}
+
+func (s *TransferService) DiscardDataSync(id string) { s.M.DiscardDataSync(id) }
+
 // DefaultTransferOptions are the Data Transfer options a new transfer starts with.
 func (s *TransferService) DefaultTransferOptions() core.TransferOptions { return core.DefaultTransferOptions() }
 

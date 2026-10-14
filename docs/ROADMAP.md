@@ -3,9 +3,10 @@
 Order reflects dependencies: later features build on the earlier ones. Specs for each area live in `docs/specs/`.
 
 ## Next up
-1. **Data sync** (section 8); Data Transfer follow-ups: file target, per-table Advanced
-   mode (rename, fields, filters), functions/procedures/events, MongoDB → MongoDB
-2. **Explain / visual explain** for MySQL and PostgreSQL, with MongoDB's explain
+1. **Explain / visual explain** for MySQL and PostgreSQL, with MongoDB's explain
+2. Transfer and sync follow-ups: Data Transfer file target and per-table Advanced mode (rename, fields,
+   filters); functions/procedures/events in transfer and structure sync; profiles for the sync tools;
+   per-record exclusion in data sync; MongoDB → MongoDB
 3. **MongoDB, second pass**: aggregation pipeline builder, GridFS buckets, saved queries in MongoDB databases
 4. **SQL Server and Oracle**, both in Docker
 5. Polish: Redis pub/sub, cluster and sentinel; Form view and hex/image cell editors; preferences window
@@ -86,7 +87,9 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 ## 8. Advanced
 - [x] Structure Synchronization (MySQL/MariaDB, PostgreSQL): tables and views compared, results by object type
   with checkboxes, DDL comparison, per-object and full deployment script, deploy as a job with a message log
-- Data sync (compare rows by key + deploy script)
+- [x] Data Synchronization (MySQL/MariaDB, PostgreSQL, SQLite): mapping (target table, key, condition per table),
+  insert/update/delete/same counts with per-action checkboxes, side-by-side record view with changed cells,
+  deployment script ordered by foreign keys, deploy in a transaction
 - Backup/restore, scheduled automation
 - Query builder, explain/visual explain, find in database
 - Grammar-based (ANTLR) autocomplete layer, preferences window
