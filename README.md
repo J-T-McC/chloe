@@ -7,6 +7,8 @@ the bloat and the features I never used, and adds the improvements I always want
 
 Built with Go, [Wails v3](https://v3.wails.io) (system webview), React and Monaco.
 
+![Query editor with autocomplete](docs/assets/screenshots/query.png)
+
 ## Databases
 
 MySQL, MariaDB, PostgreSQL, SQLite, MongoDB and Redis. SQL Server and Oracle are planned.
@@ -31,6 +33,16 @@ MySQL, MariaDB, PostgreSQL, SQLite, MongoDB and Redis. SQL Server and Oracle are
 - **Security**: passwords in the OS keychain; connections, queries and history encrypted with a keychain key
 
 What's next is in [docs/ROADMAP.md](docs/ROADMAP.md).
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Data grid](docs/assets/screenshots/grid.png) Data grid | ![Table designer](docs/assets/screenshots/designer.png) Table designer |
+| ![ER diagram](docs/assets/screenshots/erd.png) ER diagram | ![MongoDB](docs/assets/screenshots/mongo.png) MongoDB documents |
+| ![Redis](docs/assets/screenshots/redis.png) Redis keys | |
+
+Regenerate with `wails3 task build:server && e2e/run.sh screenshots`, then copy `e2e/.out/shots/readme-*.png` to `docs/assets/screenshots/`.
 
 ## Build and install
 
