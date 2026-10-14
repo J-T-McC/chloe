@@ -1,5 +1,6 @@
-import { Activity, Database, FilePlus2, Network, PencilRuler, Plug, Shapes, Table2, X } from "lucide-react";
-import { useEffect } from "react";
+import { Activity, Database, FilePlus2, Monitor, Moon, Network, PencilRuler, Plug, Shapes, Sun, Table2, X } from "lucide-react";
+import { ThemePref, onThemeChange, setThemePref, themePref } from "./theme";
+import { useEffect, useState } from "react";
 import { Events, ObjectKind } from "./api";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { ContextMenuHost } from "./components/ContextMenu";
@@ -108,6 +109,7 @@ export default function App() {
           />
         </div>
         <div className="titlebar-right">
+          <ThemeButton />
           <JobsButton />
         </div>
       </header>
@@ -192,6 +194,29 @@ function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
         </button>
       )}
     </div>
+  );
+}
+
+function ThemeButton() {
+  const [pref, setPref] = useState<ThemePref>(themePref());
+  useEffect(() => onThemeChange(() => setPref(themePref())), []);
+  const Icon = pref === "light" ? Sun : pref === "dark" ? Moon : Monitor;
+  const choose = (p: ThemePref) => setThemePref(p);
+  return (
+    <button
+      className="titlebar-button"
+      title="Appearance"
+      onClick={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        openMenu({ clientX: r.left, clientY: r.bottom + 2, preventDefault() {} }, [
+          { label: "System", checked: pref === "system", onClick: () => choose("system") },
+          { label: "Light", checked: pref === "light", onClick: () => choose("light") },
+          { label: "Dark", checked: pref === "dark", onClick: () => choose("dark") },
+        ]);
+      }}
+    >
+      <Icon size={15} />
+    </button>
   );
 }
 

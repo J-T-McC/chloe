@@ -2,6 +2,7 @@
 import type * as Monaco from "monaco-editor";
 import * as core from "./monaco-core.js";
 import EditorWorker from "monaco-esm/editor/editor.worker.js?worker";
+import { onThemeChange, resolvedTheme } from "../theme";
 
 export const monaco = core as unknown as typeof Monaco;
 export type { Monaco };
@@ -37,4 +38,7 @@ monaco.editor.defineTheme("chloe-dark", {
   colors: { "editor.background": "#1e1f22", "editorLineNumber.foreground": "#5c6068" },
 });
 
-export const editorTheme = () => (window.matchMedia("(prefers-color-scheme: dark)").matches ? "chloe-dark" : "chloe-light");
+export const editorTheme = () => (resolvedTheme() === "dark" ? "chloe-dark" : "chloe-light");
+
+// Every editor follows the app's appearance.
+onThemeChange(() => monaco.editor.setTheme(editorTheme()));

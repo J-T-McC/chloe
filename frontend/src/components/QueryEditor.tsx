@@ -68,14 +68,10 @@ export function QueryEditor({ tab }: { tab: Tab }) {
     const save = editor.onDidChangeModelContent(() => {
       decorations.current?.clear();
     });
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const onTheme = () => monaco.editor.setTheme(editorTheme());
-    media.addEventListener("change", onTheme);
     editor.focus();
     return () => {
       // Keep the text when the tab re-mounts.
       useApp.getState().updateTab(tab.id, { sql: model.getValue() });
-      media.removeEventListener("change", onTheme);
       trig.dispose();
       save.dispose();
       clearEditorContext(model);

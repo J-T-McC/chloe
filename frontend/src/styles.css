@@ -26,8 +26,32 @@
   color-scheme: light;
 }
 
+/* Dark theme: chosen explicitly, or following the system unless Light is chosen. */
+:root[data-theme="dark"] {
+  --bg: #1e1f22;
+  --bg-2: #232427;
+  --bg-3: #2b2d31;
+  --panel: #25272b;
+  --border: #36383d;
+  --border-strong: #45484e;
+  --text: #e3e5e8;
+  --text-2: #a9aeb6;
+  --text-3: #7d838c;
+  --accent: #4c8dff;
+  --accent-soft: #233a63;
+  --sel: #263c63;
+  --sel-strong: #4c8dff;
+  --row-alt: #212225;
+  --changed: #4a4022;
+  --new: #1f3a28;
+  --deleted: #4a2523;
+  --null: #6d737b;
+  --shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #1e1f22;
     --bg-2: #232427;
     --bg-3: #2b2d31;
@@ -1774,7 +1798,17 @@ td.wide {
   position: absolute;
   right: 12px;
   bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   --wails-draggable: no-drag;
+}
+
+.titlebar-button {
+  display: flex;
+  align-items: center;
+  padding: 3px 7px;
+  border-radius: 12px;
 }
 
 .jobs-button {
