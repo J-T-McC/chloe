@@ -1,0 +1,433 @@
+// Context-aware SQL completion. Pure logic: the Monaco adapter maps Suggestions to
+// editor completion items.
+
+import { Analysis, TableRef, analyze } from "./analyze";
+import { DialectName } from "./lexer";
+
+export interface CatColumn {
+  name: string;
+  type: string;
+  pk?: boolean;
+}
+
+export interface CatTable {
+  schema?: string;
+  name: string;
+  kind: "table" | "view" | "materialized_view";
+  comment?: string;
+  columns: CatColumn[];
+}
+
+export interface CatFK {
+  schema?: string;
+  table: string;
+  columns: string[];
+  refSchema?: string;
+  refTable: string;
+  refColumns: string[];
+}
+
+export interface CatFunction {
+  name: string;
+  schema?: string;
+  signature?: string;
+  returnType?: string;
+  builtin: boolean;
+}
+
+export interface CompletionCatalog {
+  dialect: DialectName;
+  /** PG current schema / MySQL current database. */
+  defaultSchema?: string;
+  /** PG schemas in the database / MySQL databases on the server. */
+  schemas: string[];
+  tables: CatTable[];
+  fks: CatFK[];
+  functions: CatFunction[];
+}
+
+export type SuggestionKind = "keyword" | "schema" | "table" | "view" | "column" | "alias" | "function" | "join" | "snippet" | "cte";
+
+export interface Suggestion {
+  label: string;
+  kind: SuggestionKind;
+  insertText: string;
+  /** insertText uses Monaco snippet syntax ($1, ${1:x}). */
+  snippet?: boolean;
+  detail?: string;
+  documentation?: string;
+  /** Lower sorts first. */
+  rank: number;
+  /** Override the start of the replaced range (absolute offset). */
+  rangeStart?: number;
+  filterText?: string;
+  /** Re-trigger suggestions after accepting (e.g. after inserting "schema."). */
+  retrigger?: boolean;
+}
+
+export interface CompleteOptions {
+  keywordCase?: "upper" | "lower";
+  /** Insert "alias.column" even when the column is unambiguous. */
+  alwaysQualify?: boolean;
+}
+
+export interface CompletionResult {
+  suggestions: Suggestion[];
+  /** Absolute offset where the replaced fragment starts. */
+  replaceStart: number;
+  analysis: Analysis;
+}
+
+// ---- catalog index -----------------------------------------------------------
+
+export class CatalogIndex {
+  byName = new Map<string, CatTable[]>();
+  bySchema = new Map<string, CatTable[]>();
+  schemaSet = new Set<string>();
+  constructor(public cat: CompletionCatalog) {
+    for (const t of cat.tables) {
+      const k = t.name.toLowerCase();
+      (this.byName.get(k) ?? this.byName.set(k, []).get(k)!).push(t);
+      // Tables without a schema belong to the default one (MySQL's current database).
+      const s = (t.schema ?? cat.defaultSchema ?? "").toLowerCase();
+      (this.bySchema.get(s) ?? this.bySchema.set(s, []).get(s)!).push(t);
+    }
+    for (const s of cat.schemas) this.schemaSet.add(s.toLowerCase());
+  }
+
+  /** Resolve a table reference the way the server would (default schema first). */
+  resolve(name: string, schema?: string): CatTable | undefined {
+    const cands = this.byName.get(name.toLowerCase());
+    if (!cands?.length) return undefined;
+    if (schema) return cands.find((t) => (t.schema ?? "").toLowerCase() === schema.toLowerCase());
+    const def = (this.cat.defaultSchema ?? "").toLowerCase();
+    return (
+      cands.find((t) => (t.schema ?? "").toLowerCase() === def) ??
+      cands.find((t) => (t.schema ?? "").toLowerCase() === "public") ??
+      cands[0]
+    );
+  }
+
+  isSchema(name: string) {
+    return this.schemaSet.has(name.toLowerCase());
+  }
+}
+
+const indexCache = new WeakMap<CompletionCatalog, CatalogIndex>();
+export function indexOf(cat: CompletionCatalog): CatalogIndex {
+  let ix = indexCache.get(cat);
+  if (!ix) {
+    ix = new CatalogIndex(cat);
+    indexCache.set(cat, ix);
+  }
+  return ix;
+}
+
+// ---- identifiers --------------------------------------------------------------
+
+const RESERVED = new Set(
+  ("all alter and any as asc between by case check column constraint create cross current_date current_time " +
+    "current_timestamp current_user database default delete desc distinct drop else end exists false fetch for foreign " +
+    "from full grant group having in index inner insert interval into is join key left like limit natural not null " +
+    "offset on or order outer primary references right select set table then to true union unique update user using " +
+    "values when where with window").split(" "),
+);
+
+export function quoteIdent(name: string, d: DialectName, force = false): string {
+  const plain = d === "postgres" ? /^[a-z_][a-z0-9_$]*$/ : /^[A-Za-z_][A-Za-z0-9_$]*$/;
+  if (!force && plain.test(name) && !RESERVED.has(name.toLowerCase())) return name;
+  const q = d === "postgres" ? '"' : "`";
+  return q + name.split(q).join(q + q) + q;
+}
+
+/** Short alias from a table name: customer_orders -> co, OrderItems -> oi. */
+export function makeAlias(name: string, taken: Set<string>): string {
+  const words = name
+    .replace(/([a-z])([A-Z])/g, "$1_$2")
+    .split(/[_\s\-$]+/)
+    .filter(Boolean);
+  let base = words.map((w) => w[0]).join("").toLowerCase() || "t";
+  if (RESERVED.has(base)) base = base + "1";
+  let alias = base;
+  for (let n = 2; taken.has(alias.toLowerCase()); n++) alias = base + n;
+  return alias;
+}
+
+// ---- keywords -------------------------------------------------------------------
+
+const STATEMENT_STARTERS: Array<[string, string?]> = [
+  ["SELECT"],
+  ["SELECT * FROM", "SELECT * FROM $0"],
+  ["INSERT INTO"],
+  ["UPDATE"],
+  ["DELETE FROM"],
+  ["WITH"],
+  ["CREATE TABLE"],
+  ["CREATE VIEW"],
+  ["CREATE INDEX"],
+  ["ALTER TABLE"],
+  ["DROP TABLE"],
+  ["TRUNCATE TABLE"],
+  ["EXPLAIN"],
+  ["BEGIN"],
+  ["COMMIT"],
+  ["ROLLBACK"],
+];
+const MYSQL_STARTERS = ["SHOW TABLES", "SHOW DATABASES", "SHOW CREATE TABLE", "SHOW PROCESSLIST", "SHOW VARIABLES LIKE", "DESCRIBE", "USE", "CALL", "REPLACE INTO"];
+const PG_STARTERS = ["SET search_path TO", "VACUUM", "ANALYZE", "COPY", "CREATE SCHEMA", "CREATE EXTENSION", "DO", "LISTEN", "NOTIFY"];
+
+const AFTER_TABLE = ["WHERE", "INNER JOIN", "LEFT JOIN", "RIGHT JOIN", "CROSS JOIN", "JOIN", "GROUP BY", "ORDER BY", "LIMIT", "AS", "ON", "USING", "UNION", "UNION ALL", "HAVING", "FULL OUTER JOIN"];
+const EXPR_KEYWORDS = ["AND", "OR", "NOT", "IN", "IS NULL", "IS NOT NULL", "LIKE", "BETWEEN", "EXISTS", "CASE", "WHEN", "THEN", "ELSE", "END", "NULL", "TRUE", "FALSE", "DISTINCT", "AS"];
+const AFTER_WHERE = ["GROUP BY", "ORDER BY", "LIMIT", "HAVING", "UNION", "UNION ALL"];
+const AFTER_ORDER = ["ASC", "DESC", "LIMIT", "NULLS FIRST", "NULLS LAST"];
+
+function kw(list: string[], rank: number, opts: CompleteOptions): Suggestion[] {
+  const lower = opts.keywordCase === "lower";
+  return list.map((k) => {
+    const text = lower ? k.toLowerCase() : k;
+    return { label: text, kind: "keyword" as const, insertText: text + " ", rank, retrigger: true };
+  });
+}
+
+// ---- main ----------------------------------------------------------------------
+
+export function complete(text: string, offset: number, cat: CompletionCatalog, opts: CompleteOptions = {}): CompletionResult {
+  const a = analyze(text, offset, cat.dialect);
+  const ix = indexOf(cat);
+  const d = cat.dialect;
+  const out: Suggestion[] = [];
+  const q = (name: string) => quoteIdent(name, d, a.prefixQuoted);
+
+  // Visible references, resolved against the catalog.
+  const scope = a.tables.map((r) => ({ ref: r, table: r.kind === "table" ? ix.resolve(r.name, r.schema) : undefined }));
+  const qualName = (r: TableRef) => r.alias ?? r.name;
+  const columnsOf = (r: TableRef, t?: CatTable): CatColumn[] =>
+    t?.columns ?? (r.columns ?? []).map((name) => ({ name, type: r.kind === "cte" ? "cte column" : "derived column" }));
+
+  const addTables = (rank: number, schemaFilter?: string, withSchemas = true) => {
+    for (const c of a.ctes) out.push({ label: c.name, kind: "cte", insertText: q(c.name), detail: "CTE", rank: rank - 1 });
+    const list = schemaFilter !== undefined ? ix.bySchema.get(schemaFilter.toLowerCase()) ?? [] : cat.tables;
+    const def = (cat.defaultSchema ?? "").toLowerCase();
+    for (const t of list) {
+      const inDefault = !t.schema || t.schema.toLowerCase() === def || schemaFilter !== undefined;
+      // Tables outside the default schema are offered schema-qualified.
+      const insert = inDefault ? q(t.name) : quoteIdent(t.schema!, d) + "." + q(t.name);
+      out.push({
+        label: inDefault ? t.name : `${t.schema}.${t.name}`,
+        filterText: t.name,
+        kind: t.kind === "table" ? "table" : "view",
+        insertText: insert,
+        detail: t.kind === "table" ? "table" : t.kind.replace("_", " "),
+        documentation: t.comment || undefined,
+        rank: inDefault ? rank : rank + 2,
+      });
+    }
+    if (withSchemas && schemaFilter === undefined) {
+      for (const s of cat.schemas) {
+        out.push({ label: s, kind: "schema", insertText: quoteIdent(s, d) + ".", detail: d === "mysql" ? "database" : "schema", rank: rank + 3, retrigger: true });
+      }
+    }
+  };
+
+  const addColumns = (rank: number, onlyRefs?: typeof scope) => {
+    const refs = onlyRefs ?? scope;
+    const counts = new Map<string, number>();
+    for (const s of refs) for (const c of columnsOf(s.ref, s.table)) counts.set(c.name.toLowerCase(), (counts.get(c.name.toLowerCase()) ?? 0) + 1);
+    for (const s of refs) {
+      const owner = qualName(s.ref);
+      for (const c of columnsOf(s.ref, s.table)) {
+        const ambiguous = (counts.get(c.name.toLowerCase()) ?? 0) > 1;
+        const qualify = (ambiguous || opts.alwaysQualify) && refs.length > 1;
+        out.push({
+          label: c.name,
+          kind: "column",
+          insertText: qualify ? quoteIdent(owner, d) + "." + q(c.name) : q(c.name),
+          detail: `${c.type}${c.pk ? " · PK" : ""} — ${owner}`,
+          filterText: c.name,
+          rank: c.pk ? rank : rank + 0.5,
+        });
+      }
+    }
+  };
+
+  const addRefNames = (rank: number) => {
+    for (const s of scope) {
+      const name = qualName(s.ref);
+      out.push({ label: name, kind: "alias", insertText: quoteIdent(name, d) + ".", detail: s.ref.alias ? `alias of ${s.ref.name}` : s.ref.kind, rank, retrigger: true });
+    }
+  };
+
+  const addFunctions = (rank: number) => {
+    const lower = opts.keywordCase === "lower" || d === "postgres";
+    for (const f of cat.functions) {
+      const name = f.builtin ? (lower ? f.name.toLowerCase() : f.name.toUpperCase()) : f.name;
+      const qualified = !f.builtin && f.schema && f.schema !== cat.defaultSchema ? quoteIdent(f.schema, d) + "." + quoteIdent(f.name, d) : quoteIdent(name, d);
+      out.push({
+        label: f.builtin ? name : f.signature !== undefined ? `${f.name}(${f.signature})` : f.name,
+        filterText: f.name,
+        kind: "function",
+        insertText: `${qualified}($0)`,
+        snippet: true,
+        detail: f.returnType ? `→ ${f.returnType}` : f.builtin ? "built-in function" : "function",
+        rank: f.builtin ? rank + 1 : rank,
+      });
+    }
+  };
+
+  /** FK-based join conditions between `target` and the other tables in scope. */
+  const joinConditions = (target: TableRef, others: typeof scope): string[] => {
+    const tt = target.kind === "table" ? ix.resolve(target.name, target.schema) : undefined;
+    if (!tt) return [];
+    const tq = quoteIdent(qualName(target), d);
+    const conds: string[] = [];
+    for (const o of others) {
+      if (!o.table || o.ref === target) continue;
+      const oq = quoteIdent(qualName(o.ref), d);
+      for (const fk of cat.fks) {
+        const same = (s: string | undefined, n: string, t: CatTable) =>
+          n.toLowerCase() === t.name.toLowerCase() && (!s || !t.schema || s.toLowerCase() === t.schema.toLowerCase());
+        if (same(fk.schema, fk.table, tt) && same(fk.refSchema, fk.refTable, o.table)) {
+          conds.push(fk.columns.map((c, i) => `${tq}.${quoteIdent(c, d)} = ${oq}.${quoteIdent(fk.refColumns[i], d)}`).join(" AND "));
+        } else if (same(fk.schema, fk.table, o.table) && same(fk.refSchema, fk.refTable, tt)) {
+          conds.push(fk.columns.map((c, i) => `${tq}.${quoteIdent(fk.refColumns[i], d)} = ${oq}.${quoteIdent(c, d)}`).join(" AND "));
+        }
+      }
+    }
+    return conds;
+  };
+
+  // ---- qualified: "x." -------------------------------------------------------
+  if (a.qualifier.length) {
+    const qual = a.qualifier;
+    const last = qual[qual.length - 1];
+    const inScope = scope.find((s) => qualName(s.ref).toLowerCase() === last.toLowerCase() && qual.length === 1);
+    if (inScope) {
+      addColumns(0, [inScope]);
+      out.forEach((s) => (s.insertText = q(s.label)));
+      out.push({ label: "*", kind: "column", insertText: "*", detail: "all columns", rank: 1 });
+    } else if (qual.length === 1 && ix.isSchema(last)) {
+      const tableCtx = ["from", "updateTable", "insertTable", "deleteTable", "ddlTable"].includes(a.clause);
+      addTables(0, last, false);
+      if (!tableCtx) {
+        for (const f of cat.functions.filter((f) => !f.builtin && f.schema?.toLowerCase() === last.toLowerCase())) {
+          out.push({ label: f.name, kind: "function", insertText: `${quoteIdent(f.name, d)}($0)`, snippet: true, detail: f.returnType ? `→ ${f.returnType}` : "function", rank: 2 });
+        }
+      }
+    } else {
+      const t = ix.resolve(last, qual.length > 1 ? qual[qual.length - 2] : undefined);
+      if (t) for (const c of t.columns) out.push({ label: c.name, kind: "column", insertText: q(c.name), detail: c.type, rank: c.pk ? 0 : 1 });
+    }
+    return finish(out, a);
+  }
+
+  // ---- by clause ---------------------------------------------------------------
+  switch (a.clause) {
+    case "start":
+      out.push(...kw(STATEMENT_STARTERS.map(([k]) => k), 0, opts));
+      for (const [label, snip] of STATEMENT_STARTERS) {
+        if (snip) out.push({ label: label + "…", kind: "snippet", insertText: snip, snippet: true, rank: 0.5, filterText: label, retrigger: true });
+      }
+      out.push(...kw(d === "mysql" ? MYSQL_STARTERS : PG_STARTERS, 1, opts));
+      break;
+
+    case "from": {
+      const isJoin = a.prevKeyword === "JOIN";
+      if (isJoin && scope.length) {
+        // FK-aware join suggestions: "orders o ON o.customer_id = c.id"
+        const taken = new Set(scope.map((s) => qualName(s.ref).toLowerCase()));
+        for (const t of cat.tables) {
+          const alias = makeAlias(t.name, taken);
+          const fake: TableRef = { name: t.name, schema: t.schema, alias, kind: "table", at: -1 };
+          const conds = joinConditions(fake, scope);
+          const def = !t.schema || t.schema.toLowerCase() === (cat.defaultSchema ?? "").toLowerCase();
+          const tname = def ? quoteIdent(t.name, d) : quoteIdent(t.schema!, d) + "." + quoteIdent(t.name, d);
+          for (const cond of conds) {
+            out.push({ label: `${t.name} ${alias} ON ${cond}`, filterText: t.name, kind: "join", insertText: `${tname} ${alias} ON ${cond}`, detail: "join on foreign key", rank: -1 });
+          }
+        }
+      }
+      addTables(0);
+      break;
+    }
+
+    case "updateTable":
+    case "insertTable":
+    case "deleteTable":
+    case "ddlTable":
+      addTables(0);
+      break;
+
+    case "afterTable": {
+      const last = scope.filter((s) => s.ref.at >= 0).sort((x, y) => y.ref.at - x.ref.at)[0];
+      // Offer an alias right after a bare table name.
+      if (last && !last.ref.alias && a.prefix === "") {
+        const taken = new Set(scope.map((s) => qualName(s.ref).toLowerCase()));
+        const alias = makeAlias(last.ref.name, taken);
+        out.push({ label: alias, kind: "alias", insertText: alias + " ", detail: `alias for ${last.ref.name}`, rank: -0.5 });
+      }
+      out.push(...kw(AFTER_TABLE, 0, opts));
+      break;
+    }
+
+    case "on": {
+      const target = a.joinTarget ?? scope[scope.length - 1]?.ref;
+      if (target) {
+        for (const cond of joinConditions(target, scope)) {
+          out.push({ label: cond, kind: "join", insertText: cond, detail: "foreign key", rank: -1 });
+        }
+      }
+      addRefNames(1);
+      addColumns(2);
+      out.push(...kw(["AND", "OR", "WHERE", "INNER JOIN", "LEFT JOIN", "ORDER BY", "GROUP BY"], 3, opts));
+      break;
+    }
+
+    case "insertColumns": {
+      const target = scope.find((s) => s.ref.kind === "table");
+      if (target?.table) {
+        const cols = target.table.columns;
+        out.push({ label: "(all columns)", kind: "snippet", insertText: cols.map((c) => q(c.name)).join(", "), rank: -1, filterText: "" });
+        for (const c of cols) out.push({ label: c.name, kind: "column", insertText: q(c.name), detail: c.type, rank: 0 });
+      }
+      break;
+    }
+
+    case "select":
+    case "where":
+    case "groupBy":
+    case "orderBy":
+    case "set":
+    case "values":
+    case "limit":
+    case "other": {
+      if (a.afterStar && a.clause === "select" && scope.length) {
+        // Expand * into the explicit column list.
+        const multi = scope.length > 1;
+        const cols = scope.flatMap((s) => columnsOf(s.ref, s.table).map((c) => (multi ? quoteIdent(qualName(s.ref), d) + "." : "") + quoteIdent(c.name, d)));
+        out.push({ label: "Expand * to column list", kind: "snippet", insertText: cols.join(", "), rangeStart: offset - 1, rank: -2, filterText: "*" });
+      }
+      if (a.clause === "values" || a.clause === "limit") break;
+      addColumns(0);
+      addRefNames(1);
+      if (a.clause !== "set") addFunctions(2);
+      const kws = a.clause === "orderBy" ? AFTER_ORDER : a.clause === "where" ? [...EXPR_KEYWORDS, ...AFTER_WHERE] : a.clause === "groupBy" ? ["HAVING", "ORDER BY", "LIMIT", "WITH ROLLUP"] : EXPR_KEYWORDS;
+      out.push(...kw(a.clause === "select" ? [...kws, "FROM"] : kws, 3, opts));
+      // Without any FROM yet, tables are useful too (SELECT t. ...)
+      if (a.clause === "select" && !scope.length) addTables(4, undefined, false);
+      break;
+    }
+  }
+  return finish(out, a);
+}
+
+function finish(out: Suggestion[], a: Analysis): CompletionResult {
+  // De-duplicate identical insertions, keeping the best rank. Order of insertion is
+  // kept as the tie-breaker so columns stay in table order.
+  const seen = new Map<string, Suggestion>();
+  for (const s of out) {
+    const k = s.kind + "\u0000" + s.label + "\u0000" + s.insertText;
+    const prev = seen.get(k);
+    if (!prev || s.rank < prev.rank) seen.set(k, s);
+  }
+  return { suggestions: [...seen.values()], replaceStart: a.prefixStart, analysis: a };
+}

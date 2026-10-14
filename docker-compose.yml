@@ -1,0 +1,15 @@
+# Test databases for development and integration tests.
+#   docker compose up -d && task test:seed && CHLOE_IT=1 go test ./internal/...
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: chloe-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: chloe
+    ports: ["33306:3306"]
+  postgres:
+    image: postgres:17
+    container_name: chloe-pg
+    environment:
+      POSTGRES_PASSWORD: chloe
+    ports: ["55432:5432"]

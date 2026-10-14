@@ -1,0 +1,214 @@
+package core_test
+
+// Integration tests against live databases. Start them with:
+//   docker run -d --name chloe-mysql -e MYSQL_ROOT_PASSWORD=chloe -p 33306:3306 mysql:8.4
+//   docker run -d --name chloe-pg -e POSTGRES_PASSWORD=chloe -p 55432:5432 postgres:17
+// load testdata/seed_*.sql, then run with CHLOE_IT=1 go test ./internal/core/
+
+import (
+	"context"
+	"os"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"chloe/internal/core"
+	_ "chloe/internal/driver/mysql"
+	_ "chloe/internal/driver/postgres"
+	"chloe/internal/model"
+	"chloe/internal/store"
+)
+
+type engine struct {
+	conn     model.Connection
+	database string
+	schema   string
+}
+
+func engines() []engine {
+	return []engine{
+		{model.Connection{Name: "mysql", Type: model.MySQL, Host: "127.0.0.1", Port: 33306, User: "root", Password: "chloe", SavePassword: true}, "shop", ""},
+		{model.Connection{Name: "pg", Type: model.PostgreSQL, Host: "127.0.0.1", Port: 55432, User: "postgres", Password: "chloe", SavePassword: true}, "postgres", "shop"},
+	}
+}
+
+func setup(t *testing.T, e engine) (*core.Manager, string) {
+	t.Helper()
+	if os.Getenv("CHLOE_IT") == "" {
+		t.Skip("set CHLOE_IT=1 to run integration tests")
+	}
+	st, err := store.Open(t.TempDir(), &store.MemorySecrets{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := st.Save(e.conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := core.NewManager(st, nil, core.DefaultSettings)
+	t.Cleanup(m.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if _, err := m.Connect(ctx, saved.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	return m, saved.ID
+}
+
+func TestIntegration(t *testing.T) {
+	for _, e := range engines() {
+		t.Run(e.conn.Name, func(t *testing.T) {
+			m, id := setup(t, e)
+			ctx := context.Background()
+			ref := func(name string, k model.ObjectKind) model.ObjectRef {
+				return model.ObjectRef{Database: e.database, Schema: e.schema, Name: name, Kind: k}
+			}
+
+			dbs, err := m.ListDatabases(ctx, id)
+			if err != nil || !slices.Contains(dbs, e.database) {
+				t.Fatalf("databases %v %v", dbs, err)
+			}
+			if e.schema != "" {
+				schemas, err := m.ListSchemas(ctx, id, e.database)
+				if err != nil || !slices.Contains(schemas, "shop") {
+					t.Fatalf("schemas %v %v", schemas, err)
+				}
+			}
+			tables, err := m.ListObjects(ctx, id, e.database, e.schema, model.KindTable)
+			if err != nil || len(tables) != 4 {
+				t.Fatalf("tables %+v %v", tables, err)
+			}
+			views, _ := m.ListObjects(ctx, id, e.database, e.schema, model.KindView)
+			if len(views) != 1 || views[0].Name != "customer_orders" {
+				t.Fatalf("views %+v", views)
+			}
+
+			td, err := m.TableDetail(ctx, id, ref("order_items", model.KindTable))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(td.Columns) != 3 || !td.Columns[0].PrimaryKey || len(td.ForeignKeys) != 2 {
+				t.Fatalf("detail %+v", td)
+			}
+
+			cat, err := m.Catalog(ctx, id, e.database)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(cat.FKs) < 3 || len(cat.Columns) < 15 {
+				t.Fatalf("catalog fks=%d cols=%d", len(cat.FKs), len(cat.Columns))
+			}
+
+			ddl, err := m.DDL(ctx, id, ref("customers", model.KindTable))
+			if err != nil || !strings.Contains(ddl, "CREATE TABLE") || !strings.Contains(ddl, "full_name") {
+				t.Fatalf("ddl %q %v", ddl, err)
+			}
+			t.Logf("DDL:\n%s", ddl)
+
+			// Script with DDL, DML and two result sets.
+			sid, err := m.OpenSession(ctx, id, e.database, e.schema)
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := m.Execute(ctx, sid, "select id, email, avatar from customers order by id;\nupdate products set price = price where id = 1;\nselect * from customer_orders", core.ExecOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(res) != 3 || res[0].Error != "" || res[1].Error != "" || res[2].Error != "" {
+				t.Fatalf("exec %+v", res)
+			}
+			page, err := m.FetchRows(res[0].ResultID, 0, 10)
+			if err != nil || len(page.Rows) != 3 || *page.Rows[0][1] != "ada@example.com" {
+				t.Fatalf("page %+v %v", page, err)
+			}
+			if a := page.Rows[0][2]; a == nil || !strings.Contains(strings.ToLower(*a), "89504e47") {
+				t.Fatalf("binary formatting: %v", deref(a))
+			}
+			if page.Rows[1][2] != nil {
+				t.Fatalf("expected NULL avatar")
+			}
+			if res[1].RowsAffected != 1 && e.conn.Type != model.MySQL { // MySQL reports 0 for unchanged rows
+				t.Fatalf("rows affected %d", res[1].RowsAffected)
+			}
+
+			// Errors carry the statement's line.
+			res, _ = m.Execute(ctx, sid, "select 1;\n\nselect * from no_such_table;\nselect 2", core.ExecOptions{})
+			if len(res) != 2 || res[1].Error == "" || res[1].ErrorLine != 3 {
+				t.Fatalf("error handling %+v", res)
+			}
+
+			// Large streaming result + cancel of a slow query.
+			big := "select a.n * 1000 + b.n as v from (select 0 n union all select 1 union all select 2 union all select 3 union all select 4 union all select 5 union all select 6 union all select 7 union all select 8 union all select 9) a cross join (select 0 n union all select 1 union all select 2 union all select 3 union all select 4 union all select 5 union all select 6 union all select 7 union all select 8 union all select 9) b"
+			res, err = m.Execute(ctx, sid, big, core.ExecOptions{})
+			if err != nil || res[0].Error != "" {
+				t.Fatalf("big %+v %v", res, err)
+			}
+			page, _ = m.FetchRows(res[0].ResultID, 90, 50)
+			if len(page.Rows) != 10 || !page.Complete {
+				t.Fatalf("big page %d complete=%v", len(page.Rows), page.Complete)
+			}
+
+			sleep := "select sleep(10)"
+			if e.conn.Type == model.PostgreSQL {
+				sleep = "select pg_sleep(10)"
+			}
+			go func() { time.Sleep(500 * time.Millisecond); _ = m.Cancel(ctx, sid) }()
+			start := time.Now()
+			res, _ = m.Execute(ctx, sid, sleep, core.ExecOptions{})
+			if time.Since(start) > 5*time.Second {
+				t.Fatalf("cancel did not interrupt query")
+			}
+			// The session must still be usable after a cancel.
+			res, err = m.Execute(ctx, sid, "select 42", core.ExecOptions{})
+			if err != nil || res[0].Error != "" {
+				t.Fatalf("session unusable after cancel: %+v %v", res, err)
+			}
+			m.CloseSession(sid)
+
+			// Browse with filter and sort, then edit.
+			br, err := m.BrowseTable(ctx, id, core.BrowseRequest{Ref: ref("customers", model.KindTable), Where: "id > 1", Sort: []core.SortSpec{{Column: "id", Desc: true}}, Limit: 100})
+			if err != nil || br.Error != "" || br.RowCount != 2 {
+				t.Fatalf("browse %+v %v", br, err)
+			}
+			n, err := m.CountRows(ctx, id, ref("customers", model.KindTable), "")
+			if err != nil || n != 3 {
+				t.Fatalf("count %d %v", n, err)
+			}
+
+			email := "kay@example.com"
+			name := "Alan Kay"
+			newName := "Alan C. Kay"
+			if _, err := m.ApplyChanges(ctx, id, ref("customers", model.KindTable), []core.RowChange{
+				{Kind: core.ChangeInsert, Values: map[string]*string{"email": &email, "full_name": &name}},
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := m.ApplyChanges(ctx, id, ref("customers", model.KindTable), []core.RowChange{
+				{Kind: core.ChangeUpdate, Key: map[string]*string{"email": &email}, Values: map[string]*string{"full_name": &newName}},
+				{Kind: core.ChangeDelete, Key: map[string]*string{"email": &email}},
+			}); err != nil {
+				t.Fatal(err)
+			}
+			// A failing change rolls back the whole batch.
+			bad := "x"
+			results, err := m.ApplyChanges(ctx, id, ref("customers", model.KindTable), []core.RowChange{
+				{Kind: core.ChangeInsert, Values: map[string]*string{"email": &email, "full_name": &name}},
+				{Kind: core.ChangeInsert, Values: map[string]*string{"email": &bad, "full_name": nil}},
+			})
+			if err == nil {
+				t.Fatalf("expected rollback, got %+v", results)
+			}
+			if n, _ := m.CountRows(ctx, id, ref("customers", model.KindTable), ""); n != 3 {
+				t.Fatalf("rollback left %d rows", n)
+			}
+		})
+	}
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return "<nil>"
+	}
+	return *s
+}

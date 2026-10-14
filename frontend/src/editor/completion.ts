@@ -1,0 +1,194 @@
+// Connects the completion engine to Monaco and keeps a per-database catalog cache.
+import { DBType, Explorer, ObjectKind, arr } from "../api";
+import { CatFunction, CatTable, CompletionCatalog, Suggestion, complete } from "../sql/complete";
+import { connById } from "../store";
+import { Monaco, monaco } from "./monaco";
+
+export interface EditorContext {
+  connId: string;
+  database?: string;
+  schema?: string;
+}
+
+const contexts = new Map<string, EditorContext>(); // model URI -> context
+export const setEditorContext = (model: Monaco.editor.ITextModel, ctx: EditorContext) => contexts.set(model.uri.toString(), ctx);
+export const clearEditorContext = (model: Monaco.editor.ITextModel) => contexts.delete(model.uri.toString());
+
+// ---- catalog cache --------------------------------------------------------------
+
+const catalogs = new Map<string, Promise<CompletionCatalog>>();
+const builtins = new Map<string, Promise<string[]>>();
+const databases = new Map<string, Promise<string[]>>();
+
+export function invalidateCatalog(connId: string, database?: string) {
+  for (const k of [...catalogs.keys()]) if (k.startsWith(connId + "\u0000") && (!database || k === key(connId, database))) catalogs.delete(k);
+  if (!database) databases.delete(connId);
+}
+
+const key = (connId: string, db: string) => `${connId}\u0000${db}`;
+
+function cached<T>(m: Map<string, Promise<T>>, k: string, load: () => Promise<T>): Promise<T> {
+  let p = m.get(k);
+  if (!p) {
+    p = load();
+    m.set(k, p);
+    p.catch(() => m.delete(k)); // retry next time
+  }
+  return p;
+}
+
+async function loadCatalog(connId: string, database: string): Promise<CompletionCatalog> {
+  const conn = connById(connId);
+  const dialect = conn?.type === DBType.PostgreSQL ? "postgres" : "mysql";
+  const [cat, fns, dbs] = await Promise.all([
+    Explorer.Catalog(connId, database),
+    cached(builtins, connId, () => Explorer.BuiltinFunctions(connId).then(arr)),
+    dialect === "mysql" ? cached(databases, connId, () => Explorer.ListDatabases(connId).then(arr)) : Promise.resolve([] as string[]),
+  ]);
+
+  // Group flattened columns by table.
+  const cols = new Map<string, CatTable["columns"]>();
+  for (const c of arr(cat.columns)) {
+    const k = (c.schema ?? database) + "\u0000" + c.table;
+    (cols.get(k) ?? cols.set(k, []).get(k)!).push({ name: c.name, type: c.type, pk: c.pk });
+  }
+  const tables: CatTable[] = [];
+  const functions: CatFunction[] = fns.map((name) => ({ name, builtin: true }));
+  for (const o of arr(cat.objects)) {
+    const schema = dialect === "postgres" ? o.schema : database;
+    if (o.kind === ObjectKind.KindTable || o.kind === ObjectKind.KindView || o.kind === ObjectKind.KindMatView) {
+      tables.push({
+        schema,
+        name: o.name,
+        kind: o.kind === ObjectKind.KindTable ? "table" : o.kind === ObjectKind.KindView ? "view" : "materialized_view",
+        comment: o.comment,
+        columns: cols.get((schema ?? database) + "\u0000" + o.name) ?? [],
+      });
+    } else if (o.kind === ObjectKind.KindFunction || o.kind === ObjectKind.KindProcedure) {
+      functions.push({ name: o.name, schema, signature: o.signature, returnType: o.returnType, builtin: false });
+    }
+  }
+  return {
+    dialect,
+    defaultSchema: dialect === "postgres" ? "public" : database,
+    schemas: dialect === "postgres" ? arr(cat.schemas) : dbs,
+    tables,
+    fks: arr(cat.fks).map((f) => ({ ...f, columns: arr(f.columns), refColumns: arr(f.refColumns), schema: f.schema || (dialect === "mysql" ? database : undefined), refSchema: f.refSchema || undefined })),
+    functions,
+  };
+}
+
+/** Catalog for an editor, merging other MySQL databases referenced as "db.". */
+async function catalogFor(ctx: EditorContext, extraDbs: string[] = []): Promise<CompletionCatalog | null> {
+  const conn = connById(ctx.connId);
+  if (!conn) return null;
+  const db = ctx.database ?? (conn.type === DBType.PostgreSQL ? conn.initialDatabase || "postgres" : "");
+  if (!db) {
+    // MySQL without a selected database: only databases are known.
+    const dbs = await cached(databases, ctx.connId, () => Explorer.ListDatabases(ctx.connId).then(arr));
+    const fns = await cached(builtins, ctx.connId, () => Explorer.BuiltinFunctions(ctx.connId).then(arr));
+    return { dialect: "mysql", schemas: dbs, tables: [], fks: [], functions: fns.map((name) => ({ name, builtin: true })) };
+  }
+  const base = await cached(catalogs, key(ctx.connId, db), () => loadCatalog(ctx.connId, db));
+  const cat = { ...base, defaultSchema: conn.type === DBType.PostgreSQL ? ctx.schema || "public" : db };
+  if (!extraDbs.length) return cat;
+  const extra = await Promise.all(extraDbs.map((d) => cached(catalogs, key(ctx.connId, d), () => loadCatalog(ctx.connId, d)).catch(() => null)));
+  for (const e of extra) {
+    if (!e) continue;
+    cat.tables = [...cat.tables, ...e.tables];
+    cat.fks = [...cat.fks, ...e.fks];
+  }
+  return cat;
+}
+
+/** Warm the cache when an editor opens so the first suggestion is instant. */
+export function preloadCatalog(ctx: EditorContext) {
+  catalogFor(ctx).catch(() => {});
+}
+
+// ---- Monaco provider ----------------------------------------------------------
+
+const KIND: Record<Suggestion["kind"], Monaco.languages.CompletionItemKind> = {
+  keyword: monaco.languages.CompletionItemKind.Keyword,
+  schema: monaco.languages.CompletionItemKind.Module,
+  table: monaco.languages.CompletionItemKind.Class,
+  view: monaco.languages.CompletionItemKind.Interface,
+  column: monaco.languages.CompletionItemKind.Field,
+  alias: monaco.languages.CompletionItemKind.Variable,
+  function: monaco.languages.CompletionItemKind.Function,
+  join: monaco.languages.CompletionItemKind.Reference,
+  snippet: monaco.languages.CompletionItemKind.Snippet,
+  cte: monaco.languages.CompletionItemKind.Struct,
+};
+
+let registered = false;
+
+export function registerSqlCompletion() {
+  if (registered) return;
+  registered = true;
+  for (const lang of ["mysql", "pgsql"]) {
+    monaco.languages.registerCompletionItemProvider(lang, {
+      triggerCharacters: [".", "`", '"', "*"],
+      async provideCompletionItems(model, position) {
+        const ctx = contexts.get(model.uri.toString());
+        if (!ctx) return { suggestions: [] };
+        const text = model.getValue();
+        const offset = model.getOffsetAt(position);
+        let cat = await catalogFor(ctx);
+        if (!cat) return { suggestions: [] };
+        let res = complete(text, offset, cat);
+
+        // "otherdb." in MySQL: load that database's tables and retry.
+        const q = res.analysis.qualifier;
+        if (cat.dialect === "mysql" && q.length >= 1) {
+          const db = q[q.length === 1 ? 0 : q.length - 2];
+          const known = cat.schemas.some((s) => s.toLowerCase() === db.toLowerCase());
+          if (known && db.toLowerCase() !== (cat.defaultSchema ?? "").toLowerCase()) {
+            cat = (await catalogFor(ctx, [db]))!;
+            res = complete(text, offset, cat);
+          }
+        }
+
+        const start = model.getPositionAt(res.replaceStart);
+        const range = new monaco.Range(start.lineNumber, start.column, position.lineNumber, position.column);
+        const width = String(res.suggestions.length).length;
+        const suggestions = res.suggestions.map((s, i): Monaco.languages.CompletionItem => {
+          let r = range;
+          if (s.rangeStart !== undefined) {
+            const rs = model.getPositionAt(s.rangeStart);
+            r = new monaco.Range(rs.lineNumber, rs.column, position.lineNumber, position.column);
+          }
+          return {
+            label: { label: s.label, description: s.detail },
+            kind: KIND[s.kind],
+            insertText: s.insertText,
+            insertTextRules: s.snippet ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet : undefined,
+            filterText: s.filterText ?? s.label,
+            // Rank first, then the engine's order (keeps columns in table order).
+            sortText: String(Math.round((s.rank + 10) * 10)).padStart(4, "0") + String(i).padStart(width, "0"),
+            documentation: s.documentation,
+            range: r,
+            command: s.retrigger ? { id: "editor.action.triggerSuggest", title: "" } : undefined,
+          };
+        });
+        return { suggestions, incomplete: false };
+      },
+    });
+  }
+}
+
+/** Open the suggest widget automatically after keywords that expect a name. */
+export function autoTrigger(editor: Monaco.editor.IStandaloneCodeEditor) {
+  return editor.onDidChangeModelContent((e) => {
+    const change = e.changes[0];
+    if (!change || e.changes.length !== 1 || change.text !== " ") return;
+    const model = editor.getModel();
+    const pos = editor.getPosition();
+    if (!model || !pos) return;
+    const before = model.getValueInRange(new monaco.Range(pos.lineNumber, Math.max(1, pos.column - 12), pos.lineNumber, pos.column)).toUpperCase();
+    if (/\b(FROM|JOIN|INTO|UPDATE|TABLE|ON|DESCRIBE)\s$/.test(before)) {
+      // Defer: triggering inside the change event is cancelled by the edit in progress.
+      setTimeout(() => editor.trigger("chloe", "editor.action.triggerSuggest", {}), 0);
+    }
+  });
+}

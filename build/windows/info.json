@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "0.0.1"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "0.0.1",
+			"CompanyName": "Chloe",
+			"FileDescription": "Database management for MySQL, PostgreSQL, MongoDB, Redis and more",
+			"LegalCopyright": "(c) 2026, Chloe",
+			"ProductName": "Chloe",
+			"Comments": "Chloe database client"
+		}
+	}
+}

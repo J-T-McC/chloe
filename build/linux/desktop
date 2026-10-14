@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Chloe
+Comment=Database management for MySQL, PostgreSQL, MongoDB, Redis and more
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/Chloe %u
+Terminal=false
+Type=Application
+Icon=Chloe
+Categories=Utility;
+StartupWMClass=Chloe
+
+ 

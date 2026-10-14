@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<MsixPackagingToolTemplate
+    xmlns="http://schemas.microsoft.com/msix/packaging/msixpackagingtool/template/2022">
+    <Settings
+        AllowTelemetry="false"
+        ApplyACLsToPackageFiles="true"
+        GenerateCommandLineFile="true"
+        AllowPromptForPassword="false">
+    </Settings>
+    <Installer
+        Path="Chloe"
+        Arguments=""
+        InstallLocation="C:\Program Files\Chloe\Chloe">
+    </Installer>
+    <PackageInformation
+        PackageName="Chloe"
+        PackageDisplayName="Chloe"
+        PublisherName="CN=Chloe"
+        PublisherDisplayName="Chloe"
+        Version="0.1.0.0"
+        PackageDescription="A Chloe application">
+        <Capabilities>
+            <Capability Name="runFullTrust" />
+            
+        </Capabilities>
+        <Applications>
+            <Application
+                Id="com.example.navicatclone"
+                Description="A Chloe application"
+                DisplayName="Chloe"
+                ExecutableName="Chloe"
+                EntryPoint="Windows.FullTrustApplication">
+                
+            </Application>
+        </Applications>
+        <Resources>
+            <Resource Language="en-us" />
+        </Resources>
+        <Dependencies>
+            <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.19041.0" />
+        </Dependencies>
+        <Properties>
+            <Framework>false</Framework>
+            <DisplayName>Chloe</DisplayName>
+            <PublisherDisplayName>Chloe</PublisherDisplayName>
+            <Description>A Chloe application</Description>
+            <Logo>Assets\AppIcon.png</Logo>
+        </Properties>
+    </PackageInformation>
+    <SaveLocation PackagePath="Chloe.msix" />
+    <PackageIntegrity>
+        <CertificatePath></CertificatePath>
+    </PackageIntegrity>
+</MsixPackagingToolTemplate>
