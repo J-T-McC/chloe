@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sync"
 
+	"chloe/internal/design"
 	"chloe/internal/model"
 	"chloe/internal/sqlsplit"
 	"chloe/internal/tunnel"
@@ -47,6 +48,12 @@ type Conn interface {
 	CloseDatabase(database string)
 	// OpenConnections reports how many server connections the profile holds.
 	OpenConnections() int
+
+	// Table designer: load a table definition, list designer choices, and the DDL
+	// generator for this dialect.
+	LoadDesign(ctx context.Context, ref model.ObjectRef) (design.Table, error)
+	DesignMeta(ctx context.Context, database string) (design.Meta, error)
+	DesignGenerator() design.Generator
 
 	// Server monitor.
 	Processes(ctx context.Context) ([]model.Process, error)
