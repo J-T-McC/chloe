@@ -6,7 +6,8 @@ Order reflects dependencies: later features build on the earlier ones. Specs for
 1. **Explain / visual explain** for MySQL and PostgreSQL, with MongoDB's explain
 2. Transfer and sync follow-ups: Data Transfer file target and per-table Advanced mode (rename, fields,
    filters); functions/procedures/events in transfer and structure sync; profiles for the sync tools;
-   per-record exclusion in data sync; MongoDB → MongoDB
+   per-record exclusion in data sync; MongoDB → MongoDB; views between different
+   engines (today only same-engine views are copied; the SQL needs translating)
 3. **MongoDB, second pass**: aggregation pipeline builder, GridFS buckets, saved queries in MongoDB databases
 4. **SQL Server and Oracle**, both in Docker
 5. Polish: Redis pub/sub, cluster and sentinel; Form view and hex/image cell editors; preferences window

@@ -15,6 +15,7 @@ export interface ComboboxProps {
   strict?: boolean;
   autoFocus?: boolean;
   className?: string;
+  ariaLabel?: string;
 }
 
 /** Options matching the text: prefix matches first, then substring matches, in list order. */
@@ -32,7 +33,7 @@ export function filterOptions(options: string[], text: string): string[] {
   return [...prefix, ...inner];
 }
 
-export function Combobox({ value, options, onChange, placeholder, disabled, strict, autoFocus, className }: ComboboxProps) {
+export function Combobox({ value, options, onChange, placeholder, disabled, strict, autoFocus, className, ariaLabel }: ComboboxProps) {
   const [text, setText] = useState(value);
   const [open, setOpen] = useState(false);
   // Filter only once the user types; on open, show everything with the value highlighted.
@@ -82,6 +83,7 @@ export function Combobox({ value, options, onChange, placeholder, disabled, stri
     <div className={"combobox" + (className ? " " + className : "")}>
       <input
         ref={input}
+        aria-label={ariaLabel}
         value={text}
         placeholder={placeholder}
         disabled={disabled}
