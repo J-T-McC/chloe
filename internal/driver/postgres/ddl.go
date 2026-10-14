@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -60,6 +61,8 @@ func (c *Conn) DDL(ctx context.Context, ref model.ObjectRef) (string, error) {
 	case model.KindTrigger:
 		return one(`SELECT pg_get_triggerdef(t.oid, true) || ';' FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
 			JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND t.tgname = $2`, schema, ref.Name)
+	case model.KindType:
+		return typeDDL(ctx, db, schema, ref.Name)
 	case model.KindSequence:
 		return one(`SELECT format('CREATE SEQUENCE %s AS %s INCREMENT BY %s MINVALUE %s MAXVALUE %s START WITH %s CACHE %s%s;',
 			$3::text, data_type, increment_by, min_value, max_value, start_value, cache_size, CASE WHEN cycle THEN ' CYCLE' ELSE '' END)
@@ -141,3 +144,57 @@ func (c *Conn) tableDDL(ctx context.Context, ref model.ObjectRef, schema string)
 }
 
 func quoteLiteral(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+
+// typeDDL renders enum, domain, composite and range types.
+func typeDDL(ctx context.Context, db *sql.DB, schema, name string) (string, error) {
+	recs, err := sqlcommon.QueryStrings(ctx, db, `SELECT t.oid, t.typtype, format_type(t.typbasetype, t.typtypmod), t.typnotnull,
+		pg_get_expr(t.typdefaultbin, 0), (SELECT format_type(rngsubtype, NULL) FROM pg_range WHERE rngtypid = t.oid)
+		FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname = $1 AND t.typname = $2`, schema, name)
+	if err != nil {
+		return "", err
+	}
+	if len(recs) == 0 {
+		return "", fmt.Errorf("type %s.%s not found", schema, name)
+	}
+	r := recs[0]
+	qn := dialect.Qualified(model.ObjectRef{Schema: schema, Name: name})
+	switch r[1].String {
+	case "e":
+		labels, err := sqlcommon.QueryStrings(ctx, db, `SELECT enumlabel FROM pg_enum WHERE enumtypid = $1 ORDER BY enumsortorder`, r[0].String)
+		if err != nil {
+			return "", err
+		}
+		vals := make([]string, len(labels))
+		for i, l := range labels {
+			vals[i] = quoteLiteral(l[0].String)
+		}
+		return fmt.Sprintf("CREATE TYPE %s AS ENUM (%s);", qn, strings.Join(vals, ", ")), nil
+	case "d":
+		s := fmt.Sprintf("CREATE DOMAIN %s AS %s", qn, r[2].String)
+		if r[4].Valid {
+			s += " DEFAULT " + r[4].String
+		}
+		if r[3].String == "true" {
+			s += " NOT NULL"
+		}
+		checks, _ := sqlcommon.QueryStrings(ctx, db, `SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE contypid = $1`, r[0].String)
+		for _, ck := range checks {
+			s += " CONSTRAINT " + dialect.QuoteIdent(ck[0].String) + " " + ck[1].String
+		}
+		return s + ";", nil
+	case "c":
+		attrs, err := sqlcommon.QueryStrings(ctx, db, `SELECT a.attname, format_type(a.atttypid, a.atttypmod) FROM pg_attribute a
+			JOIN pg_type t ON t.typrelid = a.attrelid WHERE t.oid = $1 AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum`, r[0].String)
+		if err != nil {
+			return "", err
+		}
+		parts := make([]string, len(attrs))
+		for i, a := range attrs {
+			parts[i] = dialect.QuoteIdent(a[0].String) + " " + a[1].String
+		}
+		return fmt.Sprintf("CREATE TYPE %s AS (%s);", qn, strings.Join(parts, ", ")), nil
+	case "r":
+		return fmt.Sprintf("CREATE TYPE %s AS RANGE (SUBTYPE = %s);", qn, r[5].String), nil
+	}
+	return "", fmt.Errorf("unsupported type kind %q", r[1].String)
+}
