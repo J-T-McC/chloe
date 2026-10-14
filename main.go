@@ -47,6 +47,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if why := st.Locked(); why != "" {
+		log.Print(why)
+	}
 	mgr := core.NewManager(st, services.Emitter{}, core.DefaultSettings)
 	defer mgr.Close()
 

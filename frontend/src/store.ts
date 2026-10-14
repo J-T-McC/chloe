@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { Connection, Connections, DBType, Explorer, ObjectKind, ObjectRef, arr, errorText } from "./api";
-import { prompt } from "./components/Dialogs";
+import { alert, prompt } from "./components/Dialogs";
 
 export type TabKind = "objects" | "query" | "table" | "ddl" | "monitor" | "design" | "erd" | "model" | "viewdesign" | "redisconsole" | "users" | "user" | "collection" | "mongoquery" | "mongoshell" | "mongodesign" | "mongousers";
 
@@ -77,6 +77,8 @@ const OBJECTS_TAB: Tab = { id: "objects", kind: "objects", title: "Objects" };
 
 export const dbKey = (connId: string, db: string) => `${connId}/${db}`;
 
+let lockedShown = false;
+
 export const useApp = create<AppState>((set, get) => ({
   connections: [],
   groups: [],
@@ -92,6 +94,11 @@ export const useApp = create<AppState>((set, get) => ({
   async loadConnections() {
     const [connections, groups] = await Promise.all([Connections.List(), Connections.Groups()]);
     set({ connections: arr(connections), groups: arr(groups) });
+    if (!lockedShown) {
+      lockedShown = true;
+      const why = await Connections.Locked().catch(() => "");
+      if (why) alert("Saved connections are locked", why);
+    }
   },
 
   async connect(id) {

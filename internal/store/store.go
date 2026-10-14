@@ -35,6 +35,10 @@ type Store struct {
 	secrets Secrets
 	conns   map[string]model.Connection
 	groups  []string
+	key     []byte // connections.json key, once read from the keychain
+	// locked explains why an encrypted connections.json couldn't be read. The
+	// store is then empty and never writes, so the file is left as it was.
+	locked string
 }
 
 // fileFormat is the on-disk layout of connections.json.
@@ -57,6 +61,15 @@ func Open(dir string, secrets Secrets) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	sealed := isSealed(data)
+	if sealed {
+		plain, err := s.openFile(data)
+		if err != nil {
+			s.locked = fmt.Sprintf("Saved connections are locked: %v. Chloe left %s untouched; allow Chloe to use its keychain item and restart.", err, s.path)
+			return s, nil
+		}
+		data = plain
+	}
 	var f fileFormat
 	if err := json.Unmarshal(data, &f); err != nil {
 		// Early builds wrote a bare array of connections.
@@ -69,8 +82,14 @@ func Open(dir string, secrets Secrets) (*Store, error) {
 	}
 	s.groups = f.Groups
 	s.addGroupsFromConnectionsLocked()
+	if !sealed && s.encrypts() {
+		_ = s.flushLocked() // encrypt a file written by an earlier release
+	}
 	return s, nil
 }
+
+// Locked explains why saved connections couldn't be read ("" when they were).
+func (s *Store) Locked() string { return s.locked }
 
 // List returns all connections without secrets, sorted by group then name.
 func (s *Store) List() []model.Connection {
@@ -271,6 +290,9 @@ func (s *Store) addGroupsFromConnectionsLocked() {
 }
 
 func (s *Store) flushLocked() error {
+	if s.locked != "" {
+		return errors.New(s.locked)
+	}
 	f := fileFormat{Version: 1, Groups: s.groups, Connections: make([]model.Connection, 0, len(s.conns))}
 	for _, c := range s.conns {
 		f.Connections = append(f.Connections, c)
@@ -282,6 +304,11 @@ func (s *Store) flushLocked() error {
 	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
 		return err
+	}
+	if s.encrypts() {
+		if data, err = s.sealFile(data); err != nil {
+			return err
+		}
 	}
 	tmp := s.path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {

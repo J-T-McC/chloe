@@ -105,6 +105,16 @@ await ci.press("Tab");
 const t2 = await ci.inputValue();
 await ci.press("Tab");
 console.log("tab:", JSON.stringify([t1, t2, await ci.inputValue()]));
+// a command with a password is recallable this session but never saved
+await ci.fill("AUTH chloe");
+await ci.press("Enter");
+await page.waitForTimeout(250);
+await ci.press("ArrowUp");
+const recalled = await ci.inputValue();
+const saved = await page.evaluate(() => localStorage.getItem("redis-console-history"));
+console.log("history:", recalled, "| saved:", saved);
+if (recalled !== "AUTH chloe" || saved.includes("AUTH") || !saved.includes("HGETALL user:2")) throw new Error("console history redaction failed");
+await ci.fill("");
 console.log("console:\n" + (await page.locator(".redis-console-out").innerText()));
 await page.screenshot({ path: `${out}/r4.png` });
 

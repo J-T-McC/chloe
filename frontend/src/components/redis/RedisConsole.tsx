@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Redis, arr, errorText } from "../../api";
 import { tabComplete } from "../../redis/complete";
 import { Tab, connById, useApp } from "../../store";
+import { ShellHistory, isSensitiveRedis } from "../../shellHistory";
 
 interface Line {
   kind: "cmd" | "out" | "err" | "info";
@@ -13,14 +14,6 @@ interface Line {
 
 const HISTORY_KEY = "redis-console-history";
 
-function loadHistory(): string[] {
-  try {
-    return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
-  } catch {
-    return [];
-  }
-}
-
 export function RedisConsole({ tab }: { tab: Tab }) {
   const connId = tab.connId!;
   const [session, setSession] = useState<string | null>(null);
@@ -29,7 +22,8 @@ export function RedisConsole({ tab }: { tab: Tab }) {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [commands, setCommands] = useState<string[]>([]);
-  const history = useRef<string[]>(loadHistory());
+  const history = useRef<ShellHistory>(null!);
+  history.current ??= new ShellHistory(HISTORY_KEY, isSensitiveRedis);
   const pos = useRef(-1);
   const out = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLInputElement>(null);
@@ -74,12 +68,7 @@ export function RedisConsole({ tab }: { tab: Tab }) {
       setInput("");
       return;
     }
-    history.current = [cmd, ...history.current.filter((h) => h !== cmd)].slice(0, 200);
-    try {
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(history.current));
-    } catch {
-      /* history is a convenience */
-    }
+    history.current.add(cmd);
     pos.current = -1;
     setInput("");
     setBusy(true);
@@ -135,7 +124,7 @@ export function RedisConsole({ tab }: { tab: Tab }) {
               setInput(next);
             } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
               e.preventDefault();
-              const h = history.current;
+              const h = history.current.items;
               pos.current = Math.max(-1, Math.min(h.length - 1, pos.current + (e.key === "ArrowUp" ? 1 : -1)));
               setInput(pos.current < 0 ? "" : h[pos.current]);
             } else if (e.key === "l" && e.ctrlKey) {

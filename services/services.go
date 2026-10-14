@@ -64,6 +64,9 @@ type ConnectionService struct{ M *core.Manager }
 
 func (s *ConnectionService) List() []model.Connection { return s.M.Store.List() }
 
+// Locked explains why saved connections couldn't be decrypted ("" when they were).
+func (s *ConnectionService) Locked() string { return s.M.Store.Locked() }
+
 // Get returns a profile for editing. Saved secrets are not sent to the UI; a
 // non-empty placeholder tells the form a password is stored.
 func (s *ConnectionService) Get(id string) (model.Connection, error) {

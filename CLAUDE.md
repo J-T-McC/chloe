@@ -44,4 +44,6 @@ Sample data lives in `testdata/seed_*` (`seed_mongo.js` runs in mongosh). To reb
 - modernc.org/sqlite always parses DATE/DATETIME text columns into `time.Time`.
 - macOS secrets go through the Security framework (`internal/store/keyring_darwin.go`), never `/usr/bin/security`: items the
   CLI creates can be read by any process without a prompt. `CHLOE_KEYCHAIN_IT=1 go test ./internal/store` exercises it.
+  `connections.json` is AES-GCM encrypted under a keychain key (plain with `CHLOE_SECRETS=memory`); if the key can't be read
+  the store is `Locked()` and never writes, so the file survives.
 - Wails sets the macOS Dock icon before launch finishes, so `main.go` sets it again on ApplicationStarted.

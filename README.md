@@ -14,7 +14,7 @@ Built with Go and [Wails v3](https://v3.wails.io) (system webview), React and Mo
 | `internal/driver/{mysql,postgres,sqlite}` | Engine drivers: metadata, DDL, sessions, cancel. |
 | `internal/mdb`, `internal/rdb` | MongoDB (documents, indexes, a goja-based shell) and Redis clients. |
 | `internal/tunnel` | Direct and SSH dialers. |
-| `internal/store` | Saved connections (JSON) with secrets in the OS keychain (on macOS through the Security framework, so only Chloe's signature can read them). |
+| `internal/store` | Saved connections, encrypted with a key kept in the OS keychain, and their passwords in the keychain (on macOS through the Security framework, so only Chloe's signature can read them). |
 | `internal/sqlsplit` | Dialect-aware statement splitter (DELIMITER, `$$`, comments). |
 | `services` | Thin Wails bindings over `internal/core`. |
 | `frontend/src/sql`, `frontend/src/mongo` | SQL and MongoDB autocomplete engines (pure TS, unit tested). |
@@ -33,7 +33,9 @@ cd frontend && npx vitest # frontend unit tests
 
 Test databases (from `docker-compose.yml`): MySQL on `127.0.0.1:33306`, PostgreSQL on `127.0.0.1:55432`, MongoDB on `127.0.0.1:37017` (user `root`) and Redis on `127.0.0.1:63790`, password `chloe`, with `shop` sample data from `testdata/`.
 
-`CHLOE_CONFIG_DIR=<dir>` and `CHLOE_SECRETS=memory` run the app against an isolated config without touching the keychain.
+`CHLOE_CONFIG_DIR=<dir>` and `CHLOE_SECRETS=memory` run the app against an isolated config without touching the keychain
+(the connections file then stays plain JSON, since an in-memory key wouldn't open it next time). Redis and MongoDB console
+histories leave out commands carrying passwords, as redis-cli and mongosh do.
 The browser build (`bin/Chloe-server`) has no login, so it refuses to start without `CHLOE_SECRETS=memory` and only listens on
 loopback (`CHLOE_ALLOW_REMOTE=1` overrides that, as the Docker image does). Exported connections carry passwords only when
 a passphrase is given, encrypted with it (scrypt + AES-256-GCM).

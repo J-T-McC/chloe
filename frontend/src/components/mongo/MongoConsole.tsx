@@ -5,6 +5,7 @@ import { Mongo, arr, errorText, type MG } from "../../api";
 import { invalidateMongoCatalog } from "../../editor/mongo";
 import { formatCompact } from "../../mongo/docs";
 import { Tab, connById, useApp } from "../../store";
+import { ShellHistory, isSensitiveMongo } from "../../shellHistory";
 
 interface Line {
   kind: "cmd" | "out" | "err" | "info";
@@ -14,14 +15,6 @@ interface Line {
 
 const HISTORY_KEY = "mongo-console-history";
 const BATCH = 20;
-
-function loadHistory(): string[] {
-  try {
-    return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
-  } catch {
-    return [];
-  }
-}
 
 /** Text of a run the way mongosh prints it: output, then the last statement's value. */
 export function consoleText(o: MG.RunOutput): { text: string; cursor?: { id: string; next: number } } {
@@ -60,7 +53,8 @@ export function MongoConsole({ tab }: { tab: Tab }) {
   const [pending, setPending] = useState(""); // an unfinished statement spanning lines
   const [busy, setBusy] = useState(false);
   const cursor = useRef<{ id: string; next: number } | null>(null);
-  const history = useRef<string[]>(loadHistory());
+  const history = useRef<ShellHistory>(null!);
+  history.current ??= new ShellHistory(HISTORY_KEY, isSensitiveMongo);
   const pos = useRef(-1);
   const out = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLInputElement>(null);
@@ -87,12 +81,7 @@ export function MongoConsole({ tab }: { tab: Tab }) {
   }, [isActive, shell]);
 
   const remember = (cmd: string) => {
-    history.current = [cmd, ...history.current.filter((h) => h !== cmd)].slice(0, 200);
-    try {
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(history.current));
-    } catch {
-      /* history is a convenience */
-    }
+    history.current.add(cmd);
     pos.current = -1;
   };
 
@@ -178,7 +167,7 @@ export function MongoConsole({ tab }: { tab: Tab }) {
               run();
             } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
               e.preventDefault();
-              const h = history.current;
+              const h = history.current.items;
               pos.current = Math.max(-1, Math.min(h.length - 1, pos.current + (e.key === "ArrowUp" ? 1 : -1)));
               setInput(pos.current < 0 ? "" : h[pos.current]);
             } else if (e.key === "l" && e.ctrlKey) {

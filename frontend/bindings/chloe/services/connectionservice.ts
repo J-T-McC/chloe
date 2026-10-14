@@ -104,6 +104,13 @@ export function List(): $CancellablePromise<model$0.Connection[] | null> {
     return $Call.ByID(2185994076);
 }
 
+/**
+ * Locked explains why saved connections couldn't be decrypted ("" when they were).
+ */
+export function Locked(): $CancellablePromise<string> {
+    return $Call.ByID(1811526426);
+}
+
 export function MoveToGroup(id: string, group: string): $CancellablePromise<void> {
     return $Call.ByID(2071645571, id, group);
 }
