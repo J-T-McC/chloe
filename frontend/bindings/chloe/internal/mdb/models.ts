@@ -88,6 +88,34 @@ export interface DBInfo {
 }
 
 /**
+ * ExportOptions select documents and the file format of a collection export.
+ */
+export interface ExportOptions {
+    /**
+     * Format: json (an array), jsonl (one document per line) or csv.
+     */
+    "format": string;
+
+    /**
+     * Canonical writes canonical Extended JSON (every number typed); otherwise relaxed.
+     */
+    "canonical": boolean;
+
+    /**
+     * Filter, Sort and Projection are documents in shell syntax.
+     */
+    "filter": string;
+    "sort": string;
+    "projection": string;
+    "limit": number;
+
+    /**
+     * Fields are the CSV columns as dotted paths; empty takes them from the first 1000 documents.
+     */
+    "fields": string[] | null;
+}
+
+/**
  * Field is one name/value pair of a document.
  */
 export interface Field {
@@ -119,6 +147,37 @@ export interface FieldEdit {
 export interface FieldInfo {
     "name": string;
     "type": string;
+}
+
+/**
+ * ImportOptions read a file into a collection.
+ */
+export interface ImportOptions {
+    /**
+     * Format: json (an array or one document per line) or csv.
+     */
+    "format": string;
+
+    /**
+     * Mode: append (insert), upsert (replace documents with the same _id, insert the rest)
+     * or copy (empty the collection first).
+     */
+    "mode": string;
+
+    /**
+     * CSV: infer numbers and booleans; otherwise every value is a string.
+     */
+    "inferTypes": boolean;
+
+    /**
+     * CSV: leave out empty values instead of writing empty strings.
+     */
+    "skipEmpty": boolean;
+
+    /**
+     * StopOnError ends the import at the first rejected batch.
+     */
+    "stopOnError": boolean;
 }
 
 export interface IndexInfo {

@@ -251,3 +251,15 @@ func (s *MongoService) CloseShell(shellID string) { s.M.CloseMongoShell(shellID)
 func (s *MongoService) Format(v mdb.Val, indent string, json bool) string {
 	return mdb.Format(v, indent, json)
 }
+
+// ---- import / export ------------------------------------------------------------------------
+
+// Export writes a collection to path as a background job.
+func (s *MongoService) Export(connID, db, coll string, o mdb.ExportOptions, path string) (core.Job, error) {
+	return s.M.MongoExport(connID, db, coll, o, path)
+}
+
+// Import reads path into a collection as a background job.
+func (s *MongoService) Import(connID, db, coll string, o mdb.ImportOptions, path string) (core.Job, error) {
+	return s.M.MongoImport(connID, db, coll, o, path)
+}

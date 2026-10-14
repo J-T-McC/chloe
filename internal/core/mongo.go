@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -290,4 +291,61 @@ func scalarText(v any) string {
 		return mdb.Format(val, "", false)
 	}
 	return mdb.Cell(val)
+}
+
+// ---- import / export ----------------------------------------------------------------
+
+// MongoExport writes a collection to a file as a background job.
+func (m *Manager) MongoExport(connID, db, coll string, o mdb.ExportOptions, path string) (Job, error) {
+	c, err := m.mongo(connID)
+	if err != nil {
+		return Job{}, err
+	}
+	return m.startJob("export", "Export "+coll+" → "+baseName(path), "documents", func(ctx context.Context, p *progress) (string, error) {
+		if n, err := c.Mongo().Database(db).Collection(coll).EstimatedDocumentCount(ctx); err == nil && strings.TrimSpace(o.Filter) == "" {
+			p.set(0, n)
+		}
+		p.setPath(path)
+		f, err := os.Create(path)
+		if err != nil {
+			return "", err
+		}
+		defer f.Close()
+		n, err := c.Export(ctx, db, coll, o, f, p.setDone)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Exported %d documents to %s", n, path), f.Sync()
+	}), nil
+}
+
+// MongoImport reads a file into a collection as a background job.
+func (m *Manager) MongoImport(connID, db, coll string, o mdb.ImportOptions, path string) (Job, error) {
+	c, err := m.mongo(connID)
+	if err != nil {
+		return Job{}, err
+	}
+	return m.startJob("import", "Import "+baseName(path)+" → "+coll, "documents", func(ctx context.Context, p *progress) (string, error) {
+		f, err := os.Open(path)
+		if err != nil {
+			return "", err
+		}
+		defer f.Close()
+		logged := 0
+		res, err := c.Import(ctx, db, coll, o, f, func(r mdb.ImportResult) {
+			p.setDone(r.Read)
+			for ; logged < len(r.Errors); logged++ {
+				p.error("%s", r.Errors[logged])
+			}
+		})
+		for ; logged < len(res.Errors); logged++ {
+			p.error("%s", res.Errors[logged])
+		}
+		p.setDone(res.Read)
+		msg := fmt.Sprintf("Read %d documents: %d inserted, %d updated, %d failed", res.Read, res.Inserted, res.Updated, res.Failed)
+		if err != nil {
+			return "", fmt.Errorf("%s; stopped: %w", msg, err)
+		}
+		return msg, nil
+	}), nil
 }

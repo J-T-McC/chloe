@@ -1,6 +1,6 @@
 // A collection's (or view's) documents: grid / tree / JSON, with filter, sort,
 // projection and paging. Edits are saved as they're made.
-import { Braces, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter, ListTree, Minus, PencilLine, PencilRuler, Plus, RefreshCw, Table2 } from "lucide-react";
+import { Braces, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Filter, ListTree, Minus, PencilLine, PencilRuler, Plus, RefreshCw, Table2, Upload } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Mongo, ObjectKind, arr, errorText, type MG } from "../../api";
 import { Val, field } from "../../mongo/docs";
@@ -9,6 +9,7 @@ import { confirm } from "../Dialogs";
 import { editDocument } from "./DocEditor";
 import { DocsMode, DocsView } from "./DocsView";
 import { designCollection } from "./actions";
+import { exportCollection, importCollection } from "./TransferDialog";
 
 const PAGE_SIZES = [100, 500, 1000, 5000];
 
@@ -173,6 +174,14 @@ export function CollectionViewer({ tab }: { tab: Tab }) {
         )}
         <button title={editable ? "Design Collection" : "Design View"} onClick={() => designCollection(connId, db, coll, ref.kind)}>
           <PencilRuler size={14} /> Design
+        </button>
+        {editable && (
+          <button title="Import Wizard" onClick={() => importCollection(connId, db, coll)}>
+            <Download size={14} /> Import
+          </button>
+        )}
+        <button title="Export Wizard (uses the current filter and sort)" onClick={() => exportCollection(connId, db, coll, query.filter, query.sort)}>
+          <Upload size={14} /> Export
         </button>
         <span className="spacer" />
         {!editable && <span className="badge">read-only</span>}

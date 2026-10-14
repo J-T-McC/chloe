@@ -12,6 +12,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as core$0 from "../internal/core/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as mdb$0 from "../internal/mdb/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -83,6 +86,13 @@ export function EmptyCollection(connID: string, db: string, name: string): $Canc
     return $Call.ByID(945426483, connID, db, name);
 }
 
+/**
+ * Export writes a collection to path as a background job.
+ */
+export function Export(connID: string, db: string, coll: string, o: mdb$0.ExportOptions, path: string): $CancellablePromise<core$0.Job> {
+    return $Call.ByID(639296092, connID, db, coll, o, path);
+}
+
 export function Fetch(shellID: string, cursorID: string, skip: number, limit: number): $CancellablePromise<$models.FetchResult> {
     return $Call.ByID(4193092010, shellID, cursorID, skip, limit);
 }
@@ -100,6 +110,13 @@ export function Format(v: mdb$0.Val, indent: string, json: boolean): $Cancellabl
 
 export function GetDoc(connID: string, db: string, coll: string, id: mdb$0.Val): $CancellablePromise<mdb$0.Val> {
     return $Call.ByID(4243850844, connID, db, coll, id);
+}
+
+/**
+ * Import reads path into a collection as a background job.
+ */
+export function Import(connID: string, db: string, coll: string, o: mdb$0.ImportOptions, path: string): $CancellablePromise<core$0.Job> {
+    return $Call.ByID(1110257467, connID, db, coll, o, path);
 }
 
 /**

@@ -5,6 +5,7 @@ import { connById, useApp } from "../../store";
 import { TreeNode, useTree } from "../../tree";
 import { MenuItem } from "../ContextMenu";
 import { alert, confirm, prompt } from "../Dialogs";
+import { exportCollection, importCollection } from "./TransferDialog";
 
 const kindOf = (k?: string) => (k === ObjectKind.KindView ? ObjectKind.KindView : ObjectKind.KindCollection);
 
@@ -154,6 +155,9 @@ export function collectionMenu(connId: string, db: string, names: string[], kind
             ],
           },
         ]),
+    { separator: true },
+    ...(view ? [] : [{ label: "Import Wizard…", disabled: !one, onClick: () => importCollection(connId, db, name) }]),
+    { label: "Export Wizard…", disabled: !one, onClick: () => exportCollection(connId, db, name) },
     { separator: true },
     { label: "New Query", onClick: () => newMongoQuery(connId, db, one ? `db.getCollection(${JSON.stringify(name)}).find({})` : "") },
     { label: "MongoShell", onClick: () => openMongoShell(connId, db) },

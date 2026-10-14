@@ -1,5 +1,5 @@
 // The Objects tab for a MongoDB database: its collections or views with sizes.
-import { FilePlus2, PencilRuler, Plus, RefreshCw, Table2, TerminalSquare, Trash2 } from "lucide-react";
+import { Download, FilePlus2, PencilRuler, Plus, RefreshCw, Table2, TerminalSquare, Trash2, Upload } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Mongo, ObjectKind, arr, errorText, type MG } from "../../api";
 import { formatVal, humanBytes } from "../../mongo/docs";
@@ -9,6 +9,7 @@ import { openMenu } from "../ContextMenu";
 import { KindIcon } from "../icons";
 import { Split } from "../Split";
 import { CodeBlock } from "../ObjectsPane";
+import { exportCollection, importCollection } from "./TransferDialog";
 import { collectionMenu, collectionsChanged, designCollection, dropCollections, newMongoQuery, openCollection, openMongoShell } from "./actions";
 
 type SortKey = "name" | "count" | "size" | "storageSize" | "indexes";
@@ -75,6 +76,14 @@ export function MongoCollections({ connId, db, kind }: { connId: string; db: str
           <Trash2 size={14} /> Delete {what}
         </button>
         <span className="tb-sep" />
+        {!view && (
+          <button title="Import Wizard" disabled={!one} onClick={() => one && importCollection(connId, db, one.name)}>
+            <Download size={14} /> Import
+          </button>
+        )}
+        <button title="Export Wizard" disabled={!one} onClick={() => one && exportCollection(connId, db, one.name)}>
+          <Upload size={14} /> Export
+        </button>
         <button onClick={() => newMongoQuery(connId, db, one ? `db.getCollection(${JSON.stringify(one.name)}).find({})` : "")}>
           <FilePlus2 size={14} /> New Query
         </button>

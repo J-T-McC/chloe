@@ -20,6 +20,7 @@ import { RedisConsole } from "./components/redis/RedisConsole";
 import { CollectionViewer } from "./components/mongo/CollectionViewer";
 import { CollectionDesigner } from "./components/mongo/CollectionDesigner";
 import { DocEditorHost } from "./components/mongo/DocEditor";
+import { MongoTransferHost } from "./components/mongo/TransferDialog";
 import { MongoConsole } from "./components/mongo/MongoConsole";
 import { MongoQuery } from "./components/mongo/MongoQuery";
 import { designCollection } from "./components/mongo/actions";
@@ -176,6 +177,7 @@ export default function App() {
       <SetPrivilegesDialog />
       <ConnectionDialog />
       <DocEditorHost />
+      <MongoTransferHost />
       <DialogHost />
       <ContextMenuHost />
     </div>

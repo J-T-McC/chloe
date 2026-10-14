@@ -63,6 +63,8 @@ export const openExecuteFile = (connId: string, database: string, schema?: strin
 /** Start a job and open the jobs panel so its progress is visible. */
 export async function track(start: Promise<Job>) {
   const j = await start;
-  useTransfer.setState((s) => ({ jobs: [j, ...s.jobs.filter((x) => x.id !== j.id)], jobsOpen: true }));
-  return j;
+  // A quick job's progress events can arrive before the start call returns; keep
+  // what they reported rather than the older starting snapshot.
+  useTransfer.setState((s) => ({ jobs: s.jobs.some((x) => x.id === j.id) ? s.jobs : [j, ...s.jobs], jobsOpen: true }));
+  return useTransfer.getState().jobs.find((x) => x.id === j.id) ?? j;
 }

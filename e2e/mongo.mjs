@@ -230,4 +230,25 @@ await step("server monitor", async () => {
   await shot("m10-monitor");
 });
 
+await step("export and import", async () => {
+  const dir = process.env.LITE;
+  await page.locator(".tab", { hasText: "Objects" }).click();
+  await page.locator(".tree-row", { hasText: "Collections" }).click();
+  await page.locator(".object-list tr", { hasText: "customers" }).click();
+  await page.locator(".objects-pane .toolbar").getByRole("button", { name: "Export" }).click();
+  await field("Format").selectOption("csv");
+  await field("File").fill(`${dir}/customers.csv`);
+  await page.locator(".modal").getByRole("button", { name: "Export" }).click();
+  await page.locator(".jobs-panel, .job", { hasText: "Exported 4 documents" }).first().waitFor();
+  await page.locator(".object-list tr", { hasText: "events" }).click();
+  await page.locator(".objects-pane .toolbar").getByRole("button", { name: "Import" }).click();
+  await field("File").fill(`${dir}/customers.csv`);
+  await field("Format").selectOption("csv");
+  await field("Import Mode").selectOption("copy");
+  await page.locator(".modal").getByRole("button", { name: "Import" }).click();
+  await page.locator(".jobs-panel, .job", { hasText: "4 inserted" }).first().waitFor();
+  console.log("    ", (await page.locator(".job").allInnerTexts()).map((t) => t.replace(/\s+/g, " ").slice(0, 110)).join(" | "));
+  await shot("m11-jobs");
+});
+
 await browser.close();

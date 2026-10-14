@@ -3,8 +3,8 @@
 Order reflects dependencies: later features build on the earlier ones. Specs for each area live in `docs/specs/`.
 
 ## Next up
-1. **MongoDB, second pass**: import/export (JSON, CSV) and the transfer wizards, users and roles,
-   aggregation pipeline builder, explain, GridFS buckets
+1. **MongoDB, second pass**: users and roles, aggregation pipeline builder, explain, GridFS buckets,
+   transfer between connections
 2. **Data transfer between connections**, then **structure sync and data sync** (section 8)
 3. **SQL Server and Oracle**, both in Docker
 4. Polish: Redis pub/sub, cluster and sentinel; Form view and hex/image cell editors
@@ -65,8 +65,9 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
   MongoShell console running mongosh-style JavaScript (goja) with cursor paging; completion for
   collections, methods, operators, stages and sampled field names; collection designer (indexes,
   validation, capped and time series options) and view designer; server monitor (currentOp, killOp,
-  parameters, serverStatus); mongodb:// URLs
-  - still to do: import/export and transfer, users and roles, pipeline builder, explain, GridFS
+  parameters, serverStatus); mongodb:// URLs; export (JSON, JSON Lines, CSV) and import with
+  append, append/update and copy modes
+  - still to do: transfer between connections, users and roles, pipeline builder, explain, GridFS
 - SQL Server, Oracle (each must be testable in Docker; Snowflake is out of scope)
 
 ## 8. Advanced
