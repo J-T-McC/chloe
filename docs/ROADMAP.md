@@ -15,7 +15,7 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 - [x] Server monitor: sessions/processes (kill session or query), variables, status
 - [x] Beautify SQL
 
-## 3. Table designer
+## 3. Table designer ✅
 - Columns: name, type, length/scale, nullable, default, auto increment/identity, comment, **collation/charset**, generated columns
 - Keys: primary (including composite), unique, **foreign keys** (on update/delete, composite), checks
 - **Indexes**: columns and order, unique, method (BTREE/HASH/GIN/GiST…), partial (PG), fulltext/spatial (MySQL)
@@ -23,7 +23,7 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 - SQL preview before saving; generates ALTER for edits; rename-safe diffs
 - Also: New/Drop/Rename/Truncate/Empty/Duplicate table, create/edit database (charset, collation), view and function editors
 
-## 4. Import / export
+## 4. Import / export ✅ (except data transfer between connections)
 - Export: CSV, TSV, JSON, SQL INSERTs, Excel (xlsx), with column and row selection
 - Import: CSV/JSON/xlsx with column mapping, append/update/replace modes
 - Dump SQL file (structure, structure + data), Execute SQL file
