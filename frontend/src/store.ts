@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { Connection, Connections, DBType, Explorer, ObjectKind, ObjectRef, arr, errorText } from "./api";
 import { alert, prompt } from "./components/Dialogs";
 
-export type TabKind = "objects" | "query" | "table" | "ddl" | "monitor" | "design" | "erd" | "model" | "viewdesign" | "redisconsole" | "users" | "user" | "collection" | "mongoquery" | "mongoshell" | "mongodesign" | "mongousers";
+export type TabKind = "objects" | "query" | "table" | "ddl" | "monitor" | "design" | "erd" | "model" | "viewdesign" | "redisconsole" | "users" | "user" | "collection" | "mongoquery" | "mongoshell" | "mongodesign" | "mongousers" | "history";
 
 export interface Tab {
   id: string;
@@ -17,6 +17,11 @@ export interface Tab {
   sql?: string;
   /** file of a model tab */
   modelPath?: string;
+  /** saved query a query tab edits */
+  queryId?: string;
+  /** the text as last saved (or opened); the tab is dirty once it differs */
+  savedSql?: string;
+  dirty?: boolean;
 }
 
 /** What the tree has selected; drives the Objects tab. */
@@ -94,6 +99,10 @@ export const useApp = create<AppState>((set, get) => ({
   async loadConnections() {
     const [connections, groups] = await Promise.all([Connections.List(), Connections.Groups()]);
     set({ connections: arr(connections), groups: arr(groups) });
+    // Tabs of a deleted connection go with it.
+    const ids = new Set(arr(connections).map((c) => c.id));
+    const gone = get().tabs.filter((t) => t.connId && !ids.has(t.connId)).map((t) => t.id);
+    if (gone.length) get().closeTabs(gone);
     if (!lockedShown) {
       lockedShown = true;
       const why = await Connections.Locked().catch(() => "");
@@ -135,8 +144,9 @@ export const useApp = create<AppState>((set, get) => ({
       const open = { ...s.open };
       delete open[id];
       const openDbs = Object.fromEntries(Object.entries(s.openDbs).filter(([k]) => !k.startsWith(id + "/")));
-      // Close tabs that belonged to the connection.
-      const tabs = s.tabs.filter((t) => t.connId !== id || t.kind === "objects");
+      // Close tabs that belonged to the connection. Query tabs stay: they hold the
+      // user's text and reconnect when run again.
+      const tabs = s.tabs.filter((t) => t.connId !== id || t.kind === "objects" || t.kind === "query");
       const activeTab = tabs.some((t) => t.id === s.activeTab) ? s.activeTab : "objects";
       return { open, openDbs, tabs, activeTab, selection: s.selection?.connId === id ? undefined : s.selection };
     });
@@ -158,7 +168,7 @@ export const useApp = create<AppState>((set, get) => ({
       const openDbs = { ...s.openDbs };
       delete openDbs[dbKey(connId, db)];
       // Tabs working in that database close with it.
-      const tabs = s.tabs.filter((t) => t.kind === "objects" || t.connId !== connId || (t.database ?? t.ref?.database) !== db);
+      const tabs = s.tabs.filter((t) => t.kind === "objects" || t.kind === "query" || t.connId !== connId || (t.database ?? t.ref?.database) !== db);
       const activeTab = tabs.some((t) => t.id === s.activeTab) ? s.activeTab : "objects";
       const selection = s.selection?.connId === connId && s.selection.database === db ? { connId, database: db } : s.selection;
       return { openDbs, tabs, activeTab, selection };

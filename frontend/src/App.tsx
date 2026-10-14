@@ -1,6 +1,6 @@
-import { Activity, Database, FilePlus2, Monitor, Moon, Network, PencilRuler, Plug, Shapes, Sun, Table2, TerminalSquare, UserRound, UsersRound, X } from "lucide-react";
+import { Activity, Database, FilePlus2, History, Monitor, Moon, Network, PencilRuler, Plug, Shapes, Sun, Table2, TerminalSquare, UserRound, UsersRound, X } from "lucide-react";
 import { ThemePref, onThemeChange, setThemePref, themePref } from "./theme";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Events, ObjectKind } from "./api";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { ContextMenuHost } from "./components/ContextMenu";
@@ -37,6 +37,8 @@ import { MenuItem, openMenu } from "./components/ContextMenu";
 import { DBType, Models, arr } from "./api";
 import { DDLView, ObjectsPane } from "./components/ObjectsPane";
 import { QueryEditor } from "./components/QueryEditor";
+import { HistoryLog, openHistoryLog } from "./components/HistoryLog";
+import { requestCloseTabs, saveQueryTab } from "./queries";
 import { Sidebar, newQuery, openMonitor, selectAllSQL, useInitialLoad } from "./components/Sidebar";
 import { TableViewer } from "./components/TableViewer";
 import { Tab, connById, useApp } from "./store";
@@ -50,6 +52,11 @@ export default function App() {
   useInitialLoad();
   const tabs = useApp((s) => s.tabs);
   const active = useApp((s) => s.activeTab);
+  // Tabs that have been shown, and so are mounted.
+  const seen = useRef(new Set<string>());
+  seen.current.add(active);
+  // Tools > History Log in the native menu.
+  useEffect(() => Events.On("menu:history-log", () => openHistoryLog()), []);
   const selection = useApp((s) => s.selection);
   const open = useApp((s) => s.open);
 
@@ -70,7 +77,15 @@ export default function App() {
       const meta = e.metaKey || e.ctrlKey;
       if (meta && e.key === "w") {
         e.preventDefault();
-        useApp.getState().closeTab(useApp.getState().activeTab);
+        requestCloseTabs([useApp.getState().activeTab]);
+      }
+      // ⌘S saves the query tab (the editor handles it itself when focused).
+      if (meta && e.key.toLowerCase() === "s" && !e.defaultPrevented) {
+        const t = useApp.getState().tabs.find((x) => x.id === useApp.getState().activeTab);
+        if (t?.kind === "query") {
+          e.preventDefault();
+          saveQueryTab(t.id, e.shiftKey);
+        }
       }
       // New Query: ⌘T on macOS (⌘Q is the system Quit); Ctrl+T or Ctrl+Q elsewhere,
       // matching Navicat on Windows. With a table or view selected, it starts with a SELECT.
@@ -161,9 +176,10 @@ export default function App() {
             </div>
             <div className="tab-content">
               {tabs.map((t) => (
-                // Keep inactive tabs mounted so editors and grids keep their state.
+                // Tabs mount when first shown (restored query tabs connect then) and stay
+                // mounted, so editors and grids keep their state.
                 <div key={t.id} className="tab-pane" style={{ display: t.id === active ? "flex" : "none" }}>
-                  <TabContent tab={t} />
+                  {(seen.current.has(t.id) || t.id === active) && <TabContent tab={t} active={t.id === active} />}
                 </div>
               ))}
             </div>
@@ -185,8 +201,10 @@ export default function App() {
   );
 }
 
-function TabContent({ tab }: { tab: Tab }) {
+function TabContent({ tab, active }: { tab: Tab; active: boolean }) {
   switch (tab.kind) {
+    case "history":
+      return <HistoryLog active={active} />;
     case "objects":
       return <ObjectsPane />;
     case "query":
@@ -225,12 +243,12 @@ function TabContent({ tab }: { tab: Tab }) {
 }
 
 function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
-  const icon = tab.kind === "users" || tab.kind === "mongousers" ? <UsersRound size={13} /> : tab.kind === "user" ? <UserRound size={13} /> : tab.kind === "redisconsole" || tab.kind === "mongoshell" ? <TerminalSquare size={13} /> : tab.kind === "mongoquery" ? <FilePlus2 size={13} /> : tab.kind === "mongodesign" ? <PencilRuler size={13} /> : tab.kind === "model" ? <Shapes size={13} /> : tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" || tab.kind === "viewdesign" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
+  const icon = tab.kind === "users" || tab.kind === "mongousers" ? <UsersRound size={13} /> : tab.kind === "user" ? <UserRound size={13} /> : tab.kind === "redisconsole" || tab.kind === "mongoshell" ? <TerminalSquare size={13} /> : tab.kind === "mongoquery" ? <FilePlus2 size={13} /> : tab.kind === "mongodesign" ? <PencilRuler size={13} /> : tab.kind === "model" ? <Shapes size={13} /> : tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" || tab.kind === "viewdesign" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.kind === "history" ? <History size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
   return (
     <div
       className={"tab" + (active ? " active" : "")}
       onMouseDown={(e) => {
-        if (e.button === 1) useApp.getState().closeTab(tab.id);
+        if (e.button === 1) requestCloseTabs([tab.id]);
         else if (e.button === 0) useApp.getState().setActive(tab.id);
       }}
       onContextMenu={(e) => openMenu(e, tabMenu(tab))}
@@ -238,11 +256,12 @@ function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
     >
       {icon}
       <span className="tab-title">{tab.title}</span>
+      {tab.dirty && <span className="tab-dirty" title="Unsaved changes" />}
       {tab.kind !== "objects" && (
         <button
           className="tab-close"
           onMouseDown={(e) => e.stopPropagation()}
-          onClick={() => useApp.getState().closeTab(tab.id)}
+          onClick={() => requestCloseTabs([tab.id])}
         >
           <X size={12} />
         </button>
@@ -284,10 +303,10 @@ function tabMenu(tab: Tab): MenuItem[] {
   const right = tabs.slice(idx + 1).filter(closable).map((t) => t.id);
   const target = revealTarget(tab);
   return [
-    { label: "Close", shortcut: "⌘W", disabled: !closable(tab), onClick: () => app.closeTab(tab.id) },
-    { label: "Close Other Tabs", disabled: !others.length, onClick: () => app.closeTabs(others) },
-    { label: "Close Tabs to the Right", disabled: !right.length, onClick: () => app.closeTabs(right) },
-    { label: "Close All", disabled: !tabs.some(closable), onClick: () => app.closeTabs(tabs.filter(closable).map((t) => t.id)) },
+    { label: "Close", shortcut: "⌘W", disabled: !closable(tab), onClick: () => requestCloseTabs([tab.id]) },
+    { label: "Close Other Tabs", disabled: !others.length, onClick: () => requestCloseTabs(others) },
+    { label: "Close Tabs to the Right", disabled: !right.length, onClick: () => requestCloseTabs(right) },
+    { label: "Close All", disabled: !tabs.some(closable), onClick: () => requestCloseTabs(tabs.filter(closable).map((t) => t.id)) },
     { separator: true },
     { label: "Move Tab to New Window", disabled: true },
     { separator: true },

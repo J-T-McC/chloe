@@ -45,6 +45,8 @@ func (s *Store) encrypts() bool {
 
 // fileKey returns the file key, creating it when create is set and there is none.
 func (s *Store) fileKey(create bool) ([]byte, error) {
+	s.keyMu.Lock()
+	defer s.keyMu.Unlock()
 	if s.key != nil {
 		return s.key, nil
 	}

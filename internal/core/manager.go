@@ -237,6 +237,7 @@ func (m *Manager) Close() {
 	for _, id := range ids {
 		m.Disconnect(id)
 	}
+	_ = m.Store.Workspace().Flush()
 }
 
 var (
@@ -407,6 +408,9 @@ func (m *Manager) ListSchemas(ctx context.Context, connID, database string) ([]s
 }
 
 func (m *Manager) ListObjects(ctx context.Context, connID, database, schema string, kind model.ObjectKind) ([]model.ObjectInfo, error) {
+	if kind == model.KindQuery {
+		return m.savedQueryObjects(connID, database, schema), nil
+	}
 	c, err := m.conn(connID)
 	if err != nil {
 		return nil, err
@@ -431,6 +435,9 @@ func (m *Manager) Catalog(ctx context.Context, connID, database string) (model.C
 }
 
 func (m *Manager) DDL(ctx context.Context, connID string, ref model.ObjectRef) (string, error) {
+	if ref.Kind == model.KindQuery {
+		return m.savedQuerySQL(connID, ref)
+	}
 	c, err := m.conn(connID)
 	if err != nil {
 		return "", err

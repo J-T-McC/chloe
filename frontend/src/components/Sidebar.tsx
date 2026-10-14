@@ -14,6 +14,7 @@ import { newTable } from "../tableActions";
 import { databaseTools, objectsAreaMenu, tableChildMenu, tableMenu, viewMenu } from "../menus";
 import { deleteDatabase, openDatabaseDialog } from "./DatabaseDialog";
 import { openExecuteFile } from "./transfer/state";
+import { deleteSavedQueries, duplicateSavedQuery, openSavedQuery, renameSavedQuery, restoreDrafts } from "../queries";
 
 const ROW = 24;
 export const COLORS: Array<[string, string]> = [
@@ -200,6 +201,7 @@ function TreeRow(props: { node: TreeNode; top: number; expanded: boolean; loadin
 export function openObject(n: TreeNode) {
   const app = useApp.getState();
   if (connById(n.connId)?.type === DBType.MongoDB) return openCollection(n.connId, n.database!, n.info?.name ?? n.label, n.kind);
+  if (n.kind === ObjectKind.KindQuery) return openSavedQuery(n.connId, n.database!, n.schema, n.info?.name ?? n.label);
   const ref = refOf(n);
   if (n.kind === ObjectKind.KindTable || n.kind === ObjectKind.KindView || n.kind === ObjectKind.KindMatView) {
     app.openTab({ kind: "table", title: n.info!.name, connId: n.connId, database: n.database, schema: n.schema, ref });
@@ -215,7 +217,7 @@ export function newQuery(connId: string, database?: string, schema?: string, sql
   const db = database ?? (conn?.initialDatabase || undefined);
   // A query tab works in its database, so that database counts as open.
   if (db) app.openDatabase(connId, db);
-  app.openTab({ kind: "query", title: `Query — ${db ?? conn?.name ?? ""}`, connId, database: db, schema, sql });
+  app.openTab({ kind: "query", title: `Query — ${db ?? conn?.name ?? ""}`, connId, database: db, schema, sql, savedSql: sql });
 }
 
 /** "SELECT * FROM table;" with the table quoted for the connection's dialect. */
@@ -433,6 +435,11 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
           { separator: true },
           { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) },
         ];
+      if (n.kind === ObjectKind.KindQuery)
+        return [
+          { label: "New Query", onClick: () => newQuery(n.connId, n.database, n.schema) },
+          { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) },
+        ];
       if (n.kind === ObjectKind.KindTable || n.kind === ObjectKind.KindView || n.kind === ObjectKind.KindMatView) return [...objectsAreaMenu(n.connId, n.database!, n.schema, n.kind).slice(0, -1), { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) }];
       return [
         { label: "New Query", onClick: () => newQuery(n.connId, n.database, n.schema) },
@@ -440,6 +447,7 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
       ];
     case "object": {
       if (connById(n.connId)?.type === DBType.MongoDB) return collectionMenu(n.connId, n.database!, [n.label], n.kind);
+      if (n.kind === ObjectKind.KindQuery) return savedQueryMenu(n.connId, n.database!, n.schema, [n.info?.name ?? n.label]);
       const ref = refOf(n);
       if (n.kind === ObjectKind.KindTable) return tableMenu(n.connId, [ref]);
       if (n.kind === ObjectKind.KindView || n.kind === ObjectKind.KindMatView) return viewMenu(n.connId, ref);
@@ -456,6 +464,21 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
 }
 
 const isPGConn = (id: string) => connById(id)?.type === "postgres";
+
+/** Menu of saved queries in a Queries folder or the Objects list. */
+export function savedQueryMenu(connId: string, database: string, schema: string | undefined, names: string[]): MenuItem[] {
+  const one = names.length === 1;
+  return [
+    { label: "Open Query", disabled: !one, onClick: () => openSavedQuery(connId, database, schema, names[0]) },
+    { label: "New Query", onClick: () => newQuery(connId, database, schema) },
+    { separator: true },
+    { label: "Rename…", disabled: !one, onClick: () => renameSavedQuery(connId, database, schema, names[0]) },
+    { label: "Duplicate", disabled: !one, onClick: () => duplicateSavedQuery(connId, database, schema, names[0]) },
+    { label: one ? "Delete Query" : `Delete ${names.length} Queries`, onClick: () => deleteSavedQueries(connId, database, schema, names) },
+    { separator: true },
+    { label: "Copy Name", disabled: !one, onClick: () => copy(names[0]) },
+  ];
+}
 
 function sqliteDbMenu(n: TreeNode, dbOpen: boolean): MenuItem[] {
   const tree = useTree.getState();
@@ -528,6 +551,7 @@ export function useInitialLoad() {
   useEffect(() => {
     (async () => {
       await useApp.getState().loadConnections();
+      await restoreDrafts();
       for (const c of useApp.getState().connections) {
         if (c.advanced?.autoConnect) useTree.getState().expand(connNode(c));
       }

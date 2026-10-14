@@ -16,6 +16,9 @@ import * as core$0 from "../internal/core/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as model$0 from "../internal/model/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as store$0 from "../internal/store/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -33,12 +36,24 @@ export function Cancel(sessionID: string): $CancellablePromise<void> {
     return $Call.ByID(1926567532, sessionID);
 }
 
+export function ClearHistory(): $CancellablePromise<void> {
+    return $Call.ByID(983870553);
+}
+
 export function CloseSession(sessionID: string): $CancellablePromise<void> {
     return $Call.ByID(196658454, sessionID);
 }
 
 export function CountRows(connID: string, ref: model$0.ObjectRef, where: string): $CancellablePromise<number> {
     return $Call.ByID(3680058616, connID, ref, where);
+}
+
+export function DeleteQuery(id: string): $CancellablePromise<void> {
+    return $Call.ByID(560587239, id);
+}
+
+export function Drafts(): $CancellablePromise<store$0.Draft[] | null> {
+    return $Call.ByID(1717294546);
 }
 
 /**
@@ -53,6 +68,13 @@ export function FetchRows(resultID: string, offset: number, limit: number): $Can
     return $Call.ByID(4287869759, resultID, offset, limit);
 }
 
+/**
+ * History returns executed statements, newest first ("" for every connection).
+ */
+export function History(connID: string): $CancellablePromise<store$0.HistoryEntry[] | null> {
+    return $Call.ByID(3001057982, connID);
+}
+
 export function OpenSession(connID: string, database: string, schema: string): $CancellablePromise<string> {
     return $Call.ByID(495882282, connID, database, schema);
 }
@@ -61,8 +83,45 @@ export function ReleaseResult(resultID: string): $CancellablePromise<void> {
     return $Call.ByID(1041865830, resultID);
 }
 
+export function RenameQuery(id: string, name: string): $CancellablePromise<store$0.SavedQuery> {
+    return $Call.ByID(627105716, id, name);
+}
+
 export function ResultStatus(resultID: string): $CancellablePromise<model$0.StatementResult> {
     return $Call.ByID(2287255753, resultID);
+}
+
+/**
+ * SaveQuery creates (empty ID) or updates a saved query.
+ */
+export function SaveQuery(q: store$0.SavedQuery): $CancellablePromise<store$0.SavedQuery> {
+    return $Call.ByID(3123576097, q);
+}
+
+export function SavedQueries(connID: string, database: string, schema: string): $CancellablePromise<store$0.SavedQuery[] | null> {
+    return $Call.ByID(843681011, connID, database, schema);
+}
+
+export function SavedQuery(id: string): $CancellablePromise<store$0.SavedQuery> {
+    return $Call.ByID(1495749011, id);
+}
+
+/**
+ * SavedQueryByName finds a saved query from its tree object.
+ */
+export function SavedQueryByName(connID: string, database: string, schema: string, name: string): $CancellablePromise<store$0.SavedQuery> {
+    return $Call.ByID(4130916237, connID, database, schema, name);
+}
+
+export function SetDrafts(ds: store$0.Draft[] | null): $CancellablePromise<void> {
+    return $Call.ByID(106247850, ds);
+}
+
+/**
+ * UniqueQueryName suggests a name not yet used in the database.
+ */
+export function UniqueQueryName(connID: string, database: string, schema: string, base: string): $CancellablePromise<string> {
+    return $Call.ByID(565156180, connID, database, schema, base);
 }
 
 export function UseDatabase(sessionID: string, database: string, schema: string): $CancellablePromise<void> {

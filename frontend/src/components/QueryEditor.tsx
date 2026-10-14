@@ -1,4 +1,4 @@
-import { CircleStop, PanelBottom, Play, PlayCircle, Sparkles } from "lucide-react";
+import { CircleStop, History, PanelBottom, Play, PlayCircle, Save, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DBType, Events, Explorer, Query, StatementResult, arr, errorText } from "../api";
 import { autoTrigger, clearEditorContext, invalidateCatalog, preloadCatalog, registerSqlCompletion, setEditorContext } from "../editor/completion";
@@ -11,6 +11,8 @@ import { ValuePanel } from "./ValuePanel";
 import { readFlag, writeFlag } from "../prefs";
 import { connDialect, editorLanguage } from "../dialect";
 import { openExport } from "./transfer/state";
+import { queryTextChanged, registerQueryEditor, saveQueryTab } from "../queries";
+import { openHistoryLog } from "./HistoryLog";
 
 export interface RunState {
   results: StatementResult[];
@@ -68,14 +70,19 @@ export function QueryEditor({ tab }: { tab: Tab }) {
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyR, () => runRef.current());
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter, () => runRef.current());
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, () => beautifyRef.current());
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveQueryTab(tab.id));
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyS, () => saveQueryTab(tab.id, true));
     const trig = autoTrigger(editor);
+    const unregister = registerQueryEditor(tab.id, () => model.getValue());
     const save = editor.onDidChangeModelContent(() => {
       decorations.current?.clear();
+      queryTextChanged(tab.id);
     });
     editor.focus();
     return () => {
       // Keep the text when the tab re-mounts.
       useApp.getState().updateTab(tab.id, { sql: model.getValue() });
+      unregister();
       trig.dispose();
       save.dispose();
       clearEditorContext(model);
@@ -86,10 +93,30 @@ export function QueryEditor({ tab }: { tab: Tab }) {
   }, []);
 
   // ---- session ---------------------------------------------------------------------
+  // A query tab outlives its connection being closed. It connects when first shown
+  // (tabs restored at startup) and otherwise offers to reconnect.
+  const connected = useApp((s) => !!s.open[connId]);
+  const triedConnect = useRef(false);
+  const where = useRef({ database, schema });
+  where.current = { database, schema };
+  const reconnect = () => {
+    const db = where.current.database;
+    return db ? useApp.getState().openDatabase(connId, db) : useApp.getState().connect(connId);
+  };
   useEffect(() => {
+    if (!connected) {
+      setSession(null);
+      if (!triedConnect.current) {
+        triedConnect.current = true;
+        reconnect();
+      }
+      return;
+    }
+    triedConnect.current = true;
+    setSessionError("");
     let sid: string | null = null;
     let cancelled = false;
-    Query.OpenSession(connId, database, schema)
+    Query.OpenSession(connId, where.current.database, where.current.schema)
       .then((id) => {
         if (cancelled) Query.CloseSession(id);
         else {
@@ -104,7 +131,7 @@ export function QueryEditor({ tab }: { tab: Tab }) {
       if (sid) Query.CloseSession(sid);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connId]);
+  }, [connId, connected]);
 
   useEffect(() => {
     if (isPG && database) Explorer.ListSchemas(connId, database).then((s) => setSchemas(arr(s))).catch(() => {});
@@ -125,7 +152,8 @@ export function QueryEditor({ tab }: { tab: Tab }) {
       await Query.UseDatabase(session, db, sc);
       setDatabase(db);
       setSchema(sc);
-      useApp.getState().updateTab(tab.id, { database: db, schema: sc, title: `Query — ${db}` });
+      const saved = useApp.getState().tabs.find((t) => t.id === tab.id)?.queryId;
+      useApp.getState().updateTab(tab.id, { database: db, schema: sc, ...(saved ? {} : { title: `Query — ${db}` }) });
     } catch (e) {
       setRun((r) => ({ ...r, error: errorText(e) }));
     }
@@ -219,6 +247,12 @@ export function QueryEditor({ tab }: { tab: Tab }) {
         <button onClick={() => beautifyRef.current()} title="Beautify SQL (⇧⌘F)">
           <Sparkles size={14} /> Beautify
         </button>
+        <button onClick={() => saveQueryTab(tab.id)} title="Save (⌘S); Save As is ⇧⌘S">
+          <Save size={14} /> Save
+        </button>
+        <button onClick={() => openHistoryLog(connId)} title="History Log">
+          <History size={14} /> History
+        </button>
         <span className="tb-sep" />
         <span className="muted">{conn?.name}</span>
         <select value={database} onChange={(e) => changeDb(e.target.value, isPG ? "public" : "")} disabled={!session}>
@@ -237,6 +271,12 @@ export function QueryEditor({ tab }: { tab: Tab }) {
         <span className="spacer" />
         {sessionError && <span className="err">{sessionError}</span>}
       </div>
+      {!connected && (
+        <div className="qe-offline">
+          Not connected to {conn?.name ?? "the server"}.
+          <button onClick={reconnect}>Connect</button>
+        </div>
+      )}
       <Split
         id="query-editor"
         vertical
