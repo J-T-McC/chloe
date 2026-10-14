@@ -3,6 +3,7 @@ package sqlcommon
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"time"
 
@@ -50,4 +51,12 @@ func RunInitialQueries(ctx context.Context, q Querier, script string, d sqlsplit
 		}
 	}
 	return nil
+}
+
+// DiscardConn closes a dedicated session connection without returning it to the
+// pool. Sessions change server state (USE, SET search_path, SET variables, initial
+// queries); a reused connection would carry that into unrelated work.
+func DiscardConn(conn *sql.Conn) error {
+	_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+	return conn.Close()
 }

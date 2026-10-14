@@ -471,4 +471,4 @@ func (s *Session) Exec(ctx context.Context, stmt string, args ...any) (int64, er
 	return res.RowsAffected()
 }
 
-func (s *Session) Close() error { return s.conn.Close() }
+func (s *Session) Close() error { return sqlcommon.DiscardConn(s.conn) }
