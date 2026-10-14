@@ -297,7 +297,8 @@ func (c *Conn) Catalog(ctx context.Context, db string) (model.Catalog, error) {
 	}
 	cat.Columns = make([]model.CatalogColumn, len(recs))
 	for i, r := range recs {
-		cat.Columns[i] = model.CatalogColumn{Table: r[0].String, Name: r[1].String, Type: r[2].String, PK: r[3].String == "PRI", Nullable: r[4].String == "YES"}
+		cat.Columns[i] = model.CatalogColumn{Table: r[0].String, Name: r[1].String, Type: r[2].String, PK: r[3].String == "PRI", Nullable: r[4].String == "YES",
+			EnumValues: sqlcommon.EnumValues(r[2].String)}
 	}
 	fks, err := c.foreignKeys(ctx, db, "")
 	if err != nil {

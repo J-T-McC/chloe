@@ -88,6 +88,8 @@ type CatalogColumn struct {
 	Type     string `json:"type"`
 	PK       bool   `json:"pk,omitempty"`
 	Nullable bool   `json:"nullable,omitempty"`
+	// EnumValues are the allowed values of enum (and MySQL set) columns.
+	EnumValues []string `json:"enumValues,omitempty"`
 }
 
 // CatalogFK is a flattened foreign key used for JOIN suggestions.

@@ -6,7 +6,7 @@
 // paths already written against the same column in the editor.
 
 import { Analysis } from "./analyze";
-import { CatalogIndex, CompletionCatalog, Suggestion, indexOf } from "./complete";
+import { CompletionCatalog, Suggestion, resolveColumnRef } from "./complete";
 import { DialectName, Token, isIdent, significant, tokenize } from "./lexer";
 
 /** Path segment: an object key, or ARRAY for "any element". */
@@ -336,17 +336,8 @@ export interface ColumnTarget {
 
 /** Find the table column a path's column reference points at. */
 export function resolveColumn(ctx: JsonPathContext, a: Analysis, cat: CompletionCatalog): ColumnTarget | null {
-  const ix: CatalogIndex = indexOf(cat);
-  const name = ctx.column[ctx.column.length - 1].toLowerCase();
-  const qual = ctx.column.length > 1 ? ctx.column[0].toLowerCase() : undefined;
-  for (const r of a.tables) {
-    if (r.kind !== "table") continue;
-    if (qual && (r.alias ?? r.name).toLowerCase() !== qual) continue;
-    const t = ix.resolve(r.name, r.schema);
-    const c = t?.columns.find((x) => x.name.toLowerCase() === name);
-    if (t && c) return { schema: t.schema, table: t.name, column: c.name, type: c.type };
-  }
-  return null;
+  const r = resolveColumnRef(ctx.column, a, cat);
+  return r ? { schema: r.table.schema, table: r.table.name, column: r.column.name, type: r.column.type } : null;
 }
 
 const describe = (n: KeyNode, parent: KeyNode) => {

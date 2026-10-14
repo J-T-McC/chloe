@@ -52,7 +52,7 @@ async function loadCatalog(connId: string, database: string): Promise<Completion
   const cols = new Map<string, CatTable["columns"]>();
   for (const c of arr(cat.columns)) {
     const k = (c.schema ?? database) + "\u0000" + c.table;
-    (cols.get(k) ?? cols.set(k, []).get(k)!).push({ name: c.name, type: c.type, pk: c.pk });
+    (cols.get(k) ?? cols.set(k, []).get(k)!).push({ name: c.name, type: c.type, pk: c.pk, enumValues: c.enumValues ?? undefined });
   }
   const tables: CatTable[] = [];
   const functions: CatFunction[] = fns.map((name) => ({ name, builtin: true }));
@@ -153,6 +153,7 @@ const KIND: Record<Suggestion["kind"], Monaco.languages.CompletionItemKind> = {
   snippet: monaco.languages.CompletionItemKind.Snippet,
   cte: monaco.languages.CompletionItemKind.Struct,
   property: monaco.languages.CompletionItemKind.Property,
+  enum: monaco.languages.CompletionItemKind.EnumMember,
 };
 
 // Characters that only open suggestions inside a JSON path.
@@ -175,9 +176,12 @@ export function registerSqlCompletion() {
         if (!cat) return { suggestions: [] };
         const json = await jsonCompletion(ctx, cat, text, offset);
         if (json) return { suggestions: toItems(model, position, json, offset) };
-        // Quick suggestions are on inside strings for JSON paths only.
-        if ((context.triggerCharacter && JSON_TRIGGERS.has(context.triggerCharacter)) || inString(text, offset, cat.dialect)) return { suggestions: [] };
         let res = complete(text, offset, cat);
+        // Inside strings, and after quote/brace/comma triggers, only values make sense.
+        if ((context.triggerCharacter && JSON_TRIGGERS.has(context.triggerCharacter)) || inString(text, offset, cat.dialect)) {
+          const values = res.suggestions.filter((s) => s.kind === "enum");
+          return { suggestions: toItems(model, position, values, res.replaceStart) };
+        }
 
         // "otherdb." in MySQL: load that database's tables and retry.
         const q = res.analysis.qualifier;

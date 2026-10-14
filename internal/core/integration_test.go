@@ -377,3 +377,24 @@ func TestIntegrationSampleColumn(t *testing.T) {
 		})
 	}
 }
+
+func TestIntegrationCatalogEnums(t *testing.T) {
+	for _, e := range engines() {
+		t.Run(e.conn.Name, func(t *testing.T) {
+			m, id := setup(t, e)
+			cat, err := m.Catalog(context.Background(), id, e.database)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, c := range cat.Columns {
+				if c.Table == "orders" && c.Name == "status" {
+					if strings.Join(c.EnumValues, ",") != "new,paid,shipped" {
+						t.Fatalf("enum values %q", c.EnumValues)
+					}
+					return
+				}
+			}
+			t.Fatal("orders.status not found")
+		})
+	}
+}

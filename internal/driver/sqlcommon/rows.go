@@ -167,3 +167,41 @@ func FormatTime(t time.Time, typeName string) string {
 	}
 	return t.Format("2006-01-02 15:04:05.999999")
 }
+
+// EnumValues extracts the values of a MySQL enum('a','b') or set(...) column
+// type; other types return nil. Quotes inside values are doubled ('it''s').
+func EnumValues(colType string) []string {
+	lower := strings.ToLower(colType)
+	var rest string
+	switch {
+	case strings.HasPrefix(lower, "enum("):
+		rest = colType[5:]
+	case strings.HasPrefix(lower, "set("):
+		rest = colType[4:]
+	default:
+		return nil
+	}
+	var out []string
+	for i := 0; i < len(rest); i++ {
+		if rest[i] != '\'' {
+			continue
+		}
+		var b strings.Builder
+		for i++; i < len(rest); i++ {
+			if rest[i] == '\'' {
+				if i+1 < len(rest) && rest[i+1] == '\'' {
+					b.WriteByte('\'')
+					i++
+					continue
+				}
+				break
+			}
+			if rest[i] == '\\' && i+1 < len(rest) {
+				i++
+			}
+			b.WriteByte(rest[i])
+		}
+		out = append(out, b.String())
+	}
+	return out
+}

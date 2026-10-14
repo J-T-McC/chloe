@@ -4,6 +4,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/url"
@@ -383,8 +384,11 @@ func (c *Conn) Catalog(ctx context.Context, database string) (model.Catalog, err
 		cat.Objects = append(cat.Objects, objs...)
 	}
 	recs, err := sqlcommon.QueryStrings(ctx, db, `SELECT n.nspname, c.relname, a.attname, format_type(a.atttypid, a.atttypmod),
-		EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND i.indisprimary AND a.attnum = ANY(i.indkey)), NOT a.attnotnull
+		EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND i.indisprimary AND a.attnum = ANY(i.indkey)), NOT a.attnotnull,
+		CASE WHEN t.typtype IN ('e', 'd') THEN (SELECT json_agg(e.enumlabel ORDER BY e.enumsortorder)::text FROM pg_enum e
+			WHERE e.enumtypid = CASE WHEN t.typtype = 'd' THEN t.typbasetype ELSE t.oid END) END
 		FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+		JOIN pg_type t ON t.oid = a.atttypid
 		WHERE c.relkind IN ('r','p','v','m','f') AND a.attnum > 0 AND NOT a.attisdropped
 		  AND n.nspname NOT LIKE 'pg\_toast%' AND n.nspname NOT LIKE 'pg\_temp\_%'
 		ORDER BY n.nspname, c.relname, a.attnum`)
@@ -394,6 +398,9 @@ func (c *Conn) Catalog(ctx context.Context, database string) (model.Catalog, err
 	cat.Columns = make([]model.CatalogColumn, len(recs))
 	for i, r := range recs {
 		cat.Columns[i] = model.CatalogColumn{Schema: r[0].String, Table: r[1].String, Name: r[2].String, Type: r[3].String, PK: r[4].String == "true", Nullable: r[5].String == "true"}
+		if r[6].Valid && r[6].String != "" {
+			_ = json.Unmarshal([]byte(r[6].String), &cat.Columns[i].EnumValues)
+		}
 	}
 	fks, err := c.foreignKeys(ctx, db, "", "")
 	if err != nil {

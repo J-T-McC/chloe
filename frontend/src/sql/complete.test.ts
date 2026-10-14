@@ -12,7 +12,7 @@ function shop(dialect: "mysql" | "postgres"): CompletionCatalog {
     schemas: dialect === "postgres" ? ["public", "shop"] : ["shop", "mysql"],
     tables: [
       { schema, name: "customers", kind: "table", columns: [col("id", "int", true), col("email", "text"), col("full_name", "varchar"), col("created_at", "timestamptz")] },
-      { schema, name: "orders", kind: "table", columns: [col("id", "bigint", true), col("customer_id"), col("status", "order_status"), col("placed_at", "timestamp")] },
+      { schema, name: "orders", kind: "table", columns: [col("id", "bigint", true), col("customer_id"), { ...col("status", "order_status"), enumValues: ["new", "paid", "shipped"] }, col("placed_at", "timestamp")] },
       { schema, name: "order_items", kind: "table", columns: [col("order_id", "bigint", true), col("product_id", "int", true), col("qty")] },
       { schema, name: "products", kind: "table", columns: [col("id", "int", true), col("sku", "text"), col("name", "text"), col("price", "numeric")] },
       { schema, name: "customer_orders", kind: "view", columns: [col("full_name", "varchar"), col("order_id", "bigint"), col("status", "order_status")] },
@@ -216,5 +216,32 @@ describe("select list", () => {
   });
   it("still offers functions after an operator", () => {
     expect(at("select 2 * |", "mysql").labels).toContain("COUNT");
+  });
+});
+
+describe("enum values", () => {
+  const enumsAt = (sql: string, dialect: "mysql" | "postgres" = "postgres") => {
+    const offset = sql.indexOf("|");
+    const r = complete(sql.replace("|", ""), offset, shop(dialect));
+    return r.suggestions.filter((s) => s.kind === "enum").map((s) => s.insertText);
+  };
+  it("offers quoted values after a comparison", () => {
+    expect(enumsAt("select * from orders where status = |")).toEqual(["'new'", "'paid'", "'shipped'"]);
+    expect(enumsAt("select * from orders o where o.status <> |", "mysql")).toEqual(["'new'", "'paid'", "'shipped'"]);
+  });
+  it("offers bare values inside a string, and only those", () => {
+    const offset = "select * from orders o where o.status = 'pa".length;
+    const r = complete("select * from orders o where o.status = 'pa'", offset, shop("postgres"));
+    expect(r.suggestions.map((s) => s.insertText)).toEqual(["new", "paid", "shipped"]);
+    expect(r.replaceStart).toBe(offset - 2);
+  });
+  it("works in IN lists and UPDATE ... SET", () => {
+    expect(enumsAt("select * from orders where status in ('new', '|')")).toEqual(["new", "paid", "shipped"]);
+    expect(enumsAt("select * from orders where status not in (|")).toEqual(["'new'", "'paid'", "'shipped'"]);
+    expect(enumsAt("update orders set status = '|'")).toEqual(["new", "paid", "shipped"]);
+  });
+  it("stays out of the way elsewhere", () => {
+    expect(enumsAt("select * from orders where status = 'paid' and |")).toEqual([]);
+    expect(enumsAt("select * from orders where customer_id = |")).toEqual([]);
   });
 });

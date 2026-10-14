@@ -68,6 +68,11 @@ export interface CatalogColumn {
     "type": string;
     "pk"?: boolean;
     "nullable"?: boolean;
+
+    /**
+     * EnumValues are the allowed values of enum (and MySQL set) columns.
+     */
+    "enumValues"?: string[] | null;
 }
 
 /**

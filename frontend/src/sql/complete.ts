@@ -2,12 +2,15 @@
 // editor completion items.
 
 import { Analysis, TableRef, analyze } from "./analyze";
+import { enumContext, sqlString } from "./enums";
 import { DialectName } from "./lexer";
 
 export interface CatColumn {
   name: string;
   type: string;
   pk?: boolean;
+  /** Allowed values of enum columns. */
+  enumValues?: string[];
 }
 
 export interface CatTable {
@@ -46,7 +49,7 @@ export interface CompletionCatalog {
   functions: CatFunction[];
 }
 
-export type SuggestionKind = "keyword" | "schema" | "table" | "view" | "column" | "alias" | "function" | "join" | "snippet" | "cte" | "property";
+export type SuggestionKind = "keyword" | "schema" | "table" | "view" | "column" | "alias" | "function" | "join" | "snippet" | "cte" | "property" | "enum";
 
 export interface Suggestion {
   label: string;
@@ -204,6 +207,27 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
   const ix = indexOf(cat);
   const d = cat.dialect;
   const out: Suggestion[] = [];
+
+  // Enum values after "col = " / inside "col = '…" / in "col IN (…".
+  const ec = enumContext(text, offset, d);
+  if (ec) {
+    const col = resolveColumnRef(ec.column, a, cat);
+    if (col?.column.enumValues?.length) {
+      const values = col.column.enumValues.map(
+        (v, i): Suggestion => ({
+          label: v,
+          kind: "enum",
+          insertText: ec.inString ? v.replace(/'/g, "''") : sqlString(v),
+          filterText: ec.inString ? v : `${v} '${v}'`,
+          detail: `${col.table.name}.${col.column.name}`,
+          rank: -6 + i / 1000, // keep the enum's declared order
+          rangeStart: ec.replaceStart,
+        }),
+      );
+      if (ec.inString) return { suggestions: values, replaceStart: ec.replaceStart, analysis: a };
+      out.push(...values);
+    }
+  }
   const q = (name: string) => quoteIdent(name, d, a.prefixQuoted);
 
   // Visible references, resolved against the catalog.
@@ -440,6 +464,21 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
     }
   }
   return finish(out, a);
+}
+
+/** Resolve a column written as [qualifier?, name] against the tables in scope. */
+export function resolveColumnRef(column: string[], a: Analysis, cat: CompletionCatalog): { table: CatTable; column: CatColumn } | null {
+  const ix = indexOf(cat);
+  const name = column[column.length - 1].toLowerCase();
+  const qual = column.length > 1 ? column[0].toLowerCase() : undefined;
+  for (const r of a.tables) {
+    if (r.kind !== "table") continue;
+    if (qual && (r.alias ?? r.name).toLowerCase() !== qual) continue;
+    const t = ix.resolve(r.name, r.schema);
+    const c = t?.columns.find((x) => x.name.toLowerCase() === name);
+    if (t && c) return { table: t, column: c };
+  }
+  return null;
 }
 
 function finish(out: Suggestion[], a: Analysis): CompletionResult {
