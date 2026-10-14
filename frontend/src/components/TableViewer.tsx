@@ -344,7 +344,17 @@ export function TableViewer({ tab }: { tab: Tab }) {
           {total === null ? "…" : total.toLocaleString()} records
           {dirty && <span className="dirty-dot"> · unsaved changes</span>}
         </span>
-        <select value={pageSize} onChange={async (e) => (await guardDirty()) && (setPage(0), setPageSize(Number(e.target.value)))}>
+        <select
+          value={pageSize}
+          onChange={async (e) => {
+            // Read the choice before awaiting: React resets a controlled select once the handler yields.
+            const size = Number(e.target.value);
+            if (await guardDirty()) {
+              setPage(0);
+              setPageSize(size);
+            }
+          }}
+        >
           {PAGE_SIZES.map((n) => (
             <option key={n} value={n}>
               {n.toLocaleString()} / page
