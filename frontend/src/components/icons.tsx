@@ -11,7 +11,6 @@ const ENGINE: Record<string, { label: string; color: string }> = {
   sqlite: { label: "SL", color: "#5b8db3" },
   sqlserver: { label: "MS", color: "#b4474e" },
   oracle: { label: "Or", color: "#c4473a" },
-  snowflake: { label: "Sf", color: "#3ba7d8" },
 };
 
 export function DBIcon({ type, size = 16, dim = false }: { type: DBType | string; size?: number; dim?: boolean }) {

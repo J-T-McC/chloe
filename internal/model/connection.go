@@ -13,7 +13,6 @@ const (
 	Redis      DBType = "redis"
 	SQLServer  DBType = "sqlserver"
 	Oracle     DBType = "oracle"
-	Snowflake  DBType = "snowflake"
 )
 
 // Connection is a saved connection profile. Secrets (passwords, passphrases)

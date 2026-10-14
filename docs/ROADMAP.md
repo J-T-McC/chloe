@@ -37,7 +37,7 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 - Users/roles, server privileges, object privileges (MySQL, PostgreSQL)
 
 ## 7. More engines
-MongoDB, Redis, SQLite, SQL Server, Oracle, Snowflake
+Redis, MongoDB, SQLite, SQL Server, Oracle (each must be testable in Docker; Snowflake is out of scope)
 
 ## 8. Advanced
 - Structure sync and data sync (diff + deploy script)

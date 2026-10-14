@@ -14,7 +14,6 @@ const ENGINES: Array<{ type: DBType; label: string; ready: boolean }> = [
   { type: DBType.SQLite, label: "SQLite", ready: false },
   { type: DBType.SQLServer, label: "SQL Server", ready: false },
   { type: DBType.Oracle, label: "Oracle", ready: false },
-  { type: DBType.Snowflake, label: "Snowflake", ready: false },
 ];
 
 const engineLabel = (t: DBType) => ENGINES.find((e) => e.type === t)?.label ?? t;

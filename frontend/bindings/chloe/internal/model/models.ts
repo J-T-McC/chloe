@@ -169,7 +169,6 @@ export enum DBType {
     Redis = "redis",
     SQLServer = "sqlserver",
     Oracle = "oracle",
-    Snowflake = "snowflake",
 };
 
 export interface DatabaseEntry {
