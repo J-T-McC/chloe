@@ -2297,9 +2297,14 @@ table.mapping select {
   background: var(--bg-3);
 }
 
-.viewer .statusbar .tb-group button.accent {
+.viewer .statusbar .tb-group button.accent,
+.viewer .statusbar .tb-group button.accent:hover:not(:disabled) {
   background: var(--accent);
   color: var(--accent-text);
+}
+
+.viewer .statusbar .tb-group button.accent:hover:not(:disabled) {
+  filter: brightness(1.08);
 }
 
 .viewer .statusbar .sql-preview {
