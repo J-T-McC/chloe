@@ -29,6 +29,22 @@ tasks:
     cmds:
       - task: "{{.GOOS}}:package"
 
+  install:
+    summary: Packages the app and installs it in /Applications (macOS)
+    desc: |
+      Replaces /Applications/Chloe.app with a fresh signed build, quitting a running
+      copy first. Saved connections and Keychain passwords carry over: they live in
+      ~/Library/Application Support/Chloe and the Keychain, which trusts the signature.
+    platforms: [darwin]
+    deps:
+      - task: package
+    cmds:
+      - osascript -e 'tell application id "app.chloe.desktop" to quit' 2>/dev/null || true
+      - rm -rf /Applications/Chloe.app
+      - ditto bin/Chloe.app /Applications/Chloe.app
+      - /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/Chloe.app
+      - 'echo "Installed /Applications/Chloe.app"'
+
   run:
     summary: Runs the application
     cmds:

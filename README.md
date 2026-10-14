@@ -38,6 +38,7 @@ The browser build (`bin/Chloe-server`) has no login, so it refuses to start with
 loopback (`CHLOE_ALLOW_REMOTE=1` overrides that, as the Docker image does). Exported connections carry passwords only when
 a passphrase is given, encrypted with it (scrypt + AES-256-GCM).
 
+`wails3 task install` builds `Chloe.app` and replaces `/Applications/Chloe.app`; rerun it to update.
 macOS builds are signed with `CHLOE_SIGN_IDENTITY`, else the first "Apple Development" certificate in the keychain, else ad hoc.
 A stable signature lets the Keychain keep trusting Chloe across rebuilds. Sharing builds needs a Developer ID certificate
 and notarization (`wails3 setup`, then `wails3 task darwin:sign:notarize`).
