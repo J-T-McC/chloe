@@ -69,6 +69,8 @@ export function CollectionViewer({ tab }: { tab: Tab }) {
   const [dataKey, setDataKey] = useState("0");
   const [active, setActive] = useState<number | null>(null);
   const seq = useRef(0);
+  // Edits run one at a time, so a field's replies can't arrive out of order.
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
 
   const load = useCallback(async () => {
     const n = ++seq.current;
@@ -100,14 +102,20 @@ export function CollectionViewer({ tab }: { tab: Tab }) {
 
   const idOf = (i: number) => field(docs[i], "_id");
 
-  const setField = async (i: number, path: string, value: Val | null) => {
-    const id = idOf(i);
-    if (!id) throw new Error("the document has no _id");
-    await Mongo.EditField(connId, db, coll, { id, path, unset: value === null, value: value ?? { t: "null" } });
-    const fresh = await Mongo.GetDoc(connId, db, coll, id);
-    setDocs((d) => d.map((x, j) => (j === i ? fresh : x)));
-    setRevision((r) => r + 1);
-    flash(value === null ? `Removed ${path}` : `Saved ${path}`);
+  const setField = (i: number, path: string, value: Val | null) => {
+    const run = async () => {
+      const id = idOf(i);
+      if (!id) throw new Error("the document has no _id");
+      await Mongo.EditField(connId, db, coll, { id, path, unset: value === null, value: value ?? { t: "null" } });
+      // With a projection the page shows part of each document; keep it that way.
+      const fresh = query.projection ? null : await Mongo.GetDoc(connId, db, coll, id);
+      setDocs((d) => d.map((x, j) => (j !== i ? x : fresh ?? withField(x, path, value))));
+      setRevision((r) => r + 1);
+      flash(value === null ? `Removed ${path}` : `Saved ${path}`);
+    };
+    const next = queue.current.then(run, run);
+    queue.current = next.catch(() => {});
+    return next;
   };
 
   const remove = async (rows: number[]) => {
@@ -124,7 +132,11 @@ export function CollectionViewer({ tab }: { tab: Tab }) {
   };
 
   const editDoc = async (i: number) => {
-    if (await editDocument({ connId, db, coll, doc: docs[i] })) {
+    const id = idOf(i);
+    // Always edit the stored document: the page may show a projection of it.
+    const full = id ? await Mongo.GetDoc(connId, db, coll, id).catch((e) => (setError(errorText(e)), null)) : null;
+    if (!full) return;
+    if (await editDocument({ connId, db, coll, doc: full })) {
       const id = idOf(i);
       if (id) {
         const fresh = await Mongo.GetDoc(connId, db, coll, id).catch(() => null);
@@ -310,6 +322,18 @@ export function CollectionViewer({ tab }: { tab: Tab }) {
       </div>
     </div>
   );
+}
+
+/** The document with a top-level or dotted field set (or removed, for null). */
+function withField(doc: Val, path: string, value: Val | null): Val {
+  const [head, ...rest] = path.split(".");
+  const fs = doc.f ?? [];
+  const i = fs.findIndex((f) => f.k === head);
+  let next: Val | null = value;
+  if (rest.length) next = withField(i >= 0 && fs[i].v.t === "object" ? fs[i].v : { t: "object", f: [] }, rest.join("."), value);
+  const f = fs.filter((_, j) => j !== i || next !== null).map((x, j) => (j === i && next ? { k: head, v: next } : x));
+  if (i < 0 && next) f.push({ k: head, v: next });
+  return { ...doc, f };
 }
 
 /** "{ a: 1, "b": -1 }" → grid sort markers (best effort, for the column headers). */

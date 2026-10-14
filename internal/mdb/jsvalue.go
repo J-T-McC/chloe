@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"math/big"
 	"strconv"
 	"strings"
 	"time"
@@ -59,7 +60,7 @@ const prelude = `
     toJSON: function () { return this.$v; },
   });
   g.Int32 = g.NumberInt;
-  def("Double", "Double", function (v) { this.$v = Number(v || 0); }, {
+  def("Double", "Double", function (v) { this.$v = v === undefined ? 0 : Number(v); }, {
     toString: function () { return String(this.$v); },
     valueOf: function () { return this.$v; },
     toJSON: function () { return this.$v; },
@@ -234,7 +235,10 @@ func (s *Shell) toBSONDepth(v goja.Value, depth int) (any, error) {
 		case string, bool:
 			return x, nil
 		}
-		if b, ok := v.Export().(interface{ Int64() int64 }); ok { // BigInt
+		if b, ok := v.Export().(*big.Int); ok { // BigInt
+			if !b.IsInt64() {
+				return nil, fmt.Errorf("%s is too large for a 64-bit integer", b)
+			}
 			return b.Int64(), nil
 		}
 		return v.String(), nil
@@ -267,8 +271,13 @@ func (s *Shell) toBSONDepth(v goja.Value, depth int) (any, error) {
 		return a, nil
 	case "Function":
 		return bson.JavaScript(o.String()), nil
-	case "Number", "String", "Boolean":
+	case "Number":
 		return s.toBSONDepth(o.ToNumber(), depth)
+	case "String":
+		return o.String(), nil
+	case "Boolean":
+		b, _ := o.Export().(bool)
+		return b, nil
 	}
 	if c, ok := o.Export().(*cursor); ok {
 		return nil, fmt.Errorf("a cursor can't be stored; call toArray() on %s first", c.ns())
@@ -339,15 +348,16 @@ func (s *Shell) installHelpers() {
 		return vm.ToValue(id.Hex())
 	})
 	set("__checkLong", func(c goja.FunctionCall) goja.Value {
-		t := c.Argument(0).String()
-		if _, err := strconv.ParseInt(t, 10, 64); err != nil {
-			f, ferr := strconv.ParseFloat(t, 64)
-			if ferr != nil {
-				fail(fmt.Errorf("invalid NumberLong %q", t))
-			}
-			return vm.ToValue(strconv.FormatInt(int64(f), 10))
+		t := strings.TrimSpace(c.Argument(0).String())
+		if n, err := strconv.ParseInt(t, 10, 64); err == nil {
+			return vm.ToValue(strconv.FormatInt(n, 10))
 		}
-		return vm.ToValue(t)
+		// NumberLong(1.5) truncates, as mongosh does; anything out of range is an error.
+		f, err := strconv.ParseFloat(t, 64)
+		if err != nil || math.IsNaN(f) || f >= math.MaxInt64 || f < math.MinInt64 {
+			fail(fmt.Errorf("invalid NumberLong %q: not a 64-bit integer", t))
+		}
+		return vm.ToValue(strconv.FormatInt(int64(f), 10))
 	})
 	set("__checkDecimal", func(c goja.FunctionCall) goja.Value {
 		d, err := bson.ParseDecimal128(c.Argument(0).String())

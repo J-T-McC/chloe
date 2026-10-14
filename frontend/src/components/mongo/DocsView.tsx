@@ -34,9 +34,9 @@ export interface DocsViewProps {
 }
 
 /** Read a cell or tree edit as a value: the field keeps its type unless the text says otherwise. */
-export async function parseEdit(old: Val | undefined, text: string | null): Promise<Val> {
+export async function parseEdit(old: Val | undefined, text: string | null, columnType?: string): Promise<Val> {
   if (text === null) return { t: "null" };
-  const t = editType(old?.t, text);
+  const t = editType(old?.t, text, columnType);
   return Mongo.ParseValue(t, text);
 }
 
@@ -69,7 +69,7 @@ function GridView(p: DocsViewProps) {
         const old = field(docs.current[r], name);
         if (!old && value === "") return;
         try {
-          await p.onSetField!(r, name, await parseEdit(old, value));
+          await p.onSetField!(r, name, await parseEdit(old, value, p.fields[c]?.type));
         } catch (e) {
           alert(`Couldn't set ${name}`, errorText(e));
         }
@@ -108,6 +108,8 @@ function TreeView(p: DocsViewProps) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [sel, setSel] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ key: string; text: string } | null>(null);
+  // Escape removes the input, whose blur must not then save it.
+  const cancelled = useRef(false);
   const scroller = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -142,6 +144,10 @@ function TreeView(p: DocsViewProps) {
 
   const commit = async (r: Row, text: string) => {
     setEditing(null);
+    if (cancelled.current) {
+      cancelled.current = false;
+      return;
+    }
     try {
       await p.onSetField!(r.doc, r.path, await parseEdit(r.value, text));
     } catch (e) {
@@ -185,7 +191,11 @@ function TreeView(p: DocsViewProps) {
                   setSel(r.key);
                   p.onActive?.(r.doc, r.path);
                 }}
-                onDoubleClick={() => (container ? toggle(r) : canEdit(r) && setEditing({ key: r.key, text: cellText(r.value) ?? "" }))}
+                onDoubleClick={() => {
+                  cancelled.current = false;
+                  if (container) toggle(r);
+                  else if (canEdit(r)) setEditing({ key: r.key, text: cellText(r.value) ?? "" });
+                }}
                 onContextMenu={(e) => menu(e, r)}
               >
                 <span className="doc-key" style={{ paddingLeft: 6 + r.depth * 16 }}>
@@ -207,7 +217,10 @@ function TreeView(p: DocsViewProps) {
                       onBlur={() => commit(r, editing.text)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") commit(r, editing.text);
-                        if (e.key === "Escape") setEditing(null);
+                        if (e.key === "Escape") {
+                          cancelled.current = true;
+                          setEditing(null);
+                        }
                       }}
                     />
                   ) : r.value.t === "null" ? (

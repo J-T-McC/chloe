@@ -77,6 +77,22 @@ await step("filter", async () => {
   console.log("    ", await tab().locator(".statusbar").innerText().then((t) => t.replace(/\s+/g, " ")));
 });
 
+await step("edit document loads the whole document", async () => {
+  // The filter bar still has a sort; add a projection that hides items.
+  await tab().locator(".mongo-filter input").nth(2).fill("{ items: 0 }");
+  await tab().locator(".mongo-filter").getByRole("button", { name: "Apply" }).click();
+  await page.waitForTimeout(500);
+  await tab().locator(".grid-cell").first().click();
+  await tab().locator(".toolbar").getByRole("button", { name: "Edit" }).click();
+  await page.locator(".doc-editor .monaco-editor").waitFor();
+  await page.waitForTimeout(300);
+  const text = await page.locator(".doc-editor .view-lines").innerText();
+  if (!text.includes("items")) throw new Error("projected fields missing from the editor: " + text.slice(0, 120));
+  await page.locator(".doc-editor").getByRole("button", { name: "Cancel" }).click();
+  await tab().locator(".mongo-filter input").nth(2).fill("");
+  await tab().locator(".mongo-filter").getByRole("button", { name: "Apply" }).click();
+});
+
 await step("tree and JSON views", async () => {
   await tab().locator(".mode-switch button[title='Tree View']").click();
   await tab().locator(".doc-tree-row").first().waitFor();
@@ -213,6 +229,21 @@ await step("designer", async () => {
   await tab().getByRole("button", { name: "Save" }).click();
   await tab().locator(".designer-tabs button", { hasText: "Indexes" }).click();
   await tab().locator(".fields-grid tbody tr input[value='full_name_1_created_at_-1']").waitFor();
+});
+
+await step("hide an index in place", async () => {
+  const row = tab().locator(".fields-grid tbody tr", { has: page.locator("input[value='email_1']") });
+  await row.locator("input[type=checkbox]").nth(2).check();
+  await tab().locator(".designer-tabs button", { hasText: "Script Preview" }).click();
+  await page.waitForTimeout(400);
+  const script = (await tab().locator(".code-block").innerText()).replace(/\s+/g, " ");
+  console.log("     script:", script);
+  if (!script.includes("collMod") || script.includes("dropIndex")) throw new Error("hiding should use collMod");
+  await tab().getByRole("button", { name: "Save" }).click();
+  await tab().locator(".designer-tabs button", { hasText: "Indexes" }).click();
+  await page.waitForTimeout(500);
+  const hidden = await tab().locator(".fields-grid tbody tr", { has: page.locator("input[value='email_1']") }).locator("input[type=checkbox]").nth(2).isChecked();
+  if (!hidden) throw new Error("index not hidden after saving");
 });
 
 await step("view is read-only", async () => {

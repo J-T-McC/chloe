@@ -233,6 +233,13 @@ export interface IndexSpec {
      */
     "partial": string;
     "collation": string;
+
+    /**
+     * Base is the server's spec of the index being changed: options the editor doesn't
+     * show (collation, text weights, ...) carry over, and unchanged keys stay as they
+     * were (a text index's _fts keys).
+     */
+    "base"?: Val | null;
 }
 
 export interface Page {
@@ -284,11 +291,17 @@ export interface Result {
     "hasMore": boolean;
 
     /**
-     * Namespace is db.collection for cursors over a collection (lets the grid edit documents).
+     * DB and Collection name the collection a cursor reads.
      */
     "db"?: string;
     "collection"?: string;
     "elapsedMs": number;
+
+    /**
+     * Editable: the documents are the collection's own (a find without map()), so
+     * they can be edited in place. Aggregation results can't.
+     */
+    "editable": boolean;
 }
 
 /**

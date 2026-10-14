@@ -49,23 +49,25 @@ function quote(s: string, json: boolean): string {
 /**
  * Shell syntax for a value. indent "" gives one line. json writes double-quoted keys
  * and strings (the JSON view); otherwise bare keys and single quotes (mongosh).
+ * The text evaluates back to the same value, except with display set, which writes
+ * integral doubles as plain numbers the way mongosh shows them.
  */
-export function formatVal(v: Val, indent = "", json = false, depth = 0): string {
+export function formatVal(v: Val, indent = "", json = false, depth = 0, display = false): string {
   const nl = (d: number) => (indent ? "\n" + indent.repeat(d) : " ");
   switch (v.t) {
     case "object": {
       const fs = fields(v);
       if (!fs.length) return "{}";
-      const parts = fs.map((f) => nl(depth + 1) + (json || !IDENT.test(f.k) ? quote(f.k, json) : f.k) + ": " + formatVal(f.v, indent, json, depth + 1));
+      const parts = fs.map((f) => nl(depth + 1) + (json || !IDENT.test(f.k) ? quote(f.k, json) : f.k) + ": " + formatVal(f.v, indent, json, depth + 1, display));
       return "{" + parts.join(",") + nl(depth) + "}";
     }
     case "array": {
       const as = items(v);
       if (!as.length) return "[]";
-      return "[" + as.map((e) => nl(depth + 1) + formatVal(e, indent, json, depth + 1)).join(",") + nl(depth) + "]";
+      return "[" + as.map((e) => nl(depth + 1) + formatVal(e, indent, json, depth + 1, display)).join(",") + nl(depth) + "]";
     }
   }
-  return scalar(v, json);
+  return scalar(v, json, display);
 }
 
 /**
@@ -73,7 +75,7 @@ export function formatVal(v: Val, indent = "", json = false, depth = 0): string 
  * otherwise its fields or items go one per line, each laid out the same way.
  */
 export function formatCompact(v: Val, width = 80, depth = 0): string {
-  const one = formatVal(v);
+  const one = formatVal(v, "", false, 0, true);
   const pad = "  ".repeat(depth);
   if ((v.t !== "object" && v.t !== "array") || pad.length + one.length <= width) return one;
   const inner = "  ".repeat(depth + 1);
@@ -82,7 +84,10 @@ export function formatCompact(v: Val, width = 80, depth = 0): string {
   return "{\n" + fields(v).map((f) => inner + key(f.k) + ": " + formatCompact(f.v, width - key(f.k).length - 2, depth + 1)).join(",\n") + "\n" + pad + "}";
 }
 
-function scalar(v: Val, json: boolean): string {
+/** Whether /pattern/options reads back as the same regex. */
+const regexLiteral = (pattern: string, opts: string) => /^[imsu]*$/.test(opts) && pattern !== "" && !/[/\n\r]/.test(pattern);
+
+function scalar(v: Val, json: boolean, display = false): string {
   const q = (s: string) => quote(s, json);
   const t = v.v ?? "";
   switch (v.t) {
@@ -92,7 +97,9 @@ function scalar(v: Val, json: boolean): string {
     case "bool":
       return t;
     case "double":
-      return t === "NaN" || t.endsWith("Infinity") || /[.eE]/.test(t) ? t : t + ".0";
+      // An integral double would read back as an int32, so it says what it is.
+      if (/[.eEN]/.test(t) || t.endsWith("Infinity")) return t;
+      return display ? t : `Double(${t})`;
     case "long":
       return `NumberLong(${q(t)})`;
     case "decimal":
@@ -108,7 +115,7 @@ function scalar(v: Val, json: boolean): string {
     case "uuid":
       return `UUID(${q(t)})`;
     case "regex":
-      return !t.includes("/") && !/[lux]/.test(v.s ?? "") ? `/${t}/${v.s ?? ""}` : `RegExp(${q(t)}, ${q(v.s ?? "")})`;
+      return regexLiteral(t, v.s ?? "") ? `/${t}/${v.s ?? ""}` : `BSONRegExp(${q(t)}, ${q(v.s ?? "")})`;
     case "timestamp":
       return `Timestamp(${t}, ${v.s ?? "0"})`;
     case "minKey":
@@ -138,11 +145,14 @@ export const editsAsShell = (t: string) => !PLAIN.has(t) && t !== "null";
  * How to read a grid edit: the type the cell had, or for a missing or null cell the
  * type the text looks like (number, boolean, or a shell expression such as { } or ISODate()).
  */
-export function editType(oldType: string | undefined, text: string): string {
+export function editType(oldType: string | undefined, text: string, columnType?: string): string {
   if (oldType && oldType !== "null") return editsAsShell(oldType) ? "shell" : oldType;
   const s = text.trim();
-  if (/^-?\d+$/.test(s)) return Math.abs(Number(s)) <= 2147483647 ? "int" : "long";
-  if (/^-?(\d+\.\d*|\.\d+|\d+)([eE][-+]?\d+)?$/.test(s)) return "double";
+  // A new value in a column of strings stays a string ("00123" is not 123).
+  if (columnType === "string" && !/^[[{]/.test(s)) return "string";
+  // Only numbers written the way the number prints (no leading zeros or "+").
+  if (/^-?(0|[1-9]\d*)$/.test(s)) return Math.abs(Number(s)) <= 2147483647 ? "int" : Number.isSafeInteger(Number(s)) ? "long" : "string";
+  if (/^-?(0|[1-9]\d*)(\.\d+)?([eE][-+]?\d+)?$/.test(s)) return "double";
   if (s === "true" || s === "false") return "bool";
   if (/^[[{]/.test(s) || /^(ObjectId|ISODate|NumberLong|NumberInt|NumberDecimal|UUID|BinData|Timestamp|new Date)\b/.test(s)) return "shell";
   return "string";

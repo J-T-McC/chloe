@@ -11,6 +11,8 @@ import { collectionsChanged } from "./actions";
 interface IndexRow {
   /** name on the server; empty for a new index */
   orig: string;
+  /** the server's spec of an existing index (keeps options the grid doesn't show) */
+  spec?: MG.Val;
   name: string;
   keys: string;
   unique: boolean;
@@ -33,6 +35,7 @@ const emptyOptions = (): MG.CollOptions => ({
 
 const rowOf = (ix: MG.IndexInfo): IndexRow => ({
   orig: ix.name,
+  spec: ix.spec,
   name: ix.name,
   keys: formatIndexKeys(ix.keys),
   unique: ix.unique,
@@ -52,9 +55,14 @@ const specOf = (r: IndexRow): MG.IndexSpec => ({
   ttlSet: r.ttl.trim() !== "",
   partial: r.partial,
   collation: "",
+  base: r.spec,
 });
 
-const sameIndex = (a: IndexRow, b: IndexRow) => JSON.stringify({ ...a, orig: "" }) === JSON.stringify({ ...b, orig: "" });
+const editable = (r: IndexRow) => ({ name: r.name, keys: r.keys, unique: r.unique, sparse: r.sparse, hidden: r.hidden, ttl: r.ttl, partial: r.partial });
+const sameIndex = (a: IndexRow, b: IndexRow) => JSON.stringify(editable(a)) === JSON.stringify(editable(b));
+/** Only hidden or an existing TTL changed: collMod can do it without rebuilding the index. */
+const inPlace = (old: IndexRow, cur: IndexRow) =>
+  JSON.stringify({ ...editable(old), hidden: false, ttl: "" }) === JSON.stringify({ ...editable(cur), hidden: false, ttl: "" }) && (old.ttl === cur.ttl || (old.ttl !== "" && cur.ttl !== ""));
 
 export function CollectionDesigner({ tab }: { tab: Tab }) {
   const connId = tab.connId!;
@@ -114,13 +122,21 @@ export function CollectionDesigner({ tab }: { tab: Tab }) {
 
   // ---- what saving does -----------------------------------------------------------------
   const plan = useMemo(() => {
-    const drop = orig.filter((o) => o.orig !== "_id_" && !rows.some((r) => r.orig === o.orig && sameIndex(r, o))).map((o) => o.orig);
-    const create = rows.filter((r) => r.orig !== "_id_" && (!r.orig || !sameIndex(r, orig.find((o) => o.orig === r.orig)!)));
+    const drop = orig.filter((o) => o.orig !== "_id_" && !rows.some((r) => r.orig === o.orig)).map((o) => o.orig);
+    const changed = rows.filter((r) => r.orig && r.orig !== "_id_" && !sameIndex(r, orig.find((o) => o.orig === r.orig)!));
+    const modify = changed.filter((r) => inPlace(orig.find((o) => o.orig === r.orig)!, r));
+    const replace = changed.filter((r) => !modify.includes(r));
+    const create = rows.filter((r) => !r.orig);
     const validation = val.validator !== origVal.validator || val.level !== origVal.level || val.action !== origVal.action;
     const viewChanged = view.viewOn !== origView.viewOn || view.pipeline !== origView.pipeline;
-    return { drop, create, validation, viewChanged };
+    return { drop, modify, replace, create, validation, viewChanged };
   }, [orig, rows, val, origVal, view, origView]);
-  const dirty = isNew || plan.drop.length > 0 || plan.create.length > 0 || plan.validation || (isView && plan.viewChanged);
+  const indexChanges = plan.drop.length + plan.modify.length + plan.replace.length + plan.create.length;
+  const dirty = isNew || indexChanges > 0 || plan.validation || (isView && plan.viewChanged);
+  const modifyArgs = (r: IndexRow) => {
+    const o = orig.find((x) => x.orig === r.orig)!;
+    return { hidden: o.hidden !== r.hidden ? r.hidden : null, ttl: o.ttl !== r.ttl ? Number(r.ttl) : null };
+  };
 
   const fullOptions = (): MG.CollOptions =>
     isView ? { ...emptyOptions(), viewOn: view.viewOn, pipeline: view.pipeline } : { ...opts, validator: val.validator, validationLevel: val.level, validationAction: val.action };
@@ -136,6 +152,15 @@ export function CollectionDesigner({ tab }: { tab: Tab }) {
         if (isNew) lines.push(await Mongo.CreateScript(coll, fullOptions()));
         else if (isView && plan.viewChanged) lines.push(`db.runCommand({ collMod: ${q}, viewOn: ${JSON.stringify(view.viewOn)}, pipeline: ${view.pipeline} })`);
         for (const d of isNew ? [] : plan.drop) lines.push(`db.getCollection(${q}).dropIndex(${JSON.stringify(d)})`);
+        for (const r of isView || isNew ? [] : plan.modify) {
+          const m = modifyArgs(r);
+          const parts = [`name: ${JSON.stringify(r.orig)}`, ...(m.hidden !== null ? [`hidden: ${m.hidden}`] : []), ...(m.ttl !== null ? [`expireAfterSeconds: ${m.ttl}`] : [])];
+          lines.push(`db.runCommand({ collMod: ${q}, index: { ${parts.join(", ")} } })`);
+        }
+        for (const r of isView || isNew ? [] : plan.replace) {
+          lines.push(`db.getCollection(${q}).dropIndex(${JSON.stringify(r.orig)})`);
+          lines.push(await Mongo.IndexScript(coll, specOf(r)));
+        }
         for (const r of isView ? [] : plan.create) lines.push(await Mongo.IndexScript(coll, specOf(r)));
         if (!isNew && !isView && plan.validation) {
           const parts = [`collMod: ${q}`, `validator: ${val.validator.trim() || "{}"}`];
@@ -162,10 +187,18 @@ export function CollectionDesigner({ tab }: { tab: Tab }) {
     setBusy(true);
     setError("");
     try {
+      // Check every new or changed index before changing anything on the server.
+      if (!isView) for (const r of [...plan.replace, ...plan.create]) await Mongo.IndexScript(target, specOf(r));
       if (isNew) await Mongo.CreateCollection(connId, db, target, fullOptions());
       else if (isView && plan.viewChanged) await Mongo.SetViewPipeline(connId, db, target, view.viewOn, view.pipeline);
       if (!isView) {
         for (const d of isNew ? [] : plan.drop) await Mongo.DropIndex(connId, db, target, d);
+        for (const r of isNew ? [] : plan.modify) {
+          const m = modifyArgs(r);
+          await Mongo.ModifyIndex(connId, db, target, r.orig, m.hidden, m.ttl);
+        }
+        // Dropped and recreated one by one; the backend puts an index back if its new spec is refused.
+        for (const r of isNew ? [] : plan.replace) await Mongo.ReplaceIndex(connId, db, target, r.orig, specOf(r));
         for (const r of plan.create) await Mongo.CreateIndex(connId, db, target, specOf(r));
         if (!isNew && plan.validation) await Mongo.SetValidation(connId, db, target, fullOptions());
       }

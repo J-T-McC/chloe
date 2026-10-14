@@ -405,6 +405,18 @@ func validationFields(o CollOptions) (bson.D, error) {
 	return out, nil
 }
 
+// withValidationDefaults spells out the defaults, so choosing "(default)" in the
+// designer resets a level or action set before.
+func withValidationDefaults(o CollOptions) CollOptions {
+	if o.ValidationLevel == "" {
+		o.ValidationLevel = "strict"
+	}
+	if o.ValidationAction == "" {
+		o.ValidationAction = "error"
+	}
+	return o
+}
+
 // CreateCollection creates a collection or, with ViewOn set, a view.
 func (c *Client) CreateCollection(ctx context.Context, db, name string, o CollOptions) error {
 	cmd, err := CreateCommand(name, o)
@@ -419,7 +431,7 @@ func (c *Client) CreateCollection(ctx context.Context, db, name string, o CollOp
 // An empty validator removes validation.
 func (c *Client) SetValidation(ctx context.Context, db, name string, o CollOptions) error {
 	cmd := bson.D{{Key: "collMod", Value: name}}
-	v, err := validationFields(o)
+	v, err := validationFields(withValidationDefaults(o))
 	if err != nil {
 		return err
 	}

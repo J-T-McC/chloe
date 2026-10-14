@@ -391,11 +391,9 @@ func (f formatter) scalar(v Val) string {
 	case "int", "bool":
 		return v.V
 	case "double":
-		if v.V == "NaN" || strings.HasSuffix(v.V, "Infinity") {
-			return v.V
-		}
-		if !strings.ContainsAny(v.V, ".eE") {
-			return v.V + ".0"
+		// An integral double would read back as an int32, so it says what it is.
+		if !strings.ContainsAny(v.V, ".eEN") && !strings.HasSuffix(v.V, "Infinity") {
+			return "Double(" + v.V + ")"
 		}
 		return v.V
 	case "long":
@@ -413,10 +411,11 @@ func (f formatter) scalar(v Val) string {
 	case "uuid":
 		return "UUID(" + q(v.V) + ")"
 	case "regex":
-		if !strings.Contains(v.V, "/") && !strings.ContainsAny(v.S, "lux") {
+		if regexLiteral(v.V, v.S) {
 			return "/" + v.V + "/" + v.S
 		}
-		return "RegExp(" + q(v.V) + ", " + q(v.S) + ")"
+		// Options JavaScript lacks (x, l) or an awkward pattern: keep it a BSON regex.
+		return "BSONRegExp(" + q(v.V) + ", " + q(v.S) + ")"
 	case "timestamp":
 		return "Timestamp(" + v.V + ", " + v.S + ")"
 	case "minKey":
@@ -431,6 +430,16 @@ func (f formatter) scalar(v Val) string {
 		return q(v.V)
 	}
 	return q(v.V)
+}
+
+// regexLiteral reports whether /pattern/options reads back as the same regex.
+func regexLiteral(pattern, opts string) bool {
+	for _, r := range opts {
+		if !strings.ContainsRune("imsu", r) {
+			return false
+		}
+	}
+	return pattern != "" && !strings.ContainsAny(pattern, "/\n\r")
 }
 
 // Cell is the short text shown for a value in a grid cell.

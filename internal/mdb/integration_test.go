@@ -311,3 +311,123 @@ func TestShell(t *testing.T) {
 	}
 	_ = bson.D{}
 }
+
+func TestShellReviewFixes(t *testing.T) {
+	c := open(t)
+	s := c.NewShell("chloe_it_fixes")
+	defer c.DropDatabase(context.Background(), "chloe_it_fixes")
+	out := run(t, s, `
+		db.src.insertMany([{n: 1}, {n: 2}, {n: 3}, {n: 4}, {n: 5}]);
+		if (true) { db.src.aggregate([{ $match: { n: { $gt: 2 } } }, { $out: "dst" }]) }
+		var r = db.src.aggregate([{ $merge: { into: "dst2" } }]);
+		const t = `+"`"+`
+use other
+show dbs
+`+"`"+`;
+		[db.dst.countDocuments(), db.dst2.countDocuments(), db.getName(), t.trim().split("\n").length]
+		db.src.aggregate([{ $sort: { n: 1 } }]).skip(1).limit(2)
+		db.src.find({}, { n: 1 })
+		db.src.find().map(d => d.n);
+		(function () { return db.src.countDocuments() })()
+	`)
+	vals := func(i int) string {
+		r := out.Results[i]
+		if r.Value != nil {
+			return Format(*r.Value, "", false)
+		}
+		docs := make([]string, len(r.Page.Docs))
+		for j, d := range r.Page.Docs {
+			docs[j] = Format(d, "", false)
+		}
+		return strings.Join(docs, " ")
+	}
+	n := len(out.Results)
+	if got := vals(n - 5); got != "[ 3, 5, 'chloe_it_fixes', 2 ]" {
+		t.Errorf("$out/$merge ran lazily or use was rewritten in a string: %s", got)
+	}
+	if r := out.Results[n-4]; len(r.Page.Docs) != 2 || r.Editable || !strings.Contains(vals(n-4), "n: 2") || !strings.Contains(vals(n-4), "n: 3") {
+		t.Errorf("aggregate skip/limit: %s editable=%v", vals(n-4), r.Editable)
+	}
+	if r := out.Results[n-3]; !r.Editable || r.Collection != "src" {
+		t.Errorf("find should be editable: %+v", r)
+	}
+	if r := out.Results[n-2]; r.Editable {
+		t.Errorf("mapped results are not documents of the collection")
+	}
+	if r := out.Results[n-1]; r.Statement != "(function () { return db.src.countDocuments() })()" || vals(n-1) != "5" {
+		t.Errorf("parenthesised statement: %q %s", r.Statement, vals(n-1))
+	}
+	if e := s.Run(context.Background(), `db.src.aggregate([{ $out: "x" }]).sort({ n: 1 })`, 20).Error; !strings.Contains(e, "$out or $merge") {
+		t.Errorf("sort after $out: %q", e)
+	}
+}
+
+func TestIndexReplace(t *testing.T) {
+	c := open(t)
+	ctx := context.Background()
+	const db = "chloe_it_index"
+	_ = c.DropDatabase(ctx, db)
+	defer c.DropDatabase(ctx, db)
+	s := c.NewShell(db)
+	run(t, s, `
+		db.p.insertMany([{ name: "Ada", bio: "math" }, { name: "ada", bio: "engines" }]);
+		db.p.createIndex({ bio: "text", name: "text" }, { name: "txt", weights: { name: 5 } });
+		db.p.createIndex({ name: 1 }, { name: "ci", collation: { locale: "en", strength: 2 }, partialFilterExpression: { bio: { $exists: true } } });
+	`)
+	byName := func() map[string]IndexInfo {
+		ix, err := c.Indexes(ctx, db, "p")
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := map[string]IndexInfo{}
+		for _, x := range ix {
+			m[x.Name] = x
+		}
+		return m
+	}
+	spec := func(x IndexInfo) IndexSpec {
+		return IndexSpec{Name: x.Name, Keys: x.Keys, Unique: x.Unique, Sparse: x.Sparse, Hidden: x.Hidden, TTL: x.TTL, TTLSet: x.TTL >= 0, Partial: x.Partial, Base: &x.Spec}
+	}
+	m := byName()
+	// Replacing a text index with only "unique" changed keeps its keys and weights.
+	sp := spec(m["txt"])
+	sp.Sparse = true
+	if err := c.ReplaceIndex(ctx, db, "p", "txt", sp); err != nil {
+		t.Fatalf("text index: %v", err)
+	}
+	if x := byName()["txt"]; !x.Sparse || !strings.Contains(Format(x.Spec, "", false), "weights: { bio: 1, name: 5 }") {
+		t.Errorf("text index after replace: %s", Format(x.Spec, "", false))
+	}
+	// Making the collation index unique keeps the collation.
+	sp = spec(m["ci"])
+	sp.Unique = true
+	if err := c.ReplaceIndex(ctx, db, "p", "ci", sp); err == nil {
+		t.Error("unique on case-insensitive duplicates should fail")
+	}
+	if x, ok := byName()["ci"]; !ok || x.Unique || x.Collation == "" {
+		t.Errorf("the old index must be restored with its collation: %+v", x)
+	}
+	// A bad partial filter is refused before anything is dropped.
+	sp = spec(m["ci"])
+	sp.Partial = "{ bio: "
+	if err := c.ReplaceIndex(ctx, db, "p", "ci", sp); err == nil || !strings.Contains(err.Error(), "partial filter") {
+		t.Errorf("bad partial: %v", err)
+	}
+	if _, ok := byName()["ci"]; !ok {
+		t.Error("index dropped by a failed edit")
+	}
+	h := true
+	if err := c.ModifyIndex(ctx, db, "p", "ci", &h, nil); err != nil || !byName()["ci"].Hidden {
+		t.Errorf("hide: %v", err)
+	}
+	if err := c.SetValidation(ctx, db, "p", CollOptions{Validator: `{ name: { $type: "string" } }`, ValidationLevel: "moderate", ValidationAction: "warn"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetValidation(ctx, db, "p", CollOptions{Validator: `{ name: { $type: "string" } }`}); err != nil {
+		t.Fatal(err)
+	}
+	cs, _ := c.Collections(ctx, db, false)
+	if o := Format(cs[0].Options, "", false); !strings.Contains(o, "validationLevel: 'strict'") || !strings.Contains(o, "validationAction: 'error'") {
+		t.Errorf("default validation level/action not restored: %s", o)
+	}
+}

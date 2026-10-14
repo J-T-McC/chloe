@@ -59,7 +59,7 @@ func TestFormat(t *testing.T) {
 		{Key: "tags", Value: bson.A{"a"}},
 		{Key: "odd key", Value: bson.D{}},
 	})
-	want := `{ _id: ObjectId('65a1b2c3d4e5f60718293a4b'), name: 'it\'s', n: NumberLong('5'), x: 1.0, tags: [ 'a' ], 'odd key': {} }`
+	want := `{ _id: ObjectId('65a1b2c3d4e5f60718293a4b'), name: 'it\'s', n: NumberLong('5'), x: Double(1), tags: [ 'a' ], 'odd key': {} }`
 	if got := Format(v, "", false); got != want {
 		t.Errorf("mongosh style:\n got %s\nwant %s", got, want)
 	}
@@ -160,5 +160,74 @@ func TestIndexDoc(t *testing.T) {
 	want := `{ key: { a: 1, b: -1 }, name: 'a_1_b_-1', unique: true, expireAfterSeconds: 60, partialFilterExpression: { a: { $gt: 5 } } }`
 	if got != want {
 		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}
+
+// Every type survives being formatted as shell text and evaluated again, in both
+// styles: that is what the document editor, grid cells and designers rely on.
+func TestFormatEvalRoundTrip(t *testing.T) {
+	dec, _ := bson.ParseDecimal128("-0.00100")
+	doc := bson.D{
+		{Key: "_id", Value: bson.NewObjectID()},
+		{Key: "s", Value: "quote ' \" and \\ and 日本 \n"},
+		{Key: "i", Value: int32(-7)},
+		{Key: "l", Value: int64(-9007199254740993)},
+		{Key: "d", Value: 5.0},
+		{Key: "neg0", Value: math.Copysign(0, -1)},
+		{Key: "frac", Value: 0.1},
+		{Key: "big", Value: 1e300},
+		{Key: "inf", Value: math.Inf(-1)},
+		{Key: "dec", Value: dec},
+		{Key: "t", Value: true},
+		{Key: "n", Value: nil},
+		{Key: "at", Value: bson.NewDateTimeFromTime(time.Date(1969, 7, 20, 20, 17, 40, 0, time.UTC))},
+		{Key: "bin", Value: bson.Binary{Subtype: 0x80, Data: []byte{1, 2, 3}}},
+		{Key: "uuid", Value: bson.Binary{Subtype: 4, Data: []byte("0123456789abcdef")}},
+		{Key: "re", Value: bson.Regex{Pattern: "^a/b$", Options: "i"}},
+		{Key: "rex", Value: bson.Regex{Pattern: "a # comment", Options: "imx"}},
+		{Key: "ts", Value: bson.Timestamp{T: 1700000000, I: 3}},
+		{Key: "min", Value: bson.MinKey{}},
+		{Key: "max", Value: bson.MaxKey{}},
+		{Key: "code", Value: bson.JavaScript("function () { return 1 }")},
+		{Key: "a b", Value: bson.A{int32(1), 2.0, bson.D{{Key: "$x", Value: int64(3)}}}},
+	}
+	for _, json := range []bool{false, true} {
+		text := Format(ToVal(doc), "  ", json)
+		back, err := EvalDoc(text)
+		if err != nil {
+			t.Fatalf("json=%v: %v\n%s", json, err, text)
+		}
+		for i, e := range doc {
+			got := back[i].Value
+			if f, ok := e.Value.(float64); ok && f == 0 {
+				if g, ok := got.(float64); !ok || !math.Signbit(g) {
+					t.Errorf("json=%v %s: got %#v", json, e.Key, got)
+				}
+				continue
+			}
+			if back[i].Key != e.Key || !reflect.DeepEqual(got, e.Value) {
+				t.Errorf("json=%v %s: got %#v want %#v", json, e.Key, got, e.Value)
+			}
+		}
+	}
+}
+
+func TestEvalNumberLimits(t *testing.T) {
+	for _, bad := range []string{`{a: NumberLong("99999999999999999999")}`, `{a: 12345678901234567890n}`} {
+		if _, err := EvalDoc(bad); err == nil {
+			t.Errorf("%s accepted", bad)
+		}
+	}
+	d, err := EvalDoc(`{s: new String("abc"), b: new Boolean(true), n: new Number(2.5), l: NumberLong(1.9)}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := Format(ToVal(d), "", false); got != "{ s: 'abc', b: true, n: 2.5, l: NumberLong('1') }" {
+		t.Errorf("wrappers: %s", got)
+	}
+	// Pooled evaluators can't be poisoned for later callers.
+	_, _ = EvalShell(`(ObjectId = null)`)
+	if _, err := EvalDoc(`{a: ObjectId("65a1b2c3d4e5f60718293a4b")}`); err != nil {
+		t.Errorf("after reassigning ObjectId: %v", err)
 	}
 }

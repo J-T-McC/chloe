@@ -119,12 +119,24 @@ type IndexSpec struct {
 	// Partial and Collation are documents in shell syntax.
 	Partial   string `json:"partial"`
 	Collation string `json:"collation"`
+	// Base is the server's spec of the index being changed: options the editor doesn't
+	// show (collation, text weights, ...) carry over, and unchanged keys stay as they
+	// were (a text index's _fts keys).
+	Base *Val `json:"base,omitempty"`
 }
 
 // IndexDoc builds the createIndexes entry for spec.
 func IndexDoc(s IndexSpec) (bson.D, error) {
 	if len(s.Keys) == 0 {
 		return nil, fmt.Errorf("an index needs at least one field")
+	}
+	var base bson.D
+	if s.Base != nil {
+		v, err := FromVal(*s.Base)
+		if err != nil {
+			return nil, err
+		}
+		base, _ = v.(bson.D)
 	}
 	keys := bson.D{}
 	for _, k := range s.Keys {
@@ -142,6 +154,11 @@ func IndexDoc(s IndexSpec) (bson.D, error) {
 			v = k.Type
 		}
 		keys = append(keys, bson.E{Key: f, Value: v})
+	}
+	if bk, ok := optVal(base, "key"); ok {
+		if bkd, ok := bk.(bson.D); ok && sameKeys(bkd, s.Keys) {
+			keys = bkd
+		}
 	}
 	d := bson.D{{Key: "key", Value: keys}}
 	name := s.Name
@@ -179,7 +196,78 @@ func IndexDoc(s IndexSpec) (bson.D, error) {
 		}
 		d = append(d, bson.E{Key: "collation", Value: v})
 	}
+	// Everything else the server had, which the editor doesn't change.
+	for _, e := range base {
+		switch e.Key {
+		case "v", "ns", "key", "name", "unique", "sparse", "hidden", "expireAfterSeconds", "partialFilterExpression":
+			continue
+		case "collation":
+			if strings.TrimSpace(s.Collation) != "" {
+				continue
+			}
+		}
+		d = append(d, e)
+	}
 	return d, nil
+}
+
+// sameKeys reports whether keys, as the editor lists them, are the server's key document.
+func sameKeys(server bson.D, keys []IndexKey) bool {
+	if len(server) != len(keys) {
+		return false
+	}
+	for i, e := range server {
+		if e.Key != strings.TrimSpace(keys[i].Field) || keyType(e.Value) != keys[i].Type && !(keys[i].Type == "" && keyType(e.Value) == "1") {
+			return false
+		}
+	}
+	return true
+}
+
+// ReplaceIndex changes an index MongoDB can't modify in place: it drops it and creates
+// spec, putting the old index back if the new one is refused.
+func (c *Client) ReplaceIndex(ctx context.Context, db, coll, oldName string, s IndexSpec) error {
+	doc, err := IndexDoc(s)
+	if err != nil {
+		return err
+	}
+	ix, err := c.Indexes(ctx, db, coll)
+	if err != nil {
+		return err
+	}
+	var old bson.D
+	for _, x := range ix {
+		if x.Name == oldName {
+			old = x.spec
+		}
+	}
+	if old == nil {
+		return fmt.Errorf("index %s no longer exists", oldName)
+	}
+	if err := c.DropIndex(ctx, db, coll, oldName); err != nil {
+		return err
+	}
+	_, err = c.RunCommand(ctx, db, bson.D{{Key: "createIndexes", Value: coll}, {Key: "indexes", Value: bson.A{doc}}})
+	if err == nil {
+		return nil
+	}
+	if _, rerr := c.RunCommand(ctx, db, bson.D{{Key: "createIndexes", Value: coll}, {Key: "indexes", Value: bson.A{old}}}); rerr != nil {
+		return fmt.Errorf("%w; restoring the old index %s also failed: %v", err, oldName, rerr)
+	}
+	return fmt.Errorf("%w (index %s was left as it was)", err, oldName)
+}
+
+// ModifyIndex hides or unhides an index, or changes a TTL index's expiry, in place.
+func (c *Client) ModifyIndex(ctx context.Context, db, coll, name string, hidden *bool, ttl *int64) error {
+	ix := bson.D{{Key: "name", Value: name}}
+	if hidden != nil {
+		ix = append(ix, bson.E{Key: "hidden", Value: *hidden})
+	}
+	if ttl != nil {
+		ix = append(ix, bson.E{Key: "expireAfterSeconds", Value: *ttl})
+	}
+	_, err := c.RunCommand(ctx, db, bson.D{{Key: "collMod", Value: coll}, {Key: "index", Value: ix}})
+	return err
 }
 
 func (c *Client) CreateIndex(ctx context.Context, db, coll string, s IndexSpec) error {

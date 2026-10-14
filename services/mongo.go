@@ -135,6 +135,24 @@ func (s *MongoService) IndexScript(coll string, spec mdb.IndexSpec) (string, err
 		mdb.Format(keys, "", false) + ", " + mdb.Format(opts, "", false) + ")", nil
 }
 
+// ReplaceIndex drops oldName and creates spec, restoring the old index if that fails.
+func (s *MongoService) ReplaceIndex(ctx context.Context, connID, db, coll, oldName string, spec mdb.IndexSpec) error {
+	c, err := s.client(connID)
+	if err != nil {
+		return err
+	}
+	return c.ReplaceIndex(ctx, db, coll, oldName, spec)
+}
+
+// ModifyIndex changes hidden and/or a TTL in place; nil leaves a setting as it is.
+func (s *MongoService) ModifyIndex(ctx context.Context, connID, db, coll, name string, hidden *bool, ttl *int64) error {
+	c, err := s.client(connID)
+	if err != nil {
+		return err
+	}
+	return c.ModifyIndex(ctx, db, coll, name, hidden, ttl)
+}
+
 func (s *MongoService) DropIndex(ctx context.Context, connID, db, coll, name string) error {
 	c, err := s.client(connID)
 	if err != nil {

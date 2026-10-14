@@ -72,6 +72,11 @@ var evalPool = sync.Pool{New: func() any {
 	if _, err := s.vm.RunProgram(preludeProgram); err != nil {
 		panic(err)
 	}
+	// Pooled runtimes are shared: an expression must not be able to replace ObjectId
+	// or the like for whoever evaluates next.
+	if _, err := s.vm.RunString("Object.freeze(this)"); err != nil {
+		panic(err)
+	}
 	return s
 }}
 
@@ -88,6 +93,7 @@ func EvalShell(text string) (v any, err error) {
 			err = fmt.Errorf("%v", r)
 		}
 	}()
+	s.vm.ClearInterrupt()
 	t := time.AfterFunc(evalTimeout, func() { s.vm.Interrupt("timed out") })
 	defer func() { t.Stop(); s.vm.ClearInterrupt() }()
 	jv, err := s.vm.RunString("(" + text + "\n)")
@@ -153,10 +159,13 @@ type Result struct {
 	// CursorID fetches further pages of a cursor result; HasMore says there are some.
 	CursorID string `json:"cursorId,omitempty"`
 	HasMore  bool   `json:"hasMore"`
-	// Namespace is db.collection for cursors over a collection (lets the grid edit documents).
+	// DB and Collection name the collection a cursor reads.
 	DB         string  `json:"db,omitempty"`
 	Collection string  `json:"collection,omitempty"`
 	ElapsedMS  float64 `json:"elapsedMs"`
+	// Editable: the documents are the collection's own (a find without map()), so
+	// they can be edited in place. Aggregation results can't.
+	Editable bool `json:"editable"`
 }
 
 // RunOutput is everything one Run produced.
@@ -175,10 +184,18 @@ var cmdLine = regexp.MustCompile(`(?m)^([ \t]*)(use|show)[ \t]+([^\s;]+)[ \t]*;?
 // rewrite turns shell commands into calls and wraps every top-level expression
 // statement in __result(expr, n) so its value is reported.
 func rewrite(src string) (string, []string, error) {
-	src = cmdLine.ReplaceAllStringFunc(src, func(m string) string {
-		g := cmdLine.FindStringSubmatch(m)
-		return g[1] + "__" + g[2] + "(" + strconv.Quote(g[3]) + ");"
-	})
+	// Shell commands only count on lines that start in code, not inside a string,
+	// template literal or comment.
+	code := codeLines(src)
+	lines := strings.SplitAfter(src, "\n")
+	for i, l := range lines {
+		if i < len(code) && code[i] {
+			if g := cmdLine.FindStringSubmatch(strings.TrimRight(l, "\r\n")); g != nil {
+				lines[i] = g[1] + "__" + g[2] + "(" + strconv.Quote(g[3]) + ");" + l[len(strings.TrimRight(l, "\r\n")):]
+			}
+		}
+	}
+	src = strings.Join(lines, "")
 	prog, err := parser.ParseFile(nil, "", src, 0)
 	if err != nil {
 		return "", nil, err
@@ -195,6 +212,19 @@ func rewrite(src string) (string, []string, error) {
 		if a < 0 || b > len(src) || a >= b {
 			continue
 		}
+		// A parenthesised expression's span starts inside its parentheses: take in
+		// opening ones until the text balances.
+		for open := parenBalance(src[a:b]); open < 0 && a > 0; {
+			j := a - 1
+			for j > 0 && (src[j] == ' ' || src[j] == '\t' || src[j] == '\n' || src[j] == '\r') {
+				j--
+			}
+			if src[j] != '(' {
+				break
+			}
+			a = j
+			open++
+		}
 		spans = append(spans, span{a, b})
 		stmts = append(stmts, statementText(src[a:b]))
 	}
@@ -207,6 +237,69 @@ func rewrite(src string) (string, []string, error) {
 	}
 	out.WriteString(src[pos:])
 	return out.String(), stmts, nil
+}
+
+// parenBalance counts "(" minus ")" outside strings in s.
+func parenBalance(s string) int {
+	n := 0
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quote != 0:
+			if c == '\\' {
+				i++
+			} else if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'' || c == '`':
+			quote = c
+		case c == '(':
+			n++
+		case c == ')':
+			n--
+		}
+	}
+	return n
+}
+
+// codeLines reports for each line whether it starts outside strings, template
+// literals and block comments.
+func codeLines(src string) []bool {
+	out := []bool{true}
+	var quote byte // ', " or `
+	block := false
+	for i := 0; i < len(src); i++ {
+		c := src[i]
+		switch {
+		case c == '\n':
+			if quote == '\'' || quote == '"' {
+				quote = 0 // unterminated: the parser will complain
+			}
+			out = append(out, quote == 0 && !block)
+		case block:
+			if c == '*' && i+1 < len(src) && src[i+1] == '/' {
+				block = false
+				i++
+			}
+		case quote != 0:
+			if c == '\\' {
+				i++
+			} else if c == quote {
+				quote = 0
+			}
+		case c == '/' && i+1 < len(src) && src[i+1] == '/':
+			for i+1 < len(src) && src[i+1] != '\n' {
+				i++
+			}
+		case c == '/' && i+1 < len(src) && src[i+1] == '*':
+			block = true
+			i++
+		case c == '"' || c == '\'' || c == '`':
+			quote = c
+		}
+	}
+	return out
 }
 
 var shellCall = regexp.MustCompile(`^__(use|show)\("(.*)"\)$`)
@@ -226,6 +319,11 @@ func (s *Shell) Run(ctx context.Context, script string, pageSize int) RunOutput 
 	start := time.Now()
 	s.ctx, s.results, s.last = ctx, nil, start
 	s.out.Reset()
+	// An interrupt that landed after the last run finished must not stop this one.
+	s.vm.ClearInterrupt()
+	for _, c := range s.cursors {
+		c.close()
+	}
 	s.cursors = map[string]*cursor{}
 	if pageSize <= 0 {
 		pageSize = 1000
@@ -255,6 +353,13 @@ func (s *Shell) Run(ctx context.Context, script string, pageSize int) RunOutput 
 }
 
 func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
+
+// CurrentDB is the database "db" refers to (waits for a running script).
+func (s *Shell) CurrentDB() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.DB
+}
 
 // Fetch returns documents of a cursor result from offset skip.
 func (s *Shell) Fetch(ctx context.Context, cursorID string, skip, limit int) (Page, bool, error) {
@@ -320,6 +425,7 @@ func (s *Shell) addResult(v goja.Value, n int) {
 			p := PageOf(docs)
 			r.Kind, r.Page, r.CursorID, r.HasMore = "documents", &p, id, more
 			r.DB, r.Collection = x.db, x.coll
+			r.Editable = !x.agg && x.coll != "" && len(x.transform) == 0
 			r.ElapsedMS = ms(time.Since(s.last) + now.Sub(now))
 			s.last = time.Now()
 			s.results = append(s.results, r)
@@ -685,7 +791,7 @@ func (d *dbObj) makeMethods() map[string]goja.Value {
 			if !ok {
 				s.throw(fmt.Errorf("aggregate needs an array of stages"))
 			}
-			return vm.NewDynamicObject(&cursor{s: s, db: d.dbName(), agg: true, pipeline: p, opts: s.optDoc(c, 1), limit: -1})
+			return s.aggregate(&cursor{s: s, db: d.dbName(), agg: true, pipeline: p, opts: s.optDoc(c, 1), limit: -1})
 		}),
 	}
 }
@@ -971,7 +1077,7 @@ func (c *collObj) makeMethods() map[string]goja.Value {
 					p = append(p, s.docArg(a, i, "stage"))
 				}
 			}
-			return vm.NewDynamicObject(&cursor{s: s, db: c.db, coll: c.name, agg: true, pipeline: p, opts: o, limit: -1})
+			return s.aggregate(&cursor{s: s, db: c.db, coll: c.name, agg: true, pipeline: p, opts: o, limit: -1})
 		}),
 		"insertOne": fn(func(a goja.FunctionCall) goja.Value { return insertOne(s.arg(a, 0)) }),
 		"insertMany": fn(func(a goja.FunctionCall) goja.Value {
@@ -1237,6 +1343,23 @@ func (c *collObj) bulkWrite(a goja.FunctionCall) goja.Value {
 
 // ---- cursors ----------------------------------------------------------------------------
 
+// aggregate returns the cursor of an aggregation. A pipeline ending in $out or $merge
+// runs at once, as in mongosh, whether or not the cursor is ever read.
+func (s *Shell) aggregate(c *cursor) goja.Value {
+	if c.writes() {
+		cur, err := c.open(0, -1)
+		s.check(err)
+		if cur != nil {
+			for cur.Next(s.ctx) {
+			}
+			err := cur.Err()
+			cur.Close(s.ctx)
+			s.check(err)
+		}
+	}
+	return s.vm.NewDynamicObject(c)
+}
+
 // cursor is a find or aggregate query. Results are fetched by page (re-running
 // the query with skip and limit) or iterated from JavaScript.
 type cursor struct {
@@ -1258,6 +1381,13 @@ type cursor struct {
 	methods map[string]goja.Value
 	// written: an aggregate ending in $out or $merge has already run.
 	written bool
+}
+
+func (c *cursor) close() {
+	if c.live != nil {
+		c.live.Close(context.Background())
+		c.live = nil
+	}
 }
 
 func (c *cursor) ns() string {
@@ -1507,6 +1637,17 @@ func (c *cursor) makeMethods() map[string]goja.Value {
 		})
 	}
 	fn := func(f func(a goja.FunctionCall) goja.Value) goja.Value { return vm.ToValue(f) }
+	// stage appends a stage to an aggregation; false for a find cursor.
+	stage := func(name string, v any) bool {
+		if !c.agg {
+			return false
+		}
+		if c.writes() {
+			s.throw(fmt.Errorf("%s can't follow a pipeline ending in $out or $merge", name))
+		}
+		c.pipeline = append(c.pipeline, bson.D{{Key: name, Value: v}})
+		return true
+	}
 	setOpt := func(k string) goja.Value {
 		return chain(func(a goja.FunctionCall) { c.opts = append(c.opts, bson.E{Key: k, Value: s.arg(a, 0)}) })
 	}
@@ -1521,29 +1662,43 @@ func (c *cursor) makeMethods() map[string]goja.Value {
 		}
 	}
 	m := map[string]goja.Value{
+		// On an aggregation these add pipeline stages, as the Node.js driver does.
 		"sort": chain(func(a goja.FunctionCall) {
 			c.sort = s.docArg(a, 0, "sort")
-			if c.agg {
-				c.pipeline = append(c.pipeline, bson.D{{Key: "$sort", Value: c.sort}})
-			}
+			stage("$sort", c.sort)
 		}),
 		"limit": chain(func(a goja.FunctionCall) {
-			c.limit = a.Argument(0).ToInteger()
-			if c.limit < 0 {
-				c.limit = -c.limit
+			n := a.Argument(0).ToInteger()
+			if n < 0 {
+				n = -n
+			}
+			if !stage("$limit", n) {
+				c.limit = n
 			}
 		}),
-		"skip":       chain(func(a goja.FunctionCall) { c.skip = a.Argument(0).ToInteger() }),
-		"projection": chain(func(a goja.FunctionCall) { c.projection = s.docArg(a, 0, "projection") }),
-		"project":    chain(func(a goja.FunctionCall) { c.projection = s.docArg(a, 0, "projection") }),
-		"hint":       setOpt("hint"),
-		"collation":  setOpt("collation"),
-		"comment":    setOpt("comment"),
-		"batchSize":  setOpt("batchSize"),
-		"maxTimeMS":  setOpt("maxTimeMS"),
-		"max":        setOpt("max"),
-		"min":        setOpt("min"),
-		"returnKey":  setOpt("returnKey"),
+		"skip": chain(func(a goja.FunctionCall) {
+			if n := a.Argument(0).ToInteger(); !stage("$skip", n) {
+				c.skip = n
+			}
+		}),
+		"projection": chain(func(a goja.FunctionCall) {
+			if p := s.docArg(a, 0, "projection"); !stage("$project", p) {
+				c.projection = p
+			}
+		}),
+		"project": chain(func(a goja.FunctionCall) {
+			if p := s.docArg(a, 0, "projection"); !stage("$project", p) {
+				c.projection = p
+			}
+		}),
+		"hint":      setOpt("hint"),
+		"collation": setOpt("collation"),
+		"comment":   setOpt("comment"),
+		"batchSize": setOpt("batchSize"),
+		"maxTimeMS": setOpt("maxTimeMS"),
+		"max":       setOpt("max"),
+		"min":       setOpt("min"),
+		"returnKey": setOpt("returnKey"),
 		"allowDiskUse": chain(func(a goja.FunctionCall) {
 			c.opts = append(c.opts, bson.E{Key: "allowDiskUse", Value: goja.IsUndefined(a.Argument(0)) || a.Argument(0).ToBoolean()})
 		}),

@@ -144,13 +144,22 @@ func (m *Manager) MongoShellDB(id string) string {
 	if err != nil {
 		return ""
 	}
-	return s.sh.DB
+	return s.sh.CurrentDB()
 }
 
+// CloseMongoShell forgets a shell, stopping a script it is running.
 func (m *Manager) CloseMongoShell(id string) {
 	m.consolesMu.Lock()
+	s := m.shells[id]
 	delete(m.shells, id)
 	m.consolesMu.Unlock()
+	if s != nil {
+		s.mu.Lock()
+		if s.cancel != nil {
+			s.cancel()
+		}
+		s.mu.Unlock()
+	}
 }
 
 func (m *Manager) closeShells(connID string) {

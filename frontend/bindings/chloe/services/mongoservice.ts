@@ -137,6 +137,13 @@ export function InsertDocs(connID: string, db: string, coll: string, text: strin
     return $Call.ByID(877659616, connID, db, coll, text);
 }
 
+/**
+ * ModifyIndex changes hidden and/or a TTL in place; nil leaves a setting as it is.
+ */
+export function ModifyIndex(connID: string, db: string, coll: string, name: string, hidden: boolean | null, ttl: number | null): $CancellablePromise<void> {
+    return $Call.ByID(1559840856, connID, db, coll, name, hidden, ttl);
+}
+
 export function OpenShell(connID: string, db: string): $CancellablePromise<string> {
     return $Call.ByID(1097671336, connID, db);
 }
@@ -155,6 +162,13 @@ export function RenameCollection(connID: string, db: string, $from: string, to: 
 
 export function ReplaceDoc(connID: string, db: string, coll: string, id: mdb$0.Val, text: string): $CancellablePromise<void> {
     return $Call.ByID(1472844204, connID, db, coll, id, text);
+}
+
+/**
+ * ReplaceIndex drops oldName and creates spec, restoring the old index if that fails.
+ */
+export function ReplaceIndex(connID: string, db: string, coll: string, oldName: string, spec: mdb$0.IndexSpec): $CancellablePromise<void> {
+    return $Call.ByID(666087702, connID, db, coll, oldName, spec);
 }
 
 export function Run(shellID: string, script: string, pageSize: number): $CancellablePromise<mdb$0.RunOutput> {

@@ -129,14 +129,15 @@ export function MongoQuery({ tab }: { tab: Tab }) {
     if (!shell || !r.cursorId) return;
     try {
       const f = await Mongo.Fetch(shell, r.cursorId, skip, PAGE);
-      setResults((rs) => rs.map((x, j) => (j === i ? { ...x, page: f.page, docs: arr(f.page.docs), hasMore: f.hasMore, skip, revision: 0 } : x)));
+      setResults((rs) => rs.map((x, j) => (j === i ? { ...x, page: f.page, docs: arr(f.page.docs), hasMore: f.hasMore, skip, revision: x.revision + 1 } : x)));
     } catch (e) {
       alert("Couldn't fetch more documents", errorText(e));
     }
   };
 
   const shown = view > 0 ? results[view - 1] : undefined;
-  const editable = !!shown?.collection && !!shown.cursorId;
+  // Only a find's own documents can be edited; aggregation and map() results are computed.
+  const editable = !!shown?.editable && !!shown.collection && !!shown.cursorId;
 
   return (
     <div className="query-editor mongo-query">
@@ -197,15 +198,18 @@ export function MongoQuery({ tab }: { tab: Tab }) {
                           const id = field(shown.docs[i], "_id");
                           if (!id) throw new Error("the document has no _id");
                           await Mongo.EditField(connId, shown.db!, shown.collection!, { id, path, unset: value === null, value: value ?? { t: "null" } });
-                          const fresh = await Mongo.GetDoc(connId, shown.db!, shown.collection!, id);
-                          setResults((rs) => rs.map((x, j) => (j === view - 1 ? { ...x, docs: x.docs.map((d, k) => (k === i ? fresh : d)), revision: x.revision + 1 } : x)));
+                          // Re-read the page: the find may project or sort on what changed.
+                          await page(view - 1, shown.skip);
                         }
                       : undefined
                   }
                   onEditDoc={
                     editable
                       ? async (i) => {
-                          if (await editDocument({ connId, db: shown.db!, coll: shown.collection!, doc: shown.docs[i] })) page(view - 1, shown.skip);
+                          const id = field(shown.docs[i], "_id");
+                          // Edit the stored document, not the (possibly projected) result.
+                          const full = id ? await Mongo.GetDoc(connId, shown.db!, shown.collection!, id).catch((e) => (alert("Couldn't load the document", errorText(e)), null)) : null;
+                          if (full && (await editDocument({ connId, db: shown.db!, coll: shown.collection!, doc: full }))) page(view - 1, shown.skip);
                         }
                       : undefined
                   }
