@@ -2,45 +2,66 @@
 
 <h1 align="center">Chloe</h1>
 
-A fast desktop database client for MySQL, MariaDB, PostgreSQL, SQLite, MongoDB and Redis (SQL Server and Oracle planned).
+A fast desktop database client inspired by Navicat Premium. It keeps the menus, dialogs and workflows I rely on, leaves out
+the bloat and the features I never used, and adds the improvements I always wanted.
 
-Built with Go and [Wails v3](https://v3.wails.io) (system webview), React and Monaco.
+Built with Go, [Wails v3](https://v3.wails.io) (system webview), React and Monaco.
 
-## Layout
+## Databases
 
-| Path | What |
-|---|---|
-| `internal/core` | Connections, editor sessions, streamed result buffers, table browse and edits. No UI dependencies. |
-| `internal/driver/{mysql,postgres,sqlite}` | Engine drivers: metadata, DDL, sessions, cancel. |
-| `internal/mdb`, `internal/rdb` | MongoDB (documents, indexes, a goja-based shell) and Redis clients. |
-| `internal/tunnel` | Direct and SSH dialers. |
-| `internal/store` | Saved connections, encrypted with a key kept in the OS keychain, and their passwords in the keychain (on macOS through the Security framework, so only Chloe's signature can read them). |
-| `internal/sqlsplit` | Dialect-aware statement splitter (DELIMITER, `$$`, comments). |
-| `services` | Thin Wails bindings over `internal/core`. |
-| `frontend/src/sql`, `frontend/src/mongo` | SQL and MongoDB autocomplete engines (pure TS, unit tested). |
-| `frontend/src/components` | UI: connection tree, objects pane, data grid, table viewer, query editor. |
-| `docs/specs` | Behaviour specs for the features being built. |
+MySQL, MariaDB, PostgreSQL, SQLite, MongoDB and Redis. SQL Server and Oracle are planned.
 
-## Develop
+## Features
+
+- **Connections**: groups with drag-and-drop ordering, SSH tunnels, SSL, presets for hosted services (Supabase, Neon, RDS,
+  PlanetScale…), paste a connection URL, import/export
+- **Query editor**: Monaco with context-aware autocomplete (tables, columns, aliases, FK-based joins, enum values, JSON
+  keys), beautify, saved queries, history log, tabs that survive a restart
+- **Data grid**: browse, filter, sort and edit tables; value panel for text and JSON
+- **Designers**: tables (columns, keys, foreign keys, indexes, triggers, partitions), views, functions, databases, with an
+  SQL preview before saving
+- **Import / export**: CSV, TSV, JSON, SQL, Excel; dump and execute SQL files
+- **Data Transfer** between MySQL/MariaDB, PostgreSQL and SQLite, converting types, defaults and constraints
+- **Structure and Data Synchronization** with diff views and deployment scripts
+- **ER diagrams**: reverse-engineer, edit, forward-engineer and sync models
+- **Users and privileges** for MySQL and PostgreSQL
+- **Server monitor**: sessions, kill query, variables, status
+- **MongoDB**: grid/tree/JSON views, document editor, mongosh-style shell with completion, collection designer
+- **Redis**: key browser, typed value editors, TTL, console
+- **Security**: passwords in the OS keychain; connections, queries and history encrypted with a keychain key
+
+What's next is in [docs/ROADMAP.md](docs/ROADMAP.md).
+
+## Build and install
+
+Requires Go 1.26+, Node 22+ and the Wails CLI:
 
 ```sh
-wails3 dev                # run with hot reload
-wails3 task build         # build bin/Chloe
-wails3 task test          # Go unit tests
-wails3 task test:it       # start Docker test databases, seed, run integration tests
-cd frontend && npx vitest # frontend unit tests
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.29
+export PATH=$PATH:$(go env GOPATH)/bin
 ```
 
-Test databases (from `docker-compose.yml`): MySQL on `127.0.0.1:33306`, PostgreSQL on `127.0.0.1:55432`, MongoDB on `127.0.0.1:37017` (user `root`) and Redis on `127.0.0.1:63790`, password `chloe`, with `shop` sample data from `testdata/`.
+```sh
+wails3 task build     # build bin/Chloe
+wails3 task install   # macOS: build a signed Chloe.app and replace /Applications/Chloe.app (rerun to update)
+wails3 dev            # run with hot reload
+```
 
-`CHLOE_CONFIG_DIR=<dir>` and `CHLOE_SECRETS=memory` run the app against an isolated config without touching the keychain
-(the connections file then stays plain JSON, since an in-memory key wouldn't open it next time). Redis and MongoDB console
-histories leave out commands carrying passwords, as redis-cli and mongosh do.
-The browser build (`bin/Chloe-server`) has no login, so it refuses to start without `CHLOE_SECRETS=memory` and only listens on
-loopback (`CHLOE_ALLOW_REMOTE=1` overrides that, as the Docker image does). Exported connections carry passwords only when
-a passphrase is given, encrypted with it (scrypt + AES-256-GCM).
+`install` quits a running copy first; saved connections and keychain passwords carry over. Builds are signed with
+`CHLOE_SIGN_IDENTITY`, else the first "Apple Development" certificate in the keychain, else ad hoc. A stable signature
+keeps the keychain trusting Chloe across rebuilds.
 
-`wails3 task install` builds `Chloe.app` and replaces `/Applications/Chloe.app`; rerun it to update.
-macOS builds are signed with `CHLOE_SIGN_IDENTITY`, else the first "Apple Development" certificate in the keychain, else ad hoc.
-A stable signature lets the Keychain keep trusting Chloe across rebuilds. Sharing builds needs a Developer ID certificate
-and notarization (`wails3 setup`, then `wails3 task darwin:sign:notarize`).
+## Test
+
+```sh
+wails3 task test                  # Go unit tests (SQLite included, no Docker)
+wails3 task test:it               # start the Docker databases, seed them, run integration tests
+(cd frontend && npx vitest run)   # frontend unit tests
+wails3 task build:server && e2e/run.sh [smoke|sqlite|mongo|…]   # Playwright against the browser build
+```
+
+The Docker databases (`docker compose up -d`) use password `chloe`: MySQL `:33306`, PostgreSQL `:55432`, MongoDB `:37017`
+(user `root`) and Redis `:63790`, seeded with `shop` sample data from `testdata/`.
+
+`CHLOE_CONFIG_DIR=<dir>` with `CHLOE_SECRETS=memory` runs against an isolated config without touching the keychain. The
+browser build (`bin/Chloe-server`) has no login, so it requires `CHLOE_SECRETS=memory` and listens only on loopback.
