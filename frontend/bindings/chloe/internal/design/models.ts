@@ -294,3 +294,57 @@ export interface Unique {
     "origName"?: string;
     "columns": string[] | null;
 }
+
+/**
+ * View is a view or PostgreSQL materialized view as the view designer edits it.
+ */
+export interface View {
+    "database": string;
+    "schema"?: string;
+    "name": string;
+
+    /**
+     * OrigName is the name when loaded; empty for a new view.
+     */
+    "origName"?: string;
+    "materialized"?: boolean;
+
+    /**
+     * Definition is the SELECT statement.
+     */
+    "definition": string;
+
+    /**
+     * CheckOption is "", CASCADED or LOCAL (not for materialized views).
+     */
+    "checkOption"?: string;
+
+    /**
+     * MySQL
+     * UNDEFINED, MERGE, TEMPTABLE
+     */
+    "algorithm"?: string;
+
+    /**
+     * user@host; empty means the current user
+     */
+    "definer"?: string;
+
+    /**
+     * DEFINER or INVOKER
+     */
+    "security"?: string;
+
+    /**
+     * PostgreSQL
+     */
+    "securityBarrier"?: boolean;
+    "securityInvoker"?: boolean;
+    "tablespace"?: string;
+
+    /**
+     * NoData creates a materialized view without populating it (WITH NO DATA).
+     */
+    "noData"?: boolean;
+    "comment"?: string;
+}

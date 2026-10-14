@@ -296,3 +296,95 @@ func TestIntegrationDatabaseLifecycle(t *testing.T) {
 		})
 	}
 }
+
+func TestIntegrationViewDesigner(t *testing.T) {
+	for _, e := range engines() {
+		t.Run(e.conn.Name, func(t *testing.T) {
+			m, id := setup(t, e)
+			ctx := context.Background()
+			pg := e.conn.Type == model.PostgreSQL
+			drop := func(names ...string) {
+				for _, n := range names {
+					kw := "VIEW"
+					if pg && strings.HasPrefix(n, "mv_") {
+						kw = "MATERIALIZED VIEW"
+					}
+					m.ExecuteDDL(ctx, id, e.database, e.schema, []string{"DROP " + kw + " IF EXISTS " + n}, false)
+				}
+			}
+			drop("v_e2e", "v_e2e2", "mv_e2e", "mv_e2e2")
+			t.Cleanup(func() { drop("v_e2e", "v_e2e2", "mv_e2e", "mv_e2e2") })
+
+			// save applies a design, reloads it and checks it round-trips.
+			save := func(old *design.View, v design.View) design.View {
+				t.Helper()
+				res, err := m.ApplyView(ctx, id, old, v)
+				if err != nil || res.Error != "" {
+					t.Fatalf("apply %s: %v %s\n%s", v.Name, err, res.Error, res.FailedStatement)
+				}
+				if res.View == nil {
+					t.Fatal("view not reloaded")
+				}
+				p, err := m.PreviewView(id, res.View, *res.View)
+				if err != nil || len(p.Statements) != 0 {
+					t.Fatalf("reloaded view not stable: %v %q", err, p.Statements)
+				}
+				return *res.View
+			}
+			v := design.View{Database: e.database, Schema: e.schema, Name: "v_e2e", Definition: "SELECT id, email FROM customers WHERE id > 0", CheckOption: "CASCADED"}
+			if pg {
+				v.SecurityBarrier, v.Comment = true, "e2e view"
+			} else {
+				v.Algorithm, v.Security = "MERGE", "INVOKER"
+			}
+			got := save(nil, v)
+			if got.CheckOption != "CASCADED" || (pg && (!got.SecurityBarrier || got.Comment != "e2e view")) || (!pg && (got.Algorithm != "MERGE" || got.Security != "INVOKER" || got.Definer == "")) {
+				t.Fatalf("loaded %+v", got)
+			}
+			if !strings.Contains(strings.ToLower(got.Definition), "customers") {
+				t.Fatalf("definition %q", got.Definition)
+			}
+			// Options only, then rename and redefine.
+			next := got
+			next.CheckOption = ""
+			if pg {
+				next.SecurityBarrier, next.SecurityInvoker = false, true
+			}
+			got = save(&got, next)
+			if got.CheckOption != "" || (pg && (got.SecurityBarrier || !got.SecurityInvoker)) {
+				t.Fatalf("options %+v", got)
+			}
+			next = got
+			next.Name, next.Definition = "v_e2e2", "SELECT id, email, full_name FROM customers"
+			got = save(&got, next)
+			if got.Name != "v_e2e2" || !strings.Contains(got.Definition, "full_name") {
+				t.Fatalf("renamed %+v", got)
+			}
+			if !pg {
+				return
+			}
+			// Materialized views.
+			mv := save(nil, design.View{Database: e.database, Schema: e.schema, Name: "mv_e2e", Materialized: true, NoData: true, Definition: "SELECT id FROM customers"})
+			if !mv.Materialized || !mv.NoData {
+				t.Fatalf("matview %+v", mv)
+			}
+			ref := model.ObjectRef{Database: e.database, Schema: e.schema, Name: "mv_e2e", Kind: model.KindMatView}
+			if r := m.RefreshMaterializedView(ctx, id, ref, false); r.Error != "" {
+				t.Fatal(r.Error)
+			}
+			if mv, _ = m.LoadView(ctx, id, ref); mv.NoData {
+				t.Fatal("still unpopulated after refresh")
+			}
+			next = mv
+			next.Name, next.Comment, next.Definition = "mv_e2e2", "mat", "SELECT id, email FROM customers"
+			p, _ := m.PreviewView(id, &mv, next)
+			if len(p.Warnings) == 0 {
+				t.Fatal("expected a drop warning")
+			}
+			got = save(&mv, next)
+			if got.Name != "mv_e2e2" || got.Comment != "mat" || !strings.Contains(got.Definition, "email") {
+				t.Fatalf("matview edit %+v", got)
+			}
+		})
+	}
+}

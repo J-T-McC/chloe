@@ -31,6 +31,10 @@ export function ApplyDatabase(connID: string, old: design$0.Database | null, d: 
     return $Call.ByID(4015789963, connID, old, d);
 }
 
+export function ApplyView(connID: string, old: design$0.View | null, v: design$0.View): $CancellablePromise<core$0.ApplyResult> {
+    return $Call.ByID(1850052215, connID, old, v);
+}
+
 export function DatabaseMeta(connID: string): $CancellablePromise<design$0.DatabaseMeta> {
     return $Call.ByID(3716866558, connID);
 }
@@ -54,6 +58,10 @@ export function LoadDatabase(connID: string, name: string): $CancellablePromise<
     return $Call.ByID(139255907, connID, name);
 }
 
+export function LoadView(connID: string, ref: model$0.ObjectRef): $CancellablePromise<design$0.View> {
+    return $Call.ByID(2424324863, connID, ref);
+}
+
 export function Maintain(connID: string, refs: model$0.ObjectRef[] | null, op: core$0.MaintainOp): $CancellablePromise<core$0.MaintainResult[] | null> {
     return $Call.ByID(3724611495, connID, refs, op);
 }
@@ -67,6 +75,17 @@ export function Meta(connID: string, database: string): $CancellablePromise<desi
  */
 export function Preview(connID: string, old: design$0.Table | null, table: design$0.Table): $CancellablePromise<core$0.DesignPreview> {
     return $Call.ByID(3402962098, connID, old, table);
+}
+
+/**
+ * PreviewView returns the SQL a view save would run. old is nil for a new view.
+ */
+export function PreviewView(connID: string, old: design$0.View | null, v: design$0.View): $CancellablePromise<core$0.DesignPreview> {
+    return $Call.ByID(3712780731, connID, old, v);
+}
+
+export function RefreshMaterializedView(connID: string, ref: model$0.ObjectRef, concurrently: boolean): $CancellablePromise<core$0.ApplyResult> {
+    return $Call.ByID(1078108619, connID, ref, concurrently);
 }
 
 export function RunTableAction(connID: string, ref: model$0.ObjectRef, action: core$0.TableAction, newName: string): $CancellablePromise<core$0.ApplyResult> {

@@ -15,6 +15,7 @@ import { ImportWizard } from "./components/transfer/ImportWizard";
 import { JobsButton } from "./components/transfer/JobsPanel";
 import { ServerMonitor } from "./components/ServerMonitor";
 import { TableDesigner } from "./components/designer/TableDesigner";
+import { ViewDesigner } from "./components/designer/ViewDesigner";
 import { ERDiagram } from "./components/erd/ERDiagram";
 import { ModelEditor } from "./components/model/ModelEditor";
 import { newModel, openModel } from "./components/model/actions";
@@ -168,11 +169,13 @@ function TabContent({ tab }: { tab: Tab }) {
       return <ERDiagram tab={tab} />;
     case "model":
       return <ModelEditor tab={tab} />;
+    case "viewdesign":
+      return <ViewDesigner tab={tab} />;
   }
 }
 
 function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
-  const icon = tab.kind === "model" ? <Shapes size={13} /> : tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
+  const icon = tab.kind === "model" ? <Shapes size={13} /> : tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" || tab.kind === "viewdesign" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
   return (
     <div
       className={"tab" + (active ? " active" : "")}

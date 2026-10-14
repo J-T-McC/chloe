@@ -9,7 +9,7 @@ import { Cell, DataGrid } from "./DataGrid";
 import { Split } from "./Split";
 import { openExport } from "./transfer/state";
 
-interface RunState {
+export interface RunState {
   results: StatementResult[];
   running: boolean;
   startedAt?: number;
@@ -271,7 +271,7 @@ export function QueryEditor({ tab }: { tab: Tab }) {
   );
 }
 
-function Messages({ run }: { run: RunState }) {
+export function Messages({ run }: { run: RunState }) {
   if (run.error) return <div className="messages"><div className="msg err">{run.error}</div></div>;
   if (!run.results.length) return <div className="messages muted">{run.running ? "Executing…" : "Run a query to see results."}</div>;
   return (
@@ -293,7 +293,7 @@ function Messages({ run }: { run: RunState }) {
   );
 }
 
-function ResultGrid({ result, connId, database, schema }: { result: StatementResult; connId: string; database?: string; schema?: string }) {
+export function ResultGrid({ result, connId, database, schema }: { result: StatementResult; connId: string; database?: string; schema?: string }) {
   const fetchPage = useCallback(
     async (offset: number, limit: number) => arr((await Query.FetchRows(result.resultId!, offset, limit)).rows) as Cell[][],
     [result.resultId],

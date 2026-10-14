@@ -16,5 +16,6 @@ export type {
     PrimaryKey,
     Table,
     Trigger,
-    Unique
+    Unique,
+    View
 } from "./models.js";

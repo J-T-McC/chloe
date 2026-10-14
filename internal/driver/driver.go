@@ -54,6 +54,8 @@ type Conn interface {
 	LoadDesign(ctx context.Context, ref model.ObjectRef) (design.Table, error)
 	DesignMeta(ctx context.Context, database string) (design.Meta, error)
 	DesignGenerator() design.Generator
+	// LoadView reads a view (or materialized view) for the view designer.
+	LoadView(ctx context.Context, ref model.ObjectRef) (design.View, error)
 
 	// New / Edit Database: current properties and the dialog's choices.
 	LoadDatabase(ctx context.Context, name string) (design.Database, error)

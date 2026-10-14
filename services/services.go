@@ -381,6 +381,23 @@ func (s *DesignService) DropDatabase(ctx context.Context, connID, name string) c
 	return s.M.DropDatabase(ctx, connID, name)
 }
 
+func (s *DesignService) LoadView(ctx context.Context, connID string, ref model.ObjectRef) (design.View, error) {
+	return s.M.LoadView(ctx, connID, ref)
+}
+
+// PreviewView returns the SQL a view save would run. old is nil for a new view.
+func (s *DesignService) PreviewView(connID string, old *design.View, v design.View) (core.DesignPreview, error) {
+	return s.M.PreviewView(connID, old, v)
+}
+
+func (s *DesignService) ApplyView(ctx context.Context, connID string, old *design.View, v design.View) (core.ApplyResult, error) {
+	return s.M.ApplyView(ctx, connID, old, v)
+}
+
+func (s *DesignService) RefreshMaterializedView(ctx context.Context, connID string, ref model.ObjectRef, concurrently bool) core.ApplyResult {
+	return s.M.RefreshMaterializedView(ctx, connID, ref, concurrently)
+}
+
 // TransferService backs import/export wizards, dumps and SQL file execution.
 type TransferService struct{ M *core.Manager }
 

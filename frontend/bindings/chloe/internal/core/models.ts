@@ -27,6 +27,11 @@ export interface ApplyResult {
      * Table is the definition re-read from the server after a successful save.
      */
     "table"?: design$0.Table | null;
+
+    /**
+     * View is the re-read view after a view designer save.
+     */
+    "view"?: design$0.View | null;
 }
 
 /**

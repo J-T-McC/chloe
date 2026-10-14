@@ -65,6 +65,8 @@ type ApplyResult struct {
 	FailedStatement string `json:"failedStatement,omitempty"`
 	// Table is the definition re-read from the server after a successful save.
 	Table *design.Table `json:"table,omitempty"`
+	// View is the re-read view after a view designer save.
+	View *design.View `json:"view,omitempty"`
 }
 
 // ApplyDesign generates and runs the statements for a design change, then reloads
@@ -401,4 +403,57 @@ func (m *Manager) DropDatabase(ctx context.Context, connID, name string) ApplyRe
 	}
 	c.CloseDatabase(name)
 	return m.ExecuteDDL(ctx, connID, "", "", []string{"DROP DATABASE " + c.Dialect().QuoteIdent(name)}, false)
+}
+
+// LoadView reads a view for the view designer.
+func (m *Manager) LoadView(ctx context.Context, connID string, ref model.ObjectRef) (design.View, error) {
+	c, err := m.conn(connID)
+	if err != nil {
+		return design.View{}, err
+	}
+	return c.LoadView(ctx, ref)
+}
+
+// PreviewView returns the SQL saving a view would run. old is nil for a new view.
+func (m *Manager) PreviewView(connID string, old *design.View, v design.View) (DesignPreview, error) {
+	c, err := m.conn(connID)
+	if err != nil {
+		return DesignPreview{}, err
+	}
+	pg := c.Dialect().Name == "postgres"
+	stmts, warns, err := design.ViewSQL(c.Dialect().Name, old, v)
+	return DesignPreview{Statements: stmts, Warnings: warns, Transactional: pg}, err
+}
+
+// ApplyView saves a view and returns it re-read from the server.
+func (m *Manager) ApplyView(ctx context.Context, connID string, old *design.View, v design.View) (ApplyResult, error) {
+	p, err := m.PreviewView(connID, old, v)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	res := m.ExecuteDDL(ctx, connID, v.Database, v.Schema, p.Statements, p.Transactional)
+	if res.Error != "" {
+		return res, nil
+	}
+	kind := model.KindView
+	if v.Materialized {
+		kind = model.KindMatView
+	}
+	if nv, err := m.LoadView(ctx, connID, model.ObjectRef{Database: v.Database, Schema: v.Schema, Name: v.Name, Kind: kind}); err == nil {
+		res.View = &nv
+	}
+	return res, nil
+}
+
+// RefreshMaterializedView re-runs a materialized view's query.
+func (m *Manager) RefreshMaterializedView(ctx context.Context, connID string, ref model.ObjectRef, concurrently bool) ApplyResult {
+	c, err := m.conn(connID)
+	if err != nil {
+		return ApplyResult{Error: err.Error()}
+	}
+	st := "REFRESH MATERIALIZED VIEW "
+	if concurrently {
+		st += "CONCURRENTLY "
+	}
+	return m.ExecuteDDL(ctx, connID, ref.Database, ref.Schema, []string{st + c.Dialect().Qualified(ref)}, false)
 }

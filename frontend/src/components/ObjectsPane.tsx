@@ -2,6 +2,7 @@ import { Copy, Download, FilePlus2, Network, PencilRuler, Plus, RefreshCw, Table
 import { useEffect, useMemo, useState } from "react";
 import { Explorer, ObjectInfo, ObjectKind, ObjectRef, TableAction, arr, errorText } from "../api";
 import { designTable, newTable, runTableAction } from "../tableActions";
+import { newView, viewDesign } from "./designer/ViewDesigner";
 import { objectsAreaMenu, openERD, tableMenu, viewMenu } from "../menus";
 import { openExport, openImport } from "./transfer/state";
 import { editorTheme, monaco } from "../editor/monaco";
@@ -91,6 +92,7 @@ export function ObjectsPane() {
     expandable: false,
   });
   const isData = kind === ObjectKind.KindTable || kind === ObjectKind.KindView || kind === ObjectKind.KindMatView;
+  const isView = kind === ObjectKind.KindView || kind === ObjectKind.KindMatView;
   const refOfObj = (o: ObjectInfo): ObjectRef => ({ database: sel.database!, schema: o.schema || sel.schema, name: o.name, kind: o.kind, signature: o.signature });
   const clickRow = (e: React.MouseEvent, o: ObjectInfo) => {
     if (e.metaKey || e.ctrlKey) {
@@ -116,6 +118,19 @@ export function ObjectsPane() {
         <button disabled={!picked} onClick={() => picked && openObject(asNode(picked))}>
           <Table2 size={14} /> {isData ? "Open" : "View DDL"}
         </button>
+        {isView && (
+          <>
+            <button disabled={!picked} onClick={() => picked && viewDesign(sel.connId, refOfObj(picked))}>
+              <PencilRuler size={14} /> Design View
+            </button>
+            <button onClick={() => newView(sel.connId, sel.database!, sel.schema, kind === ObjectKind.KindMatView)}>
+              <Plus size={14} /> New {kind === ObjectKind.KindMatView ? "Materialized View" : "View"}
+            </button>
+            <button disabled={pickedList.length !== 1} onClick={() => picked && runTableAction(sel.connId, refOfObj(picked), TableAction.ActionDrop)}>
+              <Trash2 size={14} /> Delete View
+            </button>
+          </>
+        )}
         {kind === ObjectKind.KindTable && (
           <>
             <button disabled={!picked} onClick={() => picked && designTable(sel.connId, { ...picked, database: sel.database!, schema: picked.schema || sel.schema })}>
@@ -184,9 +199,15 @@ export function ObjectsPane() {
             } else if (meta && e.key === "d" && picked && kind === ObjectKind.KindTable) {
               e.preventDefault();
               designTable(sel.connId, refOfObj(picked));
+            } else if (meta && e.key === "d" && picked && isView) {
+              e.preventDefault();
+              viewDesign(sel.connId, refOfObj(picked));
             } else if (meta && e.key === "n" && kind === ObjectKind.KindTable) {
               e.preventDefault();
               newTable(sel.connId, sel.database!, sel.schema);
+            } else if (meta && e.key === "n" && isView) {
+              e.preventDefault();
+              newView(sel.connId, sel.database!, sel.schema, kind === ObjectKind.KindMatView);
             } else if (meta && (e.key === "t" || (e.key === "q" && !/Mac/i.test(navigator.platform)))) {
               // Handled here (not globally) so the picked table becomes the SELECT.
               e.preventDefault();

@@ -2436,3 +2436,65 @@ table.mapping select {
   width: 100%;
   resize: vertical;
 }
+
+/* ---- combobox ------------------------------------------------------------------- */
+
+.combobox {
+  position: relative;
+  display: flex;
+  width: 100%;
+}
+
+.combobox input {
+  flex: 1;
+  width: 100%;
+  padding-right: 24px;
+}
+
+.combo-toggle {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: none;
+  padding: 2px 4px;
+  color: var(--text-3);
+  display: flex;
+}
+
+.combo-list {
+  position: fixed;
+  z-index: 200;
+  max-height: 260px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+.combo-option {
+  padding: 3px 10px;
+  cursor: default;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.combo-option.selected {
+  font-weight: 600;
+}
+
+.combo-option.active {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.tree-match {
+  background: color-mix(in srgb, #f5c400 45%, transparent);
+  color: inherit;
+  border-radius: 2px;
+}

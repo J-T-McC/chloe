@@ -1,6 +1,8 @@
 // Context menus shared by the connection tree and the object list, following
 // Navicat's table / objects-area menus.
-import { DBType, Design, MaintainOp, ObjectKind, ObjectRef, TableAction, Transfer, arr, errorText } from "./api";
+import { DBType, Design, Explorer, MaintainOp, ObjectKind, ObjectRef, TableAction, Transfer, arr, errorText } from "./api";
+import { newView, viewDesign } from "./components/designer/ViewDesigner";
+import { useTree } from "./tree";
 import { MenuItem } from "./components/ContextMenu";
 import { alert } from "./components/Dialogs";
 import { newQuery, openObject, selectAllSQL } from "./components/Sidebar";
@@ -102,17 +104,64 @@ export function tableMenu(connId: string, refs: ObjectRef[]): MenuItem[] {
 /** Menu for views (and materialized views). */
 export function viewMenu(connId: string, ref: ObjectRef): MenuItem[] {
   const node = { key: "", type: "object" as const, label: ref.name, connId, database: ref.database, schema: ref.schema, kind: ref.kind, info: { ...ref, rows: 0, dataSize: 0 }, depth: 0, expandable: false };
+  const mat = ref.kind === ObjectKind.KindMatView;
   return [
-    { label: "Open View", onClick: () => openObject(node) },
+    { label: mat ? "Open Materialized View" : "Open View", shortcut: "⌘O", onClick: () => openObject(node) },
+    { label: mat ? "Design Materialized View" : "Design View", shortcut: "⌘D", onClick: () => viewDesign(connId, ref) },
+    { label: "New View", shortcut: "⌘N", onClick: () => newView(connId, ref.database, ref.schema) },
+    ...(isPG(connId) ? [{ label: "New Materialized View", onClick: () => newView(connId, ref.database, ref.schema, true) }] : []),
+    { label: mat ? "Delete Materialized View" : "Delete View", onClick: () => runTableAction(connId, ref, TableAction.ActionDrop) },
+    { label: mat ? "Duplicate Materialized View" : "Duplicate View", shortcut: "⇧⌘D", onClick: () => duplicateView(connId, ref) },
+    ...(mat
+      ? [
+          {
+            label: "Refresh Materialized View",
+            submenu: [
+              { label: "Refresh", onClick: () => refreshMatView(connId, ref, false) },
+              { label: "Refresh Concurrently", onClick: () => refreshMatView(connId, ref, true) },
+            ],
+          },
+        ]
+      : []),
+    later("Set Privileges"),
+    { separator: true },
+    { label: "Query View", shortcut: "⌘T", onClick: () => newQuery(connId, ref.database, ref.schema, selectAllSQL(connId, ref)) },
     { label: "Show DDL", onClick: () => useApp.getState().openTab({ kind: "ddl", title: ref.name, connId, database: ref.database, schema: ref.schema, ref }) },
-    { separator: true },
     { label: "Export Wizard…", onClick: () => openExport({ connId, database: ref.database, schema: ref.schema, tables: [], sql: `SELECT * FROM ${quoted(connId, ref)}`, name: ref.name }) },
-    { label: "Rename", onClick: () => runTableAction(connId, ref, TableAction.ActionRename) },
-    { label: "Delete View", onClick: () => runTableAction(connId, ref, TableAction.ActionDrop) },
+    later("Data Dictionary…"),
     { separator: true },
-    { label: "Copy", onClick: () => navigator.clipboard.writeText(ref.name) },
+    { label: "Copy", shortcut: "⌘C", onClick: () => navigator.clipboard.writeText(ref.name) },
+    { label: "Rename", onClick: () => runTableAction(connId, ref, TableAction.ActionRename) },
+    { separator: true },
     { label: "Refresh", shortcut: "⌘R", onClick: () => useApp.setState((s) => ({ objectsVersion: s.objectsVersion + 1 })) },
   ];
+}
+
+async function duplicateView(connId: string, ref: ObjectRef) {
+  try {
+    const v = await Design.LoadView(connId, ref);
+    const names = new Set(arr(await Explorer.ListObjects(connId, ref.database, ref.schema ?? "", ref.kind)).map((o) => o.name));
+    let name = `${ref.name}_copy`;
+    for (let i = 2; names.has(name); i++) name = `${ref.name}_copy${i}`;
+    const res = await Design.ApplyView(connId, null, { ...v, name, origName: undefined });
+    if (res.error) return alert("Duplicate failed", res.error);
+    useApp.setState((s) => ({ objectsVersion: s.objectsVersion + 1 }));
+    refreshFolder(connId, ref);
+  } catch (e) {
+    alert("Duplicate failed", errorText(e));
+  }
+}
+
+async function refreshMatView(connId: string, ref: ObjectRef, concurrently: boolean) {
+  const res = await Design.RefreshMaterializedView(connId, ref, concurrently);
+  if (res.error) alert("Refresh failed", res.error + (concurrently ? "\n\nRefresh Concurrently needs a unique index on the materialized view." : ""));
+  else useApp.setState((s) => ({ objectsVersion: s.objectsVersion + 1 }));
+}
+
+function refreshFolder(connId: string, ref: ObjectRef) {
+  const tree = useTree.getState();
+  const key = [connId, ref.database, ref.schema, "#" + ref.kind].filter(Boolean).join("/");
+  if (tree.children[key]) tree.refresh({ key, type: "folder", label: "", connId, database: ref.database, schema: ref.schema, kind: ref.kind, depth: 0, expandable: true });
 }
 
 function quoted(connId: string, ref: ObjectRef) {
@@ -124,8 +173,11 @@ function quoted(connId: string, ref: ObjectRef) {
 /** Menu for the empty area of the object list (and the Tables folder). */
 export function objectsAreaMenu(connId: string, database: string, schema: string | undefined, kind: ObjectKind | undefined): MenuItem[] {
   const tables = kind === ObjectKind.KindTable || kind === undefined;
+  const views = kind === ObjectKind.KindView || kind === ObjectKind.KindMatView;
   return [
     ...(tables ? [{ label: "New Table", shortcut: "⌘N", onClick: () => newTable(connId, database, schema) }] : []),
+    ...(kind === ObjectKind.KindView ? [{ label: "New View", shortcut: "⌘N", onClick: () => newView(connId, database, schema) }] : []),
+    ...(views && isPG(connId) ? [{ label: "New Materialized View", onClick: () => newView(connId, database, schema, true) }] : []),
     later("Set Privileges"),
     { separator: true },
     { label: "Import Wizard…", onClick: () => openImport({ connId, database, schema }) },
