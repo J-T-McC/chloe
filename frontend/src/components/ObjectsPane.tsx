@@ -1,6 +1,7 @@
-import { Copy, FilePlus2, RefreshCw, Table2 } from "lucide-react";
+import { Copy, FilePlus2, PencilRuler, Plus, RefreshCw, Table2, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Explorer, ObjectInfo, ObjectKind, ObjectRef, arr, errorText } from "../api";
+import { Explorer, ObjectInfo, ObjectKind, ObjectRef, TableAction, arr, errorText } from "../api";
+import { designTable, newTable, runTableAction } from "../tableActions";
 import { editorTheme, monaco } from "../editor/monaco";
 import { connById, dbKey, useApp } from "../store";
 import { TreeNode, useTree } from "../tree";
@@ -20,6 +21,7 @@ export function ObjectsPane() {
   const [filter, setFilter] = useState("");
   const [sortKey, setSortKey] = useState<"name" | "rows" | "dataSize" | "modified">("name");
   const [reload, setReload] = useState(0);
+  const objectsVersion = useApp((s) => s.objectsVersion);
 
   const kind = sel?.kind ?? (sel?.database ? ObjectKind.KindTable : undefined);
   const connected = sel?.connId ? !!open[sel.connId] : false;
@@ -41,7 +43,7 @@ export function ObjectsPane() {
       .then((o) => setObjects(arr(o)))
       .catch((e) => setError(errorText(e)))
       .finally(() => setLoading(false));
-  }, [sel?.connId, sel?.database, sel?.schema, kind, connected, dbOpen, needsSchema, reload]);
+  }, [sel?.connId, sel?.database, sel?.schema, kind, connected, dbOpen, needsSchema, reload, objectsVersion]);
 
   // Selecting an object in the tree selects it here too.
   useEffect(() => {
@@ -91,6 +93,19 @@ export function ObjectsPane() {
         <button disabled={!picked} onClick={() => picked && openObject(asNode(picked))}>
           <Table2 size={14} /> {isData ? "Open" : "View DDL"}
         </button>
+        {kind === ObjectKind.KindTable && (
+          <>
+            <button disabled={!picked} onClick={() => picked && designTable(sel.connId, { ...picked, database: sel.database!, schema: picked.schema || sel.schema })}>
+              <PencilRuler size={14} /> Design Table
+            </button>
+            <button onClick={() => newTable(sel.connId, sel.database!, sel.schema)}>
+              <Plus size={14} /> New Table
+            </button>
+            <button disabled={!picked} onClick={() => picked && runTableAction(sel.connId, { ...picked, database: sel.database!, schema: picked.schema || sel.schema }, TableAction.ActionDrop)}>
+              <Trash2 size={14} /> Delete Table
+            </button>
+          </>
+        )}
         <button onClick={() => newQuery(sel.connId, sel.database, sel.schema)}>
           <FilePlus2 size={14} /> New Query
         </button>

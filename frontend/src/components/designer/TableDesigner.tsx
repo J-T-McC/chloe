@@ -1,0 +1,208 @@
+import { ArrowDown, ArrowUp, KeyRound, ListPlus, Minus, Plus, Save } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { D, DBType, Design, ObjectKind, arr, errorText } from "../../api";
+import { Dialect, Table, deleteColumn, insertColumn, moveColumn, newTable, normalize, toWire, togglePrimaryKey } from "../../designer/model";
+import { invalidateCatalog } from "../../editor/completion";
+import { Tab, connById, useApp } from "../../store";
+import { useTree } from "../../tree";
+import { confirm } from "../Dialogs";
+import { CodeBlock } from "../ObjectsPane";
+import { ChecksTab, FieldsTab, ForeignKeysTab, IndexesTab, OptionsTab, TriggersTab, UniquesTab } from "./DesignerTabs";
+
+type Section = "fields" | "indexes" | "foreignKeys" | "uniques" | "checks" | "triggers" | "options" | "comment" | "sql";
+
+export function TableDesigner({ tab }: { tab: Tab }) {
+  const connId = tab.connId!;
+  const dialect: Dialect = connById(connId)?.type === DBType.PostgreSQL ? "postgres" : "mysql";
+  const isNew = !tab.ref?.name;
+  const [original, setOriginal] = useState<Table | null>(null);
+  const [draft, setDraft] = useState<Table | null>(null);
+  const [meta, setMeta] = useState<D.Meta | null>(null);
+  const [section, setSection] = useState<Section>("fields");
+  const [selected, setSelected] = useState(0);
+  const [error, setError] = useState<{ text: string; sql?: string } | null>(null);
+  const [preview, setPreview] = useState<{ statements: string[]; warnings: string[] } | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const m = await Design.Meta(connId, tab.database!);
+        setMeta(m);
+        if (isNew) {
+          setOriginal(null);
+          setDraft(newTable(dialect, tab.database!, tab.schema, m));
+        } else {
+          const t = normalize(await Design.Load(connId, tab.ref!));
+          setOriginal(t);
+          setDraft(t);
+        }
+      } catch (e) {
+        setError({ text: errorText(e) });
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connId]);
+
+  // Live SQL preview of pending changes.
+  useEffect(() => {
+    if (!draft) return;
+    const t = setTimeout(() => {
+      Design.Preview(connId, original, toWire(draft))
+        .then((p) => setPreview({ statements: arr(p.statements), warnings: arr(p.warnings) }))
+        .catch((e) => setPreview({ statements: [], warnings: [errorText(e)] }));
+    }, 150);
+    return () => clearTimeout(t);
+  }, [draft, original, connId]);
+
+  const dirty = useMemo(() => (preview?.statements.length ?? 0) > 0 || (isNew && !!draft), [preview, isNew, draft]);
+  useEffect(() => {
+    // Mark unsaved designs in the tab title.
+    const base = draft?.name || "Untitled";
+    useApp.getState().updateTab(tab.id, { title: `${base}${dirty && !isNew ? " •" : ""} (design)` });
+  }, [dirty, draft?.name, tab.id, isNew]);
+
+  if (!draft || !meta) return <div className="center-hint">{error ? <span className="err">{error.text}</span> : "Loading…"}</div>;
+
+  const update = (fn: (t: Table) => Table) => setDraft((d) => (d ? fn(d) : d));
+
+  const save = async () => {
+    if (!draft.name.trim()) {
+      setSection("options");
+      setError({ text: "Enter a table name before saving." });
+      return;
+    }
+    const p = await Design.Preview(connId, original, toWire(draft)).catch((e) => {
+      setError({ text: errorText(e) });
+      return null;
+    });
+    if (!p) return;
+    const statements = arr(p.statements);
+    if (!statements.length) return;
+    const warnings = arr(p.warnings);
+    if (warnings.length && !(await confirm("Save changes?", { message: warnings.join("\n") + "\n\n" + statements.join(";\n"), okLabel: "Save" }))) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await Design.Apply(connId, original, toWire(draft));
+      if (res.error) {
+        setError({ text: res.error + (res.executed ? `\n(${res.executed} statement(s) before it were applied)` : ""), sql: res.failedStatement });
+        return;
+      }
+      const t = normalize(res.table!);
+      setOriginal(t);
+      setDraft(t);
+      const ref = { database: t.database, schema: t.schema, name: t.name, kind: ObjectKind.KindTable };
+      useApp.getState().updateTab(tab.id, { ref, title: `${t.name} (design)` });
+      invalidateCatalog(connId, t.database);
+      refreshTablesFolder(connId, t.database, t.schema);
+      useApp.setState((s) => ({ objectsVersion: s.objectsVersion + 1 }));
+    } catch (e) {
+      setError({ text: errorText(e) });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const colName = draft.columns[selected]?.name;
+  const sections: Array<[Section, string, boolean]> = [
+    ["fields", "Fields", true],
+    ["indexes", "Indexes", true],
+    ["foreignKeys", "Foreign Keys", true],
+    ["uniques", "Uniques", dialect === "postgres"],
+    ["checks", "Checks", true],
+    ["triggers", "Triggers", true],
+    ["options", "Options", true],
+    ["comment", "Comment", true],
+    ["sql", `SQL Preview${preview?.statements.length ? ` (${preview.statements.length})` : ""}`, true],
+  ];
+
+  return (
+    <div
+      className="designer"
+      onKeyDown={(e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+          e.preventDefault();
+          save();
+        }
+      }}
+    >
+      <div className="toolbar">
+        <button className={dirty ? "accent" : ""} disabled={!dirty || saving} onClick={save} title="Save (⌘S)">
+          <Save size={14} /> {saving ? "Saving…" : "Save"}
+        </button>
+        <span className="tb-sep" />
+        {section === "fields" && (
+          <>
+            <button onClick={() => (update((t) => insertColumn(t, t.columns.length, dialect)), setSelected(draft.columns.length))} title="Add field">
+              <Plus size={14} /> Add Field
+            </button>
+            <button onClick={() => update((t) => insertColumn(t, selected, dialect))} title="Insert field above the selected one">
+              <ListPlus size={14} /> Insert
+            </button>
+            <button disabled={!draft.columns.length} onClick={() => (update((t) => deleteColumn(t, selected)), setSelected((s) => Math.max(0, s - 1)))} title="Delete field">
+              <Minus size={14} /> Delete
+            </button>
+            <button disabled={!colName} className={draft.primaryKey?.columns.includes(colName) ? "on" : ""} onClick={() => update((t) => togglePrimaryKey(t, colName))} title="Toggle primary key">
+              <KeyRound size={14} /> Primary Key
+            </button>
+            <button disabled={selected === 0} onClick={() => (update((t) => moveColumn(t, selected, -1)), setSelected((s) => s - 1))} title="Move up">
+              <ArrowUp size={14} />
+            </button>
+            <button disabled={selected >= draft.columns.length - 1} onClick={() => (update((t) => moveColumn(t, selected, 1)), setSelected((s) => s + 1))} title="Move down">
+              <ArrowDown size={14} />
+            </button>
+          </>
+        )}
+        <span className="spacer" />
+        <span className="crumbs">
+          {[connById(connId)?.name, draft.database, draft.schema].filter(Boolean).join(" › ")} ›{" "}
+          <input className="name-input" placeholder="table name" value={draft.name} onChange={(e) => update((t) => ({ ...t, name: e.target.value }))} />
+        </span>
+      </div>
+      <div className="seg-tabs designer-tabs">
+        {sections
+          .filter(([, , on]) => on)
+          .map(([k, label]) => (
+            <button key={k} className={section === k ? "active" : ""} onClick={() => setSection(k)}>
+              {label}
+            </button>
+          ))}
+      </div>
+      {error && (
+        <div className="error-banner" onClick={() => setError(null)}>
+          {error.text}
+          {error.sql && <pre>{error.sql}</pre>}
+        </div>
+      )}
+      <div className="designer-body">
+        {section === "fields" && <FieldsTab table={draft} meta={meta} dialect={dialect} selected={selected} onSelect={setSelected} update={update} />}
+        {section === "indexes" && <IndexesTab table={draft} meta={meta} dialect={dialect} update={update} />}
+        {section === "foreignKeys" && <ForeignKeysTab table={draft} connId={connId} dialect={dialect} update={update} />}
+        {section === "uniques" && <UniquesTab table={draft} update={update} />}
+        {section === "checks" && <ChecksTab table={draft} dialect={dialect} update={update} />}
+        {section === "triggers" && <TriggersTab table={draft} meta={meta} dialect={dialect} update={update} />}
+        {section === "options" && <OptionsTab table={draft} meta={meta} dialect={dialect} update={update} />}
+        {section === "comment" && (
+          <textarea className="designer-comment" placeholder="Table comment" value={draft.comment ?? ""} onChange={(e) => update((t) => ({ ...t, comment: e.target.value }))} />
+        )}
+        {section === "sql" && (
+          <div className="designer-sql">
+            {preview?.warnings?.map((w, i) => (
+              <div key={i} className="badge warn block">
+                {w}
+              </div>
+            ))}
+            {preview?.statements.length ? <CodeBlock code={preview.statements.join(";\n\n") + ";"} /> : <div className="center-hint">No changes.</div>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function refreshTablesFolder(connId: string, database: string, schema?: string) {
+  const tree = useTree.getState();
+  const key = [connId, database, schema, "#table"].filter(Boolean).join("/");
+  if (tree.children[key]) tree.refresh({ key, type: "folder", label: "", connId, database, schema, kind: ObjectKind.KindTable, depth: 0, expandable: true });
+}

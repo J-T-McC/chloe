@@ -3,7 +3,28 @@
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as design$0 from "../design/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as model$0 from "../model/models.js";
+
+/**
+ * ApplyResult reports how far a design save got.
+ */
+export interface ApplyResult {
+    "executed": number;
+    "error"?: string;
+
+    /**
+     * FailedStatement is the statement that failed, for showing next to the error.
+     */
+    "failedStatement"?: string;
+
+    /**
+     * Table is the definition re-read from the server after a successful save.
+     */
+    "table"?: design$0.Table | null;
+}
 
 /**
  * BrowseRequest describes one page of a table's data, as the table viewer requests it.
@@ -44,6 +65,23 @@ export interface ChangeResult {
 }
 
 /**
+ * DesignPreview returns the statements that turn old into new (old nil = create).
+ */
+export interface DesignPreview {
+    "statements": string[] | null;
+
+    /**
+     * Warnings the user should see before saving (e.g. unsupported column reordering).
+     */
+    "warnings"?: string[] | null;
+
+    /**
+     * Transactional reports whether the statements run atomically.
+     */
+    "transactional": boolean;
+}
+
+/**
  * ExecOptions control script execution.
  */
 export interface ExecOptions {
@@ -68,3 +106,32 @@ export interface SortSpec {
     "column": string;
     "desc": boolean;
 }
+
+/**
+ * TableAction is a one-click table operation from the tree or object list.
+ */
+export enum TableAction {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    ActionDrop = "drop",
+    ActionTruncate = "truncate",
+
+    /**
+     * DELETE FROM: fires triggers, keeps auto-increment
+     */
+    ActionEmpty = "empty",
+    ActionRename = "rename",
+
+    /**
+     * structure only
+     */
+    ActionDuplicate = "duplicate",
+
+    /**
+     * structure and data
+     */
+    ActionCopy = "copy",
+};

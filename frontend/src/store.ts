@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { Connection, Connections, DBType, Explorer, ObjectKind, ObjectRef, arr, errorText } from "./api";
 import { prompt } from "./components/Dialogs";
 
-export type TabKind = "objects" | "query" | "table" | "ddl" | "monitor";
+export type TabKind = "objects" | "query" | "table" | "ddl" | "monitor" | "design";
 
 export interface Tab {
   id: string;
@@ -47,6 +47,8 @@ interface AppState {
   activeTab: string;
   editing?: Connection | "new";
   managing: boolean;
+  /** Bumped when objects change (create/drop/rename) so lists reload. */
+  objectsVersion: number;
 
   loadConnections(): Promise<void>;
   connect(id: string): Promise<boolean>;
@@ -77,6 +79,7 @@ export const useApp = create<AppState>((set, get) => ({
   open: {},
   openDbs: {},
   managing: false,
+  objectsVersion: 0,
   connecting: {},
   errors: {},
   tabs: [OBJECTS_TAB],
@@ -203,7 +206,7 @@ export const useApp = create<AppState>((set, get) => ({
 
 function sameRef(a?: ObjectRef, b?: ObjectRef) {
   if (!a || !b) return a === b;
-  return a.database === b.database && (a.schema ?? "") === (b.schema ?? "") && a.name === b.name && a.kind === b.kind;
+  return a.database === b.database && (a.schema ?? "") === (b.schema ?? "") && a.name === b.name && a.kind === b.kind && (a.signature ?? "") === (b.signature ?? "");
 }
 
 export const isSchemaEngine = (t?: DBType) => t === DBType.PostgreSQL;

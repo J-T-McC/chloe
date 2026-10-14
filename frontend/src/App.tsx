@@ -1,4 +1,4 @@
-import { Activity, Database, FilePlus2, Plug, Table2, X } from "lucide-react";
+import { Activity, Database, FilePlus2, PencilRuler, Plug, Table2, X } from "lucide-react";
 import { useEffect } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { Events, ObjectKind } from "./api";
@@ -8,11 +8,13 @@ import { DialogHost } from "./components/Dialogs";
 import { KindIcon } from "./components/icons";
 import { ManageConnections } from "./components/ManageConnections";
 import { ServerMonitor } from "./components/ServerMonitor";
+import { TableDesigner } from "./components/designer/TableDesigner";
 import { DDLView, ObjectsPane } from "./components/ObjectsPane";
 import { QueryEditor } from "./components/QueryEditor";
 import { Sidebar, newQuery, openMonitor, useInitialLoad } from "./components/Sidebar";
 import { TableViewer } from "./components/TableViewer";
 import { Tab, useApp } from "./store";
+import { newTable } from "./tableActions";
 import { useTree } from "./tree";
 
 export default function App() {
@@ -59,6 +61,12 @@ export default function App() {
         <div className="main-toolbar">
           <ToolButton icon={<Plug size={20} />} label="Connection" onClick={() => useApp.getState().editConnection("new")} />
           <ToolButton icon={<FilePlus2 size={20} />} label="New Query" disabled={!selConnected} onClick={() => selection && newQuery(selection.connId, selection.database, selection.schema)} />
+          <ToolButton
+            icon={<PencilRuler size={20} />}
+            label="New Table"
+            disabled={!selection?.database || !selConnected}
+            onClick={() => selection?.database && newTable(selection.connId, selection.database, selection.schema)}
+          />
           <ToolButton
             icon={<Table2 size={20} />}
             label="Tables"
@@ -126,11 +134,13 @@ function TabContent({ tab }: { tab: Tab }) {
       return <DDLView connId={tab.connId!} objRef={tab.ref!} />;
     case "monitor":
       return <ServerMonitor tab={tab} />;
+    case "design":
+      return <TableDesigner tab={tab} />;
   }
 }
 
 function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
-  const icon = tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
+  const icon = tab.kind === "design" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
   return (
     <div
       className={"tab" + (active ? " active" : "")}

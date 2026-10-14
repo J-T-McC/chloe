@@ -1479,3 +1479,287 @@ textarea.remarks {
 .modal-body input[type="checkbox"] {
   width: auto;
 }
+
+/* ---- table designer ----------------------------------------------------------------- */
+
+.designer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.designer .name-input {
+  width: 200px;
+  padding: 1px 6px;
+  font-weight: 600;
+}
+
+.designer-tabs {
+  background: var(--bg-2);
+  padding-left: 8px;
+}
+
+.designer-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.error-banner pre {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  opacity: 0.8;
+}
+
+.fields-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.fields-grid {
+  flex: 1;
+  overflow: auto;
+}
+
+.fields-grid table,
+.list-tab table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.fields-grid th,
+.list-tab th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-2);
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-2);
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.fields-grid td,
+.list-tab td {
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.fields-grid td input:not([type="checkbox"]),
+.list-tab td > input:not([type="checkbox"]),
+.list-tab td > select {
+  width: 100%;
+  border-color: transparent;
+  background: transparent;
+  padding: 2px 5px;
+}
+
+.fields-grid tr.selected td {
+  background: var(--sel);
+}
+
+.fields-grid td input:focus,
+.list-tab td input:focus {
+  border-color: var(--accent);
+  background: var(--bg);
+}
+
+.fields-grid .num-input {
+  width: 64px !important;
+}
+
+.narrow-col {
+  width: 18px;
+  text-align: center;
+  font-size: 10px;
+}
+
+td.center {
+  text-align: center;
+}
+
+td.wide {
+  width: 60%;
+}
+
+.key-cell {
+  cursor: default;
+  width: 44px;
+}
+
+.pk {
+  color: #c49a2c;
+  display: inline-flex;
+  align-items: flex-end;
+}
+
+.pk sub {
+  font-size: 9px;
+  margin-left: 1px;
+}
+
+.column-props {
+  border-top: 1px solid var(--border);
+  background: var(--bg-2);
+  padding: 8px 12px 12px;
+  flex: none;
+}
+
+.props-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.props-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  align-items: center;
+}
+
+.prop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.prop > span {
+  color: var(--text-2);
+}
+
+.prop.wide {
+  flex: 1 1 360px;
+}
+
+.prop.wide input {
+  flex: 1;
+}
+
+.identity-opts {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.identity-opts .num-input,
+.options-tab .num-input {
+  width: 110px;
+}
+
+.list-tab {
+  padding: 0 0 10px;
+}
+
+.list-toolbar {
+  padding: 6px 8px;
+}
+
+.field-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--accent-soft);
+  border-radius: 10px;
+  padding: 1px 4px 1px 8px;
+  font-size: 12px;
+}
+
+.chip .icon {
+  padding: 0 1px;
+}
+
+.chip-len {
+  width: 34px !important;
+  padding: 0 3px !important;
+  font-size: 11px;
+}
+
+.field-picker select {
+  padding: 0 4px;
+  font-size: 12px;
+  border-style: dashed;
+}
+
+.triggers-tab {
+  display: flex;
+  height: 100%;
+}
+
+.trigger-list {
+  width: 240px;
+  border-right: 1px solid var(--border);
+  overflow: auto;
+}
+
+.trigger-item {
+  padding: 5px 10px;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border);
+}
+
+.trigger-item.selected {
+  background: var(--sel);
+}
+
+.trigger-edit {
+  flex: 1;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.trigger-edit .row > label:first-child {
+  width: 70px;
+  color: var(--text-2);
+}
+
+.trigger-body {
+  flex: 1;
+  min-height: 180px;
+  font-size: 12.5px;
+}
+
+.options-tab {
+  padding: 12px 20px;
+  max-width: 640px;
+}
+
+.designer-comment {
+  margin: 12px;
+  flex: 1;
+  font-family: inherit;
+}
+
+.designer-sql {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.badge.block {
+  display: block;
+  border-radius: 6px;
+  padding: 6px 10px;
+}

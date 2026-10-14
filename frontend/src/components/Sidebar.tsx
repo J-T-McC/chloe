@@ -1,12 +1,13 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight, Folder, Loader2, Search, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
-import { Connection, Connections, ObjectKind, ObjectRef, errorText } from "../api";
+import { Connection, Connections, ObjectKind, ObjectRef, TableAction, errorText } from "../api";
 import { connById, dbKey, useApp } from "../store";
 import { TreeNode, flatten, useTree } from "../tree";
 import { MenuItem, openMenu } from "./ContextMenu";
 import { alert, confirm, prompt } from "./Dialogs";
 import { ConnIcon, KindIcon } from "./icons";
+import { designTable, newTable, runTableAction } from "../tableActions";
 
 const ROW = 24;
 export const COLORS: Array<[string, string]> = [
@@ -347,6 +348,7 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
           ? { label: "Close Database", onClick: () => tree.closeDatabase(n) }
           : { label: "Open Database", onClick: () => tree.expand(n) },
         { label: "New Query", onClick: () => newQuery(n.connId, n.database) },
+        ...(isPGConn(n.connId) ? [] : [{ label: "New Table", onClick: () => newTable(n.connId, n.database!) }]),
         { separator: true },
         { label: "Copy Name", onClick: () => copy(n.label) },
         { label: "Refresh", shortcut: "⌘R", disabled: !dbOpen, onClick: () => tree.refresh(n) },
@@ -354,26 +356,58 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
     case "schema":
       return [
         { label: "New Query", onClick: () => newQuery(n.connId, n.database, n.schema) },
+        { label: "New Table", onClick: () => newTable(n.connId, n.database!, n.schema) },
         { label: "Copy Name", onClick: () => copy(n.label) },
         { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) },
       ];
     case "folder":
       return [
+        ...(n.kind === ObjectKind.KindTable ? [{ label: "New Table", onClick: () => newTable(n.connId, n.database!, n.schema) }] : []),
         { label: "New Query", onClick: () => newQuery(n.connId, n.database, n.schema) },
         { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) },
       ];
     case "object": {
       const isData = n.kind === ObjectKind.KindTable || n.kind === ObjectKind.KindView || n.kind === ObjectKind.KindMatView;
+      const isTable = n.kind === ObjectKind.KindTable;
+      const ref = refOf(n);
       return [
-        ...(isData ? [{ label: n.kind === ObjectKind.KindTable ? "Open Table" : "Open View", onClick: () => openObject(n) }] : []),
-        { label: "Show DDL", onClick: () => app.openTab({ kind: "ddl", title: n.info!.name, connId: n.connId, database: n.database, schema: n.schema, ref: refOf(n) }) },
+        ...(isData ? [{ label: isTable ? "Open Table" : "Open View", onClick: () => openObject(n) }] : []),
+        ...(isTable
+          ? [
+              { label: "Design Table", onClick: () => designTable(n.connId, ref) },
+              { label: "New Table", onClick: () => newTable(n.connId, n.database!, n.schema) },
+            ]
+          : []),
+        { label: "Show DDL", onClick: () => app.openTab({ kind: "ddl", title: n.info!.name, connId: n.connId, database: n.database, schema: n.schema, ref }) },
         { label: "New Query", onClick: () => newQuery(n.connId, n.database, n.schema) },
+        ...(isData
+          ? [
+              { separator: true },
+              ...(isTable
+                ? [
+                    { label: "Empty Table…", danger: true, onClick: () => runTableAction(n.connId, ref, TableAction.ActionEmpty) },
+                    { label: "Truncate Table…", danger: true, onClick: () => runTableAction(n.connId, ref, TableAction.ActionTruncate) },
+                    {
+                      label: "Duplicate Table",
+                      submenu: [
+                        { label: "Structure and Data…", onClick: () => runTableAction(n.connId, ref, TableAction.ActionCopy) },
+                        { label: "Structure Only…", onClick: () => runTableAction(n.connId, ref, TableAction.ActionDuplicate) },
+                      ],
+                    },
+                  ]
+                : []),
+              { label: "Rename…", onClick: () => runTableAction(n.connId, ref, TableAction.ActionRename) },
+              { label: isTable ? "Delete Table…" : "Delete View…", danger: true, onClick: () => runTableAction(n.connId, ref, TableAction.ActionDrop) },
+            ]
+          : []),
         { separator: true },
         { label: "Copy Name", onClick: () => copy(n.info!.name) },
       ];
     }
   }
 }
+
+const isPGConn = (id: string) => connById(id)?.type === "postgres";
 
 /** Load connections on startup and open those marked "Auto connect". */
 export function useInitialLoad() {
