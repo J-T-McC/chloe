@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"chloe/internal/datamodel"
 	"chloe/internal/design"
 	"chloe/internal/model"
 )
@@ -271,4 +272,82 @@ func str(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// ReverseModel builds a data model from tables in a database (all tables when names
+// is empty).
+func (m *Manager) ReverseModel(ctx context.Context, connID, database, schema string, names []string) (datamodel.Model, error) {
+	c, err := m.conn(connID)
+	if err != nil {
+		return datamodel.Model{}, err
+	}
+	dialect := c.Dialect().Name
+	mdl := datamodel.New(database, dialect)
+	if schema != "" {
+		mdl.Name = database + "." + schema
+		mdl.Schema = schema
+	}
+	if len(names) == 0 {
+		objs, err := c.ListObjects(ctx, database, schema, model.KindTable)
+		if err != nil {
+			return mdl, err
+		}
+		for _, o := range objs {
+			names = append(names, o.Name)
+		}
+	}
+	for _, n := range names {
+		t, err := c.LoadDesign(ctx, tableRef(database, schema, n))
+		if err != nil {
+			return mdl, fmt.Errorf("%s: %w", n, err)
+		}
+		// Models are database-independent; keep only the PostgreSQL schema.
+		t.Database = ""
+		mdl.Tables = append(mdl.Tables, t)
+	}
+	return mdl, nil
+}
+
+// PlanModelSync diffs a model against a database.
+func (m *Manager) PlanModelSync(ctx context.Context, connID string, mdl datamodel.Model, to datamodel.Target, dropMissing bool) (datamodel.SyncPlan, error) {
+	c, err := m.conn(connID)
+	if err != nil {
+		return datamodel.SyncPlan{}, err
+	}
+	if (mdl.Dialect == "postgres") != (c.Dialect().Name == "postgres") {
+		return datamodel.SyncPlan{}, fmt.Errorf("a %s model can't be synchronized to a %s database", mdl.Dialect, c.Dialect().Name)
+	}
+	schema := to.Schema
+	if mdl.Dialect == "postgres" && schema == "" {
+		schema = mdl.Schema
+	}
+	objs, err := c.ListObjects(ctx, to.Database, schema, model.KindTable)
+	if err != nil {
+		return datamodel.SyncPlan{}, err
+	}
+	var existing []design.Table
+	for _, o := range objs {
+		t, err := c.LoadDesign(ctx, tableRef(to.Database, schema, o.Name))
+		if err != nil {
+			return datamodel.SyncPlan{}, err
+		}
+		existing = append(existing, t)
+	}
+	if mdl.Dialect == "postgres" {
+		to.Schema = schema
+	}
+	return mdl.Plan(existing, to, dropMissing)
+}
+
+// ApplyModelSync runs a previously previewed plan.
+func (m *Manager) ApplyModelSync(ctx context.Context, connID string, to datamodel.Target, plan datamodel.SyncPlan) ApplyResult {
+	c, err := m.conn(connID)
+	if err != nil {
+		return ApplyResult{Error: err.Error()}
+	}
+	return m.ExecuteDDL(ctx, connID, to.Database, to.Schema, plan.Statements(), c.Dialect().Name == "postgres")
+}
+
+func tableRef(database, schema, name string) model.ObjectRef {
+	return model.ObjectRef{Database: database, Schema: schema, Name: name, Kind: model.KindTable}
 }
