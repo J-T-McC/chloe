@@ -1,6 +1,6 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight, Folder, Loader2, Search, TriangleAlert } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Connection, Connections, DBType, ObjectKind, ObjectRef, Redis, errorText } from "../api";
 import { openRedisConsole } from "./redis/actions";
 import { collectionMenu, designCollection, mongoConnMenu, mongoDbMenu, newMongoQuery, openCollection } from "./mongo/actions";
@@ -18,6 +18,7 @@ import { deleteSavedQueries, duplicateSavedQuery, openSavedQuery, renameSavedQue
 import { openDataTransfer } from "./transfer/DataTransferWizard";
 import { openStructureSync } from "./transfer/StructureSyncWizard";
 import { openDataSync } from "./transfer/DataSyncWizard";
+import { Drag, Drop, DropTarget, resolveDrop } from "../connDrag";
 
 const ROW = 24;
 export const COLORS: Array<[string, string]> = [
@@ -57,6 +58,52 @@ export function Sidebar() {
   const v = useVirtualizer({ count: rows.length, getScrollElement: () => scroller.current, estimateSize: () => ROW, overscan: 20 });
   const selectedKey = selection ? selectionKey(selection) : "";
 
+  // Dragging connections and groups to reorder them or move them between groups.
+  const drag = useRef<Drag | null>(null);
+  const [drop, setDrop] = useState<{ key: string; pos: Drop["pos"] } | null>(null);
+  const dnd = useMemo<RowDnd>(() => {
+    const resolve = (e: React.DragEvent, n?: TreeNode) => {
+      const target: DropTarget | null = !n ? { type: "end" } : n.type === "conn" ? { type: "conn", id: n.connId } : n.type === "group" ? { type: "group", name: n.group! } : null;
+      if (!drag.current || !target) return null;
+      const r = e.currentTarget.getBoundingClientRect();
+      return resolveDrop(drag.current, target, (e.clientY - r.top) / r.height, connections, groups);
+    };
+    const end = () => {
+      drag.current = null;
+      setDrop(null);
+    };
+    return {
+      start(e, n) {
+        drag.current = n.type === "conn" ? { type: "conn", id: n.connId } : { type: "group", name: n.group! };
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", n.label);
+      },
+      over(e, n) {
+        e.stopPropagation();
+        const d = resolve(e, n);
+        setDrop((cur) => (!d ? null : cur?.key === (n?.key ?? "") && cur.pos === d.pos ? cur : { key: n?.key ?? "", pos: d.pos }));
+        if (!d) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+      },
+      async drop(e, n) {
+        e.preventDefault();
+        e.stopPropagation();
+        const d = resolve(e, n);
+        end();
+        if (!d) return;
+        try {
+          if ("conn" in d.move) await Connections.Move(d.move.conn, d.move.group, d.move.before);
+          else await Connections.MoveGroup(d.move.group, d.move.before);
+        } catch (err) {
+          alert("Couldn't move", errorText(err));
+        }
+        await reload();
+      },
+      end,
+    };
+  }, [connections, groups]);
+
   // Reveal in Navigation Pane: scroll to the node and select it.
   const revealKey = useTree((s) => s.revealKey);
   useEffect(() => {
@@ -75,10 +122,15 @@ export function Sidebar() {
         <input placeholder="Search objects" value={filter} onChange={(e) => useTree.getState().setFilter(e.target.value)} />
       </div>
       <div
-        className="tree"
+        className={"tree" + (drop?.pos === "end" ? " drop-end" : "")}
         ref={scroller}
         tabIndex={0}
         onContextMenu={(e) => openMenu(e, emptyAreaMenu())}
+        onDragOver={(e) => dnd.over(e)}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) setDrop(null);
+        }}
+        onDrop={(e) => dnd.drop(e)}
         onKeyDown={(e) => {
           if ((e.metaKey || e.ctrlKey) && e.key === "r") {
             e.preventDefault();
@@ -97,7 +149,7 @@ export function Sidebar() {
             </button>
           </div>
         )}
-        <div style={{ height: v.getTotalSize(), position: "relative" }}>
+        <div className="tree-rows" style={{ height: v.getTotalSize(), position: "relative" }}>
           {v.getVirtualItems().map((vi) => {
             const n = rows[vi.index];
             return (
@@ -111,6 +163,8 @@ export function Sidebar() {
                 connected={!!open[n.connId]}
                 dbOpen={n.type === "db" ? (n.count !== undefined ? n.count > 0 : !!openDbs[dbKey(n.connId, n.database!)]) : true}
                 selected={selectedKey === n.key}
+                drop={drop?.key === n.key ? drop.pos : undefined}
+                dnd={filter.trim() === "" ? dnd : undefined}
               />
             );
           })}
@@ -144,8 +198,28 @@ function refOf(n: TreeNode): ObjectRef {
   return { database: n.database!, schema: n.schema, name: n.info!.name, kind: n.kind!, signature: n.info?.signature };
 }
 
-function TreeRow(props: { node: TreeNode; top: number; expanded: boolean; loading: boolean; error?: string; connected: boolean; dbOpen: boolean; selected: boolean }) {
-  const { node: n, top, expanded, loading, error, connected, dbOpen, selected } = props;
+type RowDnd = {
+  start(e: React.DragEvent<HTMLElement>, n: TreeNode): void;
+  over(e: React.DragEvent<HTMLElement>, n?: TreeNode): void;
+  drop(e: React.DragEvent<HTMLElement>, n?: TreeNode): void;
+  end(): void;
+};
+
+function TreeRow(props: {
+  node: TreeNode;
+  top: number;
+  expanded: boolean;
+  loading: boolean;
+  error?: string;
+  connected: boolean;
+  dbOpen: boolean;
+  selected: boolean;
+  drop?: Drop["pos"];
+  /** Set when connections and groups can be dragged (not while filtering). */
+  dnd?: RowDnd;
+}) {
+  const { node: n, top, expanded, loading, error, connected, dbOpen, selected, drop, dnd } = props;
+  const movable = !!dnd && (n.type === "conn" || n.type === "group");
   const conn = n.type === "conn" ? connById(n.connId) : undefined;
 
   const onClick = () => selectNode(n);
@@ -157,8 +231,13 @@ function TreeRow(props: { node: TreeNode; top: number; expanded: boolean; loadin
 
   return (
     <div
-      className={"tree-row" + (selected ? " selected" : "")}
+      className={"tree-row" + (selected ? " selected" : "") + (drop ? " drop-" + drop : "")}
       style={{ top, height: ROW, paddingLeft: 6 + n.depth * 16 }}
+      draggable={movable}
+      onDragStart={movable ? (e) => dnd!.start(e, n) : undefined}
+      onDragEnd={dnd?.end}
+      onDragOver={dnd && ((e) => dnd.over(e, n))}
+      onDrop={dnd && ((e) => dnd.drop(e, n))}
       onClick={onClick}
       onDoubleClick={onDouble}
       onContextMenu={(e) => {

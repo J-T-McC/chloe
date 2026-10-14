@@ -111,6 +111,20 @@ export function Locked(): $CancellablePromise<string> {
     return $Call.ByID(1811526426);
 }
 
+/**
+ * Move puts a connection in a group ("" = top level) before another connection ("" = last).
+ */
+export function Move(id: string, group: string, before: string): $CancellablePromise<void> {
+    return $Call.ByID(1645792993, id, group, before);
+}
+
+/**
+ * MoveGroup puts a group before another group ("" = last).
+ */
+export function MoveGroup(name: string, before: string): $CancellablePromise<void> {
+    return $Call.ByID(1872125016, name, before);
+}
+
 export function MoveToGroup(id: string, group: string): $CancellablePromise<void> {
     return $Call.ByID(2071645571, id, group);
 }

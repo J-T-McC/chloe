@@ -34,7 +34,8 @@ type Store struct {
 	path    string
 	secrets Secrets
 	conns   map[string]model.Connection
-	groups  []string
+	groups  []string // folders, in tree order
+	order   []string // connection IDs, in tree order
 	keyMu   sync.Mutex
 	key     []byte // file key, once read from the keychain
 	work    *Workspace
@@ -43,7 +44,8 @@ type Store struct {
 	locked string
 }
 
-// fileFormat is the on-disk layout of connections.json.
+// fileFormat is the on-disk layout of connections.json. Since version 2 the
+// groups and connections are in the order the tree shows them.
 type fileFormat struct {
 	Version     int                `json:"version"`
 	Groups      []string           `json:"groups"`
@@ -79,7 +81,21 @@ func Open(dir string, secrets Secrets) (*Store, error) {
 			return nil, fmt.Errorf("parse %s: %w", s.path, err)
 		}
 	}
+	if f.Version < 2 {
+		// Earlier releases sorted the tree by group, then name.
+		slices.Sort(f.Groups)
+		sort.SliceStable(f.Connections, func(i, j int) bool {
+			a, b := f.Connections[i], f.Connections[j]
+			if a.Group != b.Group {
+				return a.Group < b.Group
+			}
+			return strings.ToLower(a.Name) < strings.ToLower(b.Name)
+		})
+	}
 	for _, c := range f.Connections {
+		if _, dup := s.conns[c.ID]; !dup {
+			s.order = append(s.order, c.ID)
+		}
 		s.conns[c.ID] = c
 	}
 	s.groups = f.Groups
@@ -93,24 +109,18 @@ func Open(dir string, secrets Secrets) (*Store, error) {
 // Locked explains why saved connections couldn't be read ("" when they were).
 func (s *Store) Locked() string { return s.locked }
 
-// List returns all connections without secrets, sorted by group then name.
+// List returns all connections without secrets, in tree order.
 func (s *Store) List() []model.Connection {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]model.Connection, 0, len(s.conns))
-	for _, c := range s.conns {
-		out = append(out, c)
+	out := make([]model.Connection, 0, len(s.order))
+	for _, id := range s.order {
+		out = append(out, s.conns[id])
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Group != out[j].Group {
-			return out[i].Group < out[j].Group
-		}
-		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
-	})
 	return out
 }
 
-// Groups returns the connection folders, sorted.
+// Groups returns the connection folders in tree order.
 func (s *Store) Groups() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -158,7 +168,15 @@ func (s *Store) Save(c model.Connection) (model.Connection, error) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	old, exists := s.conns[c.ID]
 	s.conns[c.ID] = stripped
+	switch {
+	case !exists:
+		s.order = append(s.order, c.ID)
+		s.placeLocked(c.ID, "") // last in its group
+	case old.Group != stripped.Group:
+		s.placeLocked(c.ID, "")
+	}
 	s.addGroupsFromConnectionsLocked()
 	return stripped, s.flushLocked()
 }
@@ -195,6 +213,7 @@ func (s *Store) Delete(id string) error {
 		return ErrNotFound
 	}
 	delete(s.conns, id)
+	s.order = slices.DeleteFunc(s.order, func(o string) bool { return o == id })
 	err := s.flushLocked()
 	s.mu.Unlock()
 	s.Workspace().forgetConnection(id)
@@ -216,7 +235,6 @@ func (s *Store) AddGroup(name string) error {
 		return fmt.Errorf("group %q already exists", name)
 	}
 	s.groups = append(s.groups, name)
-	slices.Sort(s.groups)
 	return s.flushLocked()
 }
 
@@ -236,7 +254,7 @@ func (s *Store) RenameGroup(old, name string) error {
 			s.groups[i] = name
 		}
 	}
-	slices.Sort(s.groups)
+	s.groups = slices.Compact(s.groups)
 	for id, c := range s.conns {
 		if c.Group == old {
 			c.Group = name
@@ -260,8 +278,14 @@ func (s *Store) DeleteGroup(name string) error {
 	return s.flushLocked()
 }
 
-// MoveToGroup moves a connection into a folder ("" = top level).
+// MoveToGroup moves a connection to the end of a folder ("" = top level).
 func (s *Store) MoveToGroup(id, group string) error {
+	return s.Move(id, group, "")
+}
+
+// Move puts a connection in a folder ("" = top level), just before the
+// connection before, or last in the folder when before is "" or elsewhere.
+func (s *Store) Move(id, group, before string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, ok := s.conns[id]
@@ -270,8 +294,49 @@ func (s *Store) MoveToGroup(id, group string) error {
 	}
 	c.Group = strings.TrimSpace(group)
 	s.conns[id] = c
+	if b, ok := s.conns[before]; !ok || b.Group != c.Group || before == id {
+		before = ""
+	}
+	s.placeLocked(id, before)
 	s.addGroupsFromConnectionsLocked()
 	return s.flushLocked()
+}
+
+// MoveGroup puts a folder just before the folder before ("" = last).
+func (s *Store) MoveGroup(name, before string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !slices.Contains(s.groups, name) {
+		return fmt.Errorf("group %q not found", name)
+	}
+	if name == before {
+		return nil
+	}
+	s.groups = slices.DeleteFunc(s.groups, func(g string) bool { return g == name })
+	i := slices.Index(s.groups, before)
+	if i < 0 {
+		i = len(s.groups)
+	}
+	s.groups = slices.Insert(s.groups, i, name)
+	return s.flushLocked()
+}
+
+// placeLocked moves id in the order to just before before, or after the last
+// other connection in its group (at the end when the group has no others).
+func (s *Store) placeLocked(id, before string) {
+	s.order = slices.DeleteFunc(s.order, func(o string) bool { return o == id })
+	i := slices.Index(s.order, before)
+	if i < 0 {
+		i = len(s.order)
+		group := s.conns[id].Group
+		for j := len(s.order) - 1; j >= 0; j-- {
+			if s.conns[s.order[j]].Group == group {
+				i = j + 1
+				break
+			}
+		}
+	}
+	s.order = slices.Insert(s.order, i, id)
 }
 
 func (s *Store) storeSecret(id, name, value string, save bool) error {
@@ -284,23 +349,21 @@ func (s *Store) storeSecret(id, name, value string, save bool) error {
 }
 
 func (s *Store) addGroupsFromConnectionsLocked() {
-	for _, c := range s.conns {
-		if c.Group != "" && !slices.Contains(s.groups, c.Group) {
+	for _, id := range s.order {
+		if c := s.conns[id]; c.Group != "" && !slices.Contains(s.groups, c.Group) {
 			s.groups = append(s.groups, c.Group)
 		}
 	}
-	slices.Sort(s.groups)
 }
 
 func (s *Store) flushLocked() error {
 	if s.locked != "" {
 		return errors.New(s.locked)
 	}
-	f := fileFormat{Version: 1, Groups: s.groups, Connections: make([]model.Connection, 0, len(s.conns))}
-	for _, c := range s.conns {
-		f.Connections = append(f.Connections, c)
+	f := fileFormat{Version: 2, Groups: s.groups, Connections: make([]model.Connection, 0, len(s.order))}
+	for _, id := range s.order {
+		f.Connections = append(f.Connections, s.conns[id])
 	}
-	sort.Slice(f.Connections, func(i, j int) bool { return f.Connections[i].ID < f.Connections[j].ID })
 	if f.Groups == nil {
 		f.Groups = []string{}
 	}

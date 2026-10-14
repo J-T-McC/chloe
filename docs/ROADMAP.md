@@ -18,7 +18,7 @@ The MCP server (6b) waits until the user has discussed it.
 Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, table viewer, query editor with autocomplete.
 
 ## 2. Connections ✅
-- [x] Groups (folders), New Group, move connections between groups
+- [x] Groups (folders), New Group, move connections between groups; drag connections and groups to reorder them or move them in and out of groups (order saved)
 - [x] Open/close databases (closed until opened; Close Database releases sessions)
 - [x] Context menus: empty area (New Connection, Close All, Manage Connections, New Group, Refresh ⌘R), connection, database
 - [x] Connection dialog per spec: Add To group, Advanced (auto connect, session limit, keepalive, initial queries, timeouts, compression, socket, PG parameters), custom database list with Auto Open, full SSL options, SSH password + key, Remarks
