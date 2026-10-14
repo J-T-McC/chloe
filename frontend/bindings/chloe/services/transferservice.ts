@@ -33,10 +33,38 @@ export function ClearJobs(): $CancellablePromise<void> {
 }
 
 /**
+ * CompareData compares rows by key; the result is kept until DiscardDataSync.
+ */
+export function CompareData(req: core$0.DataSyncRequest): $CancellablePromise<core$0.DataSyncComparison> {
+    return $Call.ByID(3202578386, req);
+}
+
+/**
  * CompareStructure diffs two databases/schemas of the same engine (Structure Synchronization).
  */
 export function CompareStructure(req: core$0.StructureCompareRequest): $CancellablePromise<core$0.StructureComparison> {
     return $Call.ByID(555642571, req);
+}
+
+/**
+ * DataSyncRecords pages a table's differing records (op "" for every difference).
+ */
+export function DataSyncRecords(id: string, table: string, op: string, offset: number, limit: number): $CancellablePromise<core$0.DataSyncPage> {
+    return $Call.ByID(250739294, id, table, op, offset, limit);
+}
+
+/**
+ * DataSyncScript builds the deployment script for the chosen actions.
+ */
+export function DataSyncScript(id: string, tables: core$0.DataSyncSelection[] | null): $CancellablePromise<string[] | null> {
+    return $Call.ByID(581334151, id, tables);
+}
+
+/**
+ * DataSyncTables lists source tables with their default target table and key (Data Synchronization).
+ */
+export function DataSyncTables(source: core$0.Endpoint, target: core$0.Endpoint): $CancellablePromise<core$0.DataSyncTable[] | null> {
+    return $Call.ByID(1818934297, source, target);
 }
 
 /**
@@ -58,6 +86,17 @@ export function DefaultTransferOptions(): $CancellablePromise<core$0.TransferOpt
  */
 export function Deploy(req: core$0.DeployRequest): $CancellablePromise<core$0.Job> {
     return $Call.ByID(2949330344, req);
+}
+
+/**
+ * DeployDataSync runs the chosen actions as a job.
+ */
+export function DeployDataSync(req: core$0.DataSyncDeployRequest): $CancellablePromise<core$0.Job> {
+    return $Call.ByID(1347076459, req);
+}
+
+export function DiscardDataSync(id: string): $CancellablePromise<void> {
+    return $Call.ByID(3287919440, id);
 }
 
 export function Dump(connID: string, req: core$0.DumpRequest): $CancellablePromise<core$0.Job> {

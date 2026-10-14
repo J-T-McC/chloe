@@ -14,6 +14,7 @@ import { ExportWizard } from "./components/transfer/ExportWizard";
 import { ImportWizard } from "./components/transfer/ImportWizard";
 import { DataTransferWizard, openDataTransfer } from "./components/transfer/DataTransferWizard";
 import { StructureSyncWizard, openStructureSync } from "./components/transfer/StructureSyncWizard";
+import { DataSyncWizard, openDataSync } from "./components/transfer/DataSyncWizard";
 import { JobsButton } from "./components/transfer/JobsPanel";
 import { ServerMonitor } from "./components/ServerMonitor";
 import { TableDesigner } from "./components/designer/TableDesigner";
@@ -61,6 +62,7 @@ export default function App() {
   useEffect(() => Events.On("menu:history-log", () => openHistoryLog()), []);
   useEffect(() => Events.On("menu:data-transfer", () => openDataTransfer(useApp.getState().selection)), []);
   useEffect(() => Events.On("menu:structure-sync", () => openStructureSync(useApp.getState().selection)), []);
+  useEffect(() => Events.On("menu:data-sync", () => openDataSync(useApp.getState().selection)), []);
   const selection = useApp((s) => s.selection);
   const open = useApp((s) => s.open);
 
@@ -195,6 +197,7 @@ export default function App() {
       <ImportWizard />
       <DataTransferWizard />
       <StructureSyncWizard />
+      <DataSyncWizard />
       <ExecuteFileDialog />
       <DatabaseDialog />
       <SetPrivilegesDialog />
