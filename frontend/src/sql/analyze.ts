@@ -17,6 +17,10 @@ export type Clause =
   | "set" // UPDATE ... SET
   | "insertTable" // INSERT INTO <table>
   | "insertColumns" // INSERT INTO t ( <cols> )
+  | "afterInsertTable" // INSERT INTO t | or INSERT INTO t (cols) |
+  | "indexColumns" // CREATE INDEX i ON t ( <cols> ), ON CONFLICT ( <cols> )
+  | "alterTable" // ALTER TABLE t |
+  | "alterColumn" // ALTER TABLE t DROP COLUMN | (and MODIFY, CHANGE, ALTER, RENAME)
   | "values"
   | "updateTable"
   | "deleteTable"
@@ -73,7 +77,19 @@ export interface Analysis {
   outputColumns: string[];
   /** The cursor follows a UNION / INTERSECT / EXCEPT of its query (ORDER BY then sorts the whole result). */
   afterSetOp: boolean;
+  /** Kind of the statement under the cursor (after any WITH). */
+  statement: StatementKind;
+  /** Parenthesis depth of the cursor. */
+  depth: number;
+  /** In SET, where a column to assign goes ("SET |", "SET a = 1, |"), not its value. */
+  assignTarget: boolean;
+  /** Top-level keywords of the statement before the cursor, upper-cased. */
+  seen: Set<string>;
+  /** Columns listed in INSERT INTO t ( ... ). */
+  insertColumns: string[];
 }
+
+export type StatementKind = "select" | "insert" | "update" | "delete" | "alter" | "createIndex" | "other";
 
 const CLAUSE_KEYWORDS: Record<string, Clause> = {
   SELECT: "select",
@@ -98,6 +114,7 @@ const REF_TERMINATORS = new Set([
   "WHERE", "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "OUTER", "CROSS", "NATURAL", "ON", "USING", "GROUP", "ORDER",
   "HAVING", "LIMIT", "OFFSET", "UNION", "INTERSECT", "EXCEPT", "WINDOW", "SET", "VALUES", "RETURNING", "FOR", "LATERAL",
   "STRAIGHT_JOIN", "FETCH", "AS", "SELECT", "WITH", "INTO", "PARTITION", "USE", "FORCE", "IGNORE", "TABLESAMPLE", "DEFAULT",
+  "ADD", "MODIFY", "CHANGE", "RENAME", "OWNER", "ENGINE",
 ]);
 
 /** Split points: statement boundaries on top-level semicolons. */
@@ -155,12 +172,13 @@ export function analyze(text: string, offset: number, dialect: DialectName): Ana
   // Depth just after the token preceding the cursor.
   const cursorDepth = cur > 0 ? depthAt[cur - 1] + (sig[cur - 1].type === "punct" && sig[cur - 1].text === "(" ? 1 : 0) : 0;
 
+  const statement = statementKind(sig, depthAt);
   const ctes = findCTEs(sig, depthAt);
-  const tables = visibleTables(sig, cur, depthAt, cursorDepth, ctes, dialect);
+  const tables = visibleTables(sig, cur, depthAt, cursorDepth, ctes, dialect, statement);
 
   const before = sig.slice(0, q + 1).filter((_, i) => i < cur);
   const prevKeyword = lastKeyword(before);
-  const clause = detectClause(sig, cur - qualifier.length * 2, depthAt, cursorDepth);
+  const clause = detectClause(sig, cur - qualifier.length * 2, depthAt, cursorDepth, statement);
 
   let joinTarget: TableRef | undefined;
   if (prevKeyword === "ON" || prevKeyword === "USING" || clause === "on") {
@@ -205,7 +223,56 @@ export function analyze(text: string, offset: number, dialect: DialectName): Ana
   let afterSetOp = false;
   for (let i = lvlStart; i < cur; i++) if (depthAt[i] === cursorDepth && SET_OPS.has(sig[i].upper)) afterSetOp = true;
 
-  return { prefix, prefixStart, prefixQuoted, qualifier, clause, tables, ctes, prevKeyword, joinTarget, afterStar, afterOperand, statementStart, outputColumns, afterSetOp };
+  const seen = new Set<string>();
+  for (let i = 0; i < Math.min(cur, sig.length); i++) if (depthAt[i] === 0 && sig[i].type === "word") seen.add(sig[i].upper);
+
+  // SET a = 1, | : the last SET (or ON DUPLICATE KEY UPDATE) at the cursor's depth.
+  let assignTarget = false;
+  if (clause === "set" && qualifier.length === 0) {
+    for (let i = cur - 1; i >= 0; i--) {
+      if (depthAt[i] < cursorDepth) break;
+      if (depthAt[i] !== cursorDepth) continue;
+      if (isAssignStart(sig, i)) {
+        assignTarget = i === cur - 1 || sig[cur - 1].text === ",";
+        break;
+      }
+    }
+  }
+
+  const insertColumns: string[] = [];
+  if (statement === "insert") {
+    const into = sig.findIndex((t, i) => depthAt[i] === 0 && t.upper === "INTO");
+    let i = into + 1;
+    while (isIdent(sig[i]) && sig[i + 1]?.text === ".") i += 2;
+    if (into >= 0 && sig[i + 1]?.text === "(") {
+      for (let j = i + 2; j < sig.length && depthAt[j] > 0; j++) if (depthAt[j] === 1 && isIdent(sig[j])) insertColumns.push(sig[j].value);
+    }
+  }
+
+  return {
+    prefix, prefixStart, prefixQuoted, qualifier, clause, tables, ctes, prevKeyword, joinTarget, afterStar, afterOperand, statementStart, outputColumns, afterSetOp,
+    statement, depth: cursorDepth, assignTarget, seen, insertColumns,
+  };
+}
+
+/** SET, or the UPDATE of MySQL's ON DUPLICATE KEY UPDATE, which take assignments. */
+const isAssignStart = (sig: Token[], i: number) => sig[i].upper === "SET" || (sig[i].upper === "UPDATE" && sig[i - 1]?.upper === "KEY");
+
+function statementKind(sig: Token[], depths: number[]): StatementKind {
+  let i = 0;
+  if (sig[0]?.upper === "WITH") {
+    // the first top-level statement keyword after the CTE definitions
+    i = sig.findIndex((t, j) => j > 0 && depths[j] === 0 && ["SELECT", "INSERT", "REPLACE", "UPDATE", "DELETE"].includes(t.upper) && sig[j - 1]?.text === ")");
+    if (i < 0) return "select";
+  }
+  const u = sig[i]?.upper;
+  if (u === "SELECT" || u === "VALUES" || u === "TABLE") return "select";
+  if (u === "INSERT" || u === "REPLACE") return "insert";
+  if (u === "UPDATE") return "update";
+  if (u === "DELETE") return "delete";
+  if (u === "ALTER" && sig[i + 1]?.upper === "TABLE") return "alter";
+  if (u === "CREATE" && sig.slice(i + 1, i + 3).some((t) => t.upper === "INDEX")) return "createIndex";
+  return "other";
 }
 
 function parenDepths(sig: Token[]): number[] {
@@ -241,7 +308,7 @@ const OPERAND_BREAKERS = new Set([
 ]);
 
 /** Walk backwards from the cursor at the cursor's paren depth to find the governing clause. */
-function detectClause(sig: Token[], cur: number, depths: number[], depth: number): Clause {
+function detectClause(sig: Token[], cur: number, depths: number[], depth: number, stmt: StatementKind): Clause {
   if (cur <= 0) return "start";
   // Inside parentheses directly after INSERT INTO t ( ... -> column list
   for (let i = cur - 1; i >= 0; i--) {
@@ -255,10 +322,12 @@ function detectClause(sig: Token[], cur: number, depths: number[], depth: number
           return "insertColumns";
         }
         if (p?.upper === "VALUES") return "values";
+        if (p?.upper === "CONFLICT") return "indexColumns";
+        if (stmt === "createIndex" && isIdent(p) && depths[i] === 0) return "indexColumns";
         if (p?.upper === "USING") return "using";
         // A derived table or set operand still empty: "FROM (", "JOIN LATERAL (", "UNION (".
         if (!p || ["FROM", "JOIN", "LATERAL", "UNION", "INTERSECT", "EXCEPT", "ALL", "DISTINCT", "(", ","].includes(p.upper) || p.text === "(" || p.text === ",") {
-          if (!p || p.text !== "," || detectClause(sig, i, depths, depths[i]) === "from") return "selectStart";
+          if (!p || p.text !== "," || detectClause(sig, i, depths, depths[i], stmt) === "from") return "selectStart";
         }
         if (p && (p.upper === "IN" || p.upper === "EXISTS" || p.upper === "ANY" || p.upper === "ALL")) {
           // subquery start or value list
@@ -268,7 +337,7 @@ function detectClause(sig: Token[], cur: number, depths: number[], depth: number
         }
         // function call arguments or expression grouping: treat like the enclosing expression
         if (p && (isIdent(p) || p.type === "word")) {
-          const outer = detectClause(sig, i, depths, depths[i]);
+          const outer = detectClause(sig, i, depths, depths[i], stmt);
           return outer === "from" || outer === "afterTable" ? "where" : outer;
         }
       }
@@ -285,12 +354,18 @@ function detectClause(sig: Token[], cur: number, depths: number[], depth: number
     }
     if (u === "INTO") {
       const p = sig[i - 1]?.upper;
-      if (p === "INSERT" || p === "REPLACE" || p === "IGNORE") return afterTableName(sig, i, cur) ? "other" : "insertTable";
+      if (p === "INSERT" || p === "REPLACE" || p === "IGNORE") return afterTableName(sig, i, cur) ? "afterInsertTable" : "insertTable";
     }
-    if (u === "UPDATE") return afterTableName(sig, i, cur) ? "afterTable" : "updateTable";
+    if (u === "UPDATE") {
+      if (isAssignStart(sig, i)) return "set";
+      if (sig[i - 1]?.upper === "DO") continue; // ON CONFLICT DO UPDATE SET
+      return afterTableName(sig, i, cur) ? "afterTable" : "updateTable";
+    }
+    if (u === "ON" && stmt === "createIndex") return afterTableName(sig, i, cur) ? "other" : "ddlTable";
     if (u === "DELETE") continue;
     if (u === "TABLE") {
       const p = sig[i - 1]?.upper;
+      if (p === "ALTER" && afterTableName(sig, i, cur)) return alterState(sig, i, cur);
       if (p === "ALTER" || p === "DROP" || p === "TRUNCATE" || p === "LOCK") return afterTableName(sig, i, cur) ? "other" : "ddlTable";
     }
     if (u === "DESCRIBE" || (u === "DESC" && i === 0) || u === "EXPLAIN") {
@@ -300,6 +375,8 @@ function detectClause(sig: Token[], cur: number, depths: number[], depth: number
       if (u === "FROM" && sig[i - 1]?.upper === "DELETE") return afterTableName(sig, i, cur) ? "afterTable" : "deleteTable";
       return fromState(sig, i, cur, depths, depth);
     }
+    // DELETE FROM t USING a, b lists tables; JOIN ... USING (cols) doesn't.
+    if (u === "USING" && stmt === "delete" && sig[i + 1]?.text !== "(") return fromState(sig, i, cur, depths, depth);
     const c = CLAUSE_KEYWORDS[u];
     if (c) return c;
   }
@@ -308,12 +385,29 @@ function detectClause(sig: Token[], cur: number, depths: number[], depth: number
 
 /** True if a complete table name has been typed after keyword index k (before cur). */
 function afterTableName(sig: Token[], k: number, cur: number): boolean {
+  return tableNameEnd(sig, k, cur) >= 0;
+}
+
+/** Index just past the table name after keyword index k, or -1 while it's still being typed. */
+function tableNameEnd(sig: Token[], k: number, cur: number): number {
   let i = k + 1;
-  if (i >= cur) return false;
-  if (!isIdent(sig[i])) return false;
+  if (sig[i]?.upper === "IF") i += sig[i + 1]?.upper === "NOT" ? 3 : 2; // IF [NOT] EXISTS
+  if (sig[i]?.upper === "ONLY") i++;
+  if (i >= cur) return -1;
+  if (!isIdent(sig[i])) return -1;
   i++;
   while (i + 1 < cur && sig[i].text === "." && isIdent(sig[i + 1])) i += 2;
-  return i < cur && !(sig[i].text === "." && i === cur - 1);
+  return i <= cur && !(sig[i]?.text === "." && i === cur - 1) ? i : -1;
+}
+
+/** ALTER TABLE t ... : an action is expected right after the name or a comma, a column after DROP COLUMN etc. */
+function alterState(sig: Token[], k: number, cur: number): Clause {
+  const end = tableNameEnd(sig, k, cur);
+  const prev = sig[cur - 1];
+  if (cur === end || prev.text === ",") return "alterTable";
+  if (["COLUMN", "MODIFY", "CHANGE"].includes(prev.upper)) return "alterColumn";
+  if (["DROP", "ALTER", "RENAME", "ADD"].includes(prev.upper)) return "alterTable";
+  return "other";
 }
 
 /** After FROM/JOIN: either expecting a table, or past it (alias, more joins, comma). */
@@ -412,7 +506,7 @@ export function selectListNames(sig: Token[]): string[] {
  * at the cursor: those at the cursor's depth inside its enclosing query, plus those of
  * enclosing queries (for correlated subqueries).
  */
-function visibleTables(sig: Token[], cur: number, depths: number[], cursorDepth: number, ctes: TableRef[], d: DialectName): TableRef[] {
+function visibleTables(sig: Token[], cur: number, depths: number[], cursorDepth: number, ctes: TableRef[], d: DialectName, stmt: StatementKind): TableRef[] {
   // Determine the token range of each query level containing the cursor.
   const ranges: Array<[number, number, number]> = []; // [start, end, depth]
   let depth = cursorDepth;
@@ -445,7 +539,7 @@ function visibleTables(sig: Token[], cur: number, depths: number[], cursorDepth:
   const out: TableRef[] = [];
   for (const [start, end, dep] of ranges) {
     // Skip CTE bodies when collecting the main query's refs at depth 0.
-    out.push(...refsInRange(sig, start, end, dep, depths, ctes, d));
+    out.push(...refsInRange(sig, start, end, dep, depths, ctes, d, stmt));
   }
   return out;
 }
@@ -478,7 +572,7 @@ function branchAround(sig: Token[], start: number, end: number, at: number, dept
   return [s, e];
 }
 
-function refsInRange(sig: Token[], start: number, end: number, depth: number, depths: number[], ctes: TableRef[], _d?: DialectName): TableRef[] {
+function refsInRange(sig: Token[], start: number, end: number, depth: number, depths: number[], ctes: TableRef[], _d?: DialectName, stmt?: StatementKind): TableRef[] {
   const out: TableRef[] = [];
   const cteNames = new Map(ctes.map((c) => [c.name.toLowerCase(), c]));
   let i = start;
@@ -490,7 +584,12 @@ function refsInRange(sig: Token[], start: number, end: number, depth: number, de
     }
     const u = t.upper;
     const startsRefs =
-      u === "FROM" || u === "JOIN" || u === "UPDATE" || u === "STRAIGHT_JOIN" ||
+      u === "FROM" || u === "JOIN" || u === "STRAIGHT_JOIN" ||
+      // not ON DUPLICATE KEY UPDATE / ON CONFLICT DO UPDATE
+      (u === "UPDATE" && sig[i - 1]?.upper !== "KEY" && sig[i - 1]?.upper !== "DO") ||
+      // ALTER TABLE t, CREATE INDEX i ON t
+      (u === "TABLE" && sig[i - 1]?.upper === "ALTER" && depth === 0) ||
+      (u === "ON" && stmt === "createIndex" && depth === 0) ||
       (u === "INTO" && ["INSERT", "REPLACE", "IGNORE"].includes(sig[i - 1]?.upper ?? "")) ||
       // DELETE FROM t USING a, b (MySQL, PostgreSQL); JOIN ... USING (cols) is not a table list.
       (u === "USING" && sig[0]?.upper === "DELETE" && sig[i + 1]?.text !== "(");
@@ -499,6 +598,7 @@ function refsInRange(sig: Token[], start: number, end: number, depth: number, de
       continue;
     }
     i++;
+    if (u === "TABLE" && sig[i]?.upper === "IF") i += 2;
     // comma separated list of references (FROM a, b) — JOINs restart the loop
     for (;;) {
       if (i >= end) break;

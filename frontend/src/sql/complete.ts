@@ -213,6 +213,31 @@ const OPERATORS: Record<DialectName, string[]> = {
 };
 const EXPR_KEYWORDS = (d: DialectName) => [...VALUE_KEYWORDS(d), "AND", "OR", "IN", "IS NULL", "IS NOT NULL", "LIKE", "BETWEEN", "AS"];
 const AFTER_WHERE = ["GROUP BY", "ORDER BY", "LIMIT", "HAVING", "UNION", "UNION ALL"];
+// What can end an UPDATE or DELETE: MySQL sorts and limits them, PostgreSQL and SQLite return rows.
+const DML_TAIL = (d: DialectName) => (d === "mysql" ? ["ORDER BY", "LIMIT"] : ["RETURNING"]);
+// The second word of a statement ("INSERT |").
+const STATEMENT_NEXT = (d: DialectName): Record<string, string[]> => ({
+  INSERT: ["INTO", ...(d === "mysql" ? ["IGNORE INTO"] : d === "sqlite" ? ["OR REPLACE INTO", "OR IGNORE INTO"] : [])],
+  IGNORE: ["INTO"],
+  REPLACE: ["INTO"],
+  DELETE: ["FROM"],
+  TRUNCATE: d === "sqlite" ? [] : ["TABLE"],
+  ALTER: ["TABLE", "VIEW", ...(d === "sqlite" ? [] : ["INDEX"]), ...(d === "postgres" ? ["SEQUENCE", "SCHEMA", "FUNCTION"] : d === "mysql" ? ["DATABASE", "PROCEDURE", "FUNCTION"] : [])],
+  DROP: ["TABLE", "VIEW", "INDEX", "TRIGGER", ...(d === "sqlite" ? [] : ["FUNCTION", ...(d === "postgres" ? ["SCHEMA", "SEQUENCE"] : ["DATABASE", "PROCEDURE"])]), "TABLE IF EXISTS"],
+  CREATE: ["TABLE", "VIEW", "INDEX", "UNIQUE INDEX", "TRIGGER", ...(d === "sqlite" ? [] : ["FUNCTION"]), ...(d === "postgres" ? ["SCHEMA", "SEQUENCE", "MATERIALIZED VIEW", "OR REPLACE VIEW"] : d === "mysql" ? ["DATABASE", "PROCEDURE", "OR REPLACE VIEW"] : []), "TABLE IF NOT EXISTS"],
+});
+// ALTER TABLE t | (and after DROP / ALTER / RENAME / ADD).
+const ALTER_ACTIONS: Record<DialectName, string[]> = {
+  mysql: ["ADD COLUMN", "ADD INDEX", "ADD UNIQUE", "ADD PRIMARY KEY", "ADD FOREIGN KEY", "ADD CONSTRAINT", "DROP COLUMN", "DROP INDEX", "DROP FOREIGN KEY", "DROP PRIMARY KEY", "MODIFY COLUMN", "CHANGE COLUMN", "ALTER COLUMN", "RENAME TO", "RENAME COLUMN", "COMMENT", "ENGINE"],
+  postgres: ["ADD COLUMN", "ADD CONSTRAINT", "ADD PRIMARY KEY", "ADD FOREIGN KEY", "ADD UNIQUE", "DROP COLUMN", "DROP CONSTRAINT", "ALTER COLUMN", "RENAME TO", "RENAME COLUMN", "OWNER TO", "SET SCHEMA"],
+  sqlite: ["ADD COLUMN", "DROP COLUMN", "RENAME TO", "RENAME COLUMN"],
+};
+const ALTER_REST = (d: DialectName): Record<string, string[]> => ({
+  ADD: ["COLUMN", ...(d === "sqlite" ? [] : ["CONSTRAINT", "PRIMARY KEY", "FOREIGN KEY", "UNIQUE"]), ...(d === "mysql" ? ["INDEX"] : [])],
+  DROP: ["COLUMN", ...(d === "mysql" ? ["INDEX", "FOREIGN KEY", "PRIMARY KEY"] : d === "postgres" ? ["CONSTRAINT"] : [])],
+  ALTER: ["COLUMN"],
+  RENAME: ["TO", "COLUMN"],
+});
 const AFTER_ORDER = (d: DialectName) => ["ASC", "DESC", "LIMIT", ...(d === "mysql" ? [] : ["NULLS FIRST", "NULLS LAST"])];
 const AFTER_GROUP = (d: DialectName) => ["HAVING", "ORDER BY", "LIMIT", ...(d === "mysql" ? ["WITH ROLLUP"] : [])];
 
@@ -396,7 +421,12 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
 
   // ---- by clause ---------------------------------------------------------------
   switch (a.clause) {
-    case "start":
+    case "start": {
+      const next = STATEMENT_NEXT(d)[wordBefore(text, a.prefixStart) ?? ""];
+      if (next) {
+        out.push(...kw(next, 0, opts));
+        break;
+      }
       const starters = STATEMENT_STARTERS.filter(([k]) => d !== "sqlite" || k !== "TRUNCATE TABLE");
       out.push(...kw(starters.map(([k]) => k), 0, opts));
       for (const [label, snip] of starters) {
@@ -404,6 +434,7 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
       }
       out.push(...kw(d === "mysql" ? MYSQL_STARTERS : d === "sqlite" ? SQLITE_STARTERS : PG_STARTERS, 1, opts));
       break;
+    }
 
     case "from": {
       // CROSS and NATURAL joins take no condition, so no "ON" suggestions for them.
@@ -468,9 +499,64 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
         out.push({ label: alias, kind: "alias", insertText: alias + " ", detail: `alias for ${last.ref.name}`, rank: -0.5 });
       }
       const rest = JOIN_REST(d)[wordBefore(text, a.prefixStart) ?? ""];
-      out.push(...kw(rest ?? AFTER_TABLE(d), 0, opts));
+      if (rest) out.push(...kw(rest, 0, opts));
+      else if (a.statement === "update" && !a.seen.has("SET")) {
+        // UPDATE t [alias] | : SET, or (MySQL) more tables to join.
+        out.push(...kw(["SET"], -1, opts));
+        out.push(...kw(d === "mysql" ? ["AS", ...JOINS(d), ...(a.seen.has("JOIN") ? ["ON"] : [])] : ["AS"], 0, opts));
+      } else if (a.statement === "update") {
+        // PostgreSQL's UPDATE ... SET ... FROM a, b |
+        out.push(...kw(["WHERE"], -1, opts));
+        out.push(...kw([...JOINS(d), "ON", "AS", ...DML_TAIL(d)], 0, opts));
+      } else if (a.statement === "delete") {
+        out.push(...kw(["WHERE"], -1, opts));
+        out.push(...kw(["AS", ...(d === "sqlite" ? [] : ["USING"]), ...DML_TAIL(d)], 0, opts));
+      } else out.push(...kw(AFTER_TABLE(d), 0, opts));
       break;
     }
+
+    case "afterInsertTable": {
+      const target = scope.find((s) => s.ref.kind === "table")?.table;
+      const cols = (target?.columns ?? []).map((c) => c.name);
+      const values = (names: string[]) => `VALUES (${names.map((n, i) => `\${${i + 1}:${n.replace(/[$}\\]/g, "\\$&")}}`).join(", ")})`;
+      if (prevTokenIs(text, a.prefixStart, ")")) {
+        // INSERT INTO t (a, b) | : VALUES with a placeholder per listed column.
+        if (a.insertColumns.length) out.push({ label: "VALUES (…)", kind: "snippet", insertText: values(a.insertColumns), snippet: true, rank: -1, filterText: "VALUES" });
+        out.push(...kw(["VALUES", "SELECT"], 0, opts));
+        break;
+      }
+      if (cols.length) {
+        const list = cols.map((c) => q(c)).join(", ");
+        out.push({ label: "(all columns) VALUES (…)", kind: "snippet", insertText: `(${list}) ${values(cols)}`, snippet: true, rank: -1, filterText: "(" });
+        out.push({ label: "(…)", kind: "snippet", insertText: "($0)", snippet: true, rank: -0.5, filterText: "(", retrigger: true });
+      }
+      out.push(...kw(["VALUES", "SELECT", ...(d === "mysql" ? ["SET"] : ["DEFAULT VALUES"])], 0, opts));
+      break;
+    }
+
+    case "indexColumns": {
+      const target = scope.find((s) => s.ref.kind === "table");
+      if (target?.table) for (const c of target.table.columns) out.push({ label: c.name, kind: "column", insertText: q(c.name), detail: c.type, rank: c.pk ? 0 : 0.5 });
+      if (a.statement === "createIndex") out.push(...kw(["ASC", "DESC"], 3, opts));
+      break;
+    }
+
+    case "alterTable": {
+      const word = wordBefore(text, a.prefixStart) ?? "";
+      const rest = ALTER_REST(d)[word];
+      if (!rest) {
+        out.push(...kw(ALTER_ACTIONS[d], 0, opts));
+        break;
+      }
+      out.push(...kw(rest, 0, opts));
+      // DROP / ALTER / RENAME take a column name without COLUMN too (not SQLite's DROP).
+      if (word !== "ADD" && !(d === "sqlite" && word === "DROP")) addColumns(1);
+      break;
+    }
+
+    case "alterColumn":
+      addColumns(0);
+      break;
 
     case "on": {
       const target = a.joinTarget ?? scope[scope.length - 1]?.ref;
@@ -511,6 +597,11 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
         out.push({ label: "Expand * to column list", kind: "snippet", insertText: cols.join(", "), rangeStart: offset - 1, rank: -2, filterText: "*" });
       }
       if (a.clause === "limit") break;
+      if (a.clause === "values" && a.depth === 0 && a.afterOperand) {
+        // INSERT ... VALUES (...) |
+        out.push(...kw(d === "mysql" ? ["ON DUPLICATE KEY UPDATE"] : ["ON CONFLICT", "RETURNING"], 0, opts));
+        break;
+      }
       if (a.clause === "values") {
         out.push(...kw(["NULL", "DEFAULT", "TRUE", "FALSE"], 0, opts));
         addFunctions(1);
@@ -518,10 +609,22 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
       }
       // After a complete operand an operator or clause keyword comes next, so those
       // rank first ("WHERE email REG" -> REGEXP before REGEXP_LIKE()).
+      if (a.assignTarget) {
+        // SET | : the columns to assign (qualified by table in a multi-table UPDATE).
+        addColumns(0);
+        if (scope.length > 1) addRefNames(1);
+        break;
+      }
       const conditional = a.clause === "where" || a.clause === "set" || a.clause === "other";
+      const dml = a.statement === "update" || a.statement === "delete";
       if (a.afterOperand && conditional) {
+        if (a.clause === "set" && a.depth === 0) {
+          // SET a = 1 | : the next clause, ahead of operators continuing the value.
+          if (a.statement === "update") out.push(...kw(["WHERE", ...(d === "postgres" ? ["FROM"] : []), ...DML_TAIL(d)], -1.5, opts));
+          else if (d !== "mysql") out.push(...kw(["WHERE", "RETURNING"], -1.5, opts));
+        }
         out.push(...kw(OPERATORS[d], -1, opts));
-        if (a.clause === "where") out.push(...kw(AFTER_WHERE, 0, opts));
+        if (a.clause === "where") out.push(...kw(dml ? DML_TAIL(d) : AFTER_WHERE, 0, opts));
         addColumns(2);
         addFunctions(3);
         break;
@@ -547,8 +650,8 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
       }
       addColumns(0);
       addRefNames(1);
-      if (a.clause !== "set") addFunctions(2);
-      const kws = a.clause === "orderBy" ? AFTER_ORDER(d) : a.clause === "where" ? [...VALUE_KEYWORDS(d), ...AFTER_WHERE] : a.clause === "groupBy" ? AFTER_GROUP(d) : EXPR_KEYWORDS(d);
+      addFunctions(2);
+      const kws = a.clause === "orderBy" ? AFTER_ORDER(d) : a.clause === "where" ? [...VALUE_KEYWORDS(d), ...(dml ? DML_TAIL(d) : AFTER_WHERE)] : a.clause === "groupBy" ? AFTER_GROUP(d) : EXPR_KEYWORDS(d);
       out.push(...kw(a.clause === "select" ? [...kws, "FROM"] : kws, 3, opts));
       // Without any FROM yet, tables are useful too (SELECT t. ...)
       if (a.clause === "select" && !scope.length) addTables(4, undefined, false);
@@ -556,6 +659,41 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
     }
   }
   return finish(out, a);
+}
+
+// Keywords after which a column or expression is expected.
+const EXPR_STARTERS = /\b(SELECT|WHERE|AND|OR|BY|HAVING|SET|ON|DISTINCT)\s$/;
+
+/** Whether typing a space (or "(") at offset should open the suggest widget. */
+export function wantsSuggest(text: string, offset: number, dialect: DialectName, typed: string): boolean {
+  const a = analyze(text, offset, dialect);
+  if (typed === "(") return a.clause === "insertColumns" || a.clause === "indexColumns" || a.clause === "using";
+  const before = text.slice(Math.max(0, offset - 16), offset).toUpperCase();
+  if (/\b(FROM|JOIN|INTO|UPDATE|TABLE|ON|DESCRIBE|UNION|INTERSECT|EXCEPT|UNION ALL|UNION DISTINCT)\s$/.test(before)) return true;
+  switch (a.clause) {
+    case "start":
+      return /\b(INSERT|DELETE|REPLACE|ALTER|DROP|CREATE|TRUNCATE)\s$/.test(before);
+    case "afterTable":
+      return a.statement === "update" || a.statement === "delete";
+    case "afterInsertTable":
+    case "alterTable":
+    case "alterColumn":
+    case "insertColumns":
+    case "indexColumns":
+      return true;
+    case "set":
+      return a.assignTarget || EXPR_STARTERS.test(before);
+    case "groupBy":
+    case "orderBy":
+      return EXPR_STARTERS.test(before) || /,\s$/.test(before);
+    case "values":
+      return a.depth === 0 && a.afterOperand;
+    case "where":
+    case "on":
+    case "select":
+      return EXPR_STARTERS.test(before);
+  }
+  return false;
 }
 
 /** Resolve a column written as [qualifier?, name] against the tables in scope. */

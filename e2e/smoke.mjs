@@ -92,6 +92,36 @@ await step("query editor autocomplete", async () => {
   await shot("07-query-result");
 });
 
+await step("autocomplete in UPDATE / DELETE / INSERT", async () => {
+  const rows = page.locator(".suggest-widget .monaco-list-row");
+  const expectRow = async (label) => {
+    await rows.filter({ hasText: label }).first().waitFor({ timeout: 5000 });
+    await page.keyboard.press("Escape");
+  };
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.type("update customers ", { delay: 15 });
+  await expectRow("SET");
+  await page.keyboard.type("set ", { delay: 15 });
+  await rows.filter({ hasText: "email" }).first().waitFor({ timeout: 5000 });
+  await shot("07a-autocomplete-update-set");
+  await page.keyboard.press("Escape");
+  await page.keyboard.type("email = 'x' w", { delay: 15 });
+  await expectRow("WHERE");
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.type("delete ", { delay: 15 });
+  await expectRow("FROM");
+  await page.keyboard.type("from customers ", { delay: 15 });
+  await expectRow("WHERE");
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.type("insert into customers ", { delay: 15 });
+  await expectRow("VALUES");
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.press("Backspace");
+});
+
 await step("postgres tree", async () => {
   await page.locator(".tree-row", { hasText: "Local Postgres" }).dblclick();
   await page.locator(".tree-row", { hasText: /^\s*postgres\s*$/ }).first().waitFor({ timeout: 10000 });
