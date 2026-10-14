@@ -8,19 +8,25 @@ export {
 } from "./models.js";
 
 export type {
+    Advanced,
     Catalog,
     CatalogColumn,
     CatalogFK,
     Column,
     Connection,
+    CustomDatabases,
+    DatabaseEntry,
     ForeignKey,
     Index,
     ObjectInfo,
     ObjectRef,
+    Process,
     ResultColumn,
     RowPage,
     SSHConfig,
     SSLConfig,
+    ServerInfo,
+    ServerVar,
     StatementResult,
     TableDetail
 } from "./models.js";

@@ -3,10 +3,12 @@
 
 import * as ConnectionService from "./connectionservice.js";
 import * as ExplorerService from "./explorerservice.js";
+import * as MonitorService from "./monitorservice.js";
 import * as QueryService from "./queryservice.js";
 export {
     ConnectionService,
     ExplorerService,
+    MonitorService,
     QueryService
 };
 

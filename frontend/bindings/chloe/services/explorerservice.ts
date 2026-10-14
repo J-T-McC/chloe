@@ -25,6 +25,13 @@ export function Catalog(connID: string, database: string): $CancellablePromise<m
     return $Call.ByID(3285536386, connID, database);
 }
 
+/**
+ * CloseDatabase ends editor sessions on a database and releases its server connections.
+ */
+export function CloseDatabase(connID: string, database: string): $CancellablePromise<void> {
+    return $Call.ByID(4184082744, connID, database);
+}
+
 export function DDL(connID: string, ref: model$0.ObjectRef): $CancellablePromise<string> {
     return $Call.ByID(930272681, connID, ref);
 }

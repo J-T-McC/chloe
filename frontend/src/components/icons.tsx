@@ -27,6 +27,32 @@ export function DBIcon({ type, size = 16, dim = false }: { type: DBType | string
   );
 }
 
+// Hosted-service badges: neutral initials in a brand-agnostic palette.
+const PRESET: Record<string, { label: string; color: string }> = {
+  supabase: { label: "Sb", color: "#3a9e72" },
+  neon: { label: "Ne", color: "#2bb5a3" },
+  "rds-postgres": { label: "Rd", color: "#c9792b" },
+  "rds-mysql": { label: "Rd", color: "#c9792b" },
+  "digitalocean-postgres": { label: "DO", color: "#2f73d9" },
+  "digitalocean-mysql": { label: "DO", color: "#2f73d9" },
+  planetscale: { label: "PS", color: "#555b66" },
+  "tidb-cloud": { label: "Ti", color: "#d2463f" },
+};
+
+export function PresetIcon({ id, size = 16, dim = false }: { id: string; size?: number; dim?: boolean }) {
+  const p = PRESET[id] ?? { label: "?", color: "#888" };
+  return (
+    <span className="db-icon" style={{ width: size, height: size, fontSize: size * 0.48, background: p.color, opacity: dim ? 0.45 : 1 }} aria-label={id}>
+      {p.label}
+    </span>
+  );
+}
+
+/** Icon for a saved connection: its preset badge if any, else the engine badge. */
+export function ConnIcon({ type, preset, size = 16, dim = false }: { type: DBType | string; preset?: string; size?: number; dim?: boolean }) {
+  return preset && PRESET[preset] ? <PresetIcon id={preset} size={size} dim={dim} /> : <DBIcon type={type} size={size} dim={dim} />;
+}
+
 export const KIND_ICON: Record<string, LucideIcon> = {
   [ObjectKind.KindDatabase]: Database,
   [ObjectKind.KindSchema]: FolderTree,

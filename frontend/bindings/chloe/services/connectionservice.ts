@@ -12,7 +12,14 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as connurl$0 from "../internal/connurl/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as model$0 from "../internal/model/models.js";
+
+export function AddGroup(name: string): $CancellablePromise<void> {
+    return $Call.ByID(109250262, name);
+}
 
 /**
  * Connect opens a saved connection. password is used when none is saved.
@@ -29,8 +36,27 @@ export function Delete(id: string): $CancellablePromise<void> {
     return $Call.ByID(204782847, id);
 }
 
+export function DeleteGroup(name: string): $CancellablePromise<void> {
+    return $Call.ByID(3453917190, name);
+}
+
 export function Disconnect(id: string): $CancellablePromise<void> {
     return $Call.ByID(1679461518, id);
+}
+
+/**
+ * Duplicate copies a connection, including its saved passwords.
+ */
+export function Duplicate(id: string): $CancellablePromise<model$0.Connection> {
+    return $Call.ByID(3478452501, id);
+}
+
+/**
+ * ExportToFile asks for a destination and writes the selected connections there.
+ * Returns the chosen path, or "" if the user cancelled.
+ */
+export function ExportToFile(ids: string[] | null, withSecrets: boolean): $CancellablePromise<string> {
+    return $Call.ByID(371908169, ids, withSecrets);
 }
 
 /**
@@ -41,12 +67,59 @@ export function Get(id: string): $CancellablePromise<model$0.Connection> {
     return $Call.ByID(36096752, id);
 }
 
+export function Groups(): $CancellablePromise<string[] | null> {
+    return $Call.ByID(1024422300);
+}
+
+/**
+ * ImportFromFile asks for an export file and imports it. Returns the number imported.
+ */
+export function ImportFromFile(): $CancellablePromise<number> {
+    return $Call.ByID(1497354583);
+}
+
+/**
+ * Info summarises an open connection (server version, sessions, route).
+ */
+export function Info(id: string): $CancellablePromise<model$0.ServerInfo> {
+    return $Call.ByID(1735590280, id);
+}
+
 export function IsConnected(id: string): $CancellablePromise<boolean> {
     return $Call.ByID(1135638019, id);
 }
 
 export function List(): $CancellablePromise<model$0.Connection[] | null> {
     return $Call.ByID(2185994076);
+}
+
+export function MoveToGroup(id: string, group: string): $CancellablePromise<void> {
+    return $Call.ByID(2071645571, id, group);
+}
+
+/**
+ * ParseURL turns a pasted connection string into an unsaved profile.
+ */
+export function ParseURL(raw: string): $CancellablePromise<model$0.Connection> {
+    return $Call.ByID(166630404, raw);
+}
+
+/**
+ * PickFile opens a file chooser (for key and certificate fields). Returns "" on cancel.
+ */
+export function PickFile(title: string): $CancellablePromise<string> {
+    return $Call.ByID(3174570283, title);
+}
+
+/**
+ * Presets lists hosted-service presets (Supabase, Neon, ...).
+ */
+export function Presets(): $CancellablePromise<connurl$0.Preset[] | null> {
+    return $Call.ByID(3626733784);
+}
+
+export function RenameGroup(old: string, name: string): $CancellablePromise<void> {
+    return $Call.ByID(3201182025, old, name);
 }
 
 export function Save(c: model$0.Connection): $CancellablePromise<model$0.Connection> {
@@ -58,4 +131,11 @@ export function Save(c: model$0.Connection): $CancellablePromise<model$0.Connect
  */
 export function Test(c: model$0.Connection): $CancellablePromise<string> {
     return $Call.ByID(3046952944, c);
+}
+
+/**
+ * URL renders a saved connection as a connection string without its password.
+ */
+export function URL(id: string): $CancellablePromise<string> {
+    return $Call.ByID(1456238605, id);
 }

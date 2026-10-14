@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
-import { Connection, Connections, DBType, SSHAuth, errorText } from "../api";
+import { Clipboard, FolderOpen, Info, Link2, Plus, Search, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Connection, Connections, DBType, Preset, SSHAuth, arr, errorText } from "../api";
 import { useApp } from "../store";
-import { DBIcon } from "./icons";
+import { prompt } from "./Dialogs";
+import { DBIcon, PresetIcon } from "./icons";
 
-const TYPES: Array<{ type: DBType; label: string; ready: boolean }> = [
+const ENGINES: Array<{ type: DBType; label: string; ready: boolean }> = [
   { type: DBType.MySQL, label: "MySQL", ready: true },
   { type: DBType.MariaDB, label: "MariaDB", ready: true },
   { type: DBType.PostgreSQL, label: "PostgreSQL", ready: true },
@@ -15,78 +17,156 @@ const TYPES: Array<{ type: DBType; label: string; ready: boolean }> = [
   { type: DBType.Snowflake, label: "Snowflake", ready: false },
 ];
 
-type Section = "general" | "advanced" | "databases" | "ssl" | "ssh";
+const engineLabel = (t: DBType) => ENGINES.find((e) => e.type === t)?.label ?? t;
+const isMySQL = (t: DBType) => t === DBType.MySQL || t === DBType.MariaDB;
 
-function blank(type: DBType): Connection {
+type Section = "general" | "advanced" | "databases" | "ssl" | "ssh" | "remarks";
+
+const DEFAULT_PORTS: Partial<Record<DBType, number>> = { mysql: 3306, mariadb: 3306, postgres: 5432 } as never;
+
+export function blankConnection(type: DBType, preset?: Preset): Connection {
+  const d = preset?.defaults;
   return {
     id: "",
-    type,
     name: "",
-    host: "localhost",
-    port: defaultPort(type),
-    user: type === DBType.PostgreSQL ? "postgres" : "root",
+    type,
+    preset: preset?.id ?? "",
+    group: useApp.getState().selectedGroup ?? "",
+    host: d?.host || (preset ? "" : "localhost"),
+    port: d?.port || DEFAULT_PORTS[type] || 0,
+    user: d?.user || (preset ? "" : type === DBType.PostgreSQL ? "postgres" : "root"),
+    password: "",
     savePassword: true,
+    initialDatabase: d?.initialDatabase ?? "",
+    databases: { enabled: false, list: [] },
+    advanced: { autoConnect: false, sessionLimit: 0, keepaliveSec: 240, connectTimeoutSec: 0, readTimeoutSec: 0, writeTimeoutSec: 0, compression: false, cleartextAuth: false },
     ssh: { enabled: false, host: "", port: 22, user: "", auth: SSHAuth.SSHPassword, savePassword: true },
-    ssl: { enabled: false, verifyHost: false },
-    options: {},
-  };
-}
-
-function defaultPort(t: DBType) {
-  return { mysql: 3306, mariadb: 3306, postgres: 5432, mongodb: 27017, redis: 6379, sqlserver: 1433, oracle: 1521 }[t as string] ?? 0;
+    ssl: { enabled: false, verifyHost: false, ...(d?.ssl ?? {}) },
+  } as Connection;
 }
 
 export function ConnectionDialog() {
   const editing = useApp((s) => s.editing);
   const close = () => useApp.getState().editConnection(undefined);
   const [conn, setConn] = useState<Connection | null>(null);
-  const [section, setSection] = useState<Section>("general");
-  const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
-  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setStatus(null);
-    setSection("general");
-    if (editing === "new") setConn(null);
-    else if (editing) Connections.Get(editing.id).then(setConn);
+    if (!editing || editing === "new") setConn(null);
+    else if ("id" in editing && editing.id) Connections.Get(editing.id).then(setConn);
+    else setConn(editing as Connection); // prefilled, unsaved (e.g. from a URL)
   }, [editing]);
 
   if (!editing) return null;
+  if (!conn) return <TypePicker onPick={setConn} onCancel={close} />;
+  return <ConnectionForm key={conn.id || "new"} initial={conn} onClose={close} />;
+}
 
-  // Step 1 for new connections: pick the engine.
-  if (!conn) {
-    return (
-      <div className="modal-backdrop" onMouseDown={close}>
-        <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
-          <div className="modal-title">New Connection</div>
+// ---- step 1: engine / preset / URL --------------------------------------------
+
+function TypePicker({ onPick, onCancel }: { onPick(c: Connection): void; onCancel(): void }) {
+  const [presets, setPresets] = useState<Preset[]>([]);
+  const [filter, setFilter] = useState("");
+  const [url, setUrl] = useState("");
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    Connections.Presets().then((p) => setPresets(arr(p)));
+  }, []);
+
+  const f = filter.toLowerCase();
+  const engines = ENGINES.filter((e) => e.label.toLowerCase().includes(f));
+  const hosted = presets.filter((p) => (p.name + p.description).toLowerCase().includes(f));
+
+  const fromUrl = async () => {
+    setErr("");
+    try {
+      const c = await Connections.ParseURL(url);
+      onPick({ ...blankConnection(c.type, presets.find((p) => p.id === c.preset)), ...c, id: "", group: useApp.getState().selectedGroup ?? "" });
+    } catch (e) {
+      setErr(errorText(e));
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onMouseDown={onCancel}>
+      <div className="modal picker" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === "Escape" && onCancel()}>
+        <div className="modal-title">New Connection</div>
+        <div className="modal-body">
+          <div className="url-paste">
+            <Link2 size={14} />
+            <input
+              placeholder="Paste a connection URL (postgresql://… or mysql://…)"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && url && fromUrl()}
+            />
+            <button disabled={!url} onClick={fromUrl}>
+              Use URL
+            </button>
+          </div>
+          {err && <div className="status-line err">{err}</div>}
+          <div className="picker-search">
+            <Search size={13} />
+            <input autoFocus placeholder="Search connection types" value={filter} onChange={(e) => setFilter(e.target.value)} />
+          </div>
+          {!!engines.length && <div className="picker-heading">Databases</div>}
           <div className="type-grid">
-            {TYPES.map((t) => (
-              <button key={t.type} className="type-card" disabled={!t.ready} onClick={() => setConn(blank(t.type))} title={t.ready ? "" : "Coming in a later phase"}>
-                <DBIcon type={t.type} size={30} />
+            {engines.map((t) => (
+              <button key={t.type} className="type-card" disabled={!t.ready} onClick={() => onPick(blankConnection(t.type))} title={t.ready ? "" : "Coming in a later phase"}>
+                <DBIcon type={t.type} size={28} />
                 <span>{t.label}</span>
               </button>
             ))}
           </div>
-          <div className="modal-footer">
-            <span className="spacer" />
-            <button onClick={close}>Cancel</button>
+          {!!hosted.length && <div className="picker-heading">Hosted services</div>}
+          <div className="type-grid">
+            {hosted.map((p) => (
+              <button key={p.id} className="type-card" onClick={() => onPick(blankConnection(p.type, p))} title={p.description}>
+                <PresetIcon id={p.id} size={28} />
+                <span>{p.name}</span>
+                <small>{engineLabel(p.type)}</small>
+              </button>
+            ))}
           </div>
         </div>
+        <div className="modal-footer">
+          <span className="spacer" />
+          <button onClick={onCancel}>Cancel</button>
+        </div>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
-  const set = (patch: Partial<Connection>) => setConn({ ...conn, ...patch });
-  const setSSH = (patch: Partial<Connection["ssh"]>) => set({ ssh: { ...conn.ssh, ...patch } });
-  const setSSL = (patch: Partial<Connection["ssl"]>) => set({ ssl: { ...conn.ssl, ...patch } });
-  const setOpt = (k: string, v: string) => set({ options: { ...(conn.options ?? {}), [k]: v } });
-  const isPG = conn.type === DBType.PostgreSQL;
+// ---- step 2: the connection form --------------------------------------------------
+
+function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): void }) {
+  const [conn, setConn] = useState<Connection>(initial);
+  const [section, setSection] = useState<Section>("general");
+  const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [preset, setPreset] = useState<Preset | null>(null);
+  const groups = useApp((s) => s.groups);
+  const mysql = isMySQL(conn.type);
+  const pg = conn.type === DBType.PostgreSQL;
+
+  useEffect(() => {
+    if (conn.preset) Connections.Presets().then((p) => setPreset(arr(p).find((x) => x.id === conn.preset) ?? null));
+  }, [conn.preset]);
+
+  const set = (patch: Partial<Connection>) => setConn((c) => ({ ...c, ...patch }));
+  const setAdv = (patch: Partial<Connection["advanced"]>) => setConn((c) => ({ ...c, advanced: { ...c.advanced, ...patch } }));
+  const setSSH = (patch: Partial<Connection["ssh"]>) => setConn((c) => ({ ...c, ssh: { ...c.ssh, ...patch } }));
+  const setSSL = (patch: Partial<Connection["ssl"]>) => setConn((c) => ({ ...c, ssl: { ...c.ssl, ...patch } }));
+  const setDBs = (patch: Partial<Connection["databases"]>) => setConn((c) => ({ ...c, databases: { ...c.databases, ...patch } }));
+
+  const named = (): Connection => ({ ...conn, name: conn.name.trim() || preset?.name || conn.host || engineLabel(conn.type) });
 
   const test = async () => {
     setBusy(true);
     setStatus(null);
     try {
-      const v = await Connections.Test(conn);
+      const v = await Connections.Test(named());
       setStatus({ ok: true, text: `Connection successful — server ${v}` });
     } catch (e) {
       setStatus({ ok: false, text: errorText(e) });
@@ -96,13 +176,24 @@ export function ConnectionDialog() {
   };
 
   const save = async () => {
-    const c: Connection = { ...conn, name: conn.name.trim() || `${conn.host}` };
     try {
-      await Connections.Save(c);
+      const saved = await Connections.Save(named());
       await useApp.getState().loadConnections();
-      // Saving disconnects a live connection; reflect that in the UI.
-      if (c.id) useApp.getState().disconnect(c.id);
-      close();
+      if (conn.id) useApp.getState().disconnect(conn.id);
+      useApp.getState().select({ connId: saved.id });
+      onClose();
+    } catch (e) {
+      setStatus({ ok: false, text: errorText(e) });
+    }
+  };
+
+  const pasteURL = async () => {
+    const url = await prompt("Fill from connection URL", { message: preset?.urlExample ? `e.g. ${preset.urlExample}` : "postgresql://user:password@host:5432/database" });
+    if (!url) return;
+    try {
+      const c = await Connections.ParseURL(url);
+      setConn((cur) => ({ ...cur, ...c, id: cur.id, name: cur.name || c.name, group: cur.group, preset: cur.preset || c.preset, ssh: cur.ssh, advanced: { ...cur.advanced, ...c.advanced } }));
+      setStatus({ ok: true, text: "Filled from URL" });
     } catch (e) {
       setStatus({ ok: false, text: errorText(e) });
     }
@@ -114,14 +205,15 @@ export function ConnectionDialog() {
     ["databases", "Databases"],
     ["ssl", "SSL"],
     ["ssh", "SSH"],
+    ["remarks", "Remarks"],
   ];
 
   return (
-    <div className="modal-backdrop" onMouseDown={close}>
-      <div className="modal conn-dialog" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === "Escape" && close()}>
+    <div className="modal-backdrop" onMouseDown={onClose}>
+      <div className="modal conn-dialog" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === "Escape" && onClose()}>
         <div className="modal-title">
-          <DBIcon type={conn.type} size={18} />
-          {conn.id ? `Edit Connection — ${conn.name}` : `New Connection — ${TYPES.find((t) => t.type === conn.type)?.label}`}
+          {preset ? <PresetIcon id={preset.id} size={18} /> : <DBIcon type={conn.type} size={18} />}
+          {conn.id ? `Edit Connection — ${conn.name}` : `New ${preset?.name ?? engineLabel(conn.type)} Connection`}
         </div>
         <div className="seg-tabs">
           {sections.map(([k, label]) => (
@@ -133,120 +225,159 @@ export function ConnectionDialog() {
         <div className="modal-body form">
           {section === "general" && (
             <>
+              {preset && (
+                <div className="preset-help">
+                  <Info size={14} />
+                  <span>{preset.help}</span>
+                </div>
+              )}
               <Field label="Connection Name">
-                <input autoFocus value={conn.name} placeholder={conn.host} onChange={(e) => set({ name: e.target.value })} />
+                <input autoFocus value={conn.name} placeholder={preset?.name || conn.host || engineLabel(conn.type)} onChange={(e) => set({ name: e.target.value })} />
               </Field>
-              <Field label="Group">
-                <input value={conn.group ?? ""} placeholder="(none)" onChange={(e) => set({ group: e.target.value })} />
+              <Field label="Add To">
+                <select
+                  value={conn.group ?? ""}
+                  onChange={async (e) => {
+                    if (e.target.value === "\u0000new") {
+                      const g = await prompt("New Group", { message: "Group name" });
+                      if (g?.trim()) {
+                        await Connections.AddGroup(g.trim()).catch(() => {});
+                        await useApp.getState().loadConnections();
+                        set({ group: g.trim() });
+                      }
+                    } else set({ group: e.target.value });
+                  }}
+                >
+                  <option value="">My Connections</option>
+                  {groups.map((g) => (
+                    <option key={g} value={g}>
+                      {g}
+                    </option>
+                  ))}
+                  <option value={"\u0000new"}>New Group…</option>
+                </select>
               </Field>
               <hr />
               <Field label="Host">
-                <input value={conn.host} onChange={(e) => set({ host: e.target.value })} />
+                <div className="row">
+                  <input value={conn.host} placeholder={preset ? hostPlaceholder(preset) : "localhost"} onChange={(e) => set({ host: e.target.value })} />
+                  <button title="Fill from a connection URL" onClick={pasteURL}>
+                    <Link2 size={13} /> URL
+                  </button>
+                </div>
               </Field>
               <Field label="Port">
-                <input className="narrow" type="number" value={conn.port || ""} onChange={(e) => set({ port: Number(e.target.value) })} />
+                <input className="narrow" type="number" value={conn.port || ""} placeholder={String(DEFAULT_PORTS[conn.type] ?? "")} onChange={(e) => set({ port: Number(e.target.value) })} />
               </Field>
-              {isPG && (
-                <Field label="Initial Database">
-                  <input value={conn.initialDatabase ?? ""} placeholder="postgres" onChange={(e) => set({ initialDatabase: e.target.value })} />
-                </Field>
-              )}
+              <Field label="Initial Database">
+                <input value={conn.initialDatabase ?? ""} placeholder={pg ? "postgres" : "(none)"} onChange={(e) => set({ initialDatabase: e.target.value })} />
+              </Field>
               <Field label="User Name">
                 <input value={conn.user} onChange={(e) => set({ user: e.target.value })} />
               </Field>
               <Field label="Password">
-                <SecretInput value={conn.password ?? ""} onChange={(v) => set({ password: v })} />
+                <SecretInput value={conn.password ?? ""} placeholder={conn.savePassword ? "" : "Used for testing only; asked on connect"} onChange={(v) => set({ password: v })} />
               </Field>
               <Field label="">
-                <label className="check">
-                  <input type="checkbox" checked={conn.savePassword} onChange={(e) => set({ savePassword: e.target.checked })} /> Save password
-                </label>
+                <Check label="Save password" checked={conn.savePassword} onChange={(v) => set({ savePassword: v })} />
+              </Field>
+              <Field label="Color">
+                <div className="swatches">
+                  {["", "#e5534b", "#e8963c", "#d6b63a", "#4fae5a", "#3b8eea", "#9a6bd8", "#8b8f98"].map((c) => (
+                    <button key={c || "none"} className={"swatch" + ((conn.color ?? "") === c ? " on" : "")} style={{ background: c || "transparent" }} onClick={() => set({ color: c })} />
+                  ))}
+                </div>
               </Field>
             </>
           )}
 
           {section === "advanced" && (
             <>
-              {!isPG && (
-                <Field label="Encoding">
-                  <select value={conn.options?.encoding ?? "auto"} onChange={(e) => setOpt("encoding", e.target.value)}>
-                    {["auto", "utf8mb4", "utf8mb3", "latin1", "ascii", "binary"].map((x) => (
-                      <option key={x}>{x}</option>
-                    ))}
-                  </select>
+              <Field label="">
+                <Check label="Auto connect when Chloe starts" checked={conn.advanced.autoConnect} onChange={(v) => setAdv({ autoConnect: v })} />
+              </Field>
+              <ToggleNumber label="Limit connection sessions" value={conn.advanced.sessionLimit} def={10} onChange={(v) => setAdv({ sessionLimit: v })} />
+              <ToggleNumber label="Keepalive interval (sec)" value={conn.advanced.keepaliveSec} def={240} onChange={(v) => setAdv({ keepaliveSec: v })} />
+              <ToggleNumber label="Connection timeout (sec)" value={conn.advanced.connectTimeoutSec} def={15} onChange={(v) => setAdv({ connectTimeoutSec: v })} />
+              {mysql && (
+                <>
+                  <ToggleNumber label="Read timeout (sec)" value={conn.advanced.readTimeoutSec} def={30} onChange={(v) => setAdv({ readTimeoutSec: v })} />
+                  <ToggleNumber label="Write timeout (sec)" value={conn.advanced.writeTimeoutSec} def={30} onChange={(v) => setAdv({ writeTimeoutSec: v })} />
+                  <Field label="Client Character Set">
+                    <select value={conn.advanced.encoding || "auto"} onChange={(e) => setAdv({ encoding: e.target.value === "auto" ? "" : e.target.value })}>
+                      {["auto", "utf8mb4", "utf8mb3", "latin1", "ascii", "binary", "gbk", "big5", "sjis", "euckr"].map((x) => (
+                        <option key={x}>{x}</option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="">
+                    <Check label="Use compression" checked={conn.advanced.compression} onChange={(v) => setAdv({ compression: v })} />
+                  </Field>
+                  <Field label="">
+                    <Check label="Use cleartext authentication plugin" checked={conn.advanced.cleartextAuth} onChange={(v) => setAdv({ cleartextAuth: v })} />
+                  </Field>
+                  <ToggleText
+                    label="Use socket file"
+                    value={conn.advanced.socketFile ?? ""}
+                    def="/tmp/mysql.sock"
+                    disabled={conn.ssh.enabled}
+                    hint={conn.ssh.enabled ? "Not available with an SSH tunnel" : undefined}
+                    onChange={(v) => setAdv({ socketFile: v })}
+                  />
+                </>
+              )}
+              {pg && (
+                <Field label="Connection Parameters">
+                  <textarea rows={3} placeholder={"one key=value per line\napplication_name=reports\noptions=-c statement_timeout=30000"} value={conn.advanced.connectionParams ?? ""} onChange={(e) => setAdv({ connectionParams: e.target.value })} />
                 </Field>
               )}
-              {!isPG && (
-                <Field label="">
-                  <label className="check">
-                    <input type="checkbox" checked={conn.options?.cleartextPlugin === "true"} onChange={(e) => setOpt("cleartextPlugin", String(e.target.checked))} /> Use cleartext
-                    authentication plugin
-                  </label>
-                </Field>
-              )}
-              <Field label="Color">
-                <div className="swatches">
-                  {["", "#e5534b", "#e8963c", "#d6b63a", "#4fae5a", "#3b8eea", "#9a6bd8", "#8b8f98"].map((c) => (
-                    <button key={c || "none"} className={"swatch" + (conn.color === c || (!conn.color && !c) ? " on" : "")} style={{ background: c || "transparent" }} onClick={() => set({ color: c })} />
-                  ))}
-                </div>
+              <Field label="Initial Queries">
+                <textarea rows={3} placeholder={mysql ? "SET time_zone = '+00:00';" : "SET search_path TO app, public;"} value={conn.advanced.initialQueries ?? ""} onChange={(e) => setAdv({ initialQueries: e.target.value })} />
               </Field>
-              <Field label="Remark">
-                <textarea rows={3} value={conn.remark ?? ""} onChange={(e) => set({ remark: e.target.value })} />
-              </Field>
+              <p className="hint">Initial queries run on every new query tab and table view session.</p>
             </>
           )}
 
-          {section === "databases" && (
-            <>
-              <p className="hint">Show only these {isPG ? "databases" : "databases"} in the connection tree (one per line). Leave empty to show all.</p>
-              <textarea rows={8} value={(conn.showDatabases ?? []).join("\n")} onChange={(e) => set({ showDatabases: e.target.value.split("\n").map((x) => x.trim()).filter(Boolean) })} />
-            </>
-          )}
+          {section === "databases" && <DatabasesTab conn={conn} setDBs={setDBs} />}
 
           {section === "ssl" && (
             <>
               <Field label="">
-                <label className="check">
-                  <input type="checkbox" checked={conn.ssl.enabled} onChange={(e) => setSSL({ enabled: e.target.checked })} /> Use SSL
-                </label>
+                <Check label="Use SSL" checked={conn.ssl.enabled} onChange={(v) => setSSL({ enabled: v })} />
               </Field>
               <fieldset disabled={!conn.ssl.enabled}>
-                {isPG && (
+                {pg && (
                   <Field label="SSL Mode">
                     <select value={conn.ssl.mode || "require"} onChange={(e) => setSSL({ mode: e.target.value })}>
-                      {["require", "verify-ca", "verify-full"].map((m) => (
+                      {["prefer", "allow", "require", "verify-ca", "verify-full"].map((m) => (
                         <option key={m}>{m}</option>
                       ))}
                     </select>
                   </Field>
                 )}
-                <Field label="CA Certificate">
-                  <input value={conn.ssl.caFile ?? ""} placeholder="/path/to/ca.pem" onChange={(e) => setSSL({ caFile: e.target.value })} />
-                </Field>
-                <Field label="Client Certificate">
-                  <input value={conn.ssl.certFile ?? ""} placeholder="/path/to/client-cert.pem" onChange={(e) => setSSL({ certFile: e.target.value })} />
-                </Field>
-                <Field label="Client Key">
-                  <input value={conn.ssl.keyFile ?? ""} placeholder="/path/to/client-key.pem" onChange={(e) => setSSL({ keyFile: e.target.value })} />
-                </Field>
-                {!isPG && (
-                  <Field label="">
-                    <label className="check">
-                      <input type="checkbox" checked={conn.ssl.verifyHost} onChange={(e) => setSSL({ verifyHost: e.target.checked })} /> Verify server certificate
-                    </label>
-                  </Field>
+                <FileField label="CA Certificate" value={conn.ssl.caFile ?? ""} onChange={(v) => setSSL({ caFile: v })} />
+                <FileField label="Client Certificate" value={conn.ssl.certFile ?? ""} onChange={(v) => setSSL({ certFile: v })} />
+                <FileField label="Client Key" value={conn.ssl.keyFile ?? ""} onChange={(v) => setSSL({ keyFile: v })} />
+                {pg && <FileField label="Revocation List" value={conn.ssl.crlFile ?? ""} onChange={(v) => setSSL({ crlFile: v })} />}
+                {mysql && (
+                  <>
+                    <Field label="">
+                      <Check label="Verify server certificate against CA" checked={conn.ssl.verifyHost} onChange={(v) => setSSL({ verifyHost: v })} />
+                    </Field>
+                    <Field label="Specified Cipher">
+                      <input value={conn.ssl.cipher ?? ""} placeholder="(any) e.g. ECDHE-RSA-AES128-GCM-SHA256" onChange={(e) => setSSL({ cipher: e.target.value })} />
+                    </Field>
+                  </>
                 )}
               </fieldset>
+              {!conn.ssl.enabled && pg && <p className="hint">Without SSL, Chloe still uses TLS if the server offers it (sslmode=prefer).</p>}
             </>
           )}
 
           {section === "ssh" && (
             <>
               <Field label="">
-                <label className="check">
-                  <input type="checkbox" checked={conn.ssh.enabled} onChange={(e) => setSSH({ enabled: e.target.checked })} /> Use SSH Tunnel
-                </label>
+                <Check label="Use SSH Tunnel" checked={conn.ssh.enabled} onChange={(v) => setSSH({ enabled: v })} />
               </Field>
               <fieldset disabled={!conn.ssh.enabled}>
                 <Field label="Host">
@@ -262,19 +393,18 @@ export function ConnectionDialog() {
                   <select value={conn.ssh.auth} onChange={(e) => setSSH({ auth: e.target.value as SSHAuth })}>
                     <option value={SSHAuth.SSHPassword}>Password</option>
                     <option value={SSHAuth.SSHPublicKey}>Public Key</option>
+                    <option value={SSHAuth.SSHPasswordPublicKey}>Password and Public Key</option>
                     <option value={SSHAuth.SSHAgent}>SSH Agent</option>
                   </select>
                 </Field>
-                {conn.ssh.auth === SSHAuth.SSHPassword && (
+                {(conn.ssh.auth === SSHAuth.SSHPassword || conn.ssh.auth === SSHAuth.SSHPasswordPublicKey) && (
                   <Field label="Password">
                     <SecretInput value={conn.ssh.password ?? ""} onChange={(v) => setSSH({ password: v })} />
                   </Field>
                 )}
-                {conn.ssh.auth === SSHAuth.SSHPublicKey && (
+                {(conn.ssh.auth === SSHAuth.SSHPublicKey || conn.ssh.auth === SSHAuth.SSHPasswordPublicKey) && (
                   <>
-                    <Field label="Private Key">
-                      <input value={conn.ssh.privateKeyPath ?? ""} placeholder="~/.ssh/id_ed25519" onChange={(e) => setSSH({ privateKeyPath: e.target.value })} />
-                    </Field>
+                    <FileField label="Private Key" value={conn.ssh.privateKeyPath ?? ""} placeholder="~/.ssh/id_ed25519" onChange={(v) => setSSH({ privateKeyPath: v })} />
                     <Field label="Passphrase">
                       <SecretInput value={conn.ssh.passphrase ?? ""} onChange={(v) => setSSH({ passphrase: v })} />
                     </Field>
@@ -282,23 +412,27 @@ export function ConnectionDialog() {
                 )}
                 {conn.ssh.auth !== SSHAuth.SSHAgent && (
                   <Field label="">
-                    <label className="check">
-                      <input type="checkbox" checked={conn.ssh.savePassword} onChange={(e) => setSSH({ savePassword: e.target.checked })} /> Save{" "}
-                      {conn.ssh.auth === SSHAuth.SSHPublicKey ? "passphrase" : "password"}
-                    </label>
+                    <Check label="Save password / passphrase" checked={conn.ssh.savePassword} onChange={(v) => setSSH({ savePassword: v })} />
                   </Field>
                 )}
               </fieldset>
             </>
           )}
+
+          {section === "remarks" && <textarea className="remarks" rows={12} placeholder="Notes about this connection" value={conn.remark ?? ""} onChange={(e) => set({ remark: e.target.value })} />}
         </div>
         {status && <div className={"status-line " + (status.ok ? "ok" : "err")}>{status.text}</div>}
         <div className="modal-footer">
           <button onClick={test} disabled={busy}>
             {busy ? "Testing…" : "Test Connection"}
           </button>
+          {conn.id && (
+            <button title="Copy connection URL (without password)" onClick={async () => navigator.clipboard.writeText(await Connections.URL(conn.id))}>
+              <Clipboard size={13} /> Copy URL
+            </button>
+          )}
           <span className="spacer" />
-          <button onClick={close}>Cancel</button>
+          <button onClick={onClose}>Cancel</button>
           <button className="primary" onClick={save}>
             Save
           </button>
@@ -307,6 +441,72 @@ export function ConnectionDialog() {
     </div>
   );
 }
+
+function hostPlaceholder(p: Preset) {
+  const m = /@([^/:?]+)/.exec(p.urlExample);
+  return m ? m[1] : "";
+}
+
+function DatabasesTab({ conn, setDBs }: { conn: Connection; setDBs(p: Partial<Connection["databases"]>): void }) {
+  const list = arr(conn.databases.list);
+  const [name, setName] = useState("");
+  const connected = useApp((s) => !!(conn.id && s.open[conn.id]));
+  const add = (n: string) => {
+    const v = n.trim();
+    if (!v || list.some((d) => d.name === v)) return;
+    setDBs({ list: [...list, { name: v, autoOpen: false }] });
+    setName("");
+  };
+  const fetchFromServer = async () => {
+    const { Explorer } = await import("../api");
+    const dbs = arr(await Explorer.ListDatabases(conn.id));
+    const have = new Set(list.map((d) => d.name));
+    setDBs({ list: [...list, ...dbs.filter((d) => !have.has(d)).map((d) => ({ name: d, autoOpen: false }))] });
+  };
+  return (
+    <>
+      <Field label="">
+        <Check label="Use custom database list" checked={conn.databases.enabled} onChange={(v) => setDBs({ enabled: v })} />
+      </Field>
+      <p className="hint">Only the databases below appear in the connection tree, in this order. “Auto Open” opens a database as soon as the connection opens.</p>
+      <table className="db-list">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Auto Open</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {list.map((d, i) => (
+            <tr key={d.name}>
+              <td>{d.name}</td>
+              <td>
+                <input type="checkbox" checked={d.autoOpen} onChange={(e) => setDBs({ list: list.map((x, j) => (j === i ? { ...x, autoOpen: e.target.checked } : x)) })} />
+              </td>
+              <td>
+                <button className="icon" onClick={() => setDBs({ list: list.filter((_, j) => j !== i) })}>
+                  <Trash2 size={12} />
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="row">
+        <input placeholder="database name" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add(name)} />
+        <button onClick={() => add(name)}>
+          <Plus size={13} /> Add
+        </button>
+        <button disabled={!connected} title={connected ? "" : "Open the connection to fetch its databases"} onClick={fetchFromServer}>
+          Fetch from server
+        </button>
+      </div>
+    </>
+  );
+}
+
+// ---- form controls ------------------------------------------------------------------
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -317,16 +517,72 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange(v: boolean): void }) {
+  return (
+    <label className="check">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} /> {label}
+    </label>
+  );
+}
+
+/** Checkbox that enables a number; unchecked stores 0. */
+function ToggleNumber({ label, value, def, onChange }: { label: string; value: number; def: number; onChange(v: number): void }) {
+  const on = value > 0;
+  return (
+    <Field label="">
+      <div className="row">
+        <Check label={label} checked={on} onChange={(v) => onChange(v ? def : 0)} />
+        <input className="narrow" type="number" min={1} disabled={!on} value={on ? value : def} onChange={(e) => onChange(Math.max(1, Number(e.target.value)))} />
+      </div>
+    </Field>
+  );
+}
+
+function ToggleText({ label, value, def, disabled, hint, onChange }: { label: string; value: string; def: string; disabled?: boolean; hint?: string; onChange(v: string): void }) {
+  const on = value !== "";
+  return (
+    <Field label="">
+      <div className="row" title={hint}>
+        <label className="check">
+          <input type="checkbox" disabled={disabled} checked={on} onChange={(e) => onChange(e.target.checked ? def : "")} /> {label}
+        </label>
+        <input disabled={!on || disabled} value={on ? value : def} onChange={(e) => onChange(e.target.value)} />
+      </div>
+    </Field>
+  );
+}
+
+function FileField({ label, value, placeholder, onChange }: { label: string; value: string; placeholder?: string; onChange(v: string): void }) {
+  return (
+    <Field label={label}>
+      <div className="row">
+        <input value={value} placeholder={placeholder ?? "path to file"} onChange={(e) => onChange(e.target.value)} />
+        <button
+          title="Browse…"
+          onClick={async () => {
+            const p = await Connections.PickFile(label).catch(() => "");
+            if (p) onChange(p);
+          }}
+        >
+          <FolderOpen size={13} />
+        </button>
+      </div>
+    </Field>
+  );
+}
+
 // The Go side sends this placeholder for saved secrets; never display it.
 const SAVED = "\u0000saved\u0000";
 
-function SecretInput({ value, onChange }: { value: string; onChange(v: string): void }) {
+function SecretInput({ value, onChange, disabled, placeholder }: { value: string; onChange(v: string): void; disabled?: boolean; placeholder?: string }) {
   const saved = value === SAVED;
+  const ph = useMemo(() => (saved ? "••••••••  (saved)" : (placeholder ?? "")), [saved, placeholder]);
   return (
     <input
       type="password"
+      disabled={disabled}
       value={saved ? "" : value}
-      placeholder={saved ? "••••••••  (saved)" : ""}
+      placeholder={ph}
       onChange={(e) => onChange(e.target.value)}
       onKeyDown={(e) => {
         // Backspace on a saved secret clears it.

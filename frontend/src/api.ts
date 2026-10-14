@@ -2,7 +2,9 @@
 export * as Connections from "../bindings/chloe/services/connectionservice";
 export * as Explorer from "../bindings/chloe/services/explorerservice";
 export * as Query from "../bindings/chloe/services/queryservice";
-export { DBType, ObjectKind, SSHAuth, type Connection, type ObjectInfo, type ObjectRef, type StatementResult, type ResultColumn, type RowPage, type TableDetail, type Catalog } from "../bindings/chloe/internal/model/models";
+export * as Monitor from "../bindings/chloe/services/monitorservice";
+export type { Preset } from "../bindings/chloe/internal/connurl/models";
+export { DBType, ObjectKind, SSHAuth, type Connection, type ServerInfo, type Process, type ServerVar, type ObjectInfo, type ObjectRef, type StatementResult, type ResultColumn, type RowPage, type TableDetail, type Catalog } from "../bindings/chloe/internal/model/models";
 export { ChangeKind, type RowChange, type BrowseRequest, type SortSpec } from "../bindings/chloe/internal/core/models";
 export type { Dialect } from "../bindings/chloe/internal/driver/models";
 export { Events } from "@wailsio/runtime";
