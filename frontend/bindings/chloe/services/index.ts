@@ -4,6 +4,7 @@
 import * as ConnectionService from "./connectionservice.js";
 import * as DesignService from "./designservice.js";
 import * as ExplorerService from "./explorerservice.js";
+import * as LayoutService from "./layoutservice.js";
 import * as MonitorService from "./monitorservice.js";
 import * as QueryService from "./queryservice.js";
 import * as TransferService from "./transferservice.js";
@@ -11,6 +12,7 @@ export {
     ConnectionService,
     DesignService,
     ExplorerService,
+    LayoutService,
     MonitorService,
     QueryService,
     TransferService

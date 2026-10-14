@@ -73,3 +73,10 @@ export function PreviewImport(connID: string, path: string, opts: transfer$0.Imp
 export function SaveFileDialog(defaultName: string, filterName: string, pattern: string): $CancellablePromise<string> {
     return $Call.ByID(2509224056, defaultName, filterName, pattern);
 }
+
+/**
+ * WriteFile saves text, or base64-encoded binary content (PNG exports), to path.
+ */
+export function WriteFile(path: string, content: string, isBase64: boolean): $CancellablePromise<void> {
+    return $Call.ByID(2391624592, path, content, isBase64);
+}

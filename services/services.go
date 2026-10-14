@@ -4,6 +4,7 @@ package services
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 
@@ -411,3 +412,16 @@ type LayoutService struct{ M *core.Manager }
 func (s *LayoutService) Get(key string) (string, error) { return s.M.Store.Layouts().Get(key) }
 func (s *LayoutService) Set(key, doc string) error      { return s.M.Store.Layouts().Set(key, doc) }
 func (s *LayoutService) Delete(key string) error        { return s.M.Store.Layouts().Delete(key) }
+
+// WriteFile saves text, or base64-encoded binary content (PNG exports), to path.
+func (s *TransferService) WriteFile(path, content string, isBase64 bool) error {
+	data := []byte(content)
+	if isBase64 {
+		b, err := base64.StdEncoding.DecodeString(content)
+		if err != nil {
+			return err
+		}
+		data = b
+	}
+	return os.WriteFile(path, data, 0o644)
+}

@@ -5,6 +5,7 @@ export * as Query from "../bindings/chloe/services/queryservice";
 export * as Monitor from "../bindings/chloe/services/monitorservice";
 export * as Design from "../bindings/chloe/services/designservice";
 export * as Transfer from "../bindings/chloe/services/transferservice";
+export * as Layouts from "../bindings/chloe/services/layoutservice";
 export { Format, type ExportOptions, type ImportOptions } from "../bindings/chloe/internal/transfer/models";
 export type * as D from "../bindings/chloe/internal/design/models";
 export type { Preset } from "../bindings/chloe/internal/connurl/models";

@@ -67,6 +67,7 @@ export interface CatalogColumn {
     "name": string;
     "type": string;
     "pk"?: boolean;
+    "nullable"?: boolean;
 }
 
 /**

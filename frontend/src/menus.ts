@@ -139,9 +139,16 @@ export function objectsAreaMenu(connId: string, database: string, schema: string
   ];
 }
 
+export function openERD(connId: string, database: string, schema?: string) {
+  const title = `ER — ${schema ?? database}`;
+  useApp.getState().openTab({ kind: "erd", title, connId, database, schema, ref: { database, schema, name: "erd", kind: ObjectKind.$zero } });
+}
+
 /** Extra database / schema menu items (dump, execute, import/export). */
 export function databaseTools(connId: string, database: string, schema?: string): MenuItem[] {
   return [
+    { label: "ER Diagram", onClick: () => openERD(connId, database, schema) },
+    { separator: true },
     { label: "Execute SQL File…", onClick: () => openExecuteFile(connId, database, schema) },
     {
       label: "Dump SQL File",
