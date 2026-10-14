@@ -185,6 +185,83 @@ func (m *Manager) conn(id string) (driver.Conn, error) {
 	return oc.conn, nil
 }
 
+// CloseDatabase closes editor sessions using a database and releases its pool.
+func (m *Manager) CloseDatabase(connID, database string) error {
+	c, err := m.conn(connID)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	var toClose []*session
+	for sid, s := range m.sessions {
+		if s.connID == connID && s.database == database {
+			toClose = append(toClose, s)
+			delete(m.sessions, sid)
+		}
+	}
+	m.mu.Unlock()
+	for _, s := range toClose {
+		m.closeSession(s)
+	}
+	c.CloseDatabase(database)
+	return nil
+}
+
+// Info summarises an open connection.
+func (m *Manager) Info(connID string) (model.ServerInfo, error) {
+	m.mu.Lock()
+	oc, ok := m.conns[connID]
+	m.mu.Unlock()
+	if !ok {
+		return model.ServerInfo{}, fmt.Errorf("%w: %s", ErrNotConnected, connID)
+	}
+	p := oc.profile
+	info := model.ServerInfo{Version: oc.conn.ServerVersion(), Sessions: oc.conn.OpenConnections(),
+		Host: fmt.Sprintf("%s:%d", p.Host, p.Port), User: p.User, Via: "direct", SSL: p.SSL.Enabled}
+	switch {
+	case p.SSH.Enabled:
+		info.Via = fmt.Sprintf("SSH %s@%s:%d", p.SSH.User, p.SSH.Host, p.SSH.Port)
+	case p.Advanced.SocketFile != "" && (p.Type == model.MySQL || p.Type == model.MariaDB):
+		info.Via = "socket " + p.Advanced.SocketFile
+		info.Host = "localhost"
+	}
+	return info, nil
+}
+
+// --- server monitor ----------------------------------------------------------
+
+func (m *Manager) Processes(ctx context.Context, connID string) ([]model.Process, error) {
+	c, err := m.conn(connID)
+	if err != nil {
+		return nil, err
+	}
+	return c.Processes(ctx)
+}
+
+func (m *Manager) KillProcess(ctx context.Context, connID, id string, queryOnly bool) error {
+	c, err := m.conn(connID)
+	if err != nil {
+		return err
+	}
+	return c.KillProcess(ctx, id, queryOnly)
+}
+
+func (m *Manager) Variables(ctx context.Context, connID string) ([]model.ServerVar, error) {
+	c, err := m.conn(connID)
+	if err != nil {
+		return nil, err
+	}
+	return c.Variables(ctx)
+}
+
+func (m *Manager) ServerStatus(ctx context.Context, connID string) ([]model.ServerVar, error) {
+	c, err := m.conn(connID)
+	if err != nil {
+		return nil, err
+	}
+	return c.Status(ctx)
+}
+
 // --- metadata --------------------------------------------------------------
 
 func (m *Manager) Dialect(connID string) (driver.Dialect, error) {
@@ -205,20 +282,20 @@ func (m *Manager) ListDatabases(ctx context.Context, connID string) ([]string, e
 		return nil, err
 	}
 	m.mu.Lock()
-	show := m.conns[connID].profile.ShowDatabases
+	custom := m.conns[connID].profile.Databases
 	m.mu.Unlock()
-	if len(show) > 0 {
-		allowed := map[string]bool{}
-		for _, s := range show {
-			allowed[s] = true
-		}
-		kept := dbs[:0]
+	if custom.Enabled && len(custom.List) > 0 {
+		// The custom list decides which databases show, in its order.
+		exists := map[string]bool{}
 		for _, d := range dbs {
-			if allowed[d] {
-				kept = append(kept, d)
+			exists[d] = true
+		}
+		dbs = dbs[:0]
+		for _, e := range custom.List {
+			if exists[e.Name] {
+				dbs = append(dbs, e.Name)
 			}
 		}
-		dbs = kept
 	}
 	return dbs, nil
 }

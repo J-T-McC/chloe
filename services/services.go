@@ -4,9 +4,12 @@ package services
 
 import (
 	"context"
+	"fmt"
+	"os"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"chloe/internal/connurl"
 	"chloe/internal/core"
 	"chloe/internal/driver"
 	"chloe/internal/model"
@@ -115,9 +118,83 @@ func (s *ConnectionService) Connect(ctx context.Context, id, password string) (s
 	return s.M.Connect(ctx, id, password)
 }
 
-func (s *ConnectionService) Disconnect(id string)          { s.M.Disconnect(id) }
-func (s *ConnectionService) IsConnected(id string) bool    { return s.M.IsConnected(id) }
+func (s *ConnectionService) Disconnect(id string)           { s.M.Disconnect(id) }
+func (s *ConnectionService) IsConnected(id string) bool     { return s.M.IsConnected(id) }
 func (s *ConnectionService) DefaultPort(t model.DBType) int { return model.DefaultPort(t) }
+
+// Duplicate copies a connection, including its saved passwords.
+func (s *ConnectionService) Duplicate(id string) (model.Connection, error) {
+	return s.M.Store.Duplicate(id)
+}
+
+// Info summarises an open connection (server version, sessions, route).
+func (s *ConnectionService) Info(id string) (model.ServerInfo, error) { return s.M.Info(id) }
+
+func (s *ConnectionService) Groups() []string           { return s.M.Store.Groups() }
+func (s *ConnectionService) AddGroup(name string) error { return s.M.Store.AddGroup(name) }
+func (s *ConnectionService) RenameGroup(old, name string) error {
+	return s.M.Store.RenameGroup(old, name)
+}
+func (s *ConnectionService) DeleteGroup(name string) error { return s.M.Store.DeleteGroup(name) }
+func (s *ConnectionService) MoveToGroup(id, group string) error {
+	return s.M.Store.MoveToGroup(id, group)
+}
+
+// Presets lists hosted-service presets (Supabase, Neon, ...).
+func (s *ConnectionService) Presets() []connurl.Preset { return connurl.Presets() }
+
+// ParseURL turns a pasted connection string into an unsaved profile.
+func (s *ConnectionService) ParseURL(raw string) (model.Connection, error) { return connurl.Parse(raw) }
+
+// URL renders a saved connection as a connection string without its password.
+func (s *ConnectionService) URL(id string) (string, error) {
+	c, err := s.M.Store.Get(id)
+	if err != nil {
+		return "", err
+	}
+	return connurl.Format(c), nil
+}
+
+// ExportToFile asks for a destination and writes the selected connections there.
+// Returns the chosen path, or "" if the user cancelled.
+func (s *ConnectionService) ExportToFile(ids []string, withSecrets bool) (string, error) {
+	data, err := s.M.Store.Export(ids, withSecrets)
+	if err != nil {
+		return "", err
+	}
+	path, err := application.Get().Dialog.SaveFile().
+		SetFilename("connections.chloe.json").
+		AddFilter("Chloe connections", "*.json").
+		PromptForSingleSelection()
+	if err != nil || path == "" {
+		return "", err
+	}
+	return path, os.WriteFile(path, data, 0o600)
+}
+
+// ImportFromFile asks for an export file and imports it. Returns the number imported.
+func (s *ConnectionService) ImportFromFile() (int, error) {
+	path, err := application.Get().Dialog.OpenFile().
+		AddFilter("Chloe connections", "*.json").
+		PromptForSingleSelection()
+	if err != nil || path == "" {
+		return 0, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	n, err := s.M.Store.Import(data)
+	if err != nil {
+		return n, fmt.Errorf("%s: %w", path, err)
+	}
+	return n, nil
+}
+
+// PickFile opens a file chooser (for key and certificate fields). Returns "" on cancel.
+func (s *ConnectionService) PickFile(title string) (string, error) {
+	return application.Get().Dialog.OpenFile().SetTitle(title).ShowHiddenFiles(true).PromptForSingleSelection()
+}
 
 // ExplorerService reads database metadata for the object tree, designers and autocomplete.
 type ExplorerService struct{ M *core.Manager }
@@ -150,6 +227,31 @@ func (s *ExplorerService) DDL(ctx context.Context, connID string, ref model.Obje
 
 func (s *ExplorerService) BuiltinFunctions(connID string) ([]string, error) {
 	return s.M.BuiltinFunctions(connID)
+}
+
+// CloseDatabase ends editor sessions on a database and releases its server connections.
+func (s *ExplorerService) CloseDatabase(connID, database string) error {
+	return s.M.CloseDatabase(connID, database)
+}
+
+// MonitorService backs the server monitor: sessions, variables and status.
+type MonitorService struct{ M *core.Manager }
+
+func (s *MonitorService) Processes(ctx context.Context, connID string) ([]model.Process, error) {
+	return s.M.Processes(ctx, connID)
+}
+
+// KillProcess ends a session, or only its current query when queryOnly is set.
+func (s *MonitorService) KillProcess(ctx context.Context, connID, id string, queryOnly bool) error {
+	return s.M.KillProcess(ctx, connID, id, queryOnly)
+}
+
+func (s *MonitorService) Variables(ctx context.Context, connID string) ([]model.ServerVar, error) {
+	return s.M.Variables(ctx, connID)
+}
+
+func (s *MonitorService) Status(ctx context.Context, connID string) ([]model.ServerVar, error) {
+	return s.M.ServerStatus(ctx, connID)
 }
 
 // QueryService runs SQL and serves result pages.
