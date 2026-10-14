@@ -355,3 +355,47 @@ func TestSQLiteAttachEditDump(t *testing.T) {
 		t.Fatalf("restored edit %v", deref(n[0][0]))
 	}
 }
+
+// The sample database in testdata loads, and every table round-trips through the designer.
+func TestSQLiteSampleSeed(t *testing.T) {
+	dir := t.TempDir()
+	st, _ := store.Open(filepath.Join(dir, "cfg"), &store.MemorySecrets{})
+	saved, _ := st.Save(model.Connection{Name: "sample", Type: model.SQLite, SQLite: model.SQLiteConfig{Path: filepath.Join(dir, "shop.db"), Create: true}})
+	m := core.NewManager(st, nil, core.DefaultSettings)
+	defer m.Close()
+	ctx := context.Background()
+	if _, err := m.Connect(ctx, saved.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	seed, err := os.ReadFile("../../testdata/seed_sqlite.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec(t, m, saved.ID, string(seed))
+	tables, _ := m.ListObjects(ctx, saved.ID, "main", "", model.KindTable)
+	if len(tables) != 5 {
+		t.Fatalf("tables %+v", tables)
+	}
+	for _, tb := range tables {
+		d, err := m.LoadDesign(ctx, saved.ID, tb.ObjectRef)
+		if err != nil {
+			t.Fatalf("%s: %v", tb.Name, err)
+		}
+		if p, err := m.PreviewDesign(saved.ID, &d, d); err != nil || len(p.Statements) != 0 {
+			t.Fatalf("%s: no-op alter %v %v", tb.Name, p.Statements, err)
+		}
+		// Recreating from the design gives the same table.
+		stmts, err := m.PreviewDesign(saved.ID, nil, d)
+		if err != nil || len(stmts.Statements) == 0 {
+			t.Fatalf("%s: create %v", tb.Name, err)
+		}
+	}
+	items, _ := m.LoadDesign(ctx, saved.ID, model.ObjectRef{Database: "main", Name: "order_items", Kind: model.KindTable})
+	if !items.Options.WithoutRowid || len(items.PrimaryKey.Columns) != 2 || len(items.ForeignKeys) != 2 {
+		t.Fatalf("order_items %+v", items)
+	}
+	orders, _ := m.LoadDesign(ctx, saved.ID, model.ObjectRef{Database: "main", Name: "orders", Kind: model.KindTable})
+	if len(orders.Triggers) != 1 || orders.Triggers[0].Events[0] != "UPDATE OF status" || orders.Indexes[0].Where != "status <> 'shipped'" {
+		t.Fatalf("orders %+v %+v", orders.Triggers, orders.Indexes)
+	}
+}
