@@ -182,10 +182,20 @@ const PG_STARTERS = ["SET search_path TO", "VACUUM", "ANALYZE", "COPY", "CREATE 
 
 // Only keywords the dialect accepts: MySQL has no FULL OUTER JOIN or NULLS FIRST,
 // SQLite no TRUNCATE or INTERVAL, and only MySQL has WITH ROLLUP.
-const AFTER_TABLE = (d: DialectName) => [
-  "WHERE", "INNER JOIN", "LEFT JOIN", "RIGHT JOIN", "CROSS JOIN", "JOIN", "GROUP BY", "ORDER BY", "LIMIT", "AS", "ON", "USING", "UNION", "UNION ALL", "HAVING",
-  ...(d === "mysql" ? [] : ["FULL OUTER JOIN"]),
-];
+const JOINS = (d: DialectName) => ["INNER JOIN", "LEFT JOIN", "RIGHT JOIN", "CROSS JOIN", "JOIN", ...(d === "mysql" ? [] : ["FULL OUTER JOIN"])];
+const AFTER_TABLE = (d: DialectName) => ["WHERE", ...JOINS(d), "GROUP BY", "ORDER BY", "LIMIT", "AS", "ON", "USING", "UNION", "UNION ALL", "HAVING"];
+// What can follow a join modifier ("LEFT |").
+const JOIN_REST = (d: DialectName): Record<string, string[]> => ({
+  INNER: ["JOIN"],
+  CROSS: ["JOIN"],
+  LEFT: ["JOIN", "OUTER JOIN"],
+  RIGHT: ["JOIN", "OUTER JOIN"],
+  ...(d === "mysql" ? {} : { FULL: ["OUTER JOIN", "JOIN"] }),
+  NATURAL: ["JOIN", "LEFT JOIN", "RIGHT JOIN", "INNER JOIN"],
+  OUTER: ["JOIN"],
+});
+/** The word directly before the prefix being typed, upper-cased. */
+const wordBefore = (text: string, at: number) => /([A-Za-z_]+)\s+$/.exec(text.slice(0, at))?.[1].toUpperCase();
 // Keywords that start a value or expression.
 const VALUE_KEYWORDS = (d: DialectName) => ["NOT", "EXISTS", "CASE", "WHEN", "THEN", "ELSE", "END", "NULL", "TRUE", "FALSE", "DISTINCT", ...(d === "sqlite" ? [] : ["INTERVAL"])];
 // Operators that follow an operand ("email |").
@@ -373,7 +383,9 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
       break;
 
     case "from": {
-      const isJoin = a.prevKeyword === "JOIN";
+      // CROSS and NATURAL joins take no condition, so no "ON" suggestions for them.
+      const joinKind = a.prevKeyword === "JOIN" ? /([A-Za-z_]+)\s+JOIN\s+$/i.exec(text.slice(0, a.prefixStart))?.[1].toUpperCase() : undefined;
+      const isJoin = a.prevKeyword === "JOIN" && joinKind !== "CROSS" && joinKind !== "NATURAL";
       if (isJoin && scope.length) {
         // FK-aware join suggestions: "orders o ON o.customer_id = c.id"
         const taken = new Set(scope.map((s) => qualName(s.ref).toLowerCase()));
@@ -407,7 +419,8 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
         const alias = makeAlias(last.ref.name, taken);
         out.push({ label: alias, kind: "alias", insertText: alias + " ", detail: `alias for ${last.ref.name}`, rank: -0.5 });
       }
-      out.push(...kw(AFTER_TABLE(d), 0, opts));
+      const rest = JOIN_REST(d)[wordBefore(text, a.prefixStart) ?? ""];
+      out.push(...kw(rest ?? AFTER_TABLE(d), 0, opts));
       break;
     }
 
@@ -421,7 +434,7 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
       if (a.afterOperand) out.push(...kw(OPERATORS[d], -0.5, opts));
       addRefNames(1);
       addColumns(2);
-      out.push(...kw(["AND", "OR", "WHERE", "INNER JOIN", "LEFT JOIN", "ORDER BY", "GROUP BY"], 3, opts));
+      out.push(...kw(["AND", "OR", "WHERE", ...JOINS(d), "ORDER BY", "GROUP BY"], 3, opts));
       break;
     }
 

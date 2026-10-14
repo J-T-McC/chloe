@@ -293,3 +293,24 @@ describe("sqlite dialect", () => {
     expect(at("select * from t ", "mysql")).not.toContain("FULL OUTER JOIN");
   });
 });
+
+describe("joins", () => {
+  const on = "select * from customers c join orders o on o.customer_id = c.id |";
+  it("offers every join type the dialect has after an ON condition", () => {
+    expect(at(on, "mysql").labels).toEqual(expect.arrayContaining(["CROSS JOIN", "RIGHT JOIN", "JOIN"]));
+    expect(at(on, "mysql").labels).not.toContain("FULL OUTER JOIN");
+    expect(at(on).labels).toContain("FULL OUTER JOIN");
+  });
+  it("completes the rest of a join after its modifier", () => {
+    expect(at("select * from customers c cross |", "mysql").labels).toEqual(["JOIN"]);
+    expect(at("select * from customers c left |", "mysql").labels).toEqual(["JOIN", "OUTER JOIN"]);
+    expect(at("select * from customers c full |", "mysql").labels).not.toContain("OUTER JOIN");
+    expect(at("select * from customers c full |").labels).toContain("OUTER JOIN");
+  });
+  it("suggests tables without a join condition after CROSS JOIN", () => {
+    const r = at("select * from customers c cross join |", "mysql");
+    expect(r.labels).toContain("orders");
+    expect(r.sorted.some((s) => s.kind === "join")).toBe(false);
+    expect(at("select * from customers c left join |", "mysql").sorted.some((s) => s.kind === "join")).toBe(true);
+  });
+});
