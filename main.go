@@ -48,6 +48,7 @@ func main() {
 			application.NewService(&services.ExplorerService{M: mgr}),
 			application.NewService(&services.QueryService{M: mgr}),
 			application.NewService(&services.MonitorService{M: mgr}),
+			application.NewService(&services.DesignService{M: mgr}),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

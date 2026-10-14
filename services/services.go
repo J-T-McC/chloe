@@ -11,6 +11,7 @@ import (
 
 	"chloe/internal/connurl"
 	"chloe/internal/core"
+	"chloe/internal/design"
 	"chloe/internal/driver"
 	"chloe/internal/model"
 )
@@ -309,4 +310,33 @@ func (s *QueryService) ApplyChanges(ctx context.Context, connID string, ref mode
 		out.Error = err.Error()
 	}
 	return out
+}
+
+// DesignService backs the table designer and table actions.
+type DesignService struct{ M *core.Manager }
+
+func (s *DesignService) Load(ctx context.Context, connID string, ref model.ObjectRef) (design.Table, error) {
+	return s.M.LoadDesign(ctx, connID, ref)
+}
+
+func (s *DesignService) Meta(ctx context.Context, connID, database string) (design.Meta, error) {
+	return s.M.DesignMeta(ctx, connID, database)
+}
+
+// Preview returns the SQL a save would run. old is nil for a new table.
+func (s *DesignService) Preview(connID string, old *design.Table, table design.Table) (core.DesignPreview, error) {
+	return s.M.PreviewDesign(connID, old, table)
+}
+
+// Apply saves a design and returns the reloaded table.
+func (s *DesignService) Apply(ctx context.Context, connID string, old *design.Table, table design.Table) (core.ApplyResult, error) {
+	return s.M.ApplyDesign(ctx, connID, old, table)
+}
+
+func (s *DesignService) TableActionSQL(connID string, ref model.ObjectRef, action core.TableAction, newName string) ([]string, error) {
+	return s.M.TableActionSQL(connID, ref, action, newName)
+}
+
+func (s *DesignService) RunTableAction(ctx context.Context, connID string, ref model.ObjectRef, action core.TableAction, newName string) core.ApplyResult {
+	return s.M.RunTableAction(ctx, connID, ref, action, newName)
 }
