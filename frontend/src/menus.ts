@@ -3,7 +3,7 @@
 import { DBType, Design, MaintainOp, ObjectKind, ObjectRef, TableAction, Transfer, arr, errorText } from "./api";
 import { MenuItem } from "./components/ContextMenu";
 import { alert } from "./components/Dialogs";
-import { newQuery, openObject } from "./components/Sidebar";
+import { newQuery, openObject, selectAllSQL } from "./components/Sidebar";
 import { openExecuteFile, openExport, openImport, track } from "./components/transfer/state";
 import { connById, useApp } from "./store";
 import { designTable, newTable, runTableAction } from "./tableActions";
@@ -60,6 +60,7 @@ export function tableMenu(connId: string, refs: ObjectRef[]): MenuItem[] {
   return [
     { label: "Open Table", shortcut: "⌘O", disabled: !one, onClick: () => openObject(node) },
     { label: "Design Table", shortcut: "⌘D", disabled: !one, onClick: () => designTable(connId, ref) },
+    { label: "Query Table", shortcut: "⌘T", disabled: !one, onClick: () => newQuery(connId, database, schema, selectAllSQL(connId, ref)) },
     { label: "New Table", shortcut: "⌘N", onClick: () => newTable(connId, database, schema) },
     { label: "Delete Table", disabled: !one, onClick: () => runTableAction(connId, ref, TableAction.ActionDrop) },
     { label: "Empty Table", disabled: !one, onClick: () => runTableAction(connId, ref, TableAction.ActionEmpty) },

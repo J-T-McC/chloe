@@ -1,9 +1,11 @@
-import { Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter, Minus, Plus, RefreshCw, Undo2 } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Filter, Minus, PencilRuler, Plus, RefreshCw, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChangeKind, Explorer, ObjectKind, Query, RowChange, StatementResult, TableDetail, arr, errorText } from "../api";
 import type { Tab } from "../store";
 import { Cell, DataGrid, GridEdits, emptyEdits } from "./DataGrid";
 import { confirm } from "./Dialogs";
+import { designTable } from "../tableActions";
+import { openExport, openImport } from "./transfer/state";
 
 const PAGE_SIZES = [100, 500, 1000, 5000, 10000];
 
@@ -170,25 +172,20 @@ export function TableViewer({ tab }: { tab: Tab }) {
   return (
     <div className="viewer">
       <div className="toolbar">
-        <button title="Add record" disabled={!editable} onClick={onInsertRow}>
-          <Plus size={14} />
-        </button>
-        <button title="Delete selected records" disabled={!editable || !active} onClick={() => active && onDeleteRows([active.r])}>
-          <Minus size={14} />
-        </button>
-        <span className="tb-sep" />
-        <button title="Apply changes (⌘S)" className={dirty ? "accent" : ""} disabled={!dirty} onClick={apply}>
-          <Check size={14} /> Apply
-        </button>
-        <button title="Discard changes" disabled={!dirty} onClick={() => setEdits(emptyEdits())}>
-          <Undo2 size={14} /> Discard
-        </button>
-        <span className="tb-sep" />
-        <button title="Refresh" onClick={async () => (await guardDirty()) && load()}>
-          <RefreshCw size={14} className={loading ? "spin" : ""} />
-        </button>
         <button title="Filter" className={showFilter || where ? "on" : ""} onClick={() => setShowFilter((x) => !x)}>
           <Filter size={14} /> Filter
+        </button>
+        <span className="tb-sep" />
+        {editable && (
+          <button title="Design Table" onClick={() => designTable(connId, ref)}>
+            <PencilRuler size={14} /> Design
+          </button>
+        )}
+        <button title="Import Wizard" disabled={!editable} onClick={() => openImport({ connId, database: ref.database, schema: ref.schema, table: ref })}>
+          <Download size={14} /> Import
+        </button>
+        <button title="Export Wizard (uses the current filter)" onClick={() => openExport({ connId, database: ref.database, schema: ref.schema, tables: [ref] })}>
+          <Upload size={14} /> Export
         </button>
         <span className="spacer" />
         {!editable && <span className="badge">read-only</span>}
@@ -231,6 +228,10 @@ export function TableViewer({ tab }: { tab: Tab }) {
             e.preventDefault();
             apply();
           }
+          if ((e.metaKey || e.ctrlKey) && e.key === "r") {
+            e.preventDefault();
+            guardDirty().then((ok) => void (ok && load()));
+          }
         }}
       >
         {error && (
@@ -261,10 +262,26 @@ export function TableViewer({ tab }: { tab: Tab }) {
       </div>
 
       <div className="statusbar">
+        <div className="tb-group">
+          <button title="Add record (↓ on the last row)" disabled={!editable} onClick={onInsertRow}>
+            <Plus size={14} />
+          </button>
+          <button title="Delete record (⌘⌫)" disabled={!editable || !active} onClick={() => active && onDeleteRows([active.r])}>
+            <Minus size={14} />
+          </button>
+          <button title="Apply changes (⌘S)" className={dirty ? "accent" : ""} disabled={!dirty} onClick={apply}>
+            <Check size={14} />
+          </button>
+          <button title="Discard changes" disabled={!dirty} onClick={() => setEdits(emptyEdits())}>
+            <X size={14} />
+          </button>
+          <button title="Refresh (⌘R)" onClick={async () => (await guardDirty()) && load()}>
+            <RefreshCw size={14} className={loading ? "spin" : ""} />
+          </button>
+        </div>
         <span className="sql-preview" title={result?.sql}>
           {message || result?.sql}
         </span>
-        <span className="spacer" />
         {active && columns[active.c] && (
           <span className="muted">
             {columns[active.c].name} · {columns[active.c].type?.toLowerCase()}

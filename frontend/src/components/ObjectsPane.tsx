@@ -10,7 +10,7 @@ import { TreeNode, useTree } from "../tree";
 import { openMenu } from "./ContextMenu";
 import { Split } from "./Split";
 import { KIND_LABEL, KindIcon } from "./icons";
-import { newQuery, openObject } from "./Sidebar";
+import { newQuery, openObject, selectAllSQL } from "./Sidebar";
 
 export function ObjectsPane() {
   const sel = useApp((s) => s.selection);
@@ -187,6 +187,12 @@ export function ObjectsPane() {
             } else if (meta && e.key === "n" && kind === ObjectKind.KindTable) {
               e.preventDefault();
               newTable(sel.connId, sel.database!, sel.schema);
+            } else if (meta && (e.key === "t" || (e.key === "q" && !/Mac/i.test(navigator.platform)))) {
+              // Handled here (not globally) so the picked table becomes the SELECT.
+              e.preventDefault();
+              e.stopPropagation();
+              const isData = picked && (picked.kind === ObjectKind.KindTable || picked.kind === ObjectKind.KindView || picked.kind === ObjectKind.KindMatView);
+              newQuery(sel.connId, sel.database, sel.schema, isData ? selectAllSQL(sel.connId, refOfObj(picked!)) : "");
             } else if (meta && e.key === "r") {
               e.preventDefault();
               setReload((x) => x + 1);

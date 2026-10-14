@@ -39,7 +39,7 @@ export interface DataGridProps {
 
 const ROW_H = 22;
 const PAGE = 500;
-const HEADER_H = 26;
+const HEADER_H = 38; // two lines: name, then type
 const ROWHDR_W = 48;
 const MAX_CELL_CHARS = 300;
 
@@ -218,6 +218,14 @@ export function DataGrid(p: DataGridProps) {
     const page = Math.max(1, Math.floor((scroller.current?.clientHeight ?? 400) / ROW_H) - 1);
     switch (e.key) {
       case "ArrowDown":
+        // Down on the last row adds a new row (Navicat's shortcut for "+").
+        if (!meta && !e.shiftKey && r === total - 1 && p.editable && p.onInsertRow) {
+          p.onInsertRow();
+          setSel({ r0: r + 1, c0: c, r1: r + 1, c1: c });
+          setTimeout(() => scrollToCell(r + 1, c), 0);
+          p.onActiveCell?.(r + 1, c);
+          break;
+        }
         moveTo(meta ? total - 1 : r + 1, c, e.shiftKey);
         break;
       case "ArrowUp":
@@ -371,8 +379,10 @@ export function DataGrid(p: DataGridProps) {
                   ])
                 }
               >
-                <span className="hname">{col.name}</span>
-                {s && (s.desc ? <ArrowDown size={11} /> : <ArrowUp size={11} />)}
+                <span className="hname">
+                  {col.name}
+                  {s && (s.desc ? <ArrowDown size={11} /> : <ArrowUp size={11} />)}
+                </span>
                 <span className="htype">{col.type?.toLowerCase()}</span>
                 <span className="resizer" onMouseDown={(e) => startResize(c, e)} onDoubleClick={() => autoFit(c)} onClick={(e) => e.stopPropagation()} />
               </div>
@@ -438,6 +448,9 @@ export function DataGrid(p: DataGridProps) {
                       />
                     ) : val === undefined ? (
                       <span className="loading-cell" />
+                    ) : isNew && !changed ? (
+                      // Untouched cells of a new row are left out of the INSERT.
+                      <span className="null">(default)</span>
                     ) : val === null ? (
                       <span className="null">NULL</span>
                     ) : (

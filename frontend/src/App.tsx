@@ -16,7 +16,7 @@ import { TableDesigner } from "./components/designer/TableDesigner";
 import { ERDiagram } from "./components/erd/ERDiagram";
 import { DDLView, ObjectsPane } from "./components/ObjectsPane";
 import { QueryEditor } from "./components/QueryEditor";
-import { Sidebar, newQuery, openMonitor, useInitialLoad } from "./components/Sidebar";
+import { Sidebar, newQuery, openMonitor, selectAllSQL, useInitialLoad } from "./components/Sidebar";
 import { TableViewer } from "./components/TableViewer";
 import { Tab, useApp } from "./store";
 import { newTable } from "./tableActions";
@@ -48,9 +48,15 @@ export default function App() {
         e.preventDefault();
         useApp.getState().closeTab(useApp.getState().activeTab);
       }
-      if (meta && e.key === "t" && selection && open[selection.connId]) {
+      // New Query: ⌘T on macOS (⌘Q is the system Quit); Ctrl+T or Ctrl+Q elsewhere,
+      // matching Navicat on Windows. With a table or view selected, it starts with a SELECT.
+      const isMac = /Mac/i.test(navigator.platform);
+      const newQueryKey = meta && (e.key === "t" || (!isMac && e.key === "q"));
+      if (newQueryKey && selection?.connId && open[selection.connId]) {
         e.preventDefault();
-        newQuery(selection.connId, selection.database, selection.schema);
+        const o = selection.object;
+        const isData = o && (o.kind === ObjectKind.KindTable || o.kind === ObjectKind.KindView || o.kind === ObjectKind.KindMatView);
+        newQuery(selection.connId, selection.database, selection.schema, isData ? selectAllSQL(selection.connId, o!) : "");
       }
     };
     window.addEventListener("keydown", onKey);

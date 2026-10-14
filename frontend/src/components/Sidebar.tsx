@@ -189,6 +189,15 @@ export function newQuery(connId: string, database?: string, schema?: string, sql
   app.openTab({ kind: "query", title: `Query — ${db ?? conn?.name ?? ""}`, connId, database: db, schema, sql });
 }
 
+/** "SELECT * FROM table;" with the table quoted for the connection's dialect. */
+export function selectAllSQL(connId: string, ref: ObjectRef) {
+  const pg = connById(connId)?.type === "postgres";
+  const q = pg ? '"' : "`";
+  const qi = (s: string) => (/^[a-z_][a-z0-9_]*$/.test(s) ? s : q + s.split(q).join(q + q) + q);
+  const name = pg && ref.schema && ref.schema !== "public" ? `${qi(ref.schema)}.${qi(ref.name)}` : qi(ref.name);
+  return `SELECT * FROM ${name};`;
+}
+
 export function openMonitor(connId: string) {
   const conn = connById(connId);
   useApp.getState().openTab({ kind: "monitor", title: `Server Monitor — ${conn?.name ?? ""}`, connId, ref: { database: "", name: "monitor", kind: ObjectKind.$zero } });

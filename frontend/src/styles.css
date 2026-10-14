@@ -766,8 +766,10 @@ button.icon {
   top: 0;
   height: 100%;
   display: flex;
-  align-items: center;
-  gap: 4px;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 1px;
   padding: 0 8px;
   border-right: 1px solid var(--border);
   font-weight: 600;
@@ -776,6 +778,10 @@ button.icon {
 }
 
 .grid-hcell .hname {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -2238,4 +2244,31 @@ table.mapping select {
 
 .react-flow__node-table.selected .erd-table {
   border-color: var(--accent);
+}
+
+.viewer .statusbar .tb-group {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.viewer .statusbar .tb-group button {
+  border: none;
+  background: none;
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+
+.viewer .statusbar .tb-group button:hover:not(:disabled) {
+  background: var(--bg-3);
+}
+
+.viewer .statusbar .tb-group button.accent {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.viewer .statusbar .sql-preview {
+  flex: 1;
+  text-align: center;
 }
