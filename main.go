@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 
 	"chloe/internal/core"
 	_ "chloe/internal/driver/mysql"
@@ -48,7 +49,7 @@ func main() {
 
 	app := application.New(application.Options{
 		Name:        "Chloe",
-		Description: "Database management for MySQL, PostgreSQL, MongoDB, Redis and more",
+		Description: "Database management for MySQL, PostgreSQL, SQLite and Redis",
 		Icon:        icon,
 		Services: []application.Service{
 			application.NewService(&services.ConnectionService{M: mgr}),
@@ -71,6 +72,11 @@ func main() {
 	})
 
 	app.Menu.Set(appMenu())
+	// Wails sets the icon before AppKit finishes launching, which can reset it to the
+	// generic executable icon; set it again once launched.
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		app.SetIcon(icon)
+	})
 
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:     "Chloe",

@@ -412,7 +412,7 @@ function Welcome() {
   return (
     <div className="welcome">
       <h1>Chloe</h1>
-      <p>Connect to MySQL, MariaDB and PostgreSQL. MongoDB, Redis and more are on the way.</p>
+      <p>Connect to MySQL, MariaDB, PostgreSQL, SQLite and Redis.</p>
       <button className="primary" onClick={() => useApp.getState().editConnection("new")}>
         New Connection
       </button>
