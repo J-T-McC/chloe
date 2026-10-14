@@ -3441,6 +3441,13 @@ table.mapping select {
   min-width: 0;
 }
 
+/* Selects and the editable target fields line up (WebKit draws native selects shorter). */
+.dt-side .field-input select,
+.dt-side .combobox input {
+  height: 26px;
+  box-sizing: border-box;
+}
+
 .dt-side-title {
   font-weight: 600;
   margin-bottom: 8px;

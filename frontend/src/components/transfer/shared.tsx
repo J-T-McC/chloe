@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { DBType, Explorer, arr, type Endpoint } from "../../api";
 import { connById, useApp } from "../../store";
 import type { useTransfer } from "./state";
+import { Combobox } from "../Combobox";
 
 // ---- source / target picker ---------------------------------------------------------------------
 
@@ -50,7 +51,6 @@ export function EndpointPicker({ title, value, onChange, conns, allowNew, create
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value.connId, value.database, dbs, pg]);
 
-  const listId = `dt-${title}-dbs`;
   return (
     <div className="dt-side form">
       <div className="dt-side-title">{title}</div>
@@ -71,14 +71,13 @@ export function EndpointPicker({ title, value, onChange, conns, allowNew, create
         <label>Database</label>
         <div className="field-input">
           {allowNew && conn?.type !== DBType.SQLite ? (
-            <>
-              <input aria-label={`${title} Database`} list={listId} value={value.database} placeholder={dbs.length ? "Choose or type a name" : ""} onChange={(e) => onChange({ ...value, database: e.target.value, schema: pg ? "" : value.schema })} />
-              <datalist id={listId}>
-                {dbs.map((d) => (
-                  <option key={d} value={d} />
-                ))}
-              </datalist>
-            </>
+            <Combobox
+              ariaLabel={`${title} Database`}
+              value={value.database}
+              options={dbs}
+              placeholder={dbs.length ? "Choose or type a name" : ""}
+              onChange={(d) => onChange({ ...latest.current, database: d, schema: pg ? "" : latest.current.schema })}
+            />
           ) : (
             <select aria-label={`${title} Database`} value={value.database} onChange={(e) => onChange({ ...value, database: e.target.value, schema: "" })}>
               <option value="">Choose…</option>
@@ -94,14 +93,7 @@ export function EndpointPicker({ title, value, onChange, conns, allowNew, create
           <label>Schema</label>
           <div className="field-input">
             {allowNew ? (
-              <>
-                <input aria-label={`${title} Schema`} list={listId + "-s"} value={value.schema ?? ""} onChange={(e) => onChange({ ...value, schema: e.target.value })} />
-                <datalist id={listId + "-s"}>
-                  {schemas.map((d) => (
-                    <option key={d} value={d} />
-                  ))}
-                </datalist>
-              </>
+              <Combobox ariaLabel={`${title} Schema`} value={value.schema ?? ""} options={schemas} onChange={(sc) => onChange({ ...latest.current, schema: sc })} />
             ) : (
               <select aria-label={`${title} Schema`} value={value.schema ?? ""} onChange={(e) => onChange({ ...value, schema: e.target.value })}>
                 {schemas.map((d) => (

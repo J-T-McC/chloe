@@ -56,9 +56,12 @@ await step("open from the database menu", async () => {
 
 await step("choose a new target schema", async () => {
   await wizard().getByLabel("Target Connection").selectOption({ label: "Local Postgres" });
-  await wizard().getByLabel("Target Database").fill("postgres");
-  await wizard().getByLabel("Target Schema").waitFor();
+  await wizard().getByLabel("Target Database").click();
+  await page.locator(".combo-option", { hasText: /^postgres$/ }).click();
+  // The schema defaults to public once the database is chosen; then type a new one.
+  await page.waitForFunction(() => document.querySelector('[aria-label="Target Schema"]')?.value === "public");
   await wizard().getByLabel("Target Schema").fill(schema);
+  await wizard().getByLabel("Target Schema").press("Enter");
   await wizard().getByText(`Schema “${schema}” doesn't exist`).waitFor();
   await shot("dt1-general");
   // Next refuses nothing here, but the transfer would fail: turn on creating it
