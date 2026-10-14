@@ -7,6 +7,10 @@ import { ContextMenuHost } from "./components/ContextMenu";
 import { DialogHost } from "./components/Dialogs";
 import { KindIcon } from "./components/icons";
 import { ManageConnections } from "./components/ManageConnections";
+import { ExecuteFileDialog } from "./components/transfer/ExecuteFileDialog";
+import { ExportWizard } from "./components/transfer/ExportWizard";
+import { ImportWizard } from "./components/transfer/ImportWizard";
+import { JobsButton } from "./components/transfer/JobsPanel";
 import { ServerMonitor } from "./components/ServerMonitor";
 import { TableDesigner } from "./components/designer/TableDesigner";
 import { DDLView, ObjectsPane } from "./components/ObjectsPane";
@@ -90,6 +94,9 @@ export default function App() {
             }}
           />
         </div>
+        <div className="titlebar-right">
+          <JobsButton />
+        </div>
       </header>
       <Group orientation="horizontal" className="body">
         <Panel defaultSize="260px" minSize="160px" maxSize="50%">
@@ -115,6 +122,9 @@ export default function App() {
         </Panel>
       </Group>
       <ManageConnections />
+      <ExportWizard />
+      <ImportWizard />
+      <ExecuteFileDialog />
       <ConnectionDialog />
       <DialogHost />
       <ContextMenuHost />

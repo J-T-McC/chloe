@@ -1,7 +1,9 @@
-import { Copy, FilePlus2, PencilRuler, Plus, RefreshCw, Table2, Trash2 } from "lucide-react";
+import { Copy, Download, FilePlus2, PencilRuler, Plus, RefreshCw, Table2, Trash2, Upload } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Explorer, ObjectInfo, ObjectKind, ObjectRef, TableAction, arr, errorText } from "../api";
 import { designTable, newTable, runTableAction } from "../tableActions";
+import { objectsAreaMenu, tableMenu, viewMenu } from "../menus";
+import { openExport, openImport } from "./transfer/state";
 import { editorTheme, monaco } from "../editor/monaco";
 import { connById, dbKey, useApp } from "../store";
 import { TreeNode, useTree } from "../tree";
@@ -17,7 +19,7 @@ export function ObjectsPane() {
   const [loading, setLoading] = useState(false);
   // The picked object remembers which listing it came from, so a stale pick is never
   // shown (or queried) against a different connection or database.
-  const [pick, setPick] = useState<{ key: string; obj: ObjectInfo } | null>(null);
+  const [pick, setPick] = useState<{ key: string; names: string[]; anchor: string } | null>(null);
   const [filter, setFilter] = useState("");
   const [sortKey, setSortKey] = useState<"name" | "rows" | "dataSize" | "modified">("name");
   const [reload, setReload] = useState(0);
@@ -28,8 +30,11 @@ export function ObjectsPane() {
   const dbOpen = useApp((s) => !!(sel?.database && s.openDbs[dbKey(sel.connId, sel.database)]));
   const needsSchema = connById(sel?.connId)?.type === "postgres" && !sel?.schema;
   const listKey = [sel?.connId, sel?.database, sel?.schema, kind].join("/");
-  const picked = pick?.key === listKey ? pick.obj : null;
-  const setPicked = (o: ObjectInfo | null) => setPick(o ? { key: listKey, obj: o } : null);
+  // Multi-selection by name (⌘-click toggles, ⇧-click extends); "picked" is the last one.
+  const pickedNames = pick?.key === listKey ? pick.names : [];
+  const pickedList = objects.filter((o) => pickedNames.includes(o.name));
+  const picked = pickedList.find((o) => o.name === pickedNames[pickedNames.length - 1]) ?? null;
+  const setPicked = (o: ObjectInfo | null) => setPick(o ? { key: listKey, names: [o.name], anchor: o.name } : null);
 
   useEffect(() => {
     setPicked(null);
@@ -85,6 +90,23 @@ export function ObjectsPane() {
     expandable: false,
   });
   const isData = kind === ObjectKind.KindTable || kind === ObjectKind.KindView || kind === ObjectKind.KindMatView;
+  const refOfObj = (o: ObjectInfo): ObjectRef => ({ database: sel.database!, schema: o.schema || sel.schema, name: o.name, kind: o.kind, signature: o.signature });
+  const clickRow = (e: React.MouseEvent, o: ObjectInfo) => {
+    if (e.metaKey || e.ctrlKey) {
+      const names = pickedNames.includes(o.name) ? pickedNames.filter((n) => n !== o.name) : [...pickedNames, o.name];
+      return setPick({ key: listKey, names, anchor: o.name });
+    }
+    if (e.shiftKey && pick?.anchor) {
+      const a = shown.findIndex((x) => x.name === pick.anchor);
+      const b = shown.findIndex((x) => x.name === o.name);
+      if (a >= 0 && b >= 0) {
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        return setPick({ key: listKey, names: shown.slice(lo, hi + 1).map((x) => x.name), anchor: pick.anchor });
+      }
+    }
+    setPicked(o);
+  };
+  const tableRefs = pickedList.map((o) => ({ database: sel.database!, schema: o.schema || sel.schema, name: o.name, kind: o.kind }));
   const showRows = kind === ObjectKind.KindTable || kind === ObjectKind.KindMatView;
 
   return (
@@ -101,8 +123,15 @@ export function ObjectsPane() {
             <button onClick={() => newTable(sel.connId, sel.database!, sel.schema)}>
               <Plus size={14} /> New Table
             </button>
-            <button disabled={!picked} onClick={() => picked && runTableAction(sel.connId, { ...picked, database: sel.database!, schema: picked.schema || sel.schema }, TableAction.ActionDrop)}>
+            <button disabled={pickedList.length !== 1} onClick={() => picked && runTableAction(sel.connId, refOfObj(picked), TableAction.ActionDrop)}>
               <Trash2 size={14} /> Delete Table
+            </button>
+            <span className="tb-sep" />
+            <button title="Import Wizard" onClick={() => openImport({ connId: sel.connId, database: sel.database!, schema: sel.schema, table: pickedList.length === 1 ? tableRefs[0] : undefined })}>
+              <Download size={14} /> Import
+            </button>
+            <button title="Export Wizard" onClick={() => openExport({ connId: sel.connId, database: sel.database!, schema: sel.schema, tables: tableRefs })}>
+              <Upload size={14} /> Export
             </button>
           </>
         )}
@@ -128,7 +157,33 @@ export function ObjectsPane() {
         <input className="search" placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} />
       </div>
       <div className="objects-split">
-        <div className="object-list">
+        <div
+          className="object-list"
+          tabIndex={0}
+          onContextMenu={(e) => openMenu(e, objectsAreaMenu(sel.connId, sel.database!, sel.schema, kind))}
+          onMouseDown={(e) => e.target === e.currentTarget && setPicked(null)}
+          onKeyDown={(e) => {
+            const meta = e.metaKey || e.ctrlKey;
+            if (meta && e.key === "a") {
+              e.preventDefault();
+              setPick({ key: listKey, names: shown.map((o) => o.name), anchor: shown[0]?.name ?? "" });
+            } else if (meta && e.key === "o" && picked) {
+              e.preventDefault();
+              openObject(asNode(picked));
+            } else if (meta && e.key === "d" && picked && kind === ObjectKind.KindTable) {
+              e.preventDefault();
+              designTable(sel.connId, refOfObj(picked));
+            } else if (meta && e.key === "n" && kind === ObjectKind.KindTable) {
+              e.preventDefault();
+              newTable(sel.connId, sel.database!, sel.schema);
+            } else if (meta && e.key === "r") {
+              e.preventDefault();
+              setReload((x) => x + 1);
+            } else if (e.key === "Enter" && picked) {
+              openObject(asNode(picked));
+            }
+          }}
+        >
           {error && <div className="error-banner">{error}</div>}
           <table>
             <thead>
@@ -146,14 +201,17 @@ export function ObjectsPane() {
               {shown.map((o) => (
                 <tr
                   key={o.name + (o.signature ?? "")}
-                  className={picked === o ? "selected" : ""}
-                  onClick={() => setPicked(o)}
+                  className={pickedNames.includes(o.name) ? "selected" : ""}
+                  onClick={(e) => clickRow(e, o)}
                   onDoubleClick={() => openObject(asNode(o))}
                   onContextMenu={(e) => {
-                    setPicked(o);
+                    const names = pickedNames.includes(o.name) ? pickedNames : [o.name];
+                    if (!pickedNames.includes(o.name)) setPicked(o);
+                    const refs = objects.filter((x) => names.includes(x.name)).map(refOfObj);
+                    if (o.kind === ObjectKind.KindTable) return openMenu(e, tableMenu(sel.connId, refs));
+                    if (o.kind === ObjectKind.KindView || o.kind === ObjectKind.KindMatView) return openMenu(e, viewMenu(sel.connId, refOfObj(o)));
                     openMenu(e, [
-                      ...(isData ? [{ label: "Open", onClick: () => openObject(asNode(o)) }] : []),
-                      { label: "Show DDL", onClick: () => useApp.getState().openTab({ kind: "ddl", title: o.name, connId: sel.connId, database: sel.database, schema: o.schema || sel.schema, ref: o }) },
+                      { label: "Show DDL", onClick: () => useApp.getState().openTab({ kind: "ddl", title: o.name, connId: sel.connId, database: sel.database, schema: o.schema || sel.schema, ref: refOfObj(o) }) },
                       { label: "New Query", onClick: () => newQuery(sel.connId, sel.database, sel.schema) },
                       { separator: true },
                       { label: "Copy Name", onClick: () => navigator.clipboard.writeText(o.name) },
@@ -176,7 +234,11 @@ export function ObjectsPane() {
           </table>
           {!loading && !shown.length && !error && <div className="center-hint">No {KIND_LABEL[kind!]?.toLowerCase()}.</div>}
         </div>
-        <InfoPanel key={listKey} connId={sel.connId} object={picked} database={sel.database} schema={sel.schema} />
+        {pickedList.length > 1 ? (
+          <div className="info-panel empty">{pickedList.length} objects selected</div>
+        ) : (
+          <InfoPanel key={listKey} connId={sel.connId} object={picked} database={sel.database} schema={sel.schema} />
+        )}
       </div>
     </div>
   );

@@ -7,6 +7,9 @@ import * as design$0 from "../design/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as model$0 from "../model/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as transfer$0 from "../transfer/models.js";
 
 /**
  * ApplyResult reports how far a design save got.
@@ -82,10 +85,259 @@ export interface DesignPreview {
 }
 
 /**
+ * DumpRequest describes a "Dump SQL File" of a database (MySQL) or schema (PostgreSQL).
+ */
+export interface DumpRequest {
+    "database": string;
+    "schema"?: string;
+
+    /**
+     * empty = every table, plus views and routines
+     */
+    "tables"?: string[] | null;
+
+    /**
+     * false = structure only
+     */
+    "data": boolean;
+    "path": string;
+}
+
+/**
  * ExecOptions control script execution.
  */
 export interface ExecOptions {
     "continueOnError": boolean;
+}
+
+export interface ExecuteFileRequest {
+    "path": string;
+    "database": string;
+    "schema"?: string;
+    "encoding"?: string;
+    "continueOnError": boolean;
+}
+
+export interface ExportRequest {
+    "source": ExportSource;
+    "options": transfer$0.ExportOptions;
+    "path": string;
+}
+
+/**
+ * ExportSource is either a table (with optional filter) or a SQL query.
+ */
+export interface ExportSource {
+    "ref"?: model$0.ObjectRef | null;
+    "where"?: string;
+
+    /**
+     * subset of table columns; empty = all
+     */
+    "columns"?: string[] | null;
+    "sql"?: string;
+
+    /**
+     * Database/Schema for SQL sources.
+     */
+    "database"?: string;
+    "schema"?: string;
+}
+
+export interface FieldMap {
+    /**
+     * file column
+     */
+    "source": string;
+
+    /**
+     * table column
+     */
+    "target": string;
+}
+
+/**
+ * ImportMode follows Navicat's import modes.
+ */
+export enum ImportMode {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * insert every row
+     */
+    ImportAppend = "append",
+
+    /**
+     * insert, or update rows whose key exists
+     */
+    ImportUpsert = "upsert",
+
+    /**
+     * insert, skipping rows whose key exists
+     */
+    ImportSkipExisting = "skip",
+
+    /**
+     * delete all rows first, then insert
+     */
+    ImportCopy = "copy",
+
+    /**
+     * update matching rows only
+     */
+    ImportUpdate = "update",
+
+    /**
+     * delete matching rows
+     */
+    ImportDelete = "delete",
+};
+
+/**
+ * ImportPreview is shown in the mapping step.
+ */
+export interface ImportPreview {
+    "columns": string[] | null;
+    "rows": ((string | null)[] | null)[] | null;
+
+    /**
+     * inferred, for creating a new table
+     */
+    "types": string[] | null;
+    "sheets"?: string[] | null;
+    "format": transfer$0.Format;
+}
+
+export interface ImportRequest {
+    "path": string;
+    "options": transfer$0.ImportOptions;
+    "target": model$0.ObjectRef;
+
+    /**
+     * CreateTable creates Target first with these columns (from the mapping UI).
+     */
+    "createTable"?: design$0.Table | null;
+    "mapping": FieldMap[] | null;
+    "mode": ImportMode;
+
+    /**
+     * Key columns for upsert/skip/update/delete; defaults to the primary key.
+     */
+    "keyColumns"?: string[] | null;
+
+    /**
+     * rows per INSERT; default 500
+     */
+    "batchSize"?: number;
+    "continueOnError": boolean;
+
+    /**
+     * Transaction wraps the whole import so a failure leaves the table untouched.
+     */
+    "transaction": boolean;
+    "disableFKChecks": boolean;
+}
+
+/**
+ * Job is a long-running operation (export, import, dump, execute SQL file) that
+ * reports progress to the UI and can be cancelled.
+ */
+export interface Job {
+    "id": string;
+    "kind": string;
+    "title": string;
+    "status": JobStatus;
+
+    /**
+     * rows or statements processed
+     */
+    "done": number;
+
+    /**
+     * 0 when unknown
+     */
+    "total": number;
+
+    /**
+     * "rows", "statements"
+     */
+    "unit": string;
+    "errors": number;
+    "message"?: string;
+    "log": string[] | null;
+    "path"?: string;
+    "started": string;
+    "finished"?: string;
+}
+
+/**
+ * JobStatus is the lifecycle state of a background job.
+ */
+export enum JobStatus {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    JobRunning = "running",
+    JobDone = "done",
+    JobFailed = "failed",
+    JobCancelled = "cancelled",
+};
+
+/**
+ * MaintainOp is a table maintenance operation (Navicat's Maintain menu).
+ */
+export enum MaintainOp {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    MaintainAnalyze = "analyze",
+
+    /**
+     * MySQL
+     */
+    MaintainCheck = "check",
+
+    /**
+     * MySQL
+     */
+    MaintainOptimize = "optimize",
+
+    /**
+     * MySQL
+     */
+    MaintainRepair = "repair",
+
+    /**
+     * PostgreSQL
+     */
+    MaintainVacuum = "vacuum",
+    MaintainVacuumFull = "vacuum_full",
+    MaintainVacuumAnalyz = "vacuum_analyze",
+
+    /**
+     * PostgreSQL
+     */
+    MaintainReindex = "reindex",
+};
+
+/**
+ * MaintainResult is one line of maintenance output.
+ */
+export interface MaintainResult {
+    "table": string;
+
+    /**
+     * MySQL Msg_type, or "ok"/"error"
+     */
+    "status": string;
+    "message": string;
 }
 
 /**

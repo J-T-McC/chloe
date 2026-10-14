@@ -7,12 +7,16 @@ import type { Events } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import type * as core$0 from "../../../../../chloe/internal/core/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import type * as services$0 from "../../../../../chloe/services/models.js";
 
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
             "connection:closed": string;
+            "job:progress": core$0.Job;
             "result:progress": services$0.ResultProgress;
         }
     }

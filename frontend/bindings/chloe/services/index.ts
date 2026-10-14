@@ -6,12 +6,14 @@ import * as DesignService from "./designservice.js";
 import * as ExplorerService from "./explorerservice.js";
 import * as MonitorService from "./monitorservice.js";
 import * as QueryService from "./queryservice.js";
+import * as TransferService from "./transferservice.js";
 export {
     ConnectionService,
     DesignService,
     ExplorerService,
     MonitorService,
-    QueryService
+    QueryService,
+    TransferService
 };
 
 export type {

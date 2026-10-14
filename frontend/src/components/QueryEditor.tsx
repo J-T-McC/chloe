@@ -7,6 +7,7 @@ import { beautifyEditor, registerFormatter } from "../editor/format";
 import { Monaco, editorTheme, monaco } from "../editor/monaco";
 import { Tab, connById, useApp } from "../store";
 import { Cell, DataGrid } from "./DataGrid";
+import { openExport } from "./transfer/state";
 
 interface RunState {
   results: StatementResult[];
@@ -261,7 +262,7 @@ export function QueryEditor({ tab }: { tab: Tab }) {
               {resultTab === 0 || !run.results[resultTab - 1]?.resultId ? (
                 <Messages run={run} />
               ) : (
-                <ResultGrid result={run.results[resultTab - 1]} />
+                <ResultGrid result={run.results[resultTab - 1]} connId={connId} database={database} schema={schema} />
               )}
             </div>
           </div>
@@ -293,7 +294,7 @@ function Messages({ run }: { run: RunState }) {
   );
 }
 
-function ResultGrid({ result }: { result: StatementResult }) {
+function ResultGrid({ result, connId, database, schema }: { result: StatementResult; connId: string; database?: string; schema?: string }) {
   const fetchPage = useCallback(
     async (offset: number, limit: number) => arr((await Query.FetchRows(result.resultId!, offset, limit)).rows) as Cell[][],
     [result.resultId],
@@ -304,6 +305,9 @@ function ResultGrid({ result }: { result: StatementResult }) {
       <div className="statusbar">
         <span className="sql-preview">{result.sql}</span>
         <span className="spacer" />
+        <button className="small-btn" title="Export this result (re-runs the query)" onClick={() => openExport({ connId, database: database ?? "", schema, tables: [], sql: result.sql, name: "query_result" })}>
+          Export…
+        </button>
         <span>
           {result.rowCount.toLocaleString()}
           {result.complete ? "" : "+"} rows{result.truncated ? " (truncated)" : ""} · {result.durationMs} ms

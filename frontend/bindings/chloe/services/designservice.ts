@@ -31,6 +31,10 @@ export function Load(connID: string, ref: model$0.ObjectRef): $CancellablePromis
     return $Call.ByID(785236158, connID, ref);
 }
 
+export function Maintain(connID: string, refs: model$0.ObjectRef[] | null, op: core$0.MaintainOp): $CancellablePromise<core$0.MaintainResult[] | null> {
+    return $Call.ByID(3724611495, connID, refs, op);
+}
+
 export function Meta(connID: string, database: string): $CancellablePromise<design$0.Meta> {
     return $Call.ByID(3114967235, connID, database);
 }

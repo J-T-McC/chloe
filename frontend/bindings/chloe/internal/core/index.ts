@@ -3,6 +3,9 @@
 
 export {
     ChangeKind,
+    ImportMode,
+    JobStatus,
+    MaintainOp,
     TableAction
 } from "./models.js";
 
@@ -11,7 +14,16 @@ export type {
     BrowseRequest,
     ChangeResult,
     DesignPreview,
+    DumpRequest,
     ExecOptions,
+    ExecuteFileRequest,
+    ExportRequest,
+    ExportSource,
+    FieldMap,
+    ImportPreview,
+    ImportRequest,
+    Job,
+    MaintainResult,
     RowChange,
     SortSpec
 } from "./models.js";
