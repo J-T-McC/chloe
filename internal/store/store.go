@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -25,11 +27,21 @@ type Secrets interface {
 // ErrNotFound is returned when a connection ID does not exist.
 var ErrNotFound = errors.New("connection not found")
 
+var secretNames = []string{"password", "ssh-password", "ssh-passphrase"}
+
 type Store struct {
 	mu      sync.RWMutex
 	path    string
 	secrets Secrets
 	conns   map[string]model.Connection
+	groups  []string
+}
+
+// fileFormat is the on-disk layout of connections.json.
+type fileFormat struct {
+	Version     int                `json:"version"`
+	Groups      []string           `json:"groups"`
+	Connections []model.Connection `json:"connections"`
 }
 
 // Open loads (or creates) the connection file in dir.
@@ -45,13 +57,18 @@ func Open(dir string, secrets Secrets) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	var list []model.Connection
-	if err := json.Unmarshal(data, &list); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", s.path, err)
+	var f fileFormat
+	if err := json.Unmarshal(data, &f); err != nil {
+		// Early builds wrote a bare array of connections.
+		if err2 := json.Unmarshal(data, &f.Connections); err2 != nil {
+			return nil, fmt.Errorf("parse %s: %w", s.path, err)
+		}
 	}
-	for _, c := range list {
+	for _, c := range f.Connections {
 		s.conns[c.ID] = c
 	}
+	s.groups = f.Groups
+	s.addGroupsFromConnectionsLocked()
 	return s, nil
 }
 
@@ -67,9 +84,16 @@ func (s *Store) List() []model.Connection {
 		if out[i].Group != out[j].Group {
 			return out[i].Group < out[j].Group
 		}
-		return out[i].Name < out[j].Name
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})
 	return out
+}
+
+// Groups returns the connection folders, sorted.
+func (s *Store) Groups() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return slices.Clone(s.groups)
 }
 
 // Get returns a connection with its saved secrets filled in.
@@ -95,9 +119,11 @@ func (s *Store) Save(c model.Connection) (model.Connection, error) {
 	if c.ID == "" {
 		c.ID = uuid.NewString()
 	}
+	c.Name = strings.TrimSpace(c.Name)
 	if c.Name == "" {
 		return c, errors.New("connection name is required")
 	}
+	c.Group = strings.TrimSpace(c.Group)
 	if err := s.storeSecret(c.ID, "password", c.Password, c.SavePassword); err != nil {
 		return c, err
 	}
@@ -107,14 +133,38 @@ func (s *Store) Save(c model.Connection) (model.Connection, error) {
 	if err := s.storeSecret(c.ID, "ssh-passphrase", c.SSH.Passphrase, c.SSH.SavePassword); err != nil {
 		return c, err
 	}
-	stripped := c
-	stripped.Password, stripped.SSH.Password, stripped.SSH.Passphrase = "", "", ""
+	stripped := stripSecrets(c)
 
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.conns[c.ID] = stripped
-	err := s.flushLocked()
-	s.mu.Unlock()
-	return stripped, err
+	s.addGroupsFromConnectionsLocked()
+	return stripped, s.flushLocked()
+}
+
+// Duplicate copies a connection (including its saved secrets) under a new name.
+func (s *Store) Duplicate(id string) (model.Connection, error) {
+	c, err := s.Get(id)
+	if err != nil {
+		return c, err
+	}
+	c.ID = ""
+	c.Name = s.uniqueName(c.Name + " copy")
+	return s.Save(c)
+}
+
+func (s *Store) uniqueName(base string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	taken := map[string]bool{}
+	for _, c := range s.conns {
+		taken[c.Name] = true
+	}
+	name := base
+	for i := 2; taken[name]; i++ {
+		name = fmt.Sprintf("%s %d", base, i)
+	}
+	return name
 }
 
 func (s *Store) Delete(id string) error {
@@ -126,10 +176,144 @@ func (s *Store) Delete(id string) error {
 	delete(s.conns, id)
 	err := s.flushLocked()
 	s.mu.Unlock()
-	for _, k := range []string{"password", "ssh-password", "ssh-passphrase"} {
+	for _, k := range secretNames {
 		_ = s.secrets.Delete(secretKey(id, k))
 	}
 	return err
+}
+
+// AddGroup creates an empty folder.
+func (s *Store) AddGroup(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("group name is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if slices.Contains(s.groups, name) {
+		return fmt.Errorf("group %q already exists", name)
+	}
+	s.groups = append(s.groups, name)
+	slices.Sort(s.groups)
+	return s.flushLocked()
+}
+
+// RenameGroup renames a folder and moves its connections with it.
+func (s *Store) RenameGroup(old, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("group name is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if name != old && slices.Contains(s.groups, name) {
+		return fmt.Errorf("group %q already exists", name)
+	}
+	for i, g := range s.groups {
+		if g == old {
+			s.groups[i] = name
+		}
+	}
+	slices.Sort(s.groups)
+	for id, c := range s.conns {
+		if c.Group == old {
+			c.Group = name
+			s.conns[id] = c
+		}
+	}
+	return s.flushLocked()
+}
+
+// DeleteGroup removes a folder; its connections move to the top level.
+func (s *Store) DeleteGroup(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.groups = slices.DeleteFunc(s.groups, func(g string) bool { return g == name })
+	for id, c := range s.conns {
+		if c.Group == name {
+			c.Group = ""
+			s.conns[id] = c
+		}
+	}
+	return s.flushLocked()
+}
+
+// MoveToGroup moves a connection into a folder ("" = top level).
+func (s *Store) MoveToGroup(id, group string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.conns[id]
+	if !ok {
+		return ErrNotFound
+	}
+	c.Group = strings.TrimSpace(group)
+	s.conns[id] = c
+	s.addGroupsFromConnectionsLocked()
+	return s.flushLocked()
+}
+
+// ExportFile is the portable connections export. Secrets are included only on request.
+type ExportFile struct {
+	Format      string             `json:"format"` // "chloe-connections"
+	Version     int                `json:"version"`
+	Groups      []string           `json:"groups"`
+	Connections []model.Connection `json:"connections"`
+}
+
+// Export serialises the given connections (all when ids is empty).
+func (s *Store) Export(ids []string, withSecrets bool) ([]byte, error) {
+	f := ExportFile{Format: "chloe-connections", Version: 1}
+	want := map[string]bool{}
+	for _, id := range ids {
+		want[id] = true
+	}
+	groups := map[string]bool{}
+	for _, c := range s.List() {
+		if len(ids) > 0 && !want[c.ID] {
+			continue
+		}
+		if withSecrets {
+			full, err := s.Get(c.ID)
+			if err != nil {
+				return nil, err
+			}
+			c = full
+		}
+		f.Connections = append(f.Connections, c)
+		if c.Group != "" {
+			groups[c.Group] = true
+		}
+	}
+	for g := range groups {
+		f.Groups = append(f.Groups, g)
+	}
+	slices.Sort(f.Groups)
+	return json.MarshalIndent(f, "", "  ")
+}
+
+// Import adds connections from an export. Imported profiles always get new IDs;
+// name clashes get a numeric suffix. Returns the number imported.
+func (s *Store) Import(data []byte) (int, error) {
+	var f ExportFile
+	if err := json.Unmarshal(data, &f); err != nil {
+		return 0, fmt.Errorf("not a Chloe connections file: %w", err)
+	}
+	if f.Format != "chloe-connections" {
+		return 0, errors.New("not a Chloe connections file")
+	}
+	for _, g := range f.Groups {
+		_ = s.AddGroup(g) // existing groups are fine
+	}
+	n := 0
+	for _, c := range f.Connections {
+		c.ID = ""
+		c.Name = s.uniqueName(c.Name)
+		if _, err := s.Save(c); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
 }
 
 func (s *Store) storeSecret(id, name, value string, save bool) error {
@@ -141,13 +325,25 @@ func (s *Store) storeSecret(id, name, value string, save bool) error {
 	return s.secrets.Set(key, value)
 }
 
-func (s *Store) flushLocked() error {
-	list := make([]model.Connection, 0, len(s.conns))
+func (s *Store) addGroupsFromConnectionsLocked() {
 	for _, c := range s.conns {
-		list = append(list, c)
+		if c.Group != "" && !slices.Contains(s.groups, c.Group) {
+			s.groups = append(s.groups, c.Group)
+		}
 	}
-	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
-	data, err := json.MarshalIndent(list, "", "  ")
+	slices.Sort(s.groups)
+}
+
+func (s *Store) flushLocked() error {
+	f := fileFormat{Version: 1, Groups: s.groups, Connections: make([]model.Connection, 0, len(s.conns))}
+	for _, c := range s.conns {
+		f.Connections = append(f.Connections, c)
+	}
+	sort.Slice(f.Connections, func(i, j int) bool { return f.Connections[i].ID < f.Connections[j].ID })
+	if f.Groups == nil {
+		f.Groups = []string{}
+	}
+	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -156,6 +352,11 @@ func (s *Store) flushLocked() error {
 		return err
 	}
 	return os.Rename(tmp, s.path)
+}
+
+func stripSecrets(c model.Connection) model.Connection {
+	c.Password, c.SSH.Password, c.SSH.Passphrase = "", "", ""
+	return c
 }
 
 func secretKey(id, name string) string { return id + ":" + name }
