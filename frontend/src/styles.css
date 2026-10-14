@@ -2052,3 +2052,190 @@ table.mapping select {
   max-height: 50vh;
   overflow: auto;
 }
+
+/* ---- shared split ----------------------------------------------------------------- */
+
+.split {
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+}
+
+.split-pane {
+  height: 100%;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.split-pane > * {
+  flex: 1;
+  min-height: 0;
+}
+
+.split-pane > .info-panel {
+  width: auto;
+  border-left: none;
+}
+
+.split-pane > .monitor-conns {
+  width: auto;
+  border-right: none;
+}
+
+.split-pane > .trigger-list {
+  width: auto;
+  border-right: none;
+}
+
+.split-handle {
+  background: var(--border);
+}
+
+.split-handle:hover,
+.split-handle[data-separator-state="drag"] {
+  background: var(--accent);
+}
+
+.split-pane > .column-props {
+  overflow: auto;
+}
+
+/* ---- ER diagram ------------------------------------------------------------------- */
+
+.erd {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.erd-canvas {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.erd-search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-3);
+}
+
+.erd-search input {
+  width: 150px;
+  padding: 2px 6px;
+}
+
+.erd-table {
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  font-size: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.erd-table.view {
+  border-style: dashed;
+}
+
+.erd-table.hl {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.erd-table.dim {
+  opacity: 0.35;
+}
+
+.erd-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  background: var(--bg-3);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+
+.erd-col {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px 0 4px;
+}
+
+.erd-mark {
+  width: 14px;
+  display: inline-flex;
+  justify-content: center;
+}
+
+.erd-mark.pk {
+  color: #c49a2c;
+}
+
+.erd-mark.fk {
+  color: var(--accent);
+}
+
+.erd-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.erd-name.nn {
+  font-weight: 500;
+}
+
+.erd-type {
+  color: var(--text-3);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.erd-handle {
+  opacity: 0;
+  width: 4px !important;
+  height: 4px !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  border: none !important;
+  pointer-events: none;
+}
+
+.erd-edge {
+  stroke: var(--text-3) !important;
+  stroke-width: 1.4 !important;
+}
+
+.erd-edge.hl {
+  stroke: var(--accent) !important;
+  stroke-width: 2 !important;
+}
+
+.erd-marker {
+  stroke: var(--text-3);
+  stroke-width: 1.4;
+}
+
+.react-flow {
+  --xy-background-color: var(--bg-2);
+  --xy-controls-button-background-color: var(--bg);
+  --xy-controls-button-color: var(--text);
+  --xy-controls-button-border-color: var(--border);
+  --xy-minimap-background-color: var(--bg);
+  --xy-node-boxshadow-selected: none;
+}
+
+.react-flow__node-table.selected .erd-table {
+  border-color: var(--accent);
+}

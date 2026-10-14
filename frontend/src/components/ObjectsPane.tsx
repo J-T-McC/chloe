@@ -1,13 +1,14 @@
-import { Copy, Download, FilePlus2, PencilRuler, Plus, RefreshCw, Table2, Trash2, Upload } from "lucide-react";
+import { Copy, Download, FilePlus2, Network, PencilRuler, Plus, RefreshCw, Table2, Trash2, Upload } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Explorer, ObjectInfo, ObjectKind, ObjectRef, TableAction, arr, errorText } from "../api";
 import { designTable, newTable, runTableAction } from "../tableActions";
-import { objectsAreaMenu, tableMenu, viewMenu } from "../menus";
+import { objectsAreaMenu, openERD, tableMenu, viewMenu } from "../menus";
 import { openExport, openImport } from "./transfer/state";
 import { editorTheme, monaco } from "../editor/monaco";
 import { connById, dbKey, useApp } from "../store";
 import { TreeNode, useTree } from "../tree";
 import { openMenu } from "./ContextMenu";
+import { Split } from "./Split";
 import { KIND_LABEL, KindIcon } from "./icons";
 import { newQuery, openObject } from "./Sidebar";
 
@@ -133,6 +134,9 @@ export function ObjectsPane() {
             <button title="Export Wizard" onClick={() => openExport({ connId: sel.connId, database: sel.database!, schema: sel.schema, tables: tableRefs })}>
               <Upload size={14} /> Export
             </button>
+            <button title="ER Diagram" onClick={() => openERD(sel.connId, sel.database!, sel.schema)}>
+              <Network size={14} /> ER Diagram
+            </button>
           </>
         )}
         <button onClick={() => newQuery(sel.connId, sel.database, sel.schema)}>
@@ -156,7 +160,14 @@ export function ObjectsPane() {
         <span className="spacer" />
         <input className="search" placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} />
       </div>
-      <div className="objects-split">
+      <Split
+        id="objects-info"
+        className="objects-split"
+        secondSize={320}
+        minFirst={240}
+        minSecond={180}
+        maxSecond="70"
+        first={
         <div
           className="object-list"
           tabIndex={0}
@@ -234,12 +245,15 @@ export function ObjectsPane() {
           </table>
           {!loading && !shown.length && !error && <div className="center-hint">No {KIND_LABEL[kind!]?.toLowerCase()}.</div>}
         </div>
-        {pickedList.length > 1 ? (
+        }
+        second={
+          pickedList.length > 1 ? (
           <div className="info-panel empty">{pickedList.length} objects selected</div>
         ) : (
           <InfoPanel key={listKey} connId={sel.connId} object={picked} database={sel.database} schema={sel.schema} />
-        )}
-      </div>
+        )
+        }
+      />
     </div>
   );
 }

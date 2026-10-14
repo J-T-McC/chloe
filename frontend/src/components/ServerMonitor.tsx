@@ -5,6 +5,7 @@ import { Tab, useApp } from "../store";
 import { openMenu } from "./ContextMenu";
 import { confirm } from "./Dialogs";
 import { ConnIcon } from "./icons";
+import { Split } from "./Split";
 
 type Page = "processes" | "variables" | "status";
 const INTERVALS: Array<[number, string]> = [
@@ -114,7 +115,13 @@ export function ServerMonitor({ tab }: { tab: Tab }) {
   };
 
   return (
-    <div className="monitor">
+    <Split
+      id="monitor"
+      className="monitor"
+      firstSize={210}
+      minFirst={140}
+      minSecond={400}
+      first={
       <div className="monitor-conns">
         <div className="pane-title">Connections</div>
         {openConns.length === 0 && <div className="empty-hint">No open connections.</div>}
@@ -126,6 +133,8 @@ export function ServerMonitor({ tab }: { tab: Tab }) {
           </label>
         ))}
       </div>
+      }
+      second={
       <div className="monitor-main">
         <div className="toolbar">
           <div className="seg">
@@ -249,7 +258,8 @@ export function ServerMonitor({ tab }: { tab: Tab }) {
           {page === "processes" && <span className="muted">Highlighted rows are Chloe's own sessions</span>}
         </div>
       </div>
-    </div>
+      }
+    />
   );
 }
 

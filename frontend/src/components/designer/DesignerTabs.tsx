@@ -1,5 +1,6 @@
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, KeyRound, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { Split } from "../Split";
 import { D, Explorer, ObjectKind, arr } from "../../api";
 import { Column, Dialect, ForeignKey, Index, Table, Trigger, Unique, changeType, renameColumn, takesLength, takesScale, isTextType, uniqueName } from "../../designer/model";
 
@@ -16,7 +17,13 @@ export function FieldsTab(p: { table: Table; meta: D.Meta; dialect: Dialect; sel
   const col = t.columns[selected];
 
   return (
-    <div className="fields-tab">
+    <Split
+      id="designer-fields"
+      vertical
+      secondSize="32"
+      minFirst={90}
+      minSecond={70}
+      first={
       <div className="fields-grid">
         <table>
           <thead>
@@ -92,8 +99,15 @@ export function FieldsTab(p: { table: Table; meta: D.Meta; dialect: Dialect; sel
           ))}
         </datalist>
       </div>
-      {col && <ColumnProperties key={selected} column={col} meta={meta} dialect={dialect} table={t} onChange={(patch) => setCol(selected, patch)} />}
-    </div>
+      }
+      second={
+        col ? (
+          <ColumnProperties key={selected} column={col} meta={meta} dialect={dialect} table={t} onChange={(patch) => setCol(selected, patch)} />
+        ) : (
+          <div className="column-props muted">Select a field to see its properties.</div>
+        )
+      }
+    />
   );
 }
 
@@ -558,7 +572,12 @@ export function TriggersTab({ table: t, meta, dialect, update }: { table: Table;
     set({ events: tr.events.includes(ev) ? tr.events.filter((e) => e !== ev) : [...tr.events, ev] });
   };
   return (
-    <div className="triggers-tab">
+    <Split
+      id="designer-triggers"
+      firstSize={240}
+      minFirst={160}
+      minSecond={260}
+      first={
       <div className="trigger-list">
         <ListToolbar label="Trigger" onAdd={add} />
         {t.triggers.map((x, i) => (
@@ -571,7 +590,9 @@ export function TriggersTab({ table: t, meta, dialect, update }: { table: Table;
         ))}
         {!t.triggers.length && <div className="center-hint">No triggers.</div>}
       </div>
-      {tr && (
+      }
+      second={
+      tr ? (
         <div className="trigger-edit form">
           <div className="row">
             <label>Name</label>
@@ -631,8 +652,11 @@ export function TriggersTab({ table: t, meta, dialect, update }: { table: Table;
             </>
           )}
         </div>
-      )}
-    </div>
+      ) : (
+        <div className="center-hint">Add a trigger to edit it.</div>
+      )
+      }
+    />
   );
 }
 

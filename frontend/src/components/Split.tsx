@@ -1,0 +1,55 @@
+// Resizable two-pane split with a remembered size. Every multi-pane area in Chloe
+// uses this so panes can be resized like in Navicat.
+import type { ReactNode } from "react";
+import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
+
+// localStorage can throw (private mode, blocked storage); sizes are a convenience.
+const storage = {
+  getItem(key: string) {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  setItem(key: string, value: string) {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      /* ignore */
+    }
+  },
+};
+
+type Size = number | string; // number = pixels, "30%" or "30" = percent
+
+export interface SplitProps {
+  /** Stable id under which the size is remembered. */
+  id: string;
+  vertical?: boolean;
+  first: ReactNode;
+  second: ReactNode;
+  /** Initial size of one pane (the other takes the rest). */
+  firstSize?: Size;
+  secondSize?: Size;
+  minFirst?: Size;
+  minSecond?: Size;
+  maxFirst?: Size;
+  maxSecond?: Size;
+  className?: string;
+}
+
+export function Split(p: SplitProps) {
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: `chloe:split:${p.id}`, storage, onlySaveAfterUserInteractions: true });
+  return (
+    <Group orientation={p.vertical ? "vertical" : "horizontal"} className={"split " + (p.className ?? "")} defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged}>
+      <Panel id="first" defaultSize={p.firstSize} minSize={p.minFirst} maxSize={p.maxFirst}>
+        <div className="split-pane">{p.first}</div>
+      </Panel>
+      <Separator className={"split-handle " + (p.vertical ? "horizontal" : "vertical")} />
+      <Panel id="second" defaultSize={p.secondSize} minSize={p.minSecond} maxSize={p.maxSecond}>
+        <div className="split-pane">{p.second}</div>
+      </Panel>
+    </Group>
+  );
+}

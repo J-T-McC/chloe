@@ -1,12 +1,12 @@
 import { CircleStop, Play, PlayCircle, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Group, Panel, Separator } from "react-resizable-panels";
 import { DBType, Events, Explorer, Query, StatementResult, arr, errorText } from "../api";
 import { autoTrigger, clearEditorContext, invalidateCatalog, preloadCatalog, registerSqlCompletion, setEditorContext } from "../editor/completion";
 import { beautifyEditor, registerFormatter } from "../editor/format";
 import { Monaco, editorTheme, monaco } from "../editor/monaco";
 import { Tab, connById, useApp } from "../store";
 import { Cell, DataGrid } from "./DataGrid";
+import { Split } from "./Split";
 import { openExport } from "./transfer/state";
 
 interface RunState {
@@ -237,12 +237,15 @@ export function QueryEditor({ tab }: { tab: Tab }) {
         <span className="spacer" />
         {sessionError && <span className="err">{sessionError}</span>}
       </div>
-      <Group orientation="vertical" className="qe-split">
-        <Panel defaultSize="55" minSize="15">
-          <div className="monaco-host" ref={host} />
-        </Panel>
-        <Separator className="split-handle horizontal" />
-        <Panel minSize="10">
+      <Split
+        id="query-editor"
+        vertical
+        className="qe-split"
+        firstSize="55"
+        minFirst="15"
+        minSecond="10"
+        first={<div className="monaco-host" ref={host} />}
+        second={
           <div className="results">
             <div className="result-tabs">
               <button className={resultTab === 0 ? "active" : ""} onClick={() => setResultTab(0)}>
@@ -266,8 +269,8 @@ export function QueryEditor({ tab }: { tab: Tab }) {
               )}
             </div>
           </div>
-        </Panel>
-      </Group>
+        }
+      />
     </div>
   );
 }

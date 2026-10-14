@@ -1,18 +1,19 @@
-import { Activity, Database, FilePlus2, PencilRuler, Plug, Table2, X } from "lucide-react";
+import { Activity, Database, FilePlus2, Network, PencilRuler, Plug, Table2, X } from "lucide-react";
 import { useEffect } from "react";
-import { Group, Panel, Separator } from "react-resizable-panels";
 import { Events, ObjectKind } from "./api";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { ContextMenuHost } from "./components/ContextMenu";
 import { DialogHost } from "./components/Dialogs";
 import { KindIcon } from "./components/icons";
 import { ManageConnections } from "./components/ManageConnections";
+import { Split } from "./components/Split";
 import { ExecuteFileDialog } from "./components/transfer/ExecuteFileDialog";
 import { ExportWizard } from "./components/transfer/ExportWizard";
 import { ImportWizard } from "./components/transfer/ImportWizard";
 import { JobsButton } from "./components/transfer/JobsPanel";
 import { ServerMonitor } from "./components/ServerMonitor";
 import { TableDesigner } from "./components/designer/TableDesigner";
+import { ERDiagram } from "./components/erd/ERDiagram";
 import { DDLView, ObjectsPane } from "./components/ObjectsPane";
 import { QueryEditor } from "./components/QueryEditor";
 import { Sidebar, newQuery, openMonitor, useInitialLoad } from "./components/Sidebar";
@@ -98,12 +99,14 @@ export default function App() {
           <JobsButton />
         </div>
       </header>
-      <Group orientation="horizontal" className="body">
-        <Panel defaultSize="260px" minSize="160px" maxSize="50%">
-          <Sidebar />
-        </Panel>
-        <Separator className="split-handle vertical" />
-        <Panel>
+      <Split
+        id="main"
+        className="body"
+        firstSize={260}
+        minFirst={160}
+        maxFirst="50"
+        first={<Sidebar />}
+        second={
           <div className="workspace">
             <div className="tabbar">
               {tabs.map((t) => (
@@ -119,8 +122,8 @@ export default function App() {
               ))}
             </div>
           </div>
-        </Panel>
-      </Group>
+        }
+      />
       <ManageConnections />
       <ExportWizard />
       <ImportWizard />
@@ -146,11 +149,13 @@ function TabContent({ tab }: { tab: Tab }) {
       return <ServerMonitor tab={tab} />;
     case "design":
       return <TableDesigner tab={tab} />;
+    case "erd":
+      return <ERDiagram tab={tab} />;
   }
 }
 
 function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
-  const icon = tab.kind === "design" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
+  const icon = tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
   return (
     <div
       className={"tab" + (active ? " active" : "")}
