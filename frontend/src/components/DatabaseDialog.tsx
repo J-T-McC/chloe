@@ -67,7 +67,9 @@ function DatabaseDialogInner({ connId, editName }: { connId: string; editName?: 
       .catch((e) => (setSql([]), setError({ text: errorText(e) })));
   }, [tab, d, original, connId]);
 
-  const collations = useMemo(() => arr(meta?.collations).filter((c) => !d.charset || c.charset === d.charset), [meta, d.charset]);
+  // Without a chosen charset the database gets the server's, so offer its collations.
+  const charset = d.charset || meta?.defaultCharset;
+  const collations = useMemo(() => arr(meta?.collations).filter((c) => !charset || c.charset === charset), [meta, charset]);
   const set = (patch: Partial<DB>) => setD((x) => ({ ...x, ...patch }));
 
   const ok = async () => {
@@ -125,7 +127,7 @@ function DatabaseDialogInner({ connId, editName }: { connId: string; editName?: 
             {!pg && (
               <>
                 {select("Character Set", d.charset, arr(meta?.charsets), (v) => set({ charset: v || undefined, collation: undefined }), meta?.defaultCharset ? `(default: ${meta.defaultCharset})` : "")}
-                {select("Collation", d.collation, collations.map((c) => c.name), (v) => set({ collation: v || undefined }), collations.find((c) => c.default)?.name ? `(default: ${collations.find((c) => c.default)!.name})` : "")}
+                {select("Collation", d.collation, collations.map((c) => c.name), (v) => set({ collation: v || undefined }), !d.charset && meta?.defaultCollation ? `(default: ${meta.defaultCollation})` : collations.find((c) => c.default) ? `(default: ${collations.find((c) => c.default)!.name})` : "")}
               </>
             )}
             {pg && (
