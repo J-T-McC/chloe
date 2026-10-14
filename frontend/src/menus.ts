@@ -7,6 +7,7 @@ import { newQuery, openObject, selectAllSQL } from "./components/Sidebar";
 import { openExecuteFile, openExport, openImport, track } from "./components/transfer/state";
 import { connById, useApp } from "./store";
 import { designTable, newTable, runTableAction } from "./tableActions";
+import { reverseToModel } from "./components/model/actions";
 
 const isPG = (connId: string) => connById(connId)?.type === DBType.PostgreSQL;
 
@@ -88,7 +89,7 @@ export function tableMenu(connId: string, refs: ObjectRef[]): MenuItem[] {
       ],
     },
     { label: "Maintain", submenu: maintainMenu(connId, refs) },
-    later("Reverse Tables to Model…"),
+    { label: "Reverse Tables to Model…", onClick: () => reverseToModel(connId, database, schema, refs.map((r) => r.name)) },
     { separator: true },
     { label: "Copy", shortcut: "⌘C", onClick: () => navigator.clipboard.writeText(refs.map((r) => r.name).join("\n")) },
     later("Paste"),
@@ -149,6 +150,7 @@ export function openERD(connId: string, database: string, schema?: string) {
 export function databaseTools(connId: string, database: string, schema?: string): MenuItem[] {
   return [
     { label: "ER Diagram", onClick: () => openERD(connId, database, schema) },
+    { label: `Reverse ${schema ? "Schema" : "Database"} to Model…`, onClick: () => reverseToModel(connId, database, schema) },
     { separator: true },
     { label: "Execute SQL File…", onClick: () => openExecuteFile(connId, database, schema) },
     {

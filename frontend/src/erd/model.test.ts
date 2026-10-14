@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autoLayout, buildModel, tableSize, toSVG, visibleColumns } from "./model";
+import { autoLayout, buildModel, fromTables, modelKey, tableSize, toSVG, visibleColumns } from "./model";
 
 const cat = {
   objects: [
@@ -70,5 +70,28 @@ describe("erd model", () => {
       fks: [{ schema: "shop", table: "b", columns: ["a_id"], refSchema: "shop", refTable: "a", refColumns: ["id"] }],
     };
     expect(buildModel(my, undefined, false, "shop").relations).toHaveLength(1);
+  });
+});
+
+describe("data model diagrams", () => {
+  it("builds tables and relationships from designs", () => {
+    const m = fromTables(
+      [
+        { name: "customers", columns: [{ name: "id", type: "int", nullable: false }, { name: "email", type: "varchar", length: "255", nullable: false }], primaryKey: { columns: ["id"] }, foreignKeys: null },
+        {
+          name: "orders",
+          columns: [{ name: "id", type: "bigint", nullable: false }, { name: "customer_id", type: "int", nullable: true }, { name: "total", type: "decimal", length: "10", scale: "2", nullable: false }],
+          primaryKey: { columns: ["id"] },
+          foreignKeys: [{ name: "orders_customer_fk", columns: ["customer_id"], refTable: "customers", refColumns: ["id"] }],
+        },
+      ],
+      "mysql",
+    );
+    expect(m.tables.map((t) => t.id)).toEqual(["customers", "orders"]);
+    expect(m.relations).toEqual([expect.objectContaining({ from: "orders", to: "customers", optional: true, oneToOne: false })]);
+    const orders = m.tables[1];
+    expect(orders.columns.map((c) => c.type)).toEqual(["bigint", "int", "decimal(10,2)"]);
+    expect(orders.columns[1].fk).toBe(true);
+    expect(modelKey({ name: "t" }, "postgres", "shop")).toBe("shop.t");
   });
 });

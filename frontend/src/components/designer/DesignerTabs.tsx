@@ -1,8 +1,8 @@
-import { ArrowDownWideNarrow, ArrowUpNarrowWide, KeyRound, Plus, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowDownWideNarrow, ArrowUp, ArrowUpNarrowWide, KeyRound, ListPlus, Minus, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Split } from "../Split";
 import { D, Explorer, ObjectKind, arr } from "../../api";
-import { Column, Dialect, ForeignKey, Index, Table, Trigger, Unique, changeType, renameColumn, takesLength, takesScale, isTextType, uniqueName } from "../../designer/model";
+import { Column, Dialect, ForeignKey, Index, Table, Trigger, Unique, changeType, deleteColumn, insertColumn, moveColumn, renameColumn, togglePrimaryKey, takesLength, takesScale, isTextType, uniqueName } from "../../designer/model";
 
 type Update = (fn: (t: Table) => Table) => void;
 
@@ -410,14 +410,32 @@ export function UniquesTab({ table: t, update }: { table: Table; update: Update 
 
 // ---- Foreign keys ---------------------------------------------------------------------
 
-export function ForeignKeysTab({ table: t, connId, dialect, update }: { table: Table; connId: string; dialect: Dialect; update: Update }) {
+/** Where the Foreign Keys tab finds referenced tables and their columns. */
+export interface RefSource {
+  tables(): Promise<string[]>;
+  columns(fk: ForeignKey): Promise<string[] | null>;
+}
+
+/** Referenced tables from a live connection. */
+export function connectionRefs(connId: string, t: Table): RefSource {
+  return {
+    tables: () => Explorer.ListObjects(connId, t.database, t.schema ?? "", ObjectKind.KindTable).then((o) => arr(o).map((x) => x.name)),
+    columns: (fk) =>
+      Explorer.TableDetail(connId, { database: fk.refDatabase || t.database, schema: fk.refSchema || t.schema, name: fk.refTable, kind: ObjectKind.KindTable })
+        .then((d) => arr(d.columns).map((c) => c.name))
+        .catch(() => null),
+  };
+}
+
+export function ForeignKeysTab({ table: t, refs, dialect, update }: { table: Table; refs: RefSource; dialect: Dialect; update: Update }) {
   const cols = t.columns.map((c) => c.name);
   const pg = dialect === "postgres";
   const [tables, setTables] = useState<string[]>([]);
   const [refCols, setRefCols] = useState<Record<string, string[]>>({});
   useEffect(() => {
-    Explorer.ListObjects(connId, t.database, t.schema ?? "", ObjectKind.KindTable).then((o) => setTables(arr(o).map((x) => x.name)));
-  }, [connId, t.database, t.schema]);
+    refs.tables().then(setTables).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t.database, t.schema]);
 
   const loadRefCols = async (fk: ForeignKey) => {
     const key = `${fk.refSchema ?? ""}.${fk.refTable}`;
@@ -426,8 +444,8 @@ export function ForeignKeysTab({ table: t, connId, dialect, update }: { table: T
       setRefCols((r) => ({ ...r, [key]: cols }));
       return;
     }
-    const d = await Explorer.TableDetail(connId, { database: fk.refDatabase || t.database, schema: fk.refSchema || t.schema, name: fk.refTable, kind: ObjectKind.KindTable }).catch(() => null);
-    if (d) setRefCols((r) => ({ ...r, [key]: arr(d.columns).map((c) => c.name) }));
+    const c = await refs.columns(fk);
+    if (c) setRefCols((r) => ({ ...r, [key]: c }));
   };
   useEffect(() => {
     t.foreignKeys.forEach(loadRefCols);
@@ -732,5 +750,33 @@ function Opt({ label, children }: { label: string; children: React.ReactNode }) 
       <label>{label}</label>
       <div className="field-input">{children}</div>
     </div>
+  );
+}
+
+// ---- Field toolbar -----------------------------------------------------------------------
+
+export function FieldToolbar({ table: t, dialect, selected, setSelected, update }: { table: Table; dialect: Dialect; selected: number; setSelected: (fn: (s: number) => number) => void; update: Update }) {
+  const colName = t.columns[selected]?.name;
+  return (
+    <>
+      <button onClick={() => (update((tb) => insertColumn(tb, tb.columns.length, dialect)), setSelected(() => t.columns.length))} title="Add field">
+        <Plus size={14} /> Add Field
+      </button>
+      <button onClick={() => update((tb) => insertColumn(tb, selected, dialect))} title="Insert field above the selected one">
+        <ListPlus size={14} /> Insert
+      </button>
+      <button disabled={!t.columns.length} onClick={() => (update((tb) => deleteColumn(tb, selected)), setSelected((s) => Math.max(0, s - 1)))} title="Delete field">
+        <Minus size={14} /> Delete
+      </button>
+      <button disabled={!colName} className={colName && t.primaryKey?.columns.includes(colName) ? "on" : ""} onClick={() => update((tb) => togglePrimaryKey(tb, colName))} title="Toggle primary key">
+        <KeyRound size={14} /> Primary Key
+      </button>
+      <button disabled={selected === 0} onClick={() => (update((tb) => moveColumn(tb, selected, -1)), setSelected((s) => s - 1))} title="Move up">
+        <ArrowUp size={14} />
+      </button>
+      <button disabled={selected >= t.columns.length - 1} onClick={() => (update((tb) => moveColumn(tb, selected, 1)), setSelected((s) => s + 1))} title="Move down">
+        <ArrowDown size={14} />
+      </button>
+    </>
   );
 }

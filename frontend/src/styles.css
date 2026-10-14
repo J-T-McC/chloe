@@ -2272,3 +2272,116 @@ table.mapping select {
   flex: 1;
   text-align: center;
 }
+
+/* ---- data models ---------------------------------------------------------------- */
+
+.model-editor {
+  position: relative;
+  outline: none;
+}
+
+.model-editor .crumbs .name-input {
+  width: 160px;
+}
+
+.model-empty {
+  position: absolute;
+  inset: 40px 0 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+.model-empty button {
+  pointer-events: auto;
+}
+
+.modal.model-table-dialog {
+  width: min(1100px, calc(100vw - 80px));
+  height: calc(100vh - 120px);
+}
+
+.model-table-dialog .designer {
+  flex: 1;
+  min-height: 0;
+  border-top: 1px solid var(--border);
+}
+
+.model-table-dialog .name-input.schema {
+  width: 100px;
+}
+
+.model-sql {
+  max-height: 60vh;
+}
+
+.sync-dialog .modal-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sync-dialog .field-input.row select + select {
+  width: 160px;
+}
+
+.sync-plan {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 12px;
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  min-height: 240px;
+  max-height: 50vh;
+}
+
+.sync-actions {
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sync-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 2px 0;
+}
+
+.sync-action .muted {
+  margin-left: auto;
+  font-size: 11px;
+}
+
+.sync-sql {
+  overflow: auto;
+  min-width: 0;
+}
+
+.badge.kind-create {
+  background: color-mix(in srgb, #2f9e44 18%, transparent);
+  color: #2f9e44;
+}
+
+.badge.kind-alter {
+  background: color-mix(in srgb, #1c7ed6 18%, transparent);
+  color: #1c7ed6;
+}
+
+.badge.kind-drop {
+  background: color-mix(in srgb, #e8590c 18%, transparent);
+  color: #e8590c;
+}
+
+.status-line pre {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  font-size: 11px;
+}

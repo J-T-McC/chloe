@@ -1,4 +1,4 @@
-import { Activity, Database, FilePlus2, Network, PencilRuler, Plug, Table2, X } from "lucide-react";
+import { Activity, Database, FilePlus2, Network, PencilRuler, Plug, Shapes, Table2, X } from "lucide-react";
 import { useEffect } from "react";
 import { Events, ObjectKind } from "./api";
 import { ConnectionDialog } from "./components/ConnectionDialog";
@@ -14,6 +14,10 @@ import { JobsButton } from "./components/transfer/JobsPanel";
 import { ServerMonitor } from "./components/ServerMonitor";
 import { TableDesigner } from "./components/designer/TableDesigner";
 import { ERDiagram } from "./components/erd/ERDiagram";
+import { ModelEditor } from "./components/model/ModelEditor";
+import { newModel, openModel } from "./components/model/actions";
+import { openMenu } from "./components/ContextMenu";
+import { Models, arr } from "./api";
 import { DDLView, ObjectsPane } from "./components/ObjectsPane";
 import { QueryEditor } from "./components/QueryEditor";
 import { Sidebar, newQuery, openMonitor, selectAllSQL, useInitialLoad } from "./components/Sidebar";
@@ -84,6 +88,7 @@ export default function App() {
             disabled={!selection?.database}
             onClick={() => selection && useApp.getState().select({ ...selection, kind: ObjectKind.KindTable, object: undefined })}
           />
+          <ToolButton icon={<Shapes size={20} />} label="Model" onClick={(e) => modelMenu(e)} />
           <ToolButton icon={<Activity size={20} />} label="Monitor" disabled={!Object.keys(open).length} onClick={() => openMonitor(selConnected ? selection!.connId : Object.keys(open)[0])} />
           <ToolButton
             icon={<Database size={20} />}
@@ -157,11 +162,13 @@ function TabContent({ tab }: { tab: Tab }) {
       return <TableDesigner tab={tab} />;
     case "erd":
       return <ERDiagram tab={tab} />;
+    case "model":
+      return <ModelEditor tab={tab} />;
   }
 }
 
 function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
-  const icon = tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
+  const icon = tab.kind === "model" ? <Shapes size={13} /> : tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
   return (
     <div
       className={"tab" + (active ? " active" : "")}
@@ -186,7 +193,20 @@ function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
   );
 }
 
-function ToolButton({ icon, label, onClick, disabled }: { icon: React.ReactNode; label: string; onClick(): void; disabled?: boolean }) {
+async function modelMenu(e: React.MouseEvent) {
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  const recent = arr(await Models.Recent().catch(() => [] as string[]));
+  openMenu({ clientX: r.left, clientY: r.bottom + 2, preventDefault() {} }, [
+    { label: "New MySQL Model", onClick: () => newModel("mysql") },
+    { label: "New PostgreSQL Model", onClick: () => newModel("postgres") },
+    { label: "Open Model…", onClick: () => openModel() },
+    ...(recent.length
+      ? [{ label: "", separator: true }, ...recent.map((p) => ({ label: p.split("/").pop()!.replace(/\.chloemodel$/, ""), shortcut: p.split("/").slice(-2, -1)[0], onClick: () => openModel(p) }))]
+      : []),
+  ]);
+}
+
+function ToolButton({ icon, label, onClick, disabled }: { icon: React.ReactNode; label: string; onClick(e: React.MouseEvent): void; disabled?: boolean }) {
   return (
     <button className="tool-button" onClick={onClick} disabled={disabled}>
       {icon}

@@ -292,17 +292,9 @@ func parseVersion(v string, a, b, p *int) {
 	}
 }
 
-var mysqlTypes = []string{
-	"tinyint", "smallint", "mediumint", "int", "bigint", "decimal", "float", "double", "bit", "boolean",
-	"char", "varchar", "tinytext", "text", "mediumtext", "longtext", "binary", "varbinary",
-	"tinyblob", "blob", "mediumblob", "longblob", "enum", "set",
-	"date", "time", "datetime", "timestamp", "year", "json",
-	"geometry", "point", "linestring", "polygon", "multipoint", "multilinestring", "multipolygon", "geometrycollection",
-}
-
 // DesignMeta lists the types, charsets, collations and engines for the designer.
 func (c *Conn) DesignMeta(ctx context.Context, database string) (design.Meta, error) {
-	m := design.Meta{Types: mysqlTypes, IndexMethods: []string{"BTREE", "HASH"}}
+	m := design.Meta{Types: design.MySQLTypes, IndexMethods: []string{"BTREE", "HASH"}}
 	if cs, err := sqlcommon.QueryStrings(ctx, c.db, "SELECT CHARACTER_SET_NAME FROM information_schema.CHARACTER_SETS ORDER BY 1"); err == nil {
 		for _, r := range cs {
 			m.Charsets = append(m.Charsets, r[0].String)

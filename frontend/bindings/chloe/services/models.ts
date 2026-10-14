@@ -4,6 +4,9 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as core$0 from "../internal/core/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as datamodel$0 from "../internal/datamodel/models.js";
 
 /**
  * ApplyResult carries per-change outcomes even when the batch was rolled back,
@@ -12,6 +15,14 @@ import * as core$0 from "../internal/core/models.js";
 export interface ApplyResult {
     "results": core$0.ChangeResult[] | null;
     "error"?: string;
+}
+
+/**
+ * ModelFile is a model together with the file it was read from or saved to.
+ */
+export interface ModelFile {
+    "path": string;
+    "model": datamodel$0.Model;
 }
 
 /**

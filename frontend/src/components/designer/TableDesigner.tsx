@@ -1,13 +1,13 @@
-import { ArrowDown, ArrowUp, KeyRound, ListPlus, Minus, Plus, Save } from "lucide-react";
+import { Save } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { D, DBType, Design, ObjectKind, arr, errorText } from "../../api";
-import { Dialect, Table, deleteColumn, insertColumn, moveColumn, newTable, normalize, toWire, togglePrimaryKey } from "../../designer/model";
+import { Dialect, Table, newTable, normalize, toWire } from "../../designer/model";
 import { invalidateCatalog } from "../../editor/completion";
 import { Tab, connById, useApp } from "../../store";
 import { useTree } from "../../tree";
 import { confirm } from "../Dialogs";
 import { CodeBlock } from "../ObjectsPane";
-import { ChecksTab, FieldsTab, ForeignKeysTab, IndexesTab, OptionsTab, TriggersTab, UniquesTab } from "./DesignerTabs";
+import { ChecksTab, FieldToolbar, FieldsTab, ForeignKeysTab, connectionRefs, IndexesTab, OptionsTab, TriggersTab, UniquesTab } from "./DesignerTabs";
 
 type Section = "fields" | "indexes" | "foreignKeys" | "uniques" | "checks" | "triggers" | "options" | "comment" | "sql";
 
@@ -104,7 +104,6 @@ export function TableDesigner({ tab }: { tab: Tab }) {
     }
   };
 
-  const colName = draft.columns[selected]?.name;
   const sections: Array<[Section, string, boolean]> = [
     ["fields", "Fields", true],
     ["indexes", "Indexes", true],
@@ -132,28 +131,7 @@ export function TableDesigner({ tab }: { tab: Tab }) {
           <Save size={14} /> {saving ? "Saving…" : "Save"}
         </button>
         <span className="tb-sep" />
-        {section === "fields" && (
-          <>
-            <button onClick={() => (update((t) => insertColumn(t, t.columns.length, dialect)), setSelected(draft.columns.length))} title="Add field">
-              <Plus size={14} /> Add Field
-            </button>
-            <button onClick={() => update((t) => insertColumn(t, selected, dialect))} title="Insert field above the selected one">
-              <ListPlus size={14} /> Insert
-            </button>
-            <button disabled={!draft.columns.length} onClick={() => (update((t) => deleteColumn(t, selected)), setSelected((s) => Math.max(0, s - 1)))} title="Delete field">
-              <Minus size={14} /> Delete
-            </button>
-            <button disabled={!colName} className={draft.primaryKey?.columns.includes(colName) ? "on" : ""} onClick={() => update((t) => togglePrimaryKey(t, colName))} title="Toggle primary key">
-              <KeyRound size={14} /> Primary Key
-            </button>
-            <button disabled={selected === 0} onClick={() => (update((t) => moveColumn(t, selected, -1)), setSelected((s) => s - 1))} title="Move up">
-              <ArrowUp size={14} />
-            </button>
-            <button disabled={selected >= draft.columns.length - 1} onClick={() => (update((t) => moveColumn(t, selected, 1)), setSelected((s) => s + 1))} title="Move down">
-              <ArrowDown size={14} />
-            </button>
-          </>
-        )}
+        {section === "fields" && <FieldToolbar table={draft} dialect={dialect} selected={selected} setSelected={setSelected} update={update} />}
         <span className="spacer" />
         <span className="crumbs">
           {[connById(connId)?.name, draft.database, draft.schema].filter(Boolean).join(" › ")} ›{" "}
@@ -178,7 +156,7 @@ export function TableDesigner({ tab }: { tab: Tab }) {
       <div className="designer-body">
         {section === "fields" && <FieldsTab table={draft} meta={meta} dialect={dialect} selected={selected} onSelect={setSelected} update={update} />}
         {section === "indexes" && <IndexesTab table={draft} meta={meta} dialect={dialect} update={update} />}
-        {section === "foreignKeys" && <ForeignKeysTab table={draft} connId={connId} dialect={dialect} update={update} />}
+        {section === "foreignKeys" && <ForeignKeysTab table={draft} refs={connectionRefs(connId, draft)} dialect={dialect} update={update} />}
         {section === "uniques" && <UniquesTab table={draft} update={update} />}
         {section === "checks" && <ChecksTab table={draft} dialect={dialect} update={update} />}
         {section === "triggers" && <TriggersTab table={draft} meta={meta} dialect={dialect} update={update} />}

@@ -252,18 +252,8 @@ func parseTrigger(name, tgtype, def string) design.Trigger {
 	return tr
 }
 
-var pgTypes = []string{
-	"smallint", "integer", "bigint", "numeric", "real", "double precision", "smallserial", "serial", "bigserial", "money",
-	"varchar", "char", "text", "citext", "bytea", "boolean",
-	"date", "time", "timetz", "timestamp", "timestamptz", "interval",
-	"uuid", "json", "jsonb", "xml", "inet", "cidr", "macaddr", "bit", "varbit", "tsvector", "tsquery",
-	"point", "line", "lseg", "box", "path", "polygon", "circle",
-	"int4range", "int8range", "numrange", "tsrange", "tstzrange", "daterange",
-	"integer[]", "bigint[]", "text[]", "varchar[]", "uuid[]", "jsonb[]",
-}
-
 func (c *Conn) DesignMeta(ctx context.Context, database string) (design.Meta, error) {
-	m := design.Meta{Types: append([]string(nil), pgTypes...)}
+	m := design.Meta{Types: append([]string(nil), design.PostgresTypes...)}
 	db, err := c.pool(ctx, database)
 	if err != nil {
 		return m, err

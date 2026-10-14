@@ -1,103 +1,14 @@
-import {
-  Background,
-  BaseEdge,
-  Controls,
-  EdgeProps,
-  Handle,
-  MiniMap,
-  Node,
-  NodeProps,
-  Position,
-  ReactFlow,
-  ReactFlowProvider,
-  getBezierPath,
-  useNodesState,
-  useReactFlow,
-  type Edge,
-} from "@xyflow/react";
-import "@xyflow/react/dist/style.css";
-import { Download, Eye, KeyRound, LayoutGrid, Link2, RefreshCw, Search } from "lucide-react";
-import { createContext, memo, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
-import { DBType, Explorer, Layouts, ObjectKind, Transfer, errorText } from "../../api";
-import { ColumnMode, ErdModel, ErdTable, HEADER_H, Positions, ROW_H, autoLayout, buildModel, svgToPNG, tableSize, toSVG, visibleColumns } from "../../erd/model";
+import { ReactFlowProvider, useReactFlow } from "@xyflow/react";
+import { Download, LayoutGrid, RefreshCw, Search } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { DBType, Explorer, Layouts, ObjectKind, errorText } from "../../api";
+import { ColumnMode, ErdModel, Positions, autoLayout, buildModel, tableSize } from "../../erd/model";
 import { tableMenu } from "../../menus";
 import { Tab, connById } from "../../store";
 import { designTable } from "../../tableActions";
 import { openMenu } from "../ContextMenu";
-import { alert } from "../Dialogs";
-
-interface TableNodeData extends Record<string, unknown> {
-  table: ErdTable;
-  mode: ColumnMode;
-}
-
-// Selection highlighting is read from context so clicking a table doesn't rebuild
-// the nodes (which would also swallow double-clicks).
-const Highlight = createContext<{ selected: string | null; related: Set<string> }>({ selected: null, related: new Set() });
-
-type TNode = Node<TableNodeData, "table">;
-
-const TableNode = memo(function TableNode({ data }: NodeProps<TNode>) {
-  const t = data.table;
-  const cols = visibleColumns(t, data.mode);
-  const { width } = tableSize(t, data.mode);
-  const hl = useContext(Highlight);
-  const on = hl.selected !== null && hl.related.has(t.id);
-  const dim = hl.selected !== null && !hl.related.has(t.id);
-  return (
-    <div className={"erd-table" + (t.kind === "view" ? " view" : "") + (on ? " hl" : "") + (dim ? " dim" : "")} style={{ width }} title={t.comment || undefined}>
-      <div className="erd-head" style={{ height: HEADER_H }}>
-        {t.kind === "view" && <Eye size={11} />}
-        <span>{t.name}</span>
-        {/* table-level handles for relationships whose column is hidden */}
-        <Handle id="t-l" type="target" position={Position.Left} className="erd-handle" />
-        <Handle id="t-r" type="source" position={Position.Right} className="erd-handle" />
-        <Handle id="t-ls" type="source" position={Position.Left} className="erd-handle" />
-        <Handle id="t-rt" type="target" position={Position.Right} className="erd-handle" />
-      </div>
-      {cols.map((c) => (
-        <div key={c.name} className="erd-col" style={{ height: ROW_H }}>
-          <span className={"erd-mark" + (c.pk ? " pk" : c.fk ? " fk" : "")}>{c.pk ? <KeyRound size={10} /> : c.fk ? <Link2 size={10} /> : null}</span>
-          <span className={"erd-name" + (c.nullable ? "" : " nn")}>{c.name}</span>
-          <span className="erd-type">{c.type}</span>
-          <Handle id={`${c.name}-l`} type="target" position={Position.Left} className="erd-handle" />
-          <Handle id={`${c.name}-r`} type="source" position={Position.Right} className="erd-handle" />
-          <Handle id={`${c.name}-ls`} type="source" position={Position.Left} className="erd-handle" />
-          <Handle id={`${c.name}-rt`} type="target" position={Position.Right} className="erd-handle" />
-        </div>
-      ))}
-    </div>
-  );
-});
-
-// Marker ids must be unique per diagram: url(#id) resolves to the first match in the
-// document, which may sit in a hidden tab (display:none markers don't render).
-const MarkerIds = createContext({ many: "erd-many", one: "erd-one" });
-
-interface RelEdgeData extends Record<string, unknown> {
-  optional: boolean;
-  oneToOne: boolean;
-  highlight: boolean;
-}
-
-function RelationEdge(p: EdgeProps<Edge<RelEdgeData>>) {
-  const [path] = getBezierPath(p);
-  const d = p.data!;
-  const ids = useContext(MarkerIds);
-  return (
-    <BaseEdge
-      id={p.id}
-      path={path}
-      markerStart={d.oneToOne ? `url(#${ids.one})` : `url(#${ids.many})`}
-      markerEnd={`url(#${ids.one})`}
-      className={"erd-edge" + (d.highlight ? " hl" : "")}
-      style={{ strokeDasharray: d.optional ? "5 3" : undefined }}
-    />
-  );
-}
-
-const nodeTypes = { table: TableNode };
-const edgeTypes = { relation: RelationEdge };
+import { DiagramCanvas } from "./DiagramCanvas";
+import { exportDiagram } from "./export";
 
 interface Saved {
   positions: Positions;
@@ -126,12 +37,10 @@ function ERDiagramInner({ tab }: { tab: Tab }) {
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [nodes, setNodes, onNodesChange] = useNodesState<TNode>([]);
+  const [layoutVersion, setLayoutVersion] = useState(0);
   const flow = useReactFlow();
   const positions = useRef<Positions>({});
   const first = useRef(true);
-  const uid = useId().replace(/:/g, "");
-  const markerIds = useMemo(() => ({ many: `erd-many-${uid}`, one: `erd-one-${uid}` }), [uid]);
   const catalog = useRef<Awaited<ReturnType<typeof Explorer.Catalog>> | null>(null);
 
   const save = useCallback(() => {
@@ -161,6 +70,7 @@ function ERDiagramInner({ tab }: { tab: Tab }) {
           }
         }
         positions.current = pos;
+        setLayoutVersion((v) => v + 1);
         setMode(m);
         setViews(v);
         setModel(model);
@@ -189,72 +99,15 @@ function ERDiagramInner({ tab }: { tab: Tab }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [views]);
 
-  const related = useMemo(() => {
-    const s = new Set<string>();
-    if (!selected || !model) return s;
-    s.add(selected);
-    for (const r of model.relations) if (r.from === selected || r.to === selected) s.add(r.from), s.add(r.to);
-    return s;
-  }, [selected, model]);
-
-  // Nodes follow the model; positions persist across rebuilds.
-  useEffect(() => {
-    if (!model) return;
-    setNodes(
-      model.tables.map((t) => ({
-        id: t.id,
-        type: "table",
-        position: positions.current[t.id] ?? { x: 0, y: 0 },
-        data: { table: t, mode },
-      })),
-    );
-  }, [model, mode, setNodes]);
-
-  const edges = useMemo<Edge<RelEdgeData>[]>(() => {
-    if (!model) return [];
-    const byId = new Map(nodes.map((n) => [n.id, n]));
-    return model.relations.map((r) => {
-      const a = byId.get(r.from);
-      const b = byId.get(r.to);
-      const childLeft = !a || !b ? true : a.position.x + tableSize(a.data.table, mode).width / 2 <= b.position.x + tableSize(b.data.table, mode).width / 2;
-      const fromCol = a && visibleColumns(a.data.table, mode).some((c) => c.name === r.fromColumns[0]) ? r.fromColumns[0] : "t";
-      const toCol = b && visibleColumns(b.data.table, mode).some((c) => c.name === r.toColumns[0]) ? r.toColumns[0] : "t";
-      return {
-        id: r.id,
-        source: r.from,
-        target: r.to,
-        sourceHandle: `${fromCol}-${childLeft ? "r" : "ls"}`,
-        targetHandle: `${toCol}-${childLeft ? "l" : "rt"}`,
-        type: "relation",
-        data: { optional: r.optional, oneToOne: r.oneToOne, highlight: related.has(r.from) && related.has(r.to) && selected !== null },
-      };
-    });
-  }, [model, nodes, mode, related, selected]);
-
-  const exportAs = async (kind: "svg" | "png") => {
-    if (!model) return;
-    const css = getComputedStyle(document.documentElement);
-    const v = (n: string) => css.getPropertyValue(n).trim();
-    const svg = toSVG(model, positions.current, mode, {
-      background: v("--bg"), header: v("--bg-3"), headerText: v("--text"), body: v("--bg"), text: v("--text"), muted: v("--text-3"), border: v("--border-strong"), line: v("--text-2"), key: "#c49a2c",
-    });
-    const name = `${schema ?? database}-erd.${kind}`;
-    const path = await Transfer.SaveFileDialog(name, kind.toUpperCase(), `*.${kind}`);
-    if (!path) return;
-    try {
-      if (kind === "svg") await Transfer.WriteFile(path, svg, false);
-      else await Transfer.WriteFile(path, (await svgToPNG(svg)).split(",")[1], true);
-    } catch (e) {
-      alert("Export failed", errorText(e));
-    }
-  };
+  const exportAs = (kind: "svg" | "png") => model && exportDiagram(model, positions.current, mode, `${schema ?? database}-erd`, kind);
 
   const find = (q: string) => {
-    const n = nodes.find((x) => x.data.table.name.toLowerCase().includes(q.toLowerCase()));
-    if (!n) return;
-    setSelected(n.id);
-    const { width, height } = tableSize(n.data.table, mode);
-    flow.setCenter(n.position.x + width / 2, n.position.y + height / 2, { zoom: 1, duration: 300 });
+    const t = model?.tables.find((x) => x.name.toLowerCase().includes(q.toLowerCase()));
+    const at = t && positions.current[t.id];
+    if (!t || !at) return;
+    setSelected(t.id);
+    const { width, height } = tableSize(t, mode);
+    flow.setCenter(at.x + width / 2, at.y + height / 2, { zoom: 1, duration: 300 });
   };
 
   return (
@@ -294,56 +147,17 @@ function ERDiagramInner({ tab }: { tab: Tab }) {
         </div>
       </div>
       {error && <div className="error-banner">{error}</div>}
-      <div className="erd-canvas">
-        <svg width="0" height="0" style={{ position: "absolute" }}>
-          <defs>
-            {/* At the start of a path (the child table), +x points back into the table, so
-                the prongs fan out at the anchor and the apex sits along the line. */}
-            <marker id={markerIds.many} viewBox="0 0 12 12" refX="11" refY="6" markerWidth="12" markerHeight="12" orient="auto-start-reverse">
-              <path d="M1,6 L11,1 M1,6 L11,11 M1,6 L11,6" className="erd-marker" fill="none" />
-            </marker>
-            <marker id={markerIds.one} viewBox="0 0 12 12" refX="11" refY="6" markerWidth="12" markerHeight="12" orient="auto-start-reverse">
-              <path d="M8,1 L8,11" className="erd-marker" fill="none" />
-            </marker>
-          </defs>
-        </svg>
-        <MarkerIds.Provider value={markerIds}>
-        <Highlight.Provider value={{ selected, related }}>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          onNodesChange={onNodesChange}
-          onNodeDragStop={(_, n, dragged) => {
-            for (const d of dragged.length ? dragged : [n]) positions.current[d.id] = d.position;
-            save();
-          }}
-          onNodeClick={(_, n) => setSelected(n.id)}
-          onPaneClick={() => setSelected(null)}
-          onNodeDoubleClick={(_, n) => {
-            const t = n.data.table;
-            if (t.kind === "table") designTable(connId, { database, schema: t.schema, name: t.name, kind: ObjectKind.KindTable });
-          }}
-          onNodeContextMenu={(e, n) => {
-            const t = n.data.table;
-            if (t.kind === "table") openMenu(e, tableMenu(connId, [{ database, schema: t.schema, name: t.name, kind: ObjectKind.KindTable }]));
-          }}
-          onlyRenderVisibleElements
-          minZoom={0.05}
-          maxZoom={2}
-          fitView
-          proOptions={{ hideAttribution: true }}
-          nodesConnectable={false}
-          zoomOnDoubleClick={false}
-        >
-          <Background gap={20} size={1} />
-          <MiniMap pannable zoomable nodeStrokeWidth={2} className="erd-minimap" />
-          <Controls showInteractive={false} />
-        </ReactFlow>
-        </Highlight.Provider>
-        </MarkerIds.Provider>
-      </div>
+      <DiagramCanvas
+        model={model}
+        mode={mode}
+        positions={positions}
+        onMoved={save}
+        selected={selected}
+        onSelect={setSelected}
+        onOpen={(t) => t.kind === "table" && designTable(connId, { database, schema: t.schema, name: t.name, kind: ObjectKind.KindTable })}
+        onContextMenu={(e, t) => t.kind === "table" && openMenu(e, tableMenu(connId, [{ database, schema: t.schema, name: t.name, kind: ObjectKind.KindTable }]))}
+        layoutVersion={layoutVersion}
+      />
     </div>
   );
 }

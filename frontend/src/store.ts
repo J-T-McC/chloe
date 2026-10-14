@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { Connection, Connections, DBType, Explorer, ObjectKind, ObjectRef, arr, errorText } from "./api";
 import { prompt } from "./components/Dialogs";
 
-export type TabKind = "objects" | "query" | "table" | "ddl" | "monitor" | "design" | "erd";
+export type TabKind = "objects" | "query" | "table" | "ddl" | "monitor" | "design" | "erd" | "model";
 
 export interface Tab {
   id: string;
@@ -15,6 +15,8 @@ export interface Tab {
   ref?: ObjectRef;
   /** initial SQL for query tabs */
   sql?: string;
+  /** file of a model tab */
+  modelPath?: string;
 }
 
 /** What the tree has selected; drives the Objects tab. */
@@ -170,7 +172,9 @@ export const useApp = create<AppState>((set, get) => ({
   openTab(tab) {
     // Re-use an existing tab for the same object.
     const existing = get().tabs.find(
-      (t) => t.kind === tab.kind && tab.kind !== "query" && t.connId === tab.connId && sameRef(t.ref, tab.ref),
+      (t) =>
+        t.kind === tab.kind &&
+        (tab.kind === "model" ? !!tab.modelPath && t.modelPath === tab.modelPath : tab.kind !== "query" && t.connId === tab.connId && sameRef(t.ref, tab.ref)),
     );
     if (existing) {
       set({ activeTab: existing.id });

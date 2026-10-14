@@ -223,3 +223,65 @@ export async function svgToPNG(svg: string, scale = 2): Promise<string> {
     URL.revokeObjectURL(url);
   }
 }
+
+// ---- data models -------------------------------------------------------------------
+
+/** Minimal shape of a design table (internal/design.Table) used to draw a model. */
+export interface DesignTableLike {
+  schema?: string;
+  name: string;
+  comment?: string;
+  columns: Array<{ name: string; type: string; length?: string; scale?: string; nullable: boolean }> | null;
+  primaryKey?: { columns: string[] | null } | null;
+  uniques?: Array<{ columns: string[] | null }> | null;
+  foreignKeys: Array<{ name: string; columns: string[] | null; refSchema?: string; refTable: string; refColumns: string[] | null }> | null;
+}
+
+/** Table id in a model: schema.name for PostgreSQL, name for MySQL (matches datamodel.Key). */
+export const modelKey = (t: { schema?: string; name: string }, dialect: string, defaultSchema?: string) =>
+  dialect === "postgres" ? `${t.schema || defaultSchema || "public"}.${t.name}` : t.name;
+
+export function typeLabel(c: { type: string; length?: string; scale?: string }) {
+  if (!c.length || c.type === "enum" || c.type === "set") return c.type;
+  return `${c.type}(${c.length}${c.scale ? "," + c.scale : ""})`;
+}
+
+/** Diagram for data model tables. */
+export function fromTables(tables: DesignTableLike[], dialect: string, defaultSchema?: string): ErdModel {
+  const byId = new Map<string, ErdTable>();
+  for (const t of tables) {
+    const pk = t.primaryKey?.columns ?? [];
+    const id = modelKey(t, dialect, defaultSchema);
+    byId.set(id, {
+      id,
+      schema: dialect === "postgres" ? t.schema || defaultSchema : undefined,
+      name: t.name,
+      kind: "table",
+      comment: t.comment,
+      columns: (t.columns ?? []).map((c) => ({ name: c.name, type: typeLabel(c), pk: pk.includes(c.name), fk: false, nullable: c.nullable })),
+    });
+  }
+  const relations: ErdRelation[] = [];
+  for (const t of tables) {
+    const from = byId.get(modelKey(t, dialect, defaultSchema))!;
+    for (const fk of t.foreignKeys ?? []) {
+      const to = byId.get(modelKey({ schema: fk.refSchema || t.schema, name: fk.refTable }, dialect, defaultSchema));
+      if (!to) continue;
+      const cols = fk.columns ?? [];
+      for (const c of from.columns) if (cols.includes(c.name)) c.fk = true;
+      const pk = t.primaryKey?.columns ?? [];
+      const sameSet = (a: string[]) => a.length === cols.length && a.every((x) => cols.includes(x));
+      relations.push({
+        id: `${from.id}:${fk.name || cols.join(",")}->${to.id}`,
+        from: from.id,
+        to: to.id,
+        fromColumns: cols,
+        toColumns: fk.refColumns ?? [],
+        name: fk.name,
+        optional: from.columns.some((c) => cols.includes(c.name) && c.nullable),
+        oneToOne: (pk.length > 0 && sameSet(pk)) || (t.uniques ?? []).some((u) => sameSet(u.columns ?? [])),
+      });
+    }
+  }
+  return { tables: [...byId.values()].sort((a, b) => a.name.localeCompare(b.name)), relations };
+}

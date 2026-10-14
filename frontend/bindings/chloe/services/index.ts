@@ -5,6 +5,7 @@ import * as ConnectionService from "./connectionservice.js";
 import * as DesignService from "./designservice.js";
 import * as ExplorerService from "./explorerservice.js";
 import * as LayoutService from "./layoutservice.js";
+import * as ModelService from "./modelservice.js";
 import * as MonitorService from "./monitorservice.js";
 import * as QueryService from "./queryservice.js";
 import * as TransferService from "./transferservice.js";
@@ -13,6 +14,7 @@ export {
     DesignService,
     ExplorerService,
     LayoutService,
+    ModelService,
     MonitorService,
     QueryService,
     TransferService
@@ -20,5 +22,6 @@ export {
 
 export type {
     ApplyResult,
+    ModelFile,
     ResultProgress
 } from "./models.js";
