@@ -1,7 +1,7 @@
 // Connects the completion engine to Monaco and keeps a per-database catalog cache.
 import { DBType, Explorer, ObjectKind, arr } from "../api";
 import { analyze } from "../sql/analyze";
-import { CatFunction, CatTable, CompletionCatalog, Suggestion, complete } from "../sql/complete";
+import { CatFunction, CatTable, CompletionCatalog, Suggestion, complete, wantsSuggest } from "../sql/complete";
 import { KeyNode, addPath, buildKeyTree, inString, jsonKeySuggestions, jsonPathContext, pathsInText, resolveColumn } from "../sql/jsonpath";
 import { connDialect, databasesAsSchemas } from "../dialect";
 import { connById } from "../store";
@@ -225,16 +225,19 @@ function toItems(model: Monaco.editor.ITextModel, position: Monaco.Position, lis
   });
 }
 
-/** Open the suggest widget automatically after keywords that expect a name. */
+/** Open the suggest widget automatically where a name or the next clause is expected. */
 export function autoTrigger(editor: Monaco.editor.IStandaloneCodeEditor) {
   return editor.onDidChangeModelContent((e) => {
     const change = e.changes[0];
-    if (!change || e.changes.length !== 1 || change.text !== " ") return;
+    // Auto-closed brackets arrive as "()".
+    const typed = change?.text === "()" ? "(" : change?.text;
+    if (!change || e.changes.length !== 1 || (typed !== " " && typed !== "(")) return;
     const model = editor.getModel();
     const pos = editor.getPosition();
     if (!model || !pos) return;
-    const before = model.getValueInRange(new monaco.Range(pos.lineNumber, Math.max(1, pos.column - 16), pos.lineNumber, pos.column)).toUpperCase();
-    if (/\b(FROM|JOIN|INTO|UPDATE|TABLE|ON|DESCRIBE|UNION|INTERSECT|EXCEPT|UNION ALL|UNION DISTINCT)\s$/.test(before)) {
+    const ctx = contexts.get(model.uri.toString());
+    if (!ctx) return;
+    if (wantsSuggest(model.getValue(), model.getOffsetAt(pos), connDialect(ctx.connId), typed)) {
       // Defer: triggering inside the change event is cancelled by the edit in progress.
       // Close an open list first, or Monaco keeps filtering it ("UNION " still matching
       // "UNION ALL") instead of asking for what follows the keyword.

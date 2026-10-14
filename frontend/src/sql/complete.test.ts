@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CompletionCatalog, Suggestion, complete, makeAlias, quoteIdent } from "./complete";
+import { CompletionCatalog, Suggestion, complete, makeAlias, quoteIdent, wantsSuggest } from "./complete";
 import { analyze } from "./analyze";
 
 const col = (name: string, type = "int", pk = false) => ({ name, type, pk });
@@ -416,4 +416,68 @@ describe("aliases, subqueries, unions and CTEs", () => {
       for (const n of not) expect(labels).not.toContain(n);
     });
   }
+});
+
+describe("INSERT, UPDATE, DELETE and DDL", () => {
+  const O = ["id", "customer_id", "status", "placed_at"];
+  // [sql, dialect, first suggestion, also offered, never offered]
+  const rows: Array<[string, "mysql" | "postgres", string, string[], string[]]> = [
+    ["update |", "mysql", "customers", ["orders"], ["SET"]],
+    ["update orders |", "mysql", "SET", ["o", "JOIN"], ["customers", "GROUP BY"]],
+    ["update orders o |", "postgres", "SET", ["AS"], ["o", "JOIN"]],
+    ["update orders set |", "mysql", "id", O, ["NOT", "CASE", "count", "orders"]],
+    ["update orders set status = 'paid', |", "postgres", "id", O, ["NOT"]],
+    ["update orders set status = 'paid' |", "mysql", "WHERE", ["ORDER BY", "LIMIT", "AND"], ["RETURNING"]],
+    ["update orders set status = 'paid' |", "postgres", "WHERE", ["FROM", "RETURNING"], ["LIMIT"]],
+    ["update orders set status = upper(|", "postgres", "id", ["count", "CASE"], []],
+    ["update orders set status = 'paid' where id = 1 |", "postgres", "AND", ["RETURNING"], ["GROUP BY", "UNION"]],
+    ["update orders o join customers c on c.id = o.customer_id set |", "mysql", "id", ["o", "c", "email"], ["NOT"]],
+    ["with x as (select 1) update orders set |", "postgres", "id", O, []],
+    ["delete |", "mysql", "FROM", [], ["SELECT"]],
+    ["delete from orders |", "postgres", "WHERE", ["o", "USING", "RETURNING"], ["JOIN", "GROUP BY"]],
+    ["delete from orders using |", "postgres", "customers", [], ["status"]],
+    ["delete from orders where id = 1 |", "mysql", "AND", ["ORDER BY", "LIMIT"], ["UNION", "GROUP BY"]],
+    ["insert |", "mysql", "INTO", ["IGNORE INTO"], ["SELECT"]],
+    ["insert into orders |", "mysql", "(all columns) VALUES (…)", ["VALUES", "SELECT", "SET"], ["AND", "customers"]],
+    ["insert into orders |", "postgres", "(all columns) VALUES (…)", ["DEFAULT VALUES"], ["SET"]],
+    ["insert into orders (status) |", "postgres", "VALUES (…)", ["VALUES", "SELECT"], ["AND"]],
+    ["insert into orders (status) values ('new') |", "mysql", "ON DUPLICATE KEY UPDATE", [], ["NULL"]],
+    ["insert into orders (status) values ('new') |", "postgres", "ON CONFLICT", ["RETURNING"], ["NULL"]],
+    ["insert into orders (status) values ('new') on duplicate key update |", "mysql", "id", O, ["customers", "orders"]],
+    ["insert into orders (id) values (1) on conflict (|", "postgres", "id", O, []],
+    ["insert into orders (id) values (1) on conflict (id) do update set |", "postgres", "id", O, ["NOT"]],
+    ["insert into orders set |", "mysql", "id", O, []],
+    ["alter |", "postgres", "TABLE", ["VIEW"], []],
+    ["alter table orders |", "postgres", "ADD COLUMN", ["DROP COLUMN", "RENAME TO"], ["status"]],
+    ["alter table orders drop |", "mysql", "COLUMN", ["status", "INDEX"], []],
+    ["alter table orders drop column |", "mysql", "id", O, ["COLUMN"]],
+    ["alter table orders modify |", "mysql", "id", O, []],
+    ["create index ix on |", "postgres", "customers", ["orders"], []],
+    ["create index ix on orders (|", "postgres", "id", [...O, "DESC"], ["email"]],
+  ];
+  for (const [sql, d, first, also, not] of rows) {
+    it(`${d}: ${sql}`, () => {
+      const labels = at(sql, d).labels;
+      expect(labels[0]).toBe(first);
+      expect(labels).toEqual(expect.arrayContaining(also));
+      for (const n of not) expect(labels).not.toContain(n);
+    });
+  }
+
+  it("fills VALUES placeholders from the column list", () => {
+    expect(at("insert into orders (customer_id, status) |").find("VALUES (…)").insertText).toBe("VALUES (${1:customer_id}, ${2:status})");
+    expect(at("insert into products |").find("(all columns) VALUES (…)").insertText).toBe("(id, sku, name, price) VALUES (${1:id}, ${2:sku}, ${3:name}, ${4:price})");
+  });
+
+  it("opens the suggest widget where a name or clause is expected", () => {
+    const want = (sql: string, typed = " ") => wantsSuggest(sql, sql.length, "mysql", typed);
+    for (const sql of [
+      "UPDATE users SET ", "UPDATE users ", "UPDATE users SET a = 1, ", "UPDATE users SET a = 1 WHERE ", "DELETE ", "DELETE FROM users ",
+      "DELETE FROM users WHERE a = 1 AND ", "INSERT ", "INSERT INTO users ", "INSERT INTO users (a) ", "INSERT INTO users (a) VALUES (1) ",
+      "SELECT * FROM t ORDER BY ", "SELECT * FROM t ORDER BY a, ", "ALTER TABLE t ", "ALTER TABLE t DROP COLUMN ",
+    ]) expect(want(sql), sql).toBe(true);
+    expect(want("INSERT INTO users (", "(")).toBe(true);
+    for (const sql of ["UPDATE users SET a = ", "UPDATE users SET a = 1 WHERE b ", "SELECT a ", "INSERT INTO users (a) VALUES (1, ", "SELECT * FROM t WHERE a = 'x "])
+      expect(want(sql), sql).toBe(false);
+  });
 });
