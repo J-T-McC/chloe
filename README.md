@@ -2,7 +2,7 @@
 
 <h1 align="center">Chloe</h1>
 
-A fast desktop database client for MySQL, MariaDB, PostgreSQL, SQLite and Redis (MongoDB, SQL Server and Oracle planned).
+A fast desktop database client for MySQL, MariaDB, PostgreSQL, SQLite, MongoDB and Redis (SQL Server and Oracle planned).
 
 Built with Go and [Wails v3](https://v3.wails.io) (system webview), React and Monaco.
 
@@ -12,11 +12,12 @@ Built with Go and [Wails v3](https://v3.wails.io) (system webview), React and Mo
 |---|---|
 | `internal/core` | Connections, editor sessions, streamed result buffers, table browse and edits. No UI dependencies. |
 | `internal/driver/{mysql,postgres,sqlite}` | Engine drivers: metadata, DDL, sessions, cancel. |
+| `internal/mdb`, `internal/rdb` | MongoDB (documents, indexes, a goja-based shell) and Redis clients. |
 | `internal/tunnel` | Direct and SSH dialers. |
 | `internal/store` | Saved connections (JSON) with secrets in the OS keychain. |
 | `internal/sqlsplit` | Dialect-aware statement splitter (DELIMITER, `$$`, comments). |
 | `services` | Thin Wails bindings over `internal/core`. |
-| `frontend/src/sql` | Autocomplete engine (pure TS, unit tested). |
+| `frontend/src/sql`, `frontend/src/mongo` | SQL and MongoDB autocomplete engines (pure TS, unit tested). |
 | `frontend/src/components` | UI: connection tree, objects pane, data grid, table viewer, query editor. |
 | `docs/specs` | Behaviour specs for the features being built. |
 
@@ -30,6 +31,6 @@ wails3 task test:it       # start Docker test databases, seed, run integration t
 cd frontend && npx vitest # frontend unit tests
 ```
 
-Test databases (from `docker-compose.yml`): MySQL on `127.0.0.1:33306` and PostgreSQL on `127.0.0.1:55432`, password `chloe`, with a `shop` sample schema from `testdata/`.
+Test databases (from `docker-compose.yml`): MySQL on `127.0.0.1:33306`, PostgreSQL on `127.0.0.1:55432`, MongoDB on `127.0.0.1:37017` (user `root`) and Redis on `127.0.0.1:63790`, password `chloe`, with `shop` sample data from `testdata/`.
 
 `CHLOE_CONFIG_DIR=<dir>` and `CHLOE_SECRETS=memory` run the app against an isolated config without touching the keychain.

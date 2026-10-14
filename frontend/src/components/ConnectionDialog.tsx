@@ -9,7 +9,7 @@ const ENGINES: Array<{ type: DBType; label: string; ready: boolean }> = [
   { type: DBType.MySQL, label: "MySQL", ready: true },
   { type: DBType.MariaDB, label: "MariaDB", ready: true },
   { type: DBType.PostgreSQL, label: "PostgreSQL", ready: true },
-  { type: DBType.MongoDB, label: "MongoDB", ready: false },
+  { type: DBType.MongoDB, label: "MongoDB", ready: true },
   { type: DBType.Redis, label: "Redis", ready: true },
   { type: DBType.SQLite, label: "SQLite", ready: true },
   { type: DBType.SQLServer, label: "SQL Server", ready: false },
@@ -21,7 +21,7 @@ const isMySQL = (t: DBType) => t === DBType.MySQL || t === DBType.MariaDB;
 
 type Section = "general" | "advanced" | "databases" | "ssl" | "ssh" | "remarks";
 
-const DEFAULT_PORTS: Partial<Record<DBType, number>> = { mysql: 3306, mariadb: 3306, postgres: 5432, redis: 6379 } as never;
+const DEFAULT_PORTS: Partial<Record<DBType, number>> = { mysql: 3306, mariadb: 3306, postgres: 5432, redis: 6379, mongodb: 27017 } as never;
 
 export function blankConnection(type: DBType, preset?: Preset): Connection {
   const d = preset?.defaults;
@@ -33,7 +33,7 @@ export function blankConnection(type: DBType, preset?: Preset): Connection {
     group: useApp.getState().selectedGroup ?? "",
     host: d?.host || (preset ? "" : "localhost"),
     port: d?.port || DEFAULT_PORTS[type] || 0,
-    user: d?.user || (preset || type === DBType.Redis ? "" : type === DBType.PostgreSQL ? "postgres" : "root"),
+    user: d?.user || (preset || type === DBType.Redis || type === DBType.MongoDB ? "" : type === DBType.PostgreSQL ? "postgres" : "root"),
     password: "",
     savePassword: true,
     initialDatabase: d?.initialDatabase ?? "",
@@ -42,6 +42,7 @@ export function blankConnection(type: DBType, preset?: Preset): Connection {
     ssh: { enabled: false, host: "", port: 22, user: "", auth: SSHAuth.SSHPassword, savePassword: true },
     ssl: { enabled: false, verifyHost: false, ...(d?.ssl ?? {}) },
     sqlite: {},
+    mongo: type === DBType.MongoDB ? { topology: "standalone", auth: "password" } : {},
   } as Connection;
 }
 
@@ -151,6 +152,7 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
   const pg = conn.type === DBType.PostgreSQL;
   const redis = conn.type === DBType.Redis;
   const sqlite = conn.type === DBType.SQLite;
+  const mongo = conn.type === DBType.MongoDB;
 
   useEffect(() => {
     if (conn.preset) Connections.Presets().then((p) => setPreset(arr(p).find((x) => x.id === conn.preset) ?? null));
@@ -162,6 +164,7 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
   const setSSL = (patch: Partial<Connection["ssl"]>) => setConn((c) => ({ ...c, ssl: { ...c.ssl, ...patch } }));
   const setDBs = (patch: Partial<Connection["databases"]>) => setConn((c) => ({ ...c, databases: { ...c.databases, ...patch } }));
   const setLite = (patch: Partial<Connection["sqlite"]>) => setConn((c) => ({ ...c, sqlite: { ...c.sqlite, ...patch } }));
+  const setMongo = (patch: Partial<Connection["mongo"]>) => setConn((c) => ({ ...c, mongo: { ...c.mongo, ...patch } }));
 
   const named = (): Connection => ({ ...conn, name: conn.name.trim() || preset?.name || (sqlite ? fileBase(conn.sqlite?.path) : conn.host) || engineLabel(conn.type) });
 
@@ -267,6 +270,8 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
               <hr />
               {sqlite ? (
                 <SQLiteFields conn={conn} setLite={setLite} />
+              ) : mongo ? (
+                <MongoFields conn={conn} set={set} setMongo={setMongo} pasteURL={pasteURL} />
               ) : (
                 <>
               <Field label="Host">
@@ -319,7 +324,7 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
                 def={sqlite ? 5 : 15}
                 onChange={(v) => setAdv({ connectTimeoutSec: v })}
               />
-              {redis && (
+              {(redis || mongo) && (
                 <>
                   <ToggleNumber label="Read timeout (sec)" value={conn.advanced.readTimeoutSec} def={30} onChange={(v) => setAdv({ readTimeoutSec: v })} />
                   <ToggleNumber label="Write timeout (sec)" value={conn.advanced.writeTimeoutSec} def={30} onChange={(v) => setAdv({ writeTimeoutSec: v })} />
@@ -357,10 +362,14 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
                   <textarea rows={3} placeholder={"one key=value per line\napplication_name=reports\noptions=-c statement_timeout=30000"} value={conn.advanced.connectionParams ?? ""} onChange={(e) => setAdv({ connectionParams: e.target.value })} />
                 </Field>
               )}
+              {!mongo && (
+              <>
               <Field label="Initial Queries">
                 <textarea rows={3} placeholder={mysql ? "SET time_zone = '+00:00';" : sqlite ? "PRAGMA journal_mode = WAL;" : "SET search_path TO app, public;"} value={conn.advanced.initialQueries ?? ""} onChange={(e) => setAdv({ initialQueries: e.target.value })} />
               </Field>
               <p className="hint">Initial queries run on every new query tab and table view session.</p>
+              </>
+              )}
             </>
           )}
 
@@ -715,5 +724,109 @@ function SecretInput({ value, onChange, disabled, placeholder }: { value: string
         if (saved && (e.key === "Backspace" || e.key === "Delete")) onChange("");
       }}
     />
+  );
+}
+
+function MongoFields({ conn, set, setMongo, pasteURL }: { conn: Connection; set(p: Partial<Connection>): void; setMongo(p: Partial<Connection["mongo"]>): void; pasteURL(): void }) {
+  const m = conn.mongo ?? {};
+  const topology = m.topology || "standalone";
+  const auth = m.auth || "password";
+  const members = !m.srv && topology !== "standalone";
+  return (
+    <>
+      <Field label="Connection">
+        <select value={topology} onChange={(e) => setMongo({ topology: e.target.value })}>
+          <option value="standalone">Standalone</option>
+          <option value="replicaset">Replica Set</option>
+          <option value="shard">Shard Cluster</option>
+        </select>
+      </Field>
+      <Field label="">
+        <Check label="SRV Record (mongodb+srv)" checked={!!m.srv} onChange={(v) => setMongo({ srv: v })} />
+      </Field>
+      {members ? (
+        <Field label={topology === "shard" ? "Routers" : "Members"}>
+          <textarea
+            rows={3}
+            spellCheck={false}
+            placeholder={"host1:27017\nhost2:27017\nhost3:27017"}
+            value={(m.members ?? []).join("\n")}
+            onChange={(e) => setMongo({ members: e.target.value.split("\n") })}
+          />
+        </Field>
+      ) : (
+        <>
+          <Field label="Host">
+            <div className="row">
+              <input value={conn.host} placeholder={m.srv ? "cluster0.example.mongodb.net" : "localhost"} onChange={(e) => set({ host: e.target.value })} />
+              <button title="Fill from a mongodb:// URL" onClick={pasteURL}>
+                <Link2 size={13} /> URL
+              </button>
+            </div>
+          </Field>
+          {!m.srv && (
+            <Field label="Port">
+              <input className="narrow" type="number" value={conn.port || ""} placeholder="27017" onChange={(e) => set({ port: Number(e.target.value) })} />
+            </Field>
+          )}
+        </>
+      )}
+      {topology === "replicaset" && (
+        <Field label="Replica Set">
+          <input value={m.replicaSet ?? ""} placeholder="(discover)" onChange={(e) => setMongo({ replicaSet: e.target.value })} />
+        </Field>
+      )}
+      <Field label="Read Preference">
+        <select value={m.readPreference ?? ""} onChange={(e) => setMongo({ readPreference: e.target.value })}>
+          <option value="">Primary</option>
+          <option value="primaryPreferred">Primary Preferred</option>
+          <option value="secondary">Secondary</option>
+          <option value="secondaryPreferred">Secondary Preferred</option>
+          <option value="nearest">Nearest</option>
+        </select>
+      </Field>
+      <hr />
+      <Field label="Authentication">
+        <select value={auth} onChange={(e) => setMongo({ auth: e.target.value })}>
+          <option value="none">None</option>
+          <option value="password">Password</option>
+          <option value="ldap">LDAP</option>
+          <option value="x509">X.509</option>
+        </select>
+      </Field>
+      {auth === "password" && (
+        <>
+          <Field label="Authentication Database">
+            <input value={m.authSource ?? ""} placeholder="admin" onChange={(e) => setMongo({ authSource: e.target.value })} />
+          </Field>
+          <Field label="Mechanism">
+            <select value={m.mechanism ?? ""} onChange={(e) => setMongo({ mechanism: e.target.value })}>
+              <option value="">Default</option>
+              <option value="SCRAM-SHA-256">SCRAM-SHA-256</option>
+              <option value="SCRAM-SHA-1">SCRAM-SHA-1</option>
+            </select>
+          </Field>
+        </>
+      )}
+      {auth !== "none" && (
+        <Field label="User Name">
+          <input value={conn.user} placeholder={auth === "x509" ? "(from the certificate)" : ""} onChange={(e) => set({ user: e.target.value })} />
+        </Field>
+      )}
+      {(auth === "password" || auth === "ldap") && (
+        <>
+          <Field label="Password">
+            <SecretInput value={conn.password ?? ""} placeholder={conn.savePassword ? "" : "Used for testing only; asked on connect"} onChange={(v) => set({ password: v })} />
+          </Field>
+          <Field label="">
+            <Check label="Save password" checked={conn.savePassword} onChange={(v) => set({ savePassword: v })} />
+          </Field>
+        </>
+      )}
+      {auth === "x509" && <p className="hint">Set the client certificate and key on the SSL tab.</p>}
+      <Field label="Default Database">
+        <input value={conn.initialDatabase ?? ""} placeholder="test" onChange={(e) => set({ initialDatabase: e.target.value })} />
+      </Field>
+    </>
   );
 }

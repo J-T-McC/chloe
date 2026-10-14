@@ -35,6 +35,10 @@ export interface DataGridProps {
   onActiveCell?(row: number, col: number, value?: Cell): void;
   /** Absolute row number offset shown in the row header (paged table views). */
   rowNumberOffset?: number;
+  /** Changing it refetches rows but keeps the selection (rows edited in place). */
+  revision?: number;
+  /** How a null cell reads (default NULL). */
+  nullText?: string;
 }
 
 const ROW_H = 22;
@@ -71,6 +75,13 @@ export function DataGrid(p: DataGridProps) {
     setEditing(null);
     bump((x) => x + 1);
   }, [p.dataKey]);
+
+  useEffect(() => {
+    if (p.revision === undefined) return;
+    cache.current.clear();
+    pending.current.clear();
+    bump((x) => x + 1);
+  }, [p.revision]);
 
   // Initial column widths from header and type.
   useEffect(() => {
@@ -452,7 +463,7 @@ export function DataGrid(p: DataGridProps) {
                       // Untouched cells of a new row are left out of the INSERT.
                       <span className="null">(default)</span>
                     ) : val === null ? (
-                      <span className="null">NULL</span>
+                      <span className="null">{p.nullText ?? "NULL"}</span>
                     ) : (
                       displayValue(val)
                     )}

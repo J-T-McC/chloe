@@ -23,6 +23,9 @@
   --null: #a0a6ae;
   --shadow: 0 8px 28px rgba(15, 23, 42, 0.18);
   --mono: "SF Mono", Menlo, Consolas, monospace;
+  --v-string: #b3261e;
+  --v-number: #137333;
+  --v-id: #8430ce;
   color-scheme: light;
 }
 
@@ -47,6 +50,9 @@
   --deleted: #4a2523;
   --null: #6d737b;
   --shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  --v-string: #f28b82;
+  --v-number: #81c995;
+  --v-id: #c58af9;
   color-scheme: dark;
 }
 
@@ -71,6 +77,9 @@
     --deleted: #4a2523;
     --null: #6d737b;
     --shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+    --v-string: #f28b82;
+    --v-number: #81c995;
+    --v-id: #c58af9;
     color-scheme: dark;
   }
 }
@@ -3038,4 +3047,190 @@ table.mapping select {
 .radio-row > label.check {
   flex: none;
   white-space: nowrap;
+}
+
+/* ---- mongodb ----------------------------------------------------------------------- */
+
+.mongo-filter {
+  flex-wrap: wrap;
+}
+
+.mongo-filter label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.mode-switch {
+  margin-left: 4px;
+}
+
+.mode-switch button.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.doc-tree {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+}
+
+.doc-tree-head,
+.doc-tree-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 32%) 1fr 130px;
+  align-items: center;
+}
+
+.doc-tree-head {
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.doc-tree-head span {
+  padding: 4px 8px;
+}
+
+.doc-tree-body {
+  flex: 1;
+  overflow: auto;
+  outline: none;
+}
+
+.doc-tree-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 22px;
+  border-bottom: 1px solid var(--border);
+  cursor: default;
+}
+
+.doc-tree-row:nth-child(even) {
+  background: var(--row-alt);
+}
+
+.doc-tree-row.selected {
+  background: var(--sel);
+}
+
+.doc-tree-row > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding-right: 8px;
+}
+
+.doc-key {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-weight: 500;
+}
+
+.doc-key .twisty {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: none;
+  background: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  flex: none;
+}
+
+.doc-val {
+  font-family: var(--mono);
+}
+
+.doc-val input {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 1px 4px;
+}
+
+.doc-val.t-object,
+.doc-val.t-array {
+  color: var(--text-3);
+  font-family: inherit;
+}
+
+.doc-val.t-string {
+  color: var(--v-string);
+}
+
+.doc-val.t-int,
+.doc-val.t-long,
+.doc-val.t-double,
+.doc-val.t-decimal {
+  color: var(--v-number);
+}
+
+.doc-val.t-oid,
+.doc-val.t-date {
+  color: var(--v-id);
+}
+
+.doc-val .null {
+  color: var(--null);
+  font-family: inherit;
+}
+
+.doc-type {
+  color: var(--text-3);
+}
+
+.doc-json {
+  flex: 1;
+  min-height: 0;
+}
+
+.modal.doc-editor {
+  width: min(860px, calc(100vw - 80px));
+}
+
+.doc-editor-host {
+  height: min(480px, calc(100vh - 300px));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.result-value {
+  margin: 8px;
+  overflow: auto;
+}
+
+.messages pre.output {
+  color: var(--text);
+}
+
+.mongo-validation textarea.code,
+.form textarea.code {
+  font-family: var(--mono);
+  font-size: 12px;
+  width: 100%;
+}
+
+.field.top {
+  align-items: flex-start;
+}
+
+.mongo-designer .designer-body {
+  overflow: auto;
+}
+
+.mongo-designer .designer-body > .code-block {
+  margin: 10px;
 }

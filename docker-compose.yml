@@ -1,4 +1,4 @@
-# Test databases for development and integration tests.
+# Test databases for development and integration tests (MongoDB: root/chloe on :37017).
 #   CHLOE_IT=1 go test ./internal/...
 services:
   mysql:
@@ -24,3 +24,10 @@ services:
     container_name: chloe-redis
     command: ["redis-server", "--requirepass", "chloe"]
     ports: ["63790:6379"]
+  mongo:
+    image: mongo:8.0
+    container_name: chloe-mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: chloe
+    ports: ["37017:27017"]

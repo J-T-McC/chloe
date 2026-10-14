@@ -5,9 +5,11 @@ What's done and what's next: `docs/ROADMAP.md`. Behaviour specs: `docs/specs/`.
 
 ## Layout
 - `internal/` is plain Go with no Wails dependency: `core` (manager, design/edit/transfer/dump),
-  `driver/{mysql,postgres,sqlite}` + `rdb` (Redis), `design` (DDL generators), `sqlsplit`, `transfer`, `privs`, `store`.
+  `driver/{mysql,postgres,sqlite}` + `rdb` (Redis) + `mdb` (MongoDB: documents as `Val`, goja shell),
+  `design` (DDL generators), `sqlsplit`, `transfer`, `privs`, `store`.
 - `services/` holds thin Wails services over `core`. Their bindings are generated into `frontend/bindings`.
-- `frontend/src`: `components/`, `editor/` (Monaco completion and format), `sql/` (lexer and autocomplete engine),
+- `frontend/src`: `components/` (`mongo/`, `redis/`…), `editor/` (Monaco completion and format), `sql/` (lexer and
+  autocomplete engine), `mongo/` (document formatting and shell completion),
   `dialect.ts`, `menus.ts`, `tree.ts`.
 
 ## Commands
@@ -16,13 +18,13 @@ export PATH=$PATH:$(go env GOPATH)/bin
 wails3 task common:generate:bindings   # after changing a service or any type it exposes
 wails3 task build                      # desktop app -> bin/Chloe
 wails3 task build:server               # browser build on :8080 -> bin/Chloe-server (used by e2e)
-docker compose up -d                   # MySQL :33306, Postgres :55432, Redis :63790, sshd :2222 (password "chloe")
+docker compose up -d                   # MySQL :33306, Postgres :55432, Redis :63790, MongoDB :37017 (root), sshd :2222 (password "chloe")
 go test ./...                          # unit tests plus SQLite (no Docker needed)
 CHLOE_IT=1 go test ./internal/...      # integration tests against the Docker databases
 (cd frontend && npx tsc --noEmit && npx vitest run)
-e2e/run.sh [smoke|sqlite|designer|...] # Playwright against bin/Chloe-server; reseeds the databases first
+e2e/run.sh [smoke|sqlite|mongo|joins|...] # Playwright against bin/Chloe-server; reseeds the databases first
 ```
-Sample data lives in `testdata/seed_*.sql`. To rebuild `testdata/shop.db`, run
+Sample data lives in `testdata/seed_*` (`seed_mongo.js` runs in mongosh). To rebuild `testdata/shop.db`, run
 `rm -f testdata/shop.db && sqlite3 testdata/shop.db < testdata/seed_sqlite.sql`.
 
 ## Rules

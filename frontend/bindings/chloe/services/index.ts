@@ -6,6 +6,7 @@ import * as DesignService from "./designservice.js";
 import * as ExplorerService from "./explorerservice.js";
 import * as LayoutService from "./layoutservice.js";
 import * as ModelService from "./modelservice.js";
+import * as MongoService from "./mongoservice.js";
 import * as MonitorService from "./monitorservice.js";
 import * as QueryService from "./queryservice.js";
 import * as RedisService from "./redisservice.js";
@@ -17,6 +18,7 @@ export {
     ExplorerService,
     LayoutService,
     ModelService,
+    MongoService,
     MonitorService,
     QueryService,
     RedisService,
@@ -26,6 +28,7 @@ export {
 
 export type {
     ApplyResult,
+    FetchResult,
     ModelFile,
     ResultProgress
 } from "./models.js";

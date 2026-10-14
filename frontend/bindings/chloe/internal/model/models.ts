@@ -155,6 +155,7 @@ export interface Connection {
     "ssh": SSHConfig;
     "ssl": SSLConfig;
     "sqlite": SQLiteConfig;
+    "mongo": MongoConfig;
     "remark"?: string;
 }
 
@@ -214,6 +215,47 @@ export interface Index {
 }
 
 /**
+ * MongoConfig holds the MongoDB-only settings of a connection.
+ */
+export interface MongoConfig {
+    /**
+     * Topology is "standalone" (Host and Port), "replicaset" or "shard" (Members).
+     */
+    "topology"?: string;
+
+    /**
+     * Members are host:port of the replica set members or mongos routers.
+     */
+    "members"?: string[] | null;
+
+    /**
+     * SRV treats Host as a DNS seed list name (mongodb+srv://).
+     */
+    "srv"?: boolean;
+    "replicaSet"?: string;
+
+    /**
+     * ReadPreference: primary (default), primaryPreferred, secondary, secondaryPreferred, nearest.
+     */
+    "readPreference"?: string;
+
+    /**
+     * Auth is none, password (default), ldap or x509.
+     */
+    "auth"?: string;
+
+    /**
+     * AuthSource is the authentication database ("admin" when empty).
+     */
+    "authSource"?: string;
+
+    /**
+     * Mechanism narrows password authentication: SCRAM-SHA-1 or SCRAM-SHA-256 (empty negotiates).
+     */
+    "mechanism"?: string;
+}
+
+/**
  * ObjectInfo is a row in an object list (tree children / object list view).
  */
 export interface ObjectInfo {
@@ -265,6 +307,11 @@ export enum ObjectKind {
      * SQLite lists indexes in the tree
      */
     KindIndex = "index",
+
+    /**
+     * MongoDB
+     */
+    KindCollection = "collection",
 };
 
 /**

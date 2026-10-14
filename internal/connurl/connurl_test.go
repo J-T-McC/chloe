@@ -54,7 +54,7 @@ func TestParse(t *testing.T) {
 		}
 		tc.check(t, c)
 	}
-	for _, bad := range []string{"", "localhost:5432", "mongodb://x", "postgres://h:notaport/db"} {
+	for _, bad := range []string{"", "localhost:5432", "oracle://x", "postgres://h:notaport/db", "mongodb://h:port/db", "mongodb:///db"} {
 		if _, err := Parse(bad); err == nil {
 			t.Fatalf("expected error for %q", bad)
 		}
@@ -87,5 +87,31 @@ func TestParseRedis(t *testing.T) {
 	}
 	if c, _ := Parse("redis://localhost"); c.Port != 6379 || c.SSL.Enabled {
 		t.Fatalf("defaults %+v", c)
+	}
+}
+
+func TestParseMongo(t *testing.T) {
+	c, err := Parse("mongodb://app%40corp:p%40ss@db1:27018,db2,db3:27019/shop?replicaSet=rs0&authSource=admin&readPreference=secondary&tls=true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := c.Mongo
+	if c.Type != model.MongoDB || c.User != "app@corp" || c.Password != "p@ss" || c.Host != "db1" || c.Port != 27018 || c.InitialDatabase != "shop" ||
+		m.Topology != "replicaset" || m.ReplicaSet != "rs0" || len(m.Members) != 3 || m.AuthSource != "admin" || m.ReadPreference != "secondary" || !c.SSL.Enabled || m.Auth != "password" {
+		t.Errorf("%+v", c)
+	}
+	if got := Format(c); got != "mongodb://app%40corp@db1:27018,db2,db3:27019/shop?authSource=admin&readPreference=secondary&replicaSet=rs0&tls=true" {
+		t.Errorf("format %s", got)
+	}
+	c, err = Parse("mongodb+srv://cluster0.example.net/?authMechanism=MONGODB-X509")
+	if err != nil || !c.Mongo.SRV || c.Host != "cluster0.example.net" || c.Mongo.Auth != "x509" || !c.SSL.Enabled {
+		t.Errorf("srv %+v %v", c, err)
+	}
+	if got := Format(c); got != "mongodb+srv://cluster0.example.net/?authMechanism=MONGODB-X509" {
+		t.Errorf("format srv %s", got)
+	}
+	c, err = Parse("mongodb://localhost")
+	if err != nil || c.Port != 27017 || c.Mongo.Auth != "none" || c.Mongo.Topology != "standalone" {
+		t.Errorf("plain %+v %v", c, err)
 	}
 }

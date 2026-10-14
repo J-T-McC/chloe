@@ -3,7 +3,8 @@
 Order reflects dependencies: later features build on the earlier ones. Specs for each area live in `docs/specs/`.
 
 ## Next up
-1. **MongoDB** (Docker-testable): connection, collection browser, document grid/JSON view, shell-style console
+1. **MongoDB, second pass**: import/export (JSON, CSV) and the transfer wizards, users and roles,
+   aggregation pipeline builder, explain, GridFS buckets
 2. **Data transfer between connections**, then **structure sync and data sync** (section 8)
 3. **SQL Server and Oracle**, both in Docker
 4. Polish: Redis pub/sub, cluster and sentinel; Form view and hex/image cell editors
@@ -58,7 +59,15 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 - [x] SQLite: open or create database files, attach more files, tables/views/indexes/triggers,
   table designer (ALTER where SQLite allows it, otherwise a table rebuild that keeps rows,
   indexes, triggers and foreign keys), view designer, dump/execute SQL, import/export
-- MongoDB, SQL Server, Oracle (each must be testable in Docker; Snowflake is out of scope)
+- [x] MongoDB: standalone / replica set / sharded / SRV connections with password, LDAP or X.509 auth,
+  TLS and SSH; database and collection tree with sizes; collection viewer (grid, tree and JSON views,
+  filter / sort / projection, paging, type-preserving cell edits, document editor); query tab and
+  MongoShell console running mongosh-style JavaScript (goja) with cursor paging; completion for
+  collections, methods, operators, stages and sampled field names; collection designer (indexes,
+  validation, capped and time series options) and view designer; server monitor (currentOp, killOp,
+  parameters, serverStatus); mongodb:// URLs
+  - still to do: import/export and transfer, users and roles, pipeline builder, explain, GridFS
+- SQL Server, Oracle (each must be testable in Docker; Snowflake is out of scope)
 
 ## 8. Advanced
 - Structure sync and data sync (diff + deploy script)

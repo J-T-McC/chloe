@@ -1,4 +1,4 @@
-import { Braces, Clock, Columns3, Database, Eye, FileCode2, FolderTree, Hash, Layers, ListTree, Table2, Zap, type LucideIcon } from "lucide-react";
+import { Boxes, Braces, Clock, Columns3, Database, Eye, FileCode2, FolderTree, Hash, Layers, ListTree, Table2, Zap, type LucideIcon } from "lucide-react";
 import { DBType, ObjectKind } from "../api";
 
 // Neutral engine badges (we don't ship vendor logos).
@@ -65,6 +65,7 @@ export const KIND_ICON: Record<string, LucideIcon> = {
   [ObjectKind.KindSequence]: Hash,
   [ObjectKind.KindType]: Layers,
   [ObjectKind.KindIndex]: ListTree,
+  [ObjectKind.KindCollection]: Boxes,
   column: Columns3,
 };
 
@@ -79,6 +80,7 @@ export const KIND_LABEL: Record<string, string> = {
   [ObjectKind.KindSequence]: "Sequences",
   [ObjectKind.KindType]: "Types",
   [ObjectKind.KindIndex]: "Indexes",
+  [ObjectKind.KindCollection]: "Collections",
 };
 
 export function KindIcon({ kind, size = 14 }: { kind: string; size?: number }) {

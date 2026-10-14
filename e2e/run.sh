@@ -10,6 +10,7 @@ cd "$root"
 
 docker exec -i chloe-mysql mysql -uroot -pchloe < testdata/seed_mysql.sql 2>/dev/null
 docker exec -i chloe-pg psql -q -U postgres -v ON_ERROR_STOP=1 -f - < testdata/seed_postgres.sql >/dev/null 2>&1
+docker exec -i chloe-mongo mongosh -u root -p chloe --quiet < testdata/seed_mongo.js >/dev/null 2>&1 || true
 docker exec -i chloe-redis redis-cli -a chloe --no-auth-warning < testdata/seed_redis.txt >/dev/null 2>&1 || true
 
 rm -rf "$out" && mkdir -p "$out/config" "$out/shots" "$out/lite"

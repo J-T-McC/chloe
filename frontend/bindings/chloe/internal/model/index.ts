@@ -19,6 +19,7 @@ export type {
     DatabaseEntry,
     ForeignKey,
     Index,
+    MongoConfig,
     ObjectInfo,
     ObjectRef,
     Process,

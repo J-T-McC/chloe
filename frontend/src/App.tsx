@@ -17,6 +17,13 @@ import { ServerMonitor } from "./components/ServerMonitor";
 import { TableDesigner } from "./components/designer/TableDesigner";
 import { ViewDesigner } from "./components/designer/ViewDesigner";
 import { RedisConsole } from "./components/redis/RedisConsole";
+import { CollectionViewer } from "./components/mongo/CollectionViewer";
+import { CollectionDesigner } from "./components/mongo/CollectionDesigner";
+import { DocEditorHost } from "./components/mongo/DocEditor";
+import { MongoConsole } from "./components/mongo/MongoConsole";
+import { MongoQuery } from "./components/mongo/MongoQuery";
+import { designCollection } from "./components/mongo/actions";
+import { registerMongoLanguage } from "./editor/mongo";
 import { UsersPane } from "./components/users/UsersPane";
 import { UserDesigner } from "./components/users/UserDesigner";
 import { SetPrivilegesDialog } from "./components/users/SetPrivilegesDialog";
@@ -34,6 +41,8 @@ import { Tab, connById, useApp } from "./store";
 import { openRedisConsole } from "./components/redis/actions";
 import { newTable } from "./tableActions";
 import { RevealTarget, useTree } from "./tree";
+
+registerMongoLanguage();
 
 export default function App() {
   useInitialLoad();
@@ -82,6 +91,7 @@ export default function App() {
   const selConnected = !!(selection?.connId && open[selection.connId]);
   const selRedis = connById(selection?.connId)?.type === DBType.Redis;
   const selSQLite = connById(selection?.connId)?.type === DBType.SQLite;
+  const selMongo = connById(selection?.connId)?.type === DBType.MongoDB;
   // SQLite has no server to monitor.
   const monitorable = Object.keys(open).filter((id) => connById(id)?.type !== DBType.SQLite);
 
@@ -99,17 +109,17 @@ export default function App() {
           />
           <ToolButton
             icon={<PencilRuler size={20} />}
-            label="New Table"
+            label={selMongo ? "New Collection" : "New Table"}
             disabled={!selection?.database || !selConnected || selRedis}
-            onClick={() => selection?.database && newTable(selection.connId, selection.database, selection.schema)}
+            onClick={() => selection?.database && (selMongo ? designCollection(selection.connId, selection.database, undefined) : newTable(selection.connId, selection.database, selection.schema))}
           />
           <ToolButton
             icon={<Table2 size={20} />}
-            label="Tables"
+            label={selMongo ? "Collections" : "Tables"}
             disabled={!selection?.database || selRedis}
-            onClick={() => selection && useApp.getState().select({ ...selection, kind: ObjectKind.KindTable, object: undefined })}
+            onClick={() => selection && useApp.getState().select({ ...selection, kind: selMongo ? ObjectKind.KindCollection : ObjectKind.KindTable, object: undefined })}
           />
-          <ToolButton icon={<UsersRound size={20} />} label="User" disabled={!selConnected || selRedis || selSQLite} onClick={() => selection && openUsers(selection.connId)} />
+          <ToolButton icon={<UsersRound size={20} />} label="User" disabled={!selConnected || selRedis || selSQLite || selMongo} onClick={() => selection && openUsers(selection.connId)} />
           <ToolButton icon={<Shapes size={20} />} label="Model" onClick={(e) => modelMenu(e)} />
           <ToolButton icon={<Activity size={20} />} label="Monitor" disabled={!monitorable.length} onClick={() => openMonitor(selConnected && !selSQLite ? selection!.connId : monitorable[0])} />
           <ToolButton
@@ -165,6 +175,7 @@ export default function App() {
       <DatabaseDialog />
       <SetPrivilegesDialog />
       <ConnectionDialog />
+      <DocEditorHost />
       <DialogHost />
       <ContextMenuHost />
     </div>
@@ -197,11 +208,19 @@ function TabContent({ tab }: { tab: Tab }) {
       return <UsersPane tab={tab} />;
     case "user":
       return <UserDesigner tab={tab} />;
+    case "collection":
+      return <CollectionViewer tab={tab} />;
+    case "mongoquery":
+      return <MongoQuery tab={tab} />;
+    case "mongoshell":
+      return <MongoConsole tab={tab} />;
+    case "mongodesign":
+      return <CollectionDesigner tab={tab} />;
   }
 }
 
 function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
-  const icon = tab.kind === "users" ? <UsersRound size={13} /> : tab.kind === "user" ? <UserRound size={13} /> : tab.kind === "redisconsole" ? <TerminalSquare size={13} /> : tab.kind === "model" ? <Shapes size={13} /> : tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" || tab.kind === "viewdesign" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
+  const icon = tab.kind === "users" ? <UsersRound size={13} /> : tab.kind === "user" ? <UserRound size={13} /> : tab.kind === "redisconsole" || tab.kind === "mongoshell" ? <TerminalSquare size={13} /> : tab.kind === "mongoquery" ? <FilePlus2 size={13} /> : tab.kind === "mongodesign" ? <PencilRuler size={13} /> : tab.kind === "model" ? <Shapes size={13} /> : tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" || tab.kind === "viewdesign" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
   return (
     <div
       className={"tab" + (active ? " active" : "")}
@@ -278,7 +297,7 @@ function revealTarget(tab: Tab): RevealTarget | null {
   const r = tab.ref;
   const database = tab.database ?? r?.database;
   const schema = tab.schema ?? r?.schema;
-  const hasObject = r && r.name && (tab.kind === "table" || tab.kind === "design" || tab.kind === "ddl" || tab.kind === "viewdesign");
+  const hasObject = r && r.name && (tab.kind === "table" || tab.kind === "design" || tab.kind === "ddl" || tab.kind === "viewdesign" || tab.kind === "collection" || tab.kind === "mongodesign");
   if (hasObject) return { connId: tab.connId, database: r.database, schema: r.schema, kind: r.kind, name: r.name, signature: r.signature };
   // New table/view designers point at their folder.
   if ((tab.kind === "design" || tab.kind === "viewdesign") && r) return { connId: tab.connId, database: r.database, schema: r.schema, kind: r.kind };

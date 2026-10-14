@@ -49,7 +49,7 @@ func main() {
 
 	app := application.New(application.Options{
 		Name:        "Chloe",
-		Description: "Database management for MySQL, PostgreSQL, SQLite and Redis",
+		Description: "Database management for MySQL, PostgreSQL, SQLite, MongoDB and Redis",
 		Icon:        icon,
 		Services: []application.Service{
 			application.NewService(&services.ConnectionService{M: mgr}),
@@ -61,6 +61,7 @@ func main() {
 			application.NewService(&services.LayoutService{M: mgr}),
 			application.NewService(&services.ModelService{M: mgr}),
 			application.NewService(&services.RedisService{M: mgr}),
+			application.NewService(&services.MongoService{M: mgr}),
 			application.NewService(&services.UserService{M: mgr}),
 		},
 		Assets: application.AssetOptions{

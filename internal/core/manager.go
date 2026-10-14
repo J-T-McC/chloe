@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"chloe/internal/driver"
+	"chloe/internal/mdb"
 	"chloe/internal/model"
 	"chloe/internal/rdb"
 	"chloe/internal/store"
@@ -55,6 +56,7 @@ type Manager struct {
 
 	consolesMu sync.Mutex
 	consoles   map[string]*redisConsole // Redis consoles by ID
+	shells     map[string]*mongoShell   // MongoDB shells (query tabs, consoles) by ID
 }
 
 type openConn struct {
@@ -62,11 +64,15 @@ type openConn struct {
 	dialer  tunnel.Dialer
 	conn    driver.Conn // SQL engines
 	kv      *rdb.Client // Redis
+	doc     *mdb.Client // MongoDB
 }
 
 func (oc *openConn) version() string {
 	if oc.kv != nil {
 		return oc.kv.ServerVersion()
+	}
+	if oc.doc != nil {
+		return oc.doc.ServerVersion()
 	}
 	return oc.conn.ServerVersion()
 }
@@ -74,6 +80,9 @@ func (oc *openConn) version() string {
 func (oc *openConn) openConnections() int {
 	if oc.kv != nil {
 		return oc.kv.OpenConnections()
+	}
+	if oc.doc != nil {
+		return oc.doc.OpenConnections()
 	}
 	return oc.conn.OpenConnections()
 }
@@ -83,13 +92,13 @@ func NewManager(st *store.Store, ev Events, s Settings) *Manager {
 		ev = nopEvents{}
 	}
 	return &Manager{Store: st, events: ev, settings: s,
-		conns: map[string]*openConn{}, sessions: map[string]*session{}, results: map[string]*resultSet{}, jobs: map[string]*jobState{}, consoles: map[string]*redisConsole{}}
+		conns: map[string]*openConn{}, sessions: map[string]*session{}, results: map[string]*resultSet{}, jobs: map[string]*jobState{}, consoles: map[string]*redisConsole{}, shells: map[string]*mongoShell{}}
 }
 
 // open establishes the network path and driver connection for a profile.
 func open(ctx context.Context, c model.Connection) (*openConn, error) {
 	var drv driver.Driver
-	if c.Type != model.Redis {
+	if c.Type != model.Redis && c.Type != model.MongoDB {
 		var err error
 		if drv, err = driver.Get(c.Type); err != nil {
 			return nil, err
@@ -110,6 +119,14 @@ func open(ctx context.Context, c model.Connection) (*openConn, error) {
 			return nil, err
 		}
 		return &openConn{profile: c, dialer: d, kv: kv}, nil
+	}
+	if c.Type == model.MongoDB {
+		doc, err := mdb.Open(ctx, c, d)
+		if err != nil {
+			d.Close()
+			return nil, err
+		}
+		return &openConn{profile: c, dialer: d, doc: doc}, nil
 	}
 	conn, err := drv.Open(ctx, c, d)
 	if err != nil {
@@ -132,6 +149,8 @@ func (m *Manager) TestConnection(ctx context.Context, c model.Connection) (strin
 func (oc *openConn) close() {
 	if oc.kv != nil {
 		oc.kv.Close()
+	} else if oc.doc != nil {
+		oc.doc.Close()
 	} else {
 		oc.conn.Close()
 	}
@@ -192,6 +211,7 @@ func (m *Manager) Disconnect(id string) {
 		m.closeSession(s)
 	}
 	m.closeConsoles(id)
+	m.closeShells(id)
 	if ok {
 		oc.close()
 		m.events.ConnectionClosed(id)
@@ -285,6 +305,9 @@ func (m *Manager) Info(connID string) (model.ServerInfo, error) {
 // --- server monitor ----------------------------------------------------------
 
 func (m *Manager) Processes(ctx context.Context, connID string) ([]model.Process, error) {
+	if mc, err := m.mongo(connID); err == nil {
+		return mongoProcesses(ctx, mc)
+	}
 	if kv, err := m.redis(connID); err == nil {
 		return redisProcesses(ctx, kv)
 	}
@@ -296,6 +319,9 @@ func (m *Manager) Processes(ctx context.Context, connID string) ([]model.Process
 }
 
 func (m *Manager) KillProcess(ctx context.Context, connID, id string, queryOnly bool) error {
+	if mc, err := m.mongo(connID); err == nil {
+		return mongoKill(ctx, mc, id)
+	}
 	if kv, err := m.redis(connID); err == nil {
 		return kv.KillClient(ctx, id)
 	}
@@ -307,6 +333,9 @@ func (m *Manager) KillProcess(ctx context.Context, connID, id string, queryOnly 
 }
 
 func (m *Manager) Variables(ctx context.Context, connID string) ([]model.ServerVar, error) {
+	if mc, err := m.mongo(connID); err == nil {
+		return mongoParameters(ctx, mc)
+	}
 	if kv, err := m.redis(connID); err == nil {
 		return redisConfig(ctx, kv)
 	}
@@ -318,6 +347,9 @@ func (m *Manager) Variables(ctx context.Context, connID string) ([]model.ServerV
 }
 
 func (m *Manager) ServerStatus(ctx context.Context, connID string) ([]model.ServerVar, error) {
+	if mc, err := m.mongo(connID); err == nil {
+		return mongoStatus(ctx, mc)
+	}
 	if kv, err := m.redis(connID); err == nil {
 		return redisStatus(ctx, kv)
 	}

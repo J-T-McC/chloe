@@ -42,6 +42,7 @@ type Connection struct {
 	SSH       SSHConfig       `json:"ssh"`
 	SSL       SSLConfig       `json:"ssl"`
 	SQLite    SQLiteConfig    `json:"sqlite"`
+	Mongo     MongoConfig     `json:"mongo"`
 	Remark    string          `json:"remark,omitempty"`
 }
 
@@ -119,6 +120,25 @@ type SQLiteConfig struct {
 	// Create makes a new, empty database file when Path doesn't exist.
 	Create   bool         `json:"create,omitempty"`
 	Attached []AttachedDB `json:"attached,omitempty"`
+}
+
+// MongoConfig holds the MongoDB-only settings of a connection.
+type MongoConfig struct {
+	// Topology is "standalone" (Host and Port), "replicaset" or "shard" (Members).
+	Topology string `json:"topology,omitempty"`
+	// Members are host:port of the replica set members or mongos routers.
+	Members []string `json:"members,omitempty"`
+	// SRV treats Host as a DNS seed list name (mongodb+srv://).
+	SRV        bool   `json:"srv,omitempty"`
+	ReplicaSet string `json:"replicaSet,omitempty"`
+	// ReadPreference: primary (default), primaryPreferred, secondary, secondaryPreferred, nearest.
+	ReadPreference string `json:"readPreference,omitempty"`
+	// Auth is none, password (default), ldap or x509.
+	Auth string `json:"auth,omitempty"`
+	// AuthSource is the authentication database ("admin" when empty).
+	AuthSource string `json:"authSource,omitempty"`
+	// Mechanism narrows password authentication: SCRAM-SHA-1 or SCRAM-SHA-256 (empty negotiates).
+	Mechanism string `json:"mechanism,omitempty"`
 }
 
 // AttachedDB is a database file attached to a SQLite connection under Name.

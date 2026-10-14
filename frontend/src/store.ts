@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { Connection, Connections, DBType, Explorer, ObjectKind, ObjectRef, arr, errorText } from "./api";
 import { prompt } from "./components/Dialogs";
 
-export type TabKind = "objects" | "query" | "table" | "ddl" | "monitor" | "design" | "erd" | "model" | "viewdesign" | "redisconsole" | "users" | "user";
+export type TabKind = "objects" | "query" | "table" | "ddl" | "monitor" | "design" | "erd" | "model" | "viewdesign" | "redisconsole" | "users" | "user" | "collection" | "mongoquery" | "mongoshell" | "mongodesign";
 
 export interface Tab {
   id: string;

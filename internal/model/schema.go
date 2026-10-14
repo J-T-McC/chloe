@@ -4,18 +4,19 @@ package model
 type ObjectKind string
 
 const (
-	KindDatabase  ObjectKind = "database"
-	KindSchema    ObjectKind = "schema"
-	KindTable     ObjectKind = "table"
-	KindView      ObjectKind = "view"
-	KindMatView   ObjectKind = "materialized_view"
-	KindFunction  ObjectKind = "function"
-	KindProcedure ObjectKind = "procedure"
-	KindTrigger   ObjectKind = "trigger"
-	KindEvent     ObjectKind = "event"
-	KindSequence  ObjectKind = "sequence"
-	KindType      ObjectKind = "type"
-	KindIndex     ObjectKind = "index" // SQLite lists indexes in the tree
+	KindDatabase   ObjectKind = "database"
+	KindSchema     ObjectKind = "schema"
+	KindTable      ObjectKind = "table"
+	KindView       ObjectKind = "view"
+	KindMatView    ObjectKind = "materialized_view"
+	KindFunction   ObjectKind = "function"
+	KindProcedure  ObjectKind = "procedure"
+	KindTrigger    ObjectKind = "trigger"
+	KindEvent      ObjectKind = "event"
+	KindSequence   ObjectKind = "sequence"
+	KindType       ObjectKind = "type"
+	KindIndex      ObjectKind = "index"      // SQLite lists indexes in the tree
+	KindCollection ObjectKind = "collection" // MongoDB
 )
 
 // ObjectRef locates an object. Database is the MySQL database or PG database;

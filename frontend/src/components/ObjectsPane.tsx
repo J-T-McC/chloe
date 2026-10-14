@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DBType, Explorer, ObjectInfo, ObjectKind, ObjectRef, TableAction, arr, errorText } from "../api";
 import { RedisBrowser } from "./redis/RedisBrowser";
 import { RedisDatabases } from "./redis/RedisDatabases";
+import { MongoCollections } from "./mongo/MongoCollections";
 import { designTable, newTable, runTableAction } from "../tableActions";
 import { newView, viewDesign } from "./designer/ViewDesigner";
 import { objectsAreaMenu, openERD, tableChildMenu, tableMenu, viewMenu } from "../menus";
@@ -21,6 +22,12 @@ export function ObjectsPane() {
   if (sel?.connId && connById(sel.connId)?.type === DBType.Redis) {
     if (!connected) return <div className="center-hint">Open the connection to browse its keys.</div>;
     return sel.database !== undefined ? <RedisBrowser key={`${sel.connId}/${sel.database}`} connId={sel.connId} db={Number(sel.database)} /> : <RedisDatabases connId={sel.connId} />;
+  }
+  if (sel?.connId && connById(sel.connId)?.type === DBType.MongoDB) {
+    if (!connected) return <div className="center-hint">Open the connection to browse its collections.</div>;
+    if (!sel.database) return <div className="center-hint">Select a database in the connection tree.</div>;
+    const kind = sel.kind === ObjectKind.KindView || sel.object?.kind === ObjectKind.KindView ? ObjectKind.KindView : ObjectKind.KindCollection;
+    return <MongoCollections key={`${sel.connId}/${sel.database}`} connId={sel.connId} db={sel.database} kind={kind} />;
   }
   return <SqlObjectsPane />;
 }
@@ -412,7 +419,7 @@ function Welcome() {
   return (
     <div className="welcome">
       <h1>Chloe</h1>
-      <p>Connect to MySQL, MariaDB, PostgreSQL, SQLite and Redis.</p>
+      <p>Connect to MySQL, MariaDB, PostgreSQL, SQLite, MongoDB and Redis.</p>
       <button className="primary" onClick={() => useApp.getState().editConnection("new")}>
         New Connection
       </button>

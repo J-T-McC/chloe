@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Folder, Loader2, Search, TriangleAlert } fro
 import { useEffect, useMemo, useRef } from "react";
 import { Connection, Connections, DBType, ObjectKind, ObjectRef, Redis, errorText } from "../api";
 import { openRedisConsole } from "./redis/actions";
+import { collectionMenu, designCollection, mongoConnMenu, mongoDbMenu, newMongoQuery, openCollection } from "./mongo/actions";
 import { openUsers } from "./users/actions";
 import { connById, dbKey, useApp } from "../store";
 import { TreeNode, flatten, matchParts, useTree } from "../tree";
@@ -198,6 +199,7 @@ function TreeRow(props: { node: TreeNode; top: number; expanded: boolean; loadin
 
 export function openObject(n: TreeNode) {
   const app = useApp.getState();
+  if (connById(n.connId)?.type === DBType.MongoDB) return openCollection(n.connId, n.database!, n.info?.name ?? n.label, n.kind);
   const ref = refOf(n);
   if (n.kind === ObjectKind.KindTable || n.kind === ObjectKind.KindView || n.kind === ObjectKind.KindMatView) {
     app.openTab({ kind: "table", title: n.info!.name, connId: n.connId, database: n.database, schema: n.schema, ref });
@@ -209,6 +211,7 @@ export function openObject(n: TreeNode) {
 export function newQuery(connId: string, database?: string, schema?: string, sql = "") {
   const app = useApp.getState();
   const conn = connById(connId);
+  if (conn?.type === DBType.MongoDB) return newMongoQuery(connId, database, sql);
   const db = database ?? (conn?.initialDatabase || undefined);
   // A query tab works in its database, so that database counts as open.
   if (db) app.openDatabase(connId, db);
@@ -218,6 +221,7 @@ export function newQuery(connId: string, database?: string, schema?: string, sql
 /** "SELECT * FROM table;" with the table quoted for the connection's dialect. */
 export function selectAllSQL(connId: string, ref: ObjectRef) {
   const type = connById(connId)?.type;
+  if (type === DBType.MongoDB) return `db.getCollection(${JSON.stringify(ref.name)}).find({})`;
   const pg = type === "postgres";
   const q = pg || type === "sqlite" ? '"' : "`";
   const qi = (s: string) => (/^[a-z_][a-z0-9_]*$/.test(s) ? s : q + s.split(q).join(q + q) + q);
@@ -332,6 +336,7 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
     case "conn": {
       const c = connById(n.connId)!;
       if (c.type === DBType.Redis) return redisConnMenu(n, c, connected);
+      if (c.type === DBType.MongoDB) return mongoConnMenu(n, c, connected, { info: () => showInfo(n.connId), monitor: () => openMonitor(n.connId), remove: () => deleteConnection(c) });
       const lite = c.type === DBType.SQLite;
       return [
         connected
@@ -392,6 +397,7 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
     }
     case "db":
       if (n.count !== undefined) return redisDbMenu(n);
+      if (connById(n.connId)?.type === DBType.MongoDB) return mongoDbMenu(n, dbOpen);
       if (connById(n.connId)?.type === DBType.SQLite) return sqliteDbMenu(n, dbOpen);
       return [
         dbOpen
@@ -420,12 +426,20 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
         { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) },
       ];
     case "folder":
+      if (connById(n.connId)?.type === DBType.MongoDB)
+        return [
+          { label: n.kind === ObjectKind.KindView ? "New View" : "New Collection", onClick: () => designCollection(n.connId, n.database!, undefined, n.kind) },
+          { label: "New Query", onClick: () => newMongoQuery(n.connId, n.database) },
+          { separator: true },
+          { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) },
+        ];
       if (n.kind === ObjectKind.KindTable || n.kind === ObjectKind.KindView || n.kind === ObjectKind.KindMatView) return [...objectsAreaMenu(n.connId, n.database!, n.schema, n.kind).slice(0, -1), { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) }];
       return [
         { label: "New Query", onClick: () => newQuery(n.connId, n.database, n.schema) },
         { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) },
       ];
     case "object": {
+      if (connById(n.connId)?.type === DBType.MongoDB) return collectionMenu(n.connId, n.database!, [n.label], n.kind);
       const ref = refOf(n);
       if (n.kind === ObjectKind.KindTable) return tableMenu(n.connId, [ref]);
       if (n.kind === ObjectKind.KindView || n.kind === ObjectKind.KindMatView) return viewMenu(n.connId, ref);

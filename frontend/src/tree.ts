@@ -1,6 +1,6 @@
 // Object tree model: lazily loaded nodes cached by key, flattened for rendering.
 import { create } from "zustand";
-import { DBType, Explorer, ObjectInfo, ObjectKind, Redis, arr, errorText } from "./api";
+import { DBType, Explorer, Mongo, ObjectInfo, ObjectKind, Redis, arr, errorText } from "./api";
 import { KIND_LABEL } from "./components/icons";
 import { connById, useApp } from "./store";
 
@@ -54,6 +54,9 @@ const MYSQL_FOLDERS = [ObjectKind.KindTable, ObjectKind.KindView, ObjectKind.Kin
 const PG_FOLDERS = [ObjectKind.KindTable, ObjectKind.KindView, ObjectKind.KindMatView, ObjectKind.KindFunction, ObjectKind.KindProcedure, ObjectKind.KindSequence, ObjectKind.KindTrigger, ObjectKind.KindType];
 
 const SQLITE_FOLDERS = [ObjectKind.KindTable, ObjectKind.KindView, ObjectKind.KindIndex, ObjectKind.KindTrigger];
+const MONGO_FOLDERS = [ObjectKind.KindCollection, ObjectKind.KindView];
+
+export const isMongo = (connId: string) => connById(connId)?.type === DBType.MongoDB;
 
 export const isPG = (connId: string) => connById(connId)?.type === DBType.PostgreSQL;
 
@@ -66,10 +69,15 @@ async function loadChildren(n: TreeNode): Promise<TreeNode[]> {
         const dbs = arr(await Redis.Databases(n.connId));
         return dbs.map((x) => ({ key: `${n.key}/db${x.index}`, type: "db", label: `db${x.index}`, connId: n.connId, database: String(x.index), count: x.keys, depth: d, expandable: false }));
       }
+      if (isMongo(n.connId)) {
+        const dbs = arr(await Mongo.Databases(n.connId));
+        return dbs.map((x) => ({ key: `${n.key}/${x.name}`, type: "db", label: x.name, connId: n.connId, database: x.name, depth: d, expandable: true }));
+      }
       const dbs = arr(await Explorer.ListDatabases(n.connId));
       return dbs.map((db) => ({ key: `${n.key}/${db}`, type: "db", label: db, connId: n.connId, database: db, depth: d, expandable: true }));
     }
     case "db":
+      if (isMongo(n.connId)) return folders(n, MONGO_FOLDERS);
       if (isPG(n.connId)) {
         const schemas = arr(await Explorer.ListSchemas(n.connId, n.database!));
         return schemas.map((s) => ({ key: `${n.key}/${s}`, type: "schema", label: s, connId: n.connId, database: n.database, schema: s, depth: d, expandable: true }));
@@ -78,6 +86,21 @@ async function loadChildren(n: TreeNode): Promise<TreeNode[]> {
     case "schema":
       return folders(n, PG_FOLDERS);
     case "folder": {
+      if (isMongo(n.connId)) {
+        const view = n.kind === ObjectKind.KindView;
+        const colls = arr(await Mongo.Collections(n.connId, n.database!, false)).filter((c) => (c.type === "view") === view);
+        return colls.map((c) => ({
+          key: `${n.key}/${c.name}`,
+          type: "object",
+          label: c.name,
+          connId: n.connId,
+          database: n.database,
+          kind: n.kind,
+          info: { database: n.database!, name: c.name, kind: n.kind! },
+          depth: d,
+          expandable: false,
+        }));
+      }
       const objs = arr(await Explorer.ListObjects(n.connId, n.database!, n.schema ?? "", n.kind!));
       return objs.map((o) => ({
         key: `${n.key}/${o.name}${o.signature ? `(${o.signature})` : ""}`,
