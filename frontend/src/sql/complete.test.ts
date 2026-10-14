@@ -269,4 +269,27 @@ describe("sqlite dialect", () => {
     const cols = complete("select [o].| from orders o".replace("|", ""), 10, cat).suggestions.map((s) => s.label);
     expect(cols).toContain("id");
   });
+  it("offers only operators and keywords the dialect has", () => {
+    const cat = (dialect: "mysql" | "postgres" | "sqlite"): CompletionCatalog => ({
+      dialect,
+      defaultSchema: "main",
+      schemas: [],
+      tables: [{ schema: "main", name: "t", kind: "table", columns: [{ name: "email", type: "TEXT" }] }],
+      fks: [],
+      functions: [],
+    });
+    const at = (sql: string, d: "mysql" | "postgres" | "sqlite") => complete(sql, sql.length, cat(d)).suggestions.map((s) => s.label);
+    const ops = at("select * from t where email ", "sqlite");
+    expect(ops).toContain("GLOB");
+    expect(ops).not.toContain("REGEXP");
+    expect(ops).not.toContain("MATCH");
+    expect(ops).not.toContain("ILIKE");
+    expect(at("select * from t where email ", "mysql")).toContain("REGEXP");
+    expect(at("select * from t where ", "sqlite")).not.toContain("INTERVAL");
+    expect(at("", "sqlite")).not.toContain("TRUNCATE TABLE");
+    expect(at("select * from t order by email ", "mysql")).not.toContain("NULLS FIRST");
+    expect(at("select * from t order by email ", "sqlite")).toContain("NULLS FIRST");
+    expect(at("select email from t group by email ", "sqlite")).not.toContain("WITH ROLLUP");
+    expect(at("select * from t ", "mysql")).not.toContain("FULL OUTER JOIN");
+  });
 });

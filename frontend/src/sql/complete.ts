@@ -180,19 +180,26 @@ const MYSQL_STARTERS = ["SHOW TABLES", "SHOW DATABASES", "SHOW CREATE TABLE", "S
 const SQLITE_STARTERS = ["PRAGMA", "ATTACH DATABASE", "DETACH DATABASE", "VACUUM", "ANALYZE", "REINDEX", "EXPLAIN QUERY PLAN", "REPLACE INTO"];
 const PG_STARTERS = ["SET search_path TO", "VACUUM", "ANALYZE", "COPY", "CREATE SCHEMA", "CREATE EXTENSION", "DO", "LISTEN", "NOTIFY"];
 
-const AFTER_TABLE = ["WHERE", "INNER JOIN", "LEFT JOIN", "RIGHT JOIN", "CROSS JOIN", "JOIN", "GROUP BY", "ORDER BY", "LIMIT", "AS", "ON", "USING", "UNION", "UNION ALL", "HAVING", "FULL OUTER JOIN"];
+// Only keywords the dialect accepts: MySQL has no FULL OUTER JOIN or NULLS FIRST,
+// SQLite no TRUNCATE or INTERVAL, and only MySQL has WITH ROLLUP.
+const AFTER_TABLE = (d: DialectName) => [
+  "WHERE", "INNER JOIN", "LEFT JOIN", "RIGHT JOIN", "CROSS JOIN", "JOIN", "GROUP BY", "ORDER BY", "LIMIT", "AS", "ON", "USING", "UNION", "UNION ALL", "HAVING",
+  ...(d === "mysql" ? [] : ["FULL OUTER JOIN"]),
+];
 // Keywords that start a value or expression.
-const VALUE_KEYWORDS = ["NOT", "EXISTS", "CASE", "WHEN", "THEN", "ELSE", "END", "NULL", "TRUE", "FALSE", "DISTINCT", "INTERVAL"];
+const VALUE_KEYWORDS = (d: DialectName) => ["NOT", "EXISTS", "CASE", "WHEN", "THEN", "ELSE", "END", "NULL", "TRUE", "FALSE", "DISTINCT", ...(d === "sqlite" ? [] : ["INTERVAL"])];
 // Operators that follow an operand ("email |").
 const OPERATORS_COMMON = ["AND", "OR", "LIKE", "NOT LIKE", "IN", "NOT IN", "BETWEEN", "NOT BETWEEN", "IS NULL", "IS NOT NULL", "IS TRUE", "IS FALSE"];
 const OPERATORS: Record<DialectName, string[]> = {
   mysql: [...OPERATORS_COMMON, "REGEXP", "NOT REGEXP", "RLIKE", "NOT RLIKE", "SOUNDS LIKE", "MEMBER OF", "DIV", "MOD", "XOR", "COLLATE"],
-  sqlite: [...OPERATORS_COMMON, "GLOB", "NOT GLOB", "REGEXP", "MATCH", "IS DISTINCT FROM", "IS NOT DISTINCT FROM", "COLLATE"],
+  // REGEXP needs an application-defined function and MATCH a full-text table, so neither is offered.
+  sqlite: [...OPERATORS_COMMON, "GLOB", "NOT GLOB", "IS", "IS NOT", "IS DISTINCT FROM", "IS NOT DISTINCT FROM", "COLLATE"],
   postgres: [...OPERATORS_COMMON, "ILIKE", "NOT ILIKE", "SIMILAR TO", "NOT SIMILAR TO", "IS DISTINCT FROM", "IS NOT DISTINCT FROM", "COLLATE", "AT TIME ZONE"],
 };
-const EXPR_KEYWORDS = [...VALUE_KEYWORDS, "AND", "OR", "IN", "IS NULL", "IS NOT NULL", "LIKE", "BETWEEN", "AS"];
+const EXPR_KEYWORDS = (d: DialectName) => [...VALUE_KEYWORDS(d), "AND", "OR", "IN", "IS NULL", "IS NOT NULL", "LIKE", "BETWEEN", "AS"];
 const AFTER_WHERE = ["GROUP BY", "ORDER BY", "LIMIT", "HAVING", "UNION", "UNION ALL"];
-const AFTER_ORDER = ["ASC", "DESC", "LIMIT", "NULLS FIRST", "NULLS LAST"];
+const AFTER_ORDER = (d: DialectName) => ["ASC", "DESC", "LIMIT", ...(d === "mysql" ? [] : ["NULLS FIRST", "NULLS LAST"])];
+const AFTER_GROUP = (d: DialectName) => ["HAVING", "ORDER BY", "LIMIT", ...(d === "mysql" ? ["WITH ROLLUP"] : [])];
 
 function kw(list: string[], rank: number, opts: CompleteOptions): Suggestion[] {
   const lower = opts.keywordCase === "lower";
@@ -357,8 +364,9 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
   // ---- by clause ---------------------------------------------------------------
   switch (a.clause) {
     case "start":
-      out.push(...kw(STATEMENT_STARTERS.map(([k]) => k), 0, opts));
-      for (const [label, snip] of STATEMENT_STARTERS) {
+      const starters = STATEMENT_STARTERS.filter(([k]) => d !== "sqlite" || k !== "TRUNCATE TABLE");
+      out.push(...kw(starters.map(([k]) => k), 0, opts));
+      for (const [label, snip] of starters) {
         if (snip) out.push({ label: label + "…", kind: "snippet", insertText: snip, snippet: true, rank: 0.5, filterText: label, retrigger: true });
       }
       out.push(...kw(d === "mysql" ? MYSQL_STARTERS : d === "sqlite" ? SQLITE_STARTERS : PG_STARTERS, 1, opts));
@@ -399,7 +407,7 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
         const alias = makeAlias(last.ref.name, taken);
         out.push({ label: alias, kind: "alias", insertText: alias + " ", detail: `alias for ${last.ref.name}`, rank: -0.5 });
       }
-      out.push(...kw(AFTER_TABLE, 0, opts));
+      out.push(...kw(AFTER_TABLE(d), 0, opts));
       break;
     }
 
@@ -458,7 +466,7 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
       addColumns(0);
       addRefNames(1);
       if (a.clause !== "set") addFunctions(2);
-      const kws = a.clause === "orderBy" ? AFTER_ORDER : a.clause === "where" ? [...VALUE_KEYWORDS, ...AFTER_WHERE] : a.clause === "groupBy" ? ["HAVING", "ORDER BY", "LIMIT", "WITH ROLLUP"] : EXPR_KEYWORDS;
+      const kws = a.clause === "orderBy" ? AFTER_ORDER(d) : a.clause === "where" ? [...VALUE_KEYWORDS(d), ...AFTER_WHERE] : a.clause === "groupBy" ? AFTER_GROUP(d) : EXPR_KEYWORDS(d);
       out.push(...kw(a.clause === "select" ? [...kws, "FROM"] : kws, 3, opts));
       // Without any FROM yet, tables are useful too (SELECT t. ...)
       if (a.clause === "select" && !scope.length) addTables(4, undefined, false);
