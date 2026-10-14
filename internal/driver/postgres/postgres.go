@@ -74,6 +74,9 @@ func (c *Conn) pool(ctx context.Context, database string) (*sql.DB, error) {
 	cfg.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		return c.dialer.DialContext(ctx, network, addr)
 	}
+	// Leave name resolution to the dialer: through an SSH tunnel the database host
+	// must be resolved on the jump host, not on this machine.
+	cfg.LookupFunc = func(_ context.Context, host string) ([]string, error) { return []string{host}, nil }
 	cfg.RuntimeParams["application_name"] = "Chloe"
 	if crl := c.profile.SSL.CRLFile; c.profile.SSL.Enabled && crl != "" {
 		if err := addCRLCheck(cfg, crl); err != nil {
