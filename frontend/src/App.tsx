@@ -1,4 +1,4 @@
-import { Database, FilePlus2, Plug, Table2, X } from "lucide-react";
+import { Activity, Database, FilePlus2, Plug, Table2, X } from "lucide-react";
 import { useEffect } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { Events, ObjectKind } from "./api";
@@ -6,9 +6,11 @@ import { ConnectionDialog } from "./components/ConnectionDialog";
 import { ContextMenuHost } from "./components/ContextMenu";
 import { DialogHost } from "./components/Dialogs";
 import { KindIcon } from "./components/icons";
+import { ManageConnections } from "./components/ManageConnections";
+import { ServerMonitor } from "./components/ServerMonitor";
 import { DDLView, ObjectsPane } from "./components/ObjectsPane";
 import { QueryEditor } from "./components/QueryEditor";
-import { Sidebar, newQuery, useInitialLoad } from "./components/Sidebar";
+import { Sidebar, newQuery, openMonitor, useInitialLoad } from "./components/Sidebar";
 import { TableViewer } from "./components/TableViewer";
 import { Tab, useApp } from "./store";
 import { useTree } from "./tree";
@@ -48,7 +50,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [selection, open]);
 
-  const selConnected = !!(selection && open[selection.connId]);
+  const selConnected = !!(selection?.connId && open[selection.connId]);
 
   return (
     <div className="app">
@@ -63,6 +65,7 @@ export default function App() {
             disabled={!selection?.database}
             onClick={() => selection && useApp.getState().select({ ...selection, kind: ObjectKind.KindTable, object: undefined })}
           />
+          <ToolButton icon={<Activity size={20} />} label="Monitor" disabled={!Object.keys(open).length} onClick={() => openMonitor(selConnected ? selection!.connId : Object.keys(open)[0])} />
           <ToolButton
             icon={<Database size={20} />}
             label={selConnected ? "Disconnect" : "Connect"}
@@ -103,6 +106,7 @@ export default function App() {
           </div>
         </Panel>
       </Group>
+      <ManageConnections />
       <ConnectionDialog />
       <DialogHost />
       <ContextMenuHost />
@@ -120,11 +124,13 @@ function TabContent({ tab }: { tab: Tab }) {
       return <TableViewer tab={tab} />;
     case "ddl":
       return <DDLView connId={tab.connId!} objRef={tab.ref!} />;
+    case "monitor":
+      return <ServerMonitor tab={tab} />;
   }
 }
 
 function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
-  const icon = tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
+  const icon = tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
   return (
     <div
       className={"tab" + (active ? " active" : "")}
