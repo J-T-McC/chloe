@@ -125,10 +125,14 @@ func (g Postgres) indexDDL(t Table, ix Index) string {
 	return s
 }
 
-func (Postgres) fkDef(fk ForeignKey) string {
+// fkDef qualifies the referenced table with its schema (the table's own schema when
+// unset) so the DDL doesn't depend on search_path.
+func (Postgres) fkDef(t Table, fk ForeignKey) string {
 	ref := pgIdent(fk.RefTable)
-	if fk.RefSchema != "" {
-		ref = pgIdent(fk.RefSchema) + "." + ref
+	if s := fk.RefSchema; s != "" {
+		ref = pgIdent(s) + "." + ref
+	} else if t.Schema != "" {
+		ref = pgIdent(t.Schema) + "." + ref
 	}
 	s := fmt.Sprintf("CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s (%s)", pgIdent(fk.Name), quoteList(fk.Columns, pgIdent), ref, quoteList(fk.RefColumns, pgIdent))
 	if fk.OnDelete != "" && !strings.EqualFold(fk.OnDelete, "NO ACTION") {
@@ -218,7 +222,7 @@ func (g Postgres) Create(t Table) ([]string, error) {
 		lines = append(lines, fmt.Sprintf("  CONSTRAINT %s UNIQUE (%s)", pgIdent(u.Name), quoteList(u.Columns, pgIdent)))
 	}
 	for _, fk := range t.ForeignKeys {
-		lines = append(lines, "  "+g.fkDef(fk))
+		lines = append(lines, "  "+g.fkDef(t, fk))
 	}
 	for _, c := range t.Checks {
 		lines = append(lines, fmt.Sprintf("  CONSTRAINT %s CHECK (%s)", pgIdent(c.Name), c.Expr))
@@ -380,7 +384,7 @@ func (g Postgres) Alter(old, nw Table) ([]string, error) {
 		if o, ok := findBy(old.ForeignKeys, fk.OrigName, func(f ForeignKey) string { return f.Name }); ok && fk.OrigName != "" && sameFK(rn.fk(o), fk) {
 			continue
 		}
-		alter("ADD " + g.fkDef(fk))
+		alter("ADD " + g.fkDef(nw, fk))
 	}
 	for _, ck := range nw.Checks {
 		if o, ok := findBy(old.Checks, ck.OrigName, func(c Check) string { return c.Name }); ok && ck.OrigName != "" && o.Expr == ck.Expr && o.Name == ck.Name {

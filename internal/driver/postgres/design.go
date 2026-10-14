@@ -170,7 +170,7 @@ func (c *Conn) LoadDesign(ctx context.Context, ref model.ObjectRef) (design.Tabl
 			f := strings.Split(part, "\x1e")
 			ic := design.IndexColumn{Desc: f[2] == "true"}
 			if f[1] == "true" {
-				ic.Expr = strings.TrimSuffix(strings.TrimPrefix(f[0], "("), ")")
+				ic.Expr = f[0] // pg_get_indexdef gives the bare expression, e.g. lower(sku)
 			} else {
 				ic.Name = strings.Trim(f[0], `"`)
 			}

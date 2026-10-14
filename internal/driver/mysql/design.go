@@ -17,6 +17,7 @@ func (c *Conn) DesignGenerator() design.Generator { return design.MySQL{} }
 var (
 	typeMods  = regexp.MustCompile(`^([a-z ]+?)(?:\((.*)\))?((?: unsigned| zerofill)*)$`)
 	createOpt = regexp.MustCompile(`(?i)row_format=(\w+)`)
+	autoIncRe = regexp.MustCompile(`\) ENGINE=.* AUTO_INCREMENT=(\d+)`)
 )
 
 // LoadDesign reads a table's full definition for the designer.
@@ -37,6 +38,14 @@ func (c *Conn) LoadDesign(ctx context.Context, ref model.ObjectRef) (design.Tabl
 		t.Options.RowFormat = strings.ToUpper(m[1])
 	}
 	t.Comment = r[4].String
+	// information_schema.TABLES.AUTO_INCREMENT is cached in MySQL 8 (up to a day);
+	// SHOW CREATE TABLE always has the live counter.
+	t.Options.AutoIncrement = ""
+	if sc, err := sqlcommon.QueryStrings(ctx, c.db, "SHOW CREATE TABLE "+dialect.Qualified(ref)); err == nil && len(sc) > 0 {
+		if m := autoIncRe.FindStringSubmatch(sc[0][1].String); m != nil {
+			t.Options.AutoIncrement = m[1]
+		}
+	}
 
 	cols, err := sqlcommon.QueryStrings(ctx, c.db, `SELECT COLUMN_NAME, COLUMN_TYPE, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, EXTRA,
 		CHARACTER_SET_NAME, COLLATION_NAME, COLUMN_COMMENT, GENERATION_EXPRESSION
