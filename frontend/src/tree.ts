@@ -159,20 +159,47 @@ export const useTree = create<TreeState>((set, get) => ({
   },
 }));
 
-/** Flatten the visible part of the tree for virtualized rendering. */
+/**
+ * Flatten the visible part of the tree for virtualized rendering. With a filter, only
+ * nodes that match or contain a (loaded) match are shown, and the path to every match
+ * opens; the contents of a matching node show unfiltered.
+ */
 export function flatten(roots: TreeNode[], expanded: Record<string, boolean>, children: Record<string, TreeNode[]>, filter: string): TreeNode[] {
   const out: TreeNode[] = [];
   const f = filter.trim().toLowerCase();
-  const walk = (nodes: TreeNode[]) => {
+  const hit = new Map<string, boolean>();
+  const contains = (n: TreeNode): boolean => {
+    let v = hit.get(n.key);
+    if (v === undefined) {
+      v = n.label.toLowerCase().includes(f) || (children[n.key] ?? []).some(contains);
+      hit.set(n.key, v);
+    }
+    return v;
+  };
+  // Groups are expanded unless explicitly collapsed.
+  const isOpen = (n: TreeNode) => (n.type === "group" ? expanded[n.key] !== false : !!expanded[n.key]);
+  const walk = (nodes: TreeNode[], filtering: boolean) => {
     for (const n of nodes) {
-      // The filter applies to leaf objects; containers always show.
-      if (f && n.type === "object" && !n.label.toLowerCase().includes(f)) continue;
+      if (filtering && !contains(n)) continue;
       out.push(n);
-      // Groups are expanded unless explicitly collapsed.
-      const open = n.type === "group" ? expanded[n.key] !== false : expanded[n.key];
-      if (open && children[n.key]) walk(children[n.key]);
+      const kids = children[n.key];
+      if (!kids) continue;
+      if (!filtering) {
+        if (isOpen(n)) walk(kids, false);
+      } else if (n.label.toLowerCase().includes(f)) {
+        if (isOpen(n)) walk(kids, false);
+      } else {
+        walk(kids, true); // reveal the matches inside
+      }
     }
   };
-  walk(roots);
+  walk(roots, !!f);
   return out;
+}
+
+/** Split a label around the first match of the filter, for highlighting. */
+export function matchParts(label: string, filter: string): [string, string, string] | null {
+  const f = filter.trim().toLowerCase();
+  const i = f ? label.toLowerCase().indexOf(f) : -1;
+  return i < 0 ? null : [label.slice(0, i), label.slice(i, i + f.length), label.slice(i + f.length)];
 }

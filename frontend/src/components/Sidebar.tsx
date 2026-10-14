@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, Folder, Loader2, Search, TriangleAlert } fro
 import { useEffect, useMemo, useRef } from "react";
 import { Connection, Connections, ObjectKind, ObjectRef, errorText } from "../api";
 import { connById, dbKey, useApp } from "../store";
-import { TreeNode, flatten, useTree } from "../tree";
+import { TreeNode, flatten, matchParts, useTree } from "../tree";
 import { MenuItem, openMenu } from "./ContextMenu";
 import { alert, confirm, prompt } from "./Dialogs";
 import { ConnIcon, KindIcon } from "./icons";
@@ -68,6 +68,9 @@ export function Sidebar() {
           }
         }}
       >
+        {connections.length > 0 && filter.trim() !== "" && rows.length === 0 && (
+          <div className="empty-hint">No matches. Only opened databases are searched.</div>
+        )}
         {connections.length === 0 && (
           <div className="empty-hint">
             No connections yet.
@@ -166,7 +169,9 @@ function TreeRow(props: { node: TreeNode; top: number; expanded: boolean; loadin
       ) : (
         <KindIcon kind={n.kind!} />
       )}
-      <span className={"tree-label" + ((n.type === "conn" && !connected) || (n.type === "db" && !dbOpen) ? " dim" : "")}>{n.label}</span>
+      <span className={"tree-label" + ((n.type === "conn" && !connected) || (n.type === "db" && !dbOpen) ? " dim" : "")}>
+        <Highlighted label={n.label} />
+      </span>
       {error && <TriangleAlert size={12} className="tree-error" />}
     </div>
   );
@@ -385,7 +390,7 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
         { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) },
       ];
     case "folder":
-      if (n.kind === ObjectKind.KindTable) return [...objectsAreaMenu(n.connId, n.database!, n.schema, n.kind).slice(0, -1), { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) }];
+      if (n.kind === ObjectKind.KindTable || n.kind === ObjectKind.KindView || n.kind === ObjectKind.KindMatView) return [...objectsAreaMenu(n.connId, n.database!, n.schema, n.kind).slice(0, -1), { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) }];
       return [
         { label: "New Query", onClick: () => newQuery(n.connId, n.database, n.schema) },
         { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) },
@@ -416,4 +421,17 @@ export function useInitialLoad() {
       }
     })();
   }, []);
+}
+
+function Highlighted({ label }: { label: string }) {
+  const filter = useTree((s) => s.filter);
+  const parts = matchParts(label, filter);
+  if (!parts) return <>{label}</>;
+  return (
+    <>
+      {parts[0]}
+      <mark className="tree-match">{parts[1]}</mark>
+      {parts[2]}
+    </>
+  );
 }
