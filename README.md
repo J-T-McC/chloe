@@ -77,3 +77,7 @@ The Docker databases (`docker compose up -d`) use password `chloe`: MySQL `:3330
 
 `CHLOE_CONFIG_DIR=<dir>` with `CHLOE_SECRETS=memory` runs against an isolated config without touching the keychain. The
 browser build (`bin/Chloe-server`) has no login, so it requires `CHLOE_SECRETS=memory` and listens only on loopback.
+
+## License
+
+[MIT](LICENSE). Not affiliated with Navicat or PremiumSoft.
