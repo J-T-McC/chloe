@@ -1,29 +1,49 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronDown, ChevronRight, Loader2, Search, TriangleAlert } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, Loader2, Search, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
-import { Connections, ObjectKind, ObjectRef } from "../api";
-import { connById, useApp } from "../store";
+import { Connection, Connections, ObjectKind, ObjectRef, errorText } from "../api";
+import { connById, dbKey, useApp } from "../store";
 import { TreeNode, flatten, useTree } from "../tree";
-import { openMenu } from "./ContextMenu";
-import { confirm } from "./Dialogs";
-import { DBIcon, KindIcon } from "./icons";
+import { MenuItem, openMenu } from "./ContextMenu";
+import { alert, confirm, prompt } from "./Dialogs";
+import { ConnIcon, KindIcon } from "./icons";
 
 const ROW = 24;
+export const COLORS: Array<[string, string]> = [
+  ["", "None"],
+  ["#e5534b", "Red"],
+  ["#e8963c", "Orange"],
+  ["#d6b63a", "Yellow"],
+  ["#4fae5a", "Green"],
+  ["#3b8eea", "Blue"],
+  ["#9a6bd8", "Purple"],
+  ["#8b8f98", "Gray"],
+];
 
 export function Sidebar() {
   const connections = useApp((s) => s.connections);
+  const groups = useApp((s) => s.groups);
   const open = useApp((s) => s.open);
+  const openDbs = useApp((s) => s.openDbs);
   const selection = useApp((s) => s.selection);
   const { expanded, children, loading, errors, filter } = useTree();
   const scroller = useRef<HTMLDivElement>(null);
 
-  const roots: TreeNode[] = useMemo(
-    () => connections.map((c) => ({ key: c.id, type: "conn", label: c.name, connId: c.id, depth: 0, expandable: true })),
-    [connections],
-  );
-  const rows = useMemo(() => flatten(roots, expanded, children, filter), [roots, expanded, children, filter]);
-  const v = useVirtualizer({ count: rows.length, getScrollElement: () => scroller.current, estimateSize: () => ROW, overscan: 20 });
+  // Groups are folders whose children are the connections in them.
+  const { roots, groupChildren } = useMemo(() => {
+    const connNode = (c: Connection, depth: number): TreeNode => ({ key: c.id, type: "conn", label: c.name, connId: c.id, depth, expandable: true });
+    const groupChildren: Record<string, TreeNode[]> = {};
+    const roots: TreeNode[] = groups.map((g) => {
+      const key = "group:" + g;
+      groupChildren[key] = connections.filter((c) => c.group === g).map((c) => connNode(c, 1));
+      return { key, type: "group", group: g, label: g, connId: "", depth: 0, expandable: true };
+    });
+    roots.push(...connections.filter((c) => !c.group).map((c) => connNode(c, 0)));
+    return { roots, groupChildren };
+  }, [connections, groups]);
 
+  const rows = useMemo(() => flatten(roots, expanded, { ...children, ...groupChildren }, filter), [roots, expanded, children, groupChildren, filter]);
+  const v = useVirtualizer({ count: rows.length, getScrollElement: () => scroller.current, estimateSize: () => ROW, overscan: 20 });
   const selectedKey = selection ? selectionKey(selection) : "";
 
   return (
@@ -32,7 +52,18 @@ export function Sidebar() {
         <Search size={13} />
         <input placeholder="Search objects" value={filter} onChange={(e) => useTree.getState().setFilter(e.target.value)} />
       </div>
-      <div className="tree" ref={scroller} tabIndex={0}>
+      <div
+        className="tree"
+        ref={scroller}
+        tabIndex={0}
+        onContextMenu={(e) => openMenu(e, emptyAreaMenu())}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === "r") {
+            e.preventDefault();
+            refreshSelected();
+          }
+        }}
+      >
         {connections.length === 0 && (
           <div className="empty-hint">
             No connections yet.
@@ -49,10 +80,11 @@ export function Sidebar() {
                 key={n.key}
                 node={n}
                 top={vi.start}
-                expanded={!!expanded[n.key]}
+                expanded={n.type === "group" ? expanded[n.key] !== false : !!expanded[n.key]}
                 loading={!!loading[n.key]}
                 error={errors[n.key]}
                 connected={!!open[n.connId]}
+                dbOpen={n.type === "db" ? !!openDbs[dbKey(n.connId, n.database!)] : true}
                 selected={selectedKey === n.key}
               />
             );
@@ -63,7 +95,8 @@ export function Sidebar() {
   );
 }
 
-function selectionKey(s: { connId: string; database?: string; schema?: string; kind?: ObjectKind }) {
+function selectionKey(s: { group?: string; connId: string; database?: string; schema?: string; kind?: ObjectKind }) {
+  if (s.group !== undefined && !s.connId) return "group:" + s.group;
   let k = s.connId;
   if (s.database) k += "/" + s.database;
   if (s.schema) k += "/" + s.schema;
@@ -75,17 +108,15 @@ function refOf(n: TreeNode): ObjectRef {
   return { database: n.database!, schema: n.schema, name: n.info!.name, kind: n.kind!, signature: n.info?.signature };
 }
 
-function TreeRow(props: { node: TreeNode; top: number; expanded: boolean; loading: boolean; error?: string; connected: boolean; selected: boolean }) {
-  const { node: n, top, expanded, loading, error, connected, selected } = props;
-  const conn = connById(n.connId);
+function TreeRow(props: { node: TreeNode; top: number; expanded: boolean; loading: boolean; error?: string; connected: boolean; dbOpen: boolean; selected: boolean }) {
+  const { node: n, top, expanded, loading, error, connected, dbOpen, selected } = props;
+  const conn = n.type === "conn" ? connById(n.connId) : undefined;
 
   const onClick = () => {
     const app = useApp.getState();
-    if (n.type === "object") {
-      app.select({ connId: n.connId, database: n.database, schema: n.schema, kind: n.kind, object: refOf(n) });
-    } else {
-      app.select({ connId: n.connId, database: n.database, schema: n.schema, kind: n.kind });
-    }
+    if (n.type === "group") app.select({ group: n.group, connId: "" });
+    else if (n.type === "object") app.select({ connId: n.connId, database: n.database, schema: n.schema, kind: n.kind, object: refOf(n) });
+    else app.select({ connId: n.connId, database: n.database, schema: n.schema, kind: n.kind });
     if (app.activeTab !== "objects" && n.type !== "object") app.setActive("objects");
   };
 
@@ -100,8 +131,11 @@ function TreeRow(props: { node: TreeNode; top: number; expanded: boolean; loadin
       style={{ top, height: ROW, paddingLeft: 6 + n.depth * 16 }}
       onClick={onClick}
       onDoubleClick={onDouble}
-      onContextMenu={(e) => openMenu(e, menuFor(n, connected))}
-      title={error || n.info?.comment || undefined}
+      onContextMenu={(e) => {
+        onClick();
+        openMenu(e, menuFor(n, connected, dbOpen));
+      }}
+      title={error || n.info?.comment || conn?.remark || undefined}
     >
       <span
         className="twisty"
@@ -112,19 +146,23 @@ function TreeRow(props: { node: TreeNode; top: number; expanded: boolean; loadin
       >
         {n.expandable ? loading ? <Loader2 size={12} className="spin" /> : expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} /> : null}
       </span>
-      {n.type === "conn" && conn ? (
+      {n.type === "group" ? (
+        <Folder size={14} className="kind-icon kind-group" />
+      ) : n.type === "conn" && conn ? (
         <>
-          <DBIcon type={conn.type} dim={!connected} />
+          <ConnIcon type={conn.type} preset={conn.preset} dim={!connected} />
           {conn.color && <span className="conn-color" style={{ background: conn.color }} />}
         </>
       ) : n.type === "db" ? (
-        <KindIcon kind={ObjectKind.KindDatabase} />
+        <span className={dbOpen ? "" : "dim-icon"}>
+          <KindIcon kind={ObjectKind.KindDatabase} />
+        </span>
       ) : n.type === "schema" ? (
         <KindIcon kind={ObjectKind.KindSchema} />
       ) : (
         <KindIcon kind={n.kind!} />
       )}
-      <span className={"tree-label" + (n.type === "conn" && !connected ? " dim" : "")}>{n.label}</span>
+      <span className={"tree-label" + ((n.type === "conn" && !connected) || (n.type === "db" && !dbOpen) ? " dim" : "")}>{n.label}</span>
       {error && <TriangleAlert size={12} className="tree-error" />}
     </div>
   );
@@ -143,48 +181,186 @@ export function openObject(n: TreeNode) {
 export function newQuery(connId: string, database?: string, schema?: string, sql = "") {
   const app = useApp.getState();
   const conn = connById(connId);
-  app.openTab({ kind: "query", title: `Query — ${database ?? conn?.name ?? ""}`, connId, database, schema, sql });
+  const db = database ?? (conn?.initialDatabase || undefined);
+  // A query tab works in its database, so that database counts as open.
+  if (db) app.openDatabase(connId, db);
+  app.openTab({ kind: "query", title: `Query — ${db ?? conn?.name ?? ""}`, connId, database: db, schema, sql });
 }
 
-function menuFor(n: TreeNode, connected: boolean) {
+export function openMonitor(connId: string) {
+  const conn = connById(connId);
+  useApp.getState().openTab({ kind: "monitor", title: `Server Monitor — ${conn?.name ?? ""}`, connId, ref: { database: "", name: "monitor", kind: ObjectKind.$zero } });
+}
+
+// ---- actions ---------------------------------------------------------------------
+
+const copy = (s: string) => navigator.clipboard.writeText(s);
+
+async function reload() {
+  await useApp.getState().loadConnections();
+}
+
+function connNode(c: Connection): TreeNode {
+  return { key: c.id, type: "conn", label: c.name, connId: c.id, depth: 0, expandable: true };
+}
+
+export async function newGroup() {
+  const name = await prompt("New Group", { message: "Group name" });
+  if (!name?.trim()) return;
+  try {
+    await Connections.AddGroup(name.trim());
+    await reload();
+  } catch (e) {
+    alert("Couldn't create group", errorText(e));
+  }
+}
+
+export async function refreshSelected() {
+  const app = useApp.getState();
+  const sel = app.selection;
+  const tree = useTree.getState();
+  if (!sel?.connId) return reload();
+  let key = sel.connId;
+  if (sel.database) key += "/" + sel.database;
+  if (sel.schema) key += "/" + sel.schema;
+  if (sel.kind) key += "/#" + sel.kind;
+  const type = sel.kind ? "folder" : sel.schema ? "schema" : sel.database ? "db" : "conn";
+  await tree.refresh({ key, type, label: "", connId: sel.connId, database: sel.database, schema: sel.schema, kind: sel.kind, depth: 0, expandable: true });
+}
+
+async function showInfo(connId: string) {
+  try {
+    const i = await Connections.Info(connId);
+    const c = connById(connId);
+    alert(c?.name ?? "Connection", [`Server version: ${i.version}`, `Host: ${i.host}`, `User: ${i.user}`, `Route: ${i.via}`, `SSL: ${i.ssl ? "yes" : "no"}`, `Open server sessions: ${i.sessions}`].join("\n"));
+  } catch (e) {
+    alert("Connection info", errorText(e));
+  }
+}
+
+async function deleteConnection(c: Connection) {
+  if (!(await confirm(`Delete connection “${c.name}”?`, { message: "The saved connection and its stored passwords will be removed.", danger: true, okLabel: "Delete" }))) return;
+  useApp.getState().disconnect(c.id);
+  useTree.getState().collapseConnection(c.id);
+  await Connections.Delete(c.id);
+  await reload();
+}
+
+function emptyAreaMenu(): MenuItem[] {
+  const app = useApp.getState();
+  return [
+    { label: "New Connection…", onClick: () => app.editConnection("new") },
+    { label: "Close All Connections", disabled: !Object.keys(app.open).length, onClick: () => { app.disconnectAll(); for (const c of app.connections) useTree.getState().collapseConnection(c.id); } },
+    { label: "Manage Connections…", onClick: () => app.setManaging(true) },
+    { separator: true },
+    { label: "New Group…", onClick: newGroup },
+    { separator: true },
+    { label: "Refresh", shortcut: "⌘R", onClick: reload },
+  ];
+}
+
+function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
   const tree = useTree.getState();
   const app = useApp.getState();
-  const copy = (s: string) => navigator.clipboard.writeText(s);
   switch (n.type) {
-    case "conn":
+    case "group":
+      return [
+        { label: "New Connection…", onClick: () => app.editConnection("new") },
+        { separator: true },
+        {
+          label: "Rename Group…",
+          onClick: async () => {
+            const name = await prompt("Rename Group", { defaultValue: n.group });
+            if (name?.trim() && name.trim() !== n.group) {
+              await Connections.RenameGroup(n.group!, name.trim()).catch((e) => alert("Couldn't rename group", errorText(e)));
+              await reload();
+            }
+          },
+        },
+        {
+          label: "Delete Group",
+          danger: true,
+          onClick: async () => {
+            if (await confirm(`Delete group “${n.group}”?`, { message: "Its connections move to the top level; nothing else is deleted.", okLabel: "Delete Group" })) {
+              await Connections.DeleteGroup(n.group!);
+              await reload();
+            }
+          },
+        },
+        { separator: true },
+        { label: "New Group…", onClick: newGroup },
+      ];
+    case "conn": {
+      const c = connById(n.connId)!;
       return [
         connected
           ? { label: "Close Connection", onClick: () => { app.disconnect(n.connId); tree.collapseConnection(n.connId); } }
           : { label: "Open Connection", onClick: () => tree.expand(n) },
-        { label: "Edit Connection…", onClick: () => app.editConnection(app.connections.find((c) => c.id === n.connId)) },
-        { label: "New Query", disabled: !connected, onClick: () => newQuery(n.connId) },
+        { label: "Edit Connection…", onClick: () => app.editConnection(c) },
+        { label: "New Connection…", onClick: () => app.editConnection("new") },
+        { label: "Duplicate Connection", onClick: async () => { await Connections.Duplicate(c.id); await reload(); } },
+        { label: "Delete Connection…", danger: true, onClick: () => deleteConnection(c) },
         { separator: true },
-        { label: "Refresh", disabled: !connected, onClick: () => tree.refresh(n) },
+        { label: "New Query", disabled: !connected, shortcut: "⌘T", onClick: () => newQuery(n.connId) },
+        { label: "Server Monitor", disabled: !connected, onClick: () => openMonitor(n.connId) },
+        { label: "Connection Info…", disabled: !connected, onClick: () => showInfo(n.connId) },
         { separator: true },
         {
-          label: "Delete Connection…",
-          danger: true,
-          onClick: async () => {
-            if (await confirm(`Delete connection “${n.label}”?`, { message: "The saved connection and its stored passwords will be removed.", danger: true, okLabel: "Delete" })) {
-              await Connections.Delete(n.connId);
-              tree.collapseConnection(n.connId);
-              await app.loadConnections();
-            }
-          },
+          label: "Connection Color",
+          submenu: COLORS.map(([color, name]) => ({
+            label: name,
+            swatch: color,
+            checked: (c.color ?? "") === color,
+            onClick: async () => {
+              const full = await Connections.Get(c.id);
+              await Connections.Save({ ...full, color });
+              await reload();
+            },
+          })),
         },
+        {
+          label: "Move to Group",
+          submenu: [
+            { label: "(none)", checked: !c.group, onClick: async () => { await Connections.MoveToGroup(c.id, ""); await reload(); } },
+            ...app.groups.map((g) => ({ label: g, checked: c.group === g, onClick: async () => { await Connections.MoveToGroup(c.id, g); await reload(); } })),
+            { separator: true },
+            {
+              label: "New Group…",
+              onClick: async () => {
+                const g = await prompt("New Group", { message: "Group name" });
+                if (g?.trim()) {
+                  await Connections.MoveToGroup(c.id, g.trim());
+                  await reload();
+                }
+              },
+            },
+          ],
+        },
+        { label: "Copy Connection URL", onClick: async () => copy(await Connections.URL(c.id)) },
+        { separator: true },
+        { label: "Refresh", shortcut: "⌘R", disabled: !connected, onClick: () => tree.refresh(n) },
       ];
+    }
     case "db":
+      return [
+        dbOpen
+          ? { label: "Close Database", onClick: () => tree.closeDatabase(n) }
+          : { label: "Open Database", onClick: () => tree.expand(n) },
+        { label: "New Query", onClick: () => newQuery(n.connId, n.database) },
+        { separator: true },
+        { label: "Copy Name", onClick: () => copy(n.label) },
+        { label: "Refresh", shortcut: "⌘R", disabled: !dbOpen, onClick: () => tree.refresh(n) },
+      ];
     case "schema":
       return [
         { label: "New Query", onClick: () => newQuery(n.connId, n.database, n.schema) },
-        { label: "Refresh", onClick: () => tree.refresh(n) },
-        { separator: true },
         { label: "Copy Name", onClick: () => copy(n.label) },
+        { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) },
       ];
     case "folder":
       return [
         { label: "New Query", onClick: () => newQuery(n.connId, n.database, n.schema) },
-        { label: "Refresh", onClick: () => tree.refresh(n) },
+        { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) },
       ];
     case "object": {
       const isData = n.kind === ObjectKind.KindTable || n.kind === ObjectKind.KindView || n.kind === ObjectKind.KindMatView;
@@ -199,9 +375,14 @@ function menuFor(n: TreeNode, connected: boolean) {
   }
 }
 
-/** Load the connection list once on startup. */
+/** Load connections on startup and open those marked "Auto connect". */
 export function useInitialLoad() {
   useEffect(() => {
-    useApp.getState().loadConnections();
+    (async () => {
+      await useApp.getState().loadConnections();
+      for (const c of useApp.getState().connections) {
+        if (c.advanced?.autoConnect) useTree.getState().expand(connNode(c));
+      }
+    })();
   }, []);
 }

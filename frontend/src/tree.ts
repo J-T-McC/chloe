@@ -4,10 +4,12 @@ import { DBType, Explorer, ObjectInfo, ObjectKind, arr, errorText } from "./api"
 import { KIND_LABEL } from "./components/icons";
 import { connById, useApp } from "./store";
 
-export type NodeType = "conn" | "db" | "schema" | "folder" | "object";
+export type NodeType = "group" | "conn" | "db" | "schema" | "folder" | "object";
 
 export interface TreeNode {
   key: string;
+  /** group nodes: the group name */
+  group?: string;
   type: NodeType;
   label: string;
   connId: string;
@@ -29,6 +31,7 @@ interface TreeState {
   expand(node: TreeNode): Promise<void>;
   refresh(node: TreeNode): Promise<void>;
   collapseConnection(connId: string): void;
+  closeDatabase(node: TreeNode): Promise<void>;
   setFilter(f: string): void;
 }
 
@@ -94,6 +97,10 @@ export const useTree = create<TreeState>((set, get) => ({
   filter: "",
 
   async toggle(node) {
+    if (node.type === "group") {
+      set((s) => ({ expanded: { ...s.expanded, [node.key]: s.expanded[node.key] === false } }));
+      return;
+    }
     if (get().expanded[node.key]) {
       set((s) => ({ expanded: { ...s.expanded, [node.key]: false } }));
       return;
@@ -102,6 +109,10 @@ export const useTree = create<TreeState>((set, get) => ({
   },
 
   async expand(node) {
+    // Expanding a closed database opens it first (Navicat's "Open Database").
+    if (node.type === "db" && !useApp.getState().isDbOpen(node.connId, node.database!)) {
+      if (!(await useApp.getState().openDatabase(node.connId, node.database!))) return;
+    }
     set((s) => ({ expanded: { ...s.expanded, [node.key]: true } }));
     if (get().children[node.key] || get().loading[node.key]) return;
     set((s) => ({ loading: { ...s.loading, [node.key]: true }, errors: { ...s.errors, [node.key]: "" } }));
@@ -128,6 +139,14 @@ export const useTree = create<TreeState>((set, get) => ({
     }
   },
 
+  closeDatabase(node) {
+    set((s) => {
+      const strip = <T,>(m: Record<string, T>) => Object.fromEntries(Object.entries(m).filter(([k]) => k !== node.key && !k.startsWith(node.key + "/")));
+      return { expanded: strip(s.expanded), children: strip(s.children) };
+    });
+    return useApp.getState().closeDatabase(node.connId, node.database!);
+  },
+
   collapseConnection(connId) {
     set((s) => {
       const strip = <T,>(m: Record<string, T>) => Object.fromEntries(Object.entries(m).filter(([k]) => k !== connId && !k.startsWith(connId + "/")));
@@ -149,7 +168,9 @@ export function flatten(roots: TreeNode[], expanded: Record<string, boolean>, ch
       // The filter applies to leaf objects; containers always show.
       if (f && n.type === "object" && !n.label.toLowerCase().includes(f)) continue;
       out.push(n);
-      if (expanded[n.key] && children[n.key]) walk(children[n.key]);
+      // Groups are expanded unless explicitly collapsed.
+      const open = n.type === "group" ? expanded[n.key] !== false : expanded[n.key];
+      if (open && children[n.key]) walk(children[n.key]);
     }
   };
   walk(roots);

@@ -2,7 +2,7 @@ import { Copy, FilePlus2, RefreshCw, Table2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Explorer, ObjectInfo, ObjectKind, ObjectRef, arr, errorText } from "../api";
 import { editorTheme, monaco } from "../editor/monaco";
-import { connById, useApp } from "../store";
+import { connById, dbKey, useApp } from "../store";
 import { TreeNode, useTree } from "../tree";
 import { openMenu } from "./ContextMenu";
 import { KIND_LABEL, KindIcon } from "./icons";
@@ -14,18 +14,24 @@ export function ObjectsPane() {
   const [objects, setObjects] = useState<ObjectInfo[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [picked, setPicked] = useState<ObjectInfo | null>(null);
+  // The picked object remembers which listing it came from, so a stale pick is never
+  // shown (or queried) against a different connection or database.
+  const [pick, setPick] = useState<{ key: string; obj: ObjectInfo } | null>(null);
   const [filter, setFilter] = useState("");
   const [sortKey, setSortKey] = useState<"name" | "rows" | "dataSize" | "modified">("name");
   const [reload, setReload] = useState(0);
 
   const kind = sel?.kind ?? (sel?.database ? ObjectKind.KindTable : undefined);
-  const connected = sel ? !!open[sel.connId] : false;
+  const connected = sel?.connId ? !!open[sel.connId] : false;
+  const dbOpen = useApp((s) => !!(sel?.database && s.openDbs[dbKey(sel.connId, sel.database)]));
   const needsSchema = connById(sel?.connId)?.type === "postgres" && !sel?.schema;
+  const listKey = [sel?.connId, sel?.database, sel?.schema, kind].join("/");
+  const picked = pick?.key === listKey ? pick.obj : null;
+  const setPicked = (o: ObjectInfo | null) => setPick(o ? { key: listKey, obj: o } : null);
 
   useEffect(() => {
     setPicked(null);
-    if (!sel || !sel.database || !kind || !connected || needsSchema) {
+    if (!sel || !sel.database || !kind || !connected || !dbOpen || needsSchema) {
       setObjects([]);
       return;
     }
@@ -35,7 +41,7 @@ export function ObjectsPane() {
       .then((o) => setObjects(arr(o)))
       .catch((e) => setError(errorText(e)))
       .finally(() => setLoading(false));
-  }, [sel?.connId, sel?.database, sel?.schema, kind, connected, needsSchema, reload]);
+  }, [sel?.connId, sel?.database, sel?.schema, kind, connected, dbOpen, needsSchema, reload]);
 
   // Selecting an object in the tree selects it here too.
   useEffect(() => {
@@ -48,8 +54,20 @@ export function ObjectsPane() {
     return [...list].sort((a, b) => (sortKey === "name" ? a.name.localeCompare(b.name) : ((b[sortKey] as number) ?? 0) > ((a[sortKey] as number) ?? 0) ? 1 : -1));
   }, [objects, filter, sortKey]);
 
-  if (!sel) return <Welcome />;
+  if (!sel || (!sel.connId && sel.group === undefined)) return <Welcome />;
+  if (!sel.connId) return <div className="center-hint">Group “{sel.group}” — select a connection.</div>;
   if (!connected) return <div className="center-hint">Open the connection to browse its objects.</div>;
+  if (sel.database && !dbOpen)
+    return (
+      <div className="center-hint">
+        Database “{sel.database}” is closed.
+        <div>
+          <button onClick={() => useTree.getState().expand({ key: `${sel.connId}/${sel.database}`, type: "db", label: sel.database!, connId: sel.connId, database: sel.database, depth: 1, expandable: true })}>
+            Open Database
+          </button>
+        </div>
+      </div>
+    );
   if (!sel.database || needsSchema) return <div className="center-hint">Select a {needsSchema && sel.database ? "schema" : "database"} in the connection tree.</div>;
 
   const asNode = (o: ObjectInfo): TreeNode => ({
@@ -143,7 +161,7 @@ export function ObjectsPane() {
           </table>
           {!loading && !shown.length && !error && <div className="center-hint">No {KIND_LABEL[kind!]?.toLowerCase()}.</div>}
         </div>
-        <InfoPanel connId={sel.connId} object={picked} database={sel.database} schema={sel.schema} />
+        <InfoPanel key={listKey} connId={sel.connId} object={picked} database={sel.database} schema={sel.schema} />
       </div>
     </div>
   );
