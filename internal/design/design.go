@@ -145,6 +145,9 @@ type Options struct {
 	// PostgreSQL
 	Unlogged   bool   `json:"unlogged,omitempty"`
 	Tablespace string `json:"tablespace,omitempty"`
+	// SQLite
+	WithoutRowid bool `json:"withoutRowid,omitempty"`
+	Strict       bool `json:"strict,omitempty"`
 }
 
 // Meta lists the choices the designer offers for a database.

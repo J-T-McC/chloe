@@ -1,6 +1,6 @@
 import { Clipboard, FolderOpen, Info, Link2, Plus, Search, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Connection, Connections, DBType, Preset, SSHAuth, arr, errorText } from "../api";
+import { Connection, Connections, DBType, Preset, SSHAuth, Transfer, arr, errorText } from "../api";
 import { useApp } from "../store";
 import { prompt } from "./Dialogs";
 import { DBIcon, PresetIcon } from "./icons";
@@ -11,7 +11,7 @@ const ENGINES: Array<{ type: DBType; label: string; ready: boolean }> = [
   { type: DBType.PostgreSQL, label: "PostgreSQL", ready: true },
   { type: DBType.MongoDB, label: "MongoDB", ready: false },
   { type: DBType.Redis, label: "Redis", ready: true },
-  { type: DBType.SQLite, label: "SQLite", ready: false },
+  { type: DBType.SQLite, label: "SQLite", ready: true },
   { type: DBType.SQLServer, label: "SQL Server", ready: false },
   { type: DBType.Oracle, label: "Oracle", ready: false },
 ];
@@ -41,6 +41,7 @@ export function blankConnection(type: DBType, preset?: Preset): Connection {
     advanced: { autoConnect: false, sessionLimit: 0, keepaliveSec: 240, connectTimeoutSec: 0, readTimeoutSec: 0, writeTimeoutSec: 0, compression: false, cleartextAuth: false },
     ssh: { enabled: false, host: "", port: 22, user: "", auth: SSHAuth.SSHPassword, savePassword: true },
     ssl: { enabled: false, verifyHost: false, ...(d?.ssl ?? {}) },
+    sqlite: {},
   } as Connection;
 }
 
@@ -149,6 +150,7 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
   const mysql = isMySQL(conn.type);
   const pg = conn.type === DBType.PostgreSQL;
   const redis = conn.type === DBType.Redis;
+  const sqlite = conn.type === DBType.SQLite;
 
   useEffect(() => {
     if (conn.preset) Connections.Presets().then((p) => setPreset(arr(p).find((x) => x.id === conn.preset) ?? null));
@@ -159,8 +161,9 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
   const setSSH = (patch: Partial<Connection["ssh"]>) => setConn((c) => ({ ...c, ssh: { ...c.ssh, ...patch } }));
   const setSSL = (patch: Partial<Connection["ssl"]>) => setConn((c) => ({ ...c, ssl: { ...c.ssl, ...patch } }));
   const setDBs = (patch: Partial<Connection["databases"]>) => setConn((c) => ({ ...c, databases: { ...c.databases, ...patch } }));
+  const setLite = (patch: Partial<Connection["sqlite"]>) => setConn((c) => ({ ...c, sqlite: { ...c.sqlite, ...patch } }));
 
-  const named = (): Connection => ({ ...conn, name: conn.name.trim() || preset?.name || conn.host || engineLabel(conn.type) });
+  const named = (): Connection => ({ ...conn, name: conn.name.trim() || preset?.name || (sqlite ? fileBase(conn.sqlite?.path) : conn.host) || engineLabel(conn.type) });
 
   const test = async () => {
     setBusy(true);
@@ -202,9 +205,13 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
   const sections: Array<[Section, string]> = [
     ["general", "General"],
     ["advanced", "Advanced"],
-    ...(redis ? [] : ([["databases", "Databases"]] as Array<[Section, string]>)),
-    ["ssl", "SSL"],
-    ["ssh", "SSH"],
+    ...(redis ? [] : ([["databases", sqlite ? "Attached Databases" : "Databases"]] as Array<[Section, string]>)),
+    ...(sqlite
+      ? []
+      : ([
+          ["ssl", "SSL"],
+          ["ssh", "SSH"],
+        ] as Array<[Section, string]>)),
     ["remarks", "Remarks"],
   ];
 
@@ -232,7 +239,7 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
                 </div>
               )}
               <Field label="Connection Name">
-                <input autoFocus value={conn.name} placeholder={preset?.name || conn.host || engineLabel(conn.type)} onChange={(e) => set({ name: e.target.value })} />
+                <input autoFocus value={conn.name} placeholder={preset?.name || (sqlite ? fileBase(conn.sqlite?.path) : conn.host) || engineLabel(conn.type)} onChange={(e) => set({ name: e.target.value })} />
               </Field>
               <Field label="Add To">
                 <select
@@ -258,6 +265,10 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
                 </select>
               </Field>
               <hr />
+              {sqlite ? (
+                <SQLiteFields conn={conn} setLite={setLite} />
+              ) : (
+                <>
               <Field label="Host">
                 <div className="row">
                   <input value={conn.host} placeholder={preset ? hostPlaceholder(preset) : "localhost"} onChange={(e) => set({ host: e.target.value })} />
@@ -283,6 +294,8 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
               <Field label="">
                 <Check label="Save password" checked={conn.savePassword} onChange={(v) => set({ savePassword: v })} />
               </Field>
+                </>
+              )}
               <Field label="Color">
                 <div className="swatches">
                   {["", "#e5534b", "#e8963c", "#d6b63a", "#4fae5a", "#3b8eea", "#9a6bd8", "#8b8f98"].map((c) => (
@@ -299,8 +312,13 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
                 <Check label="Auto connect when Chloe starts" checked={conn.advanced.autoConnect} onChange={(v) => setAdv({ autoConnect: v })} />
               </Field>
               <ToggleNumber label="Limit connection sessions" value={conn.advanced.sessionLimit} def={10} onChange={(v) => setAdv({ sessionLimit: v })} />
-              <ToggleNumber label="Keepalive interval (sec)" value={conn.advanced.keepaliveSec} def={240} onChange={(v) => setAdv({ keepaliveSec: v })} />
-              <ToggleNumber label="Connection timeout (sec)" value={conn.advanced.connectTimeoutSec} def={15} onChange={(v) => setAdv({ connectTimeoutSec: v })} />
+              {!sqlite && <ToggleNumber label="Keepalive interval (sec)" value={conn.advanced.keepaliveSec} def={240} onChange={(v) => setAdv({ keepaliveSec: v })} />}
+              <ToggleNumber
+                label={sqlite ? "Busy timeout (sec)" : "Connection timeout (sec)"}
+                value={conn.advanced.connectTimeoutSec}
+                def={sqlite ? 5 : 15}
+                onChange={(v) => setAdv({ connectTimeoutSec: v })}
+              />
               {redis && (
                 <>
                   <ToggleNumber label="Read timeout (sec)" value={conn.advanced.readTimeoutSec} def={30} onChange={(v) => setAdv({ readTimeoutSec: v })} />
@@ -340,13 +358,13 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
                 </Field>
               )}
               <Field label="Initial Queries">
-                <textarea rows={3} placeholder={mysql ? "SET time_zone = '+00:00';" : "SET search_path TO app, public;"} value={conn.advanced.initialQueries ?? ""} onChange={(e) => setAdv({ initialQueries: e.target.value })} />
+                <textarea rows={3} placeholder={mysql ? "SET time_zone = '+00:00';" : sqlite ? "PRAGMA journal_mode = WAL;" : "SET search_path TO app, public;"} value={conn.advanced.initialQueries ?? ""} onChange={(e) => setAdv({ initialQueries: e.target.value })} />
               </Field>
               <p className="hint">Initial queries run on every new query tab and table view session.</p>
             </>
           )}
 
-          {section === "databases" && <DatabasesTab conn={conn} setDBs={setDBs} />}
+          {section === "databases" && (sqlite ? <AttachedTab conn={conn} setLite={setLite} /> : <DatabasesTab conn={conn} setDBs={setDBs} />)}
 
           {section === "ssl" && (
             <>
@@ -447,6 +465,106 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
         </div>
       </div>
     </div>
+  );
+}
+
+const fileBase = (p?: string) => (p ?? "").split(/[\\/]/).pop()?.replace(/\.(db|sqlite3?|db3)$/i, "") ?? "";
+
+const SQLITE_FILTER = "*.db;*.sqlite;*.sqlite3;*.db3";
+
+/** Asks for an existing SQLite file, or where to create a new one. */
+export async function pickSQLiteFile(create: boolean, title = "Database File"): Promise<string> {
+  return (create ? Transfer.SaveFileDialog("database.db", "SQLite Database", SQLITE_FILTER) : Transfer.OpenFileDialog(title, "SQLite Database", SQLITE_FILTER)).catch(() => "");
+}
+
+function SQLiteFields({ conn, setLite }: { conn: Connection; setLite(p: Partial<Connection["sqlite"]>): void }) {
+  const create = !!conn.sqlite?.create;
+  return (
+    <>
+      <Field label="Type">
+        <div className="row radio-row">
+          <label className="check">
+            <input type="radio" checked={!create} onChange={() => setLite({ create: false })} /> Existing Database File
+          </label>
+          <label className="check">
+            <input type="radio" checked={create} disabled={!!conn.id} onChange={() => setLite({ create: true })} /> New SQLite 3
+          </label>
+        </div>
+      </Field>
+      <Field label="Database File">
+        <div className="row">
+          <input value={conn.sqlite?.path ?? ""} placeholder={create ? "where to create the file" : "path to a .db / .sqlite file"} onChange={(e) => setLite({ path: e.target.value })} />
+          <button
+            title="Browse…"
+            onClick={async () => {
+              const p = await pickSQLiteFile(create);
+              if (p) setLite({ path: p });
+            }}
+          >
+            <FolderOpen size={13} />
+          </button>
+        </div>
+      </Field>
+      {create && <p className="hint">The file is created when you test or open the connection.</p>}
+    </>
+  );
+}
+
+function AttachedTab({ conn, setLite }: { conn: Connection; setLite(p: Partial<Connection["sqlite"]>): void }) {
+  const list = arr(conn.sqlite?.attached);
+  const [name, setName] = useState("");
+  const [path, setPath] = useState("");
+  const add = () => {
+    const n = name.trim() || fileBase(path);
+    if (!n || !path.trim() || list.some((a) => a.name === n)) return;
+    setLite({ attached: [...list, { name: n, path: path.trim() }] });
+    setName("");
+    setPath("");
+  };
+  return (
+    <>
+      <p className="hint">Attached database files appear next to “main” in the connection tree and can be queried as name.table.</p>
+      <table className="db-list">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>File</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {list.map((a, i) => (
+            <tr key={a.name}>
+              <td>{a.name}</td>
+              <td className="muted small" title={a.path}>
+                {a.path}
+              </td>
+              <td>
+                <button className="icon" title="Detach" onClick={() => setLite({ attached: list.filter((_, j) => j !== i) })}>
+                  <Trash2 size={12} />
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="row">
+        <input style={{ width: 120, flex: "none" }} placeholder="name" value={name} onChange={(e) => setName(e.target.value)} />
+        <input placeholder="database file" value={path} onChange={(e) => setPath(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
+        <button
+          title="Browse…"
+          onClick={async () => {
+            const p = await pickSQLiteFile(false);
+            if (p) setPath(p);
+          }}
+        >
+          <FolderOpen size={13} />
+        </button>
+        <button disabled={!path.trim()} onClick={add}>
+          <Plus size={13} /> Attach
+        </button>
+      </div>
+    </>
   );
 }
 

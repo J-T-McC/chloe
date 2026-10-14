@@ -118,7 +118,7 @@ func buildChange(d driver.Dialect, ref model.ObjectRef, ch RowChange) (string, [
 	switch ch.Kind {
 	case ChangeInsert:
 		if len(ch.Values) == 0 {
-			if d.Name == "postgres" {
+			if d.Name != "mysql" {
 				return "INSERT INTO " + table + " DEFAULT VALUES", nil, nil
 			}
 			return "INSERT INTO " + table + " () VALUES ()", nil, nil

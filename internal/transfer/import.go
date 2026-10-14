@@ -541,7 +541,7 @@ func InferTypes(rows [][]*string, ncols int, dialect string) []string {
 			out[c] = "bigint"
 		case isInt:
 			out[c] = "int"
-			if dialect == "postgres" {
+			if dialect != "mysql" {
 				out[c] = "integer"
 			}
 		case isDec:
@@ -561,7 +561,7 @@ func InferTypes(rows [][]*string, ncols int, dialect string) []string {
 }
 
 func textType(maxLen int, dialect string) string {
-	if dialect == "postgres" {
+	if dialect != "mysql" {
 		return "text"
 	}
 	if maxLen > 2000 {

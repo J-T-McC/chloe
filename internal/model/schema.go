@@ -15,6 +15,7 @@ const (
 	KindEvent     ObjectKind = "event"
 	KindSequence  ObjectKind = "sequence"
 	KindType      ObjectKind = "type"
+	KindIndex     ObjectKind = "index" // SQLite lists indexes in the tree
 )
 
 // ObjectRef locates an object. Database is the MySQL database or PG database;

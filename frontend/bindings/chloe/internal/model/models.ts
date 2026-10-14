@@ -47,6 +47,14 @@ export interface Advanced {
 }
 
 /**
+ * AttachedDB is a database file attached to a SQLite connection under Name.
+ */
+export interface AttachedDB {
+    "name": string;
+    "path": string;
+}
+
+/**
  * Catalog is a bulk snapshot of one database (MySQL) or one database's schemas (PG),
  * loaded in a few queries and cached on the frontend for autocomplete.
  */
@@ -146,6 +154,7 @@ export interface Connection {
     "advanced": Advanced;
     "ssh": SSHConfig;
     "ssl": SSLConfig;
+    "sqlite": SQLiteConfig;
     "remark"?: string;
 }
 
@@ -251,6 +260,11 @@ export enum ObjectKind {
     KindEvent = "event",
     KindSequence = "sequence",
     KindType = "type",
+
+    /**
+     * SQLite lists indexes in the tree
+     */
+    KindIndex = "index",
 };
 
 /**
@@ -320,6 +334,20 @@ export interface RowPage {
     "rows": ((string | null)[] | null)[] | null;
     "total": number;
     "complete": boolean;
+}
+
+/**
+ * SQLiteConfig locates a SQLite connection's database files. The main file opens
+ * as "main"; attached files appear as further databases.
+ */
+export interface SQLiteConfig {
+    "path"?: string;
+
+    /**
+     * Create makes a new, empty database file when Path doesn't exist.
+     */
+    "create"?: boolean;
+    "attached"?: AttachedDB[] | null;
 }
 
 /**

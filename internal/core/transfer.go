@@ -228,7 +228,7 @@ func (m *Manager) Import(ctx context.Context, connID string, req ImportRequest) 
 			if err != nil {
 				return "", err
 			}
-			if r := m.ExecuteDDL(ctx, connID, req.Target.Database, req.Target.Schema, stmts, d.Name == "postgres"); r.Error != "" {
+			if r := m.ExecuteDDL(ctx, connID, req.Target.Database, req.Target.Schema, stmts, d.TransactionalDDL()); r.Error != "" {
 				return "", fmt.Errorf("create table: %s", r.Error)
 			}
 			p.logf("Created table %s", req.Target.Name)
@@ -299,11 +299,18 @@ func (im *importer) run(ctx context.Context, src transfer.Source) (string, error
 		}
 	}
 
-	if req.DisableFKChecks && im.d.Name != "postgres" {
+	switch {
+	case req.DisableFKChecks && im.d.Name == "mysql":
 		if err := exec("SET FOREIGN_KEY_CHECKS = 0"); err != nil {
 			return "", err
 		}
 		defer exec("SET FOREIGN_KEY_CHECKS = 1")
+	case req.DisableFKChecks && im.d.Name == "sqlite":
+		// Must be set outside a transaction to take effect.
+		if err := exec("PRAGMA foreign_keys = OFF"); err != nil {
+			return "", err
+		}
+		defer exec("PRAGMA foreign_keys = ON")
 	}
 	if req.Transaction {
 		if err := exec("BEGIN"); err != nil {
@@ -327,8 +334,12 @@ func (im *importer) run(ctx context.Context, src transfer.Source) (string, error
 	if batch <= 0 {
 		batch = 500
 	}
-	// Bind-parameter limits (65535 for both servers) cap the batch.
-	if max := 60000 / max(1, len(im.cols)); batch > max {
+	// Bind-parameter limits (65535 for MySQL and PostgreSQL, 32766 for SQLite) cap the batch.
+	limit := 60000
+	if im.d.Name == "sqlite" {
+		limit = 32000
+	}
+	if max := limit / max(1, len(im.cols)); batch > max {
 		batch = max
 	}
 	if req.Mode == ImportUpdate || req.Mode == ImportDelete {
@@ -481,7 +492,7 @@ func (im *importer) writeBatch(ctx context.Context, rows [][]*string) (int64, er
 	}
 	switch im.req.Mode {
 	case ImportUpsert:
-		if d.Name == "postgres" {
+		if d.Name != "mysql" { // PostgreSQL and SQLite
 			sets := make([]string, len(nonKey))
 			for i, c := range nonKey {
 				sets[i] = c + " = EXCLUDED." + c
@@ -502,7 +513,7 @@ func (im *importer) writeBatch(ctx context.Context, rows [][]*string) (int64, er
 			q += " ON DUPLICATE KEY UPDATE " + strings.Join(sets, ", ")
 		}
 	case ImportSkipExisting:
-		if d.Name == "postgres" {
+		if d.Name != "mysql" {
 			q += " ON CONFLICT (" + strings.Join(qkeys, ", ") + ") DO NOTHING"
 		} else {
 			// A no-op update skips duplicates without INSERT IGNORE's habit of

@@ -3,6 +3,7 @@ import { DBType, Explorer, ObjectKind, arr } from "../api";
 import { analyze } from "../sql/analyze";
 import { CatFunction, CatTable, CompletionCatalog, Suggestion, complete } from "../sql/complete";
 import { KeyNode, addPath, buildKeyTree, inString, jsonKeySuggestions, jsonPathContext, pathsInText, resolveColumn } from "../sql/jsonpath";
+import { connDialect, databasesAsSchemas } from "../dialect";
 import { connById } from "../store";
 import { Monaco, monaco } from "./monaco";
 
@@ -40,12 +41,11 @@ function cached<T>(m: Map<string, Promise<T>>, k: string, load: () => Promise<T>
 }
 
 async function loadCatalog(connId: string, database: string): Promise<CompletionCatalog> {
-  const conn = connById(connId);
-  const dialect = conn?.type === DBType.PostgreSQL ? "postgres" : "mysql";
+  const dialect = connDialect(connId);
   const [cat, fns, dbs] = await Promise.all([
     Explorer.Catalog(connId, database),
     cached(builtins, connId, () => Explorer.BuiltinFunctions(connId).then(arr)),
-    dialect === "mysql" ? cached(databases, connId, () => Explorer.ListDatabases(connId).then(arr)) : Promise.resolve([] as string[]),
+    databasesAsSchemas(dialect) ? cached(databases, connId, () => Explorer.ListDatabases(connId).then(arr)) : Promise.resolve([] as string[]),
   ]);
 
   // Group flattened columns by table.
@@ -75,7 +75,7 @@ async function loadCatalog(connId: string, database: string): Promise<Completion
     defaultSchema: dialect === "postgres" ? "public" : database,
     schemas: dialect === "postgres" ? arr(cat.schemas) : dbs,
     tables,
-    fks: arr(cat.fks).map((f) => ({ ...f, columns: arr(f.columns), refColumns: arr(f.refColumns), schema: f.schema || (dialect === "mysql" ? database : undefined), refSchema: f.refSchema || undefined })),
+    fks: arr(cat.fks).map((f) => ({ ...f, columns: arr(f.columns), refColumns: arr(f.refColumns), schema: f.schema || (databasesAsSchemas(dialect) ? database : undefined), refSchema: f.refSchema || undefined })),
     functions,
   };
 }
@@ -84,7 +84,7 @@ async function loadCatalog(connId: string, database: string): Promise<Completion
 async function catalogFor(ctx: EditorContext, extraDbs: string[] = []): Promise<CompletionCatalog | null> {
   const conn = connById(ctx.connId);
   if (!conn) return null;
-  const db = ctx.database ?? (conn.type === DBType.PostgreSQL ? conn.initialDatabase || "postgres" : "");
+  const db = ctx.database ?? (conn.type === DBType.PostgreSQL ? conn.initialDatabase || "postgres" : conn.type === DBType.SQLite ? "main" : "");
   if (!db) {
     // MySQL without a selected database: only databases are known.
     const dbs = await cached(databases, ctx.connId, () => Explorer.ListDatabases(ctx.connId).then(arr));
@@ -129,7 +129,7 @@ async function jsonCompletion(ctx: EditorContext, cat: CompletionCatalog, text: 
   if (!jp) return null;
   const target = resolveColumn(jp, analyze(text, offset, cat.dialect), cat);
   if (!target) return [];
-  const db = cat.dialect === "mysql" ? (target.schema ?? ctx.database ?? "") : (ctx.database ?? connById(ctx.connId)?.initialDatabase ?? "postgres");
+  const db = databasesAsSchemas(cat.dialect) ? (target.schema ?? ctx.database ?? "") : (ctx.database ?? connById(ctx.connId)?.initialDatabase ?? "postgres");
   const sampled = await sampleTree(ctx.connId, db, cat.dialect === "postgres" ? target.schema : undefined, target.table, target.column).catch(() => null);
   // Copy so paths from the text don't leak into the cached sample.
   const tree: KeyNode = sampled ? structuredClone(sampled) : buildKeyTree([]);
@@ -164,7 +164,7 @@ let registered = false;
 export function registerSqlCompletion() {
   if (registered) return;
   registered = true;
-  for (const lang of ["mysql", "pgsql"]) {
+  for (const lang of ["mysql", "pgsql", "sql"]) {
     monaco.languages.registerCompletionItemProvider(lang, {
       triggerCharacters: [".", "`", '"', "*", "'", "{", ","],
       async provideCompletionItems(model, position, context) {
@@ -185,7 +185,7 @@ export function registerSqlCompletion() {
 
         // "otherdb." in MySQL: load that database's tables and retry.
         const q = res.analysis.qualifier;
-        if (cat.dialect === "mysql" && q.length >= 1) {
+        if (databasesAsSchemas(cat.dialect) && q.length >= 1) {
           const db = q[q.length === 1 ? 0 : q.length - 2];
           const known = cat.schemas.some((s) => s.toLowerCase() === db.toLowerCase());
           if (known && db.toLowerCase() !== (cat.defaultSchema ?? "").toLowerCase()) {

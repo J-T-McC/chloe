@@ -35,10 +35,10 @@ export function FieldsTab(p: { table: Table; meta: D.Meta; dialect: Dialect; sel
               <th>Decimals</th>
               <th>Not Null</th>
               {dialect === "mysql" && <th title="Unsigned">Unsigned</th>}
-              {dialect === "mysql" && <th title="Auto Increment">Auto Inc</th>}
+              {dialect !== "postgres" && <th title="Auto Increment">Auto Inc</th>}
               <th>Key</th>
               <th>Default</th>
-              <th>Comment</th>
+              {dialect !== "sqlite" && <th>Comment</th>}
             </tr>
           </thead>
           <tbody>
@@ -65,11 +65,11 @@ export function FieldsTab(p: { table: Table; meta: D.Meta; dialect: Dialect; sel
                     <input type="checkbox" disabled={!/int|dec|num|float|double|real/i.test(c.type)} checked={!!c.unsigned} onChange={(e) => setCol(i, { unsigned: e.target.checked })} />
                   </td>
                 )}
-                {dialect === "mysql" && (
-                  <td className="center">
+                {dialect !== "postgres" && (
+                  <td className="center" title={dialect === "sqlite" ? "AUTOINCREMENT: only on an INTEGER PRIMARY KEY; never reuses deleted ids" : undefined}>
                     <input
                       type="checkbox"
-                      disabled={!/int/i.test(c.type)}
+                      disabled={dialect === "sqlite" ? !/^integer$/i.test(c.type.trim()) || !(pk.length === 1 && pk[0] === c.name) : !/int/i.test(c.type)}
                       checked={!!c.autoIncrement}
                       onChange={(e) => update((tb) => ({ ...tb, columns: tb.columns.map((x, j) => (j === i ? { ...x, autoIncrement: e.target.checked, default: e.target.checked ? undefined : x.default } : e.target.checked ? { ...x, autoIncrement: false } : x)) }))}
                     />
@@ -86,9 +86,11 @@ export function FieldsTab(p: { table: Table; meta: D.Meta; dialect: Dialect; sel
                 <td>
                   <DefaultInput column={c} dialect={dialect} onChange={(v) => setCol(i, { default: v })} />
                 </td>
-                <td>
-                  <input value={c.comment ?? ""} onChange={(e) => setCol(i, { comment: e.target.value })} />
-                </td>
+                {dialect !== "sqlite" && (
+                  <td>
+                    <input value={c.comment ?? ""} onChange={(e) => setCol(i, { comment: e.target.value })} />
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -199,7 +201,7 @@ function ColumnProperties({ column: c, meta, dialect, table, onChange }: { colum
             </select>
           </div>
         )}
-        {!mysql && (
+        {dialect === "postgres" && (
           <div className="prop">
             <span>Identity</span>
             <select value={c.identity ?? ""} onChange={(e) => onChange({ identity: e.target.value || undefined, default: e.target.value ? undefined : c.default })}>
@@ -209,7 +211,7 @@ function ColumnProperties({ column: c, meta, dialect, table, onChange }: { colum
             </select>
           </div>
         )}
-        {!mysql && c.identity && (
+        {dialect === "postgres" && c.identity && (
           <div className="identity-opts">
             {(["start", "increment", "min", "max", "cache"] as const).map((k) => (
               <div className="prop" key={k}>
@@ -316,7 +318,7 @@ export function IndexesTab({ table: t, meta, dialect, update }: { table: Table; 
             <th>Name</th>
             <th>Fields</th>
             <th>Type</th>
-            <th>Method</th>
+            {dialect !== "sqlite" && <th>Method</th>}
             {mysql ? <th>Comment</th> : <th>Where (partial)</th>}
             {mysql && <th>Invisible</th>}
             <th />
@@ -339,14 +341,16 @@ export function IndexesTab({ table: t, meta, dialect, update }: { table: Table; 
                   {mysql && <option value="spatial">Spatial</option>}
                 </select>
               </td>
-              <td>
-                <select value={ix.method ?? ""} onChange={(e) => set(i, { method: e.target.value || undefined })} disabled={ix.kind === "fulltext" || ix.kind === "spatial"}>
-                  <option value="">(default)</option>
-                  {arr(meta.indexMethods).map((m) => (
-                    <option key={m}>{m}</option>
-                  ))}
-                </select>
-              </td>
+              {dialect !== "sqlite" && (
+                <td>
+                  <select value={ix.method ?? ""} onChange={(e) => set(i, { method: e.target.value || undefined })} disabled={ix.kind === "fulltext" || ix.kind === "spatial"}>
+                    <option value="">(default)</option>
+                    {arr(meta.indexMethods).map((m) => (
+                      <option key={m}>{m}</option>
+                    ))}
+                  </select>
+                </td>
+              )}
               <td>
                 {mysql ? (
                   <input value={ix.comment ?? ""} onChange={(e) => set(i, { comment: e.target.value })} />
@@ -482,6 +486,8 @@ export function ForeignKeysTab({ table: t, refs, dialect, update }: { table: Tab
                 </td>
                 <td>
                   <input
+                    disabled={dialect === "sqlite"}
+                    title={dialect === "sqlite" ? "SQLite foreign keys reference tables in the same database" : undefined}
                     placeholder={pg ? t.schema : t.database}
                     value={(pg ? fk.refSchema : fk.refDatabase) ?? ""}
                     onChange={(e) => set(i, pg ? { refSchema: e.target.value || undefined } : { refDatabase: e.target.value || undefined })}
@@ -572,21 +578,25 @@ export function ChecksTab({ table: t, dialect, update }: { table: Table; dialect
 export function TriggersTab({ table: t, meta, dialect, update }: { table: Table; meta: D.Meta; dialect: Dialect; update: Update }) {
   const [sel, setSel] = useState(0);
   const mysql = dialect === "mysql";
+  const pg = dialect === "postgres";
   const tr = t.triggers[sel];
+  // MySQL and SQLite triggers fire on one event; SQLite's UPDATE can name columns (UPDATE OF a, b).
+  const oneEvent = !pg;
+  const updateOf = tr?.events[0]?.match(/^UPDATE OF (.*)$/i)?.[1] ?? "";
   const set = (patch: Partial<Trigger>) => update((tb) => ({ ...tb, triggers: tb.triggers.map((x, j) => (j === sel ? { ...x, ...patch } : x)) }));
   const add = () => {
     update((tb) => ({
       ...tb,
       triggers: [
         ...tb.triggers,
-        { name: uniqueName(`${tb.name || "t"}_trigger`, tb.triggers.map((x) => x.name)), timing: "BEFORE", events: ["INSERT"], forEachRow: true, body: mysql ? "BEGIN\n  \nEND" : "", function: "" },
+        { name: uniqueName(`${tb.name || "t"}_trigger`, tb.triggers.map((x) => x.name)), timing: "BEFORE", events: ["INSERT"], forEachRow: true, body: pg ? "" : "BEGIN\n  \nEND", function: "" },
       ],
     }));
     setSel(t.triggers.length);
   };
   const toggleEvent = (ev: string) => {
     if (!tr) return;
-    if (mysql) return set({ events: [ev] }); // MySQL triggers have exactly one event
+    if (oneEvent) return set({ events: [ev] });
     set({ events: tr.events.includes(ev) ? tr.events.filter((e) => e !== ev) : [...tr.events, ev] });
   };
   return (
@@ -633,13 +643,35 @@ export function TriggersTab({ table: t, meta, dialect, update }: { table: Table;
               <option>AFTER</option>
               {!mysql && <option>INSTEAD OF</option>}
             </select>
-            {["INSERT", "UPDATE", "DELETE", ...(mysql ? [] : ["TRUNCATE"])].map((ev) => (
+            {["INSERT", "UPDATE", "DELETE", ...(pg ? ["TRUNCATE"] : [])].map((ev) => (
               <label key={ev} className="check">
-                <input type={mysql ? "radio" : "checkbox"} checked={tr.events.includes(ev)} onChange={() => toggleEvent(ev)} /> {ev}
+                <input
+                  type={oneEvent ? "radio" : "checkbox"}
+                  checked={tr.events.includes(ev) || (ev === "UPDATE" && !!updateOf)}
+                  onChange={() => toggleEvent(ev)}
+                />{" "}
+                {ev}
               </label>
             ))}
           </div>
-          {!mysql && (
+          {dialect === "sqlite" && (tr.events[0] ?? "").toUpperCase().startsWith("UPDATE") && (
+            <div className="row">
+              <label>Of Columns</label>
+              <input
+                className="mono"
+                placeholder="(any column) e.g. status, total"
+                value={updateOf}
+                onChange={(e) => set({ events: [e.target.value.trim() ? `UPDATE OF ${e.target.value}` : "UPDATE"] })}
+              />
+            </div>
+          )}
+          {dialect === "sqlite" && (
+            <div className="row">
+              <label>When</label>
+              <input className="mono" placeholder="(optional) NEW.total > 0" value={tr.when ?? ""} onChange={(e) => set({ when: e.target.value })} />
+            </div>
+          )}
+          {pg && (
             <>
               <div className="row">
                 <label>For Each</label>
@@ -663,7 +695,7 @@ export function TriggersTab({ table: t, meta, dialect, update }: { table: Table;
               </div>
             </>
           )}
-          {mysql && (
+          {!pg && (
             <>
               <label>Definition</label>
               <textarea className="mono trigger-body" value={tr.body ?? ""} onChange={(e) => set({ body: e.target.value })} spellCheck={false} />
@@ -692,7 +724,20 @@ export function OptionsTab({ table: t, meta, dialect, update }: { table: Table; 
           <input value={t.name} onChange={(e) => update((tb) => ({ ...tb, name: e.target.value }))} />
         </div>
       </div>
-      {dialect === "mysql" ? (
+      {dialect === "sqlite" ? (
+        <>
+          <Opt label="">
+            <label className="check" title="Store rows in the primary key's B-tree; needs a primary key and no AUTOINCREMENT">
+              <input type="checkbox" checked={!!o.withoutRowid} onChange={(e) => set({ withoutRowid: e.target.checked })} /> WITHOUT ROWID
+            </label>
+          </Opt>
+          <Opt label="">
+            <label className="check" title="Enforce column types (INTEGER, REAL, TEXT, BLOB, ANY); SQLite 3.37+">
+              <input type="checkbox" checked={!!o.strict} onChange={(e) => set({ strict: e.target.checked })} /> STRICT
+            </label>
+          </Opt>
+        </>
+      ) : dialect === "mysql" ? (
         <>
           <Opt label="Engine">
             <select value={o.engine ?? ""} onChange={(e) => set({ engine: e.target.value })}>

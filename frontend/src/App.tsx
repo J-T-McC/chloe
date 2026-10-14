@@ -81,6 +81,9 @@ export default function App() {
 
   const selConnected = !!(selection?.connId && open[selection.connId]);
   const selRedis = connById(selection?.connId)?.type === DBType.Redis;
+  const selSQLite = connById(selection?.connId)?.type === DBType.SQLite;
+  // SQLite has no server to monitor.
+  const monitorable = Object.keys(open).filter((id) => connById(id)?.type !== DBType.SQLite);
 
   return (
     <div className="app">
@@ -106,9 +109,9 @@ export default function App() {
             disabled={!selection?.database || selRedis}
             onClick={() => selection && useApp.getState().select({ ...selection, kind: ObjectKind.KindTable, object: undefined })}
           />
-          <ToolButton icon={<UsersRound size={20} />} label="User" disabled={!selConnected || selRedis} onClick={() => selection && openUsers(selection.connId)} />
+          <ToolButton icon={<UsersRound size={20} />} label="User" disabled={!selConnected || selRedis || selSQLite} onClick={() => selection && openUsers(selection.connId)} />
           <ToolButton icon={<Shapes size={20} />} label="Model" onClick={(e) => modelMenu(e)} />
-          <ToolButton icon={<Activity size={20} />} label="Monitor" disabled={!Object.keys(open).length} onClick={() => openMonitor(selConnected ? selection!.connId : Object.keys(open)[0])} />
+          <ToolButton icon={<Activity size={20} />} label="Monitor" disabled={!monitorable.length} onClick={() => openMonitor(selConnected && !selSQLite ? selection!.connId : monitorable[0])} />
           <ToolButton
             icon={<Database size={20} />}
             label={selConnected ? "Disconnect" : "Connect"}

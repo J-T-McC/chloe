@@ -14,6 +14,8 @@ const (
 	MySQL Dialect = iota
 	Postgres
 	Generic
+	// SQLite: "", `` and [] identifiers; trigger bodies (BEGIN … END) hold semicolons.
+	SQLite
 )
 
 // Statement is one statement with its location in the original script.
@@ -32,7 +34,11 @@ func Split(script string, d Dialect) []Statement {
 	i := 0
 	n := len(script)
 
+	// SQLite trigger bodies: words seen in the statement and BEGIN/CASE … END depth.
+	words, depth := 0, 0
+	create, trigger := false, false
 	emit := func(end int) {
+		words, depth, create, trigger = 0, 0, false, false
 		raw := script[stmtStart:end]
 		trimmed := strings.TrimSpace(raw)
 		if trimmed != "" && !onlyComments(trimmed, d) {
@@ -102,14 +108,36 @@ func Split(script string, d Dialect) []Statement {
 				}
 				continue
 			}
-		case c == '[' && d == Generic:
+		case d == SQLite && isWordStart(c) && (i == 0 || !isWordChar(script[i-1])):
+			j := i + 1
+			for j < n && isWordChar(script[j]) {
+				j++
+			}
+			w := strings.ToUpper(script[i:j])
+			words++
+			switch {
+			case words == 1:
+				create = w == "CREATE"
+			case create && words <= 3 && w == "TRIGGER":
+				trigger = true
+			case trigger && (w == "BEGIN" || (w == "CASE" && depth > 0)):
+				depth++
+			case trigger && w == "END" && depth > 0:
+				depth--
+			}
+			i = j
+			continue
+		case c == '`' && d == SQLite:
+			i = skipQuoted(script, i, c, d)
+			continue
+		case c == '[' && (d == Generic || d == SQLite):
 			if j := strings.IndexByte(script[i:], ']'); j >= 0 {
 				i += j + 1
 				continue
 			}
 		}
 
-		if strings.HasPrefix(script[i:], delim) {
+		if strings.HasPrefix(script[i:], delim) && depth == 0 {
 			emit(i)
 			i += len(delim)
 			stmtStart = i
@@ -216,6 +244,9 @@ func dollarTag(s string, i int) (string, bool) {
 	}
 	return "", false
 }
+
+func isWordStart(c byte) bool { return c == '_' || (c|0x20 >= 'a' && c|0x20 <= 'z') }
+func isWordChar(c byte) bool  { return isWordStart(c) || (c >= '0' && c <= '9') || c == '$' }
 
 func hasPrefixFold(s, prefix string) bool {
 	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)

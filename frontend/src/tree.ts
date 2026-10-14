@@ -53,6 +53,8 @@ export interface RevealTarget {
 const MYSQL_FOLDERS = [ObjectKind.KindTable, ObjectKind.KindView, ObjectKind.KindFunction, ObjectKind.KindProcedure, ObjectKind.KindTrigger, ObjectKind.KindEvent];
 const PG_FOLDERS = [ObjectKind.KindTable, ObjectKind.KindView, ObjectKind.KindMatView, ObjectKind.KindFunction, ObjectKind.KindProcedure, ObjectKind.KindSequence, ObjectKind.KindTrigger, ObjectKind.KindType];
 
+const SQLITE_FOLDERS = [ObjectKind.KindTable, ObjectKind.KindView, ObjectKind.KindIndex, ObjectKind.KindTrigger];
+
 export const isPG = (connId: string) => connById(connId)?.type === DBType.PostgreSQL;
 
 async function loadChildren(n: TreeNode): Promise<TreeNode[]> {
@@ -72,7 +74,7 @@ async function loadChildren(n: TreeNode): Promise<TreeNode[]> {
         const schemas = arr(await Explorer.ListSchemas(n.connId, n.database!));
         return schemas.map((s) => ({ key: `${n.key}/${s}`, type: "schema", label: s, connId: n.connId, database: n.database, schema: s, depth: d, expandable: true }));
       }
-      return folders(n, MYSQL_FOLDERS);
+      return folders(n, connById(n.connId)?.type === DBType.SQLite ? SQLITE_FOLDERS : MYSQL_FOLDERS);
     case "schema":
       return folders(n, PG_FOLDERS);
     case "folder": {
@@ -147,6 +149,12 @@ export const useTree = create<TreeState>((set, get) => ({
   },
 
   async refresh(node) {
+    // Callers may pass a placeholder for the node; its children's indent comes
+    // from the node's real depth in the tree.
+    const real = Object.values(get().children)
+      .flat()
+      .find((c) => c.key === node.key);
+    if (real) node = { ...node, depth: real.depth };
     // Drop cached children of this node and everything below it.
     set((s) => {
       const children = { ...s.children };

@@ -38,7 +38,7 @@ export interface ExportOptions {
     "rowsPerInsert"?: number;
 
     /**
-     * mysql or postgres
+     * mysql, postgres or sqlite
      */
     "dialect"?: string;
 

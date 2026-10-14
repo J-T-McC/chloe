@@ -89,6 +89,12 @@ export interface Database {
      */
     "connLimit"?: number | null;
     "comment"?: string;
+
+    /**
+     * SQLite: the attached database file, created when Create is set.
+     */
+    "file"?: string;
+    "create"?: boolean;
 }
 
 /**
@@ -223,6 +229,12 @@ export interface Options {
      */
     "unlogged"?: boolean;
     "tablespace"?: string;
+
+    /**
+     * SQLite
+     */
+    "withoutRowid"?: boolean;
+    "strict"?: boolean;
 }
 
 export interface PrimaryKey {

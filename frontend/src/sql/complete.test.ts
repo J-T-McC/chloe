@@ -245,3 +245,28 @@ describe("enum values", () => {
     expect(enumsAt("select * from orders where customer_id = |")).toEqual([]);
   });
 });
+
+describe("sqlite dialect", () => {
+  it("quotes identifiers with double quotes", () => {
+    expect(quoteIdent("order items", "sqlite")).toBe('"order items"');
+    expect(quoteIdent("Orders", "sqlite")).toBe("Orders");
+    expect(quoteIdent("select", "sqlite")).toBe('"select"');
+  });
+  it("offers attached databases and SQLite starters", () => {
+    const cat: CompletionCatalog = {
+      dialect: "sqlite",
+      defaultSchema: "main",
+      schemas: ["main", "archive"],
+      tables: [{ schema: "main", name: "orders", kind: "table", columns: [{ name: "id", type: "INTEGER", pk: true }] }],
+      fks: [],
+      functions: [],
+    };
+    const from = complete("select * from ", 14, cat).suggestions.map((s) => s.label);
+    expect(from).toContain("orders");
+    expect(from).toContain("archive");
+    const start = complete("PRA", 3, cat).suggestions.map((s) => s.label);
+    expect(start).toContain("PRAGMA");
+    const cols = complete("select [o].| from orders o".replace("|", ""), 10, cat).suggestions.map((s) => s.label);
+    expect(cols).toContain("id");
+  });
+});

@@ -47,7 +47,7 @@ type ExportOptions struct {
 	// SQL INSERT export.
 	TableName     string `json:"tableName,omitempty"`     // target table, already quoted
 	RowsPerInsert int    `json:"rowsPerInsert,omitempty"` // extended inserts; default 100
-	Dialect       string `json:"dialect,omitempty"`       // mysql or postgres
+	Dialect       string `json:"dialect,omitempty"`       // mysql, postgres or sqlite
 	// OverridingSystemValue lets PostgreSQL inserts set GENERATED ALWAYS identity columns.
 	OverridingSystemValue bool `json:"overridingSystemValue,omitempty"`
 }
@@ -279,7 +279,7 @@ type sqlWriter struct {
 
 func (s *sqlWriter) Begin(cols []model.ResultColumn) error {
 	q := `"`
-	if s.dialect != "postgres" {
+	if s.dialect == "mysql" || s.dialect == "" {
 		q = "`"
 	}
 	names := make([]string, len(cols))
@@ -311,6 +311,13 @@ func Literal(v *string, typ string, dialect string) string {
 		if dialect == "postgres" {
 			return *v
 		}
+	}
+	if dialect == "sqlite" {
+		// Standard strings (no backslash escapes) and X'…' blobs.
+		if strings.HasPrefix(*v, "0x") && strings.Contains(t, "BLOB") {
+			return "X'" + (*v)[2:] + "'"
+		}
+		return "'" + strings.ReplaceAll(*v, "'", "''") + "'"
 	}
 	if strings.HasPrefix(*v, "0x") && (strings.Contains(t, "BLOB") || strings.Contains(t, "BINARY") || t == "BIT" || t == "GEOMETRY") {
 		return *v // MySQL hex literal

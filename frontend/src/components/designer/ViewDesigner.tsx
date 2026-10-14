@@ -9,6 +9,7 @@ import { beautifyEditor, registerFormatter } from "../../editor/format";
 import { Monaco, editorTheme, monaco } from "../../editor/monaco";
 import { Tab, connById, useApp } from "../../store";
 import { useTree } from "../../tree";
+import { connDialect, editorLanguage } from "../../dialect";
 import { confirm, prompt } from "../Dialogs";
 import { CodeBlock } from "../ObjectsPane";
 import { Messages, ResultGrid, RunState } from "../QueryEditor";
@@ -21,6 +22,7 @@ const same = (a: D.View | null, b: D.View | null) => JSON.stringify(a) === JSON.
 export function ViewDesigner({ tab }: { tab: Tab }) {
   const connId = tab.connId!;
   const pg = connById(connId)?.type === DBType.PostgreSQL;
+  const sqlite = connById(connId)?.type === DBType.SQLite;
   const isNew = !tab.ref?.name;
   const [original, setOriginal] = useState<D.View | null>(null);
   const [draft, setDraft] = useState<D.View | null>(null);
@@ -57,7 +59,7 @@ export function ViewDesigner({ tab }: { tab: Tab }) {
     if (!loaded || !host.current) return;
     registerSqlCompletion();
     registerFormatter();
-    const model = monaco.editor.createModel(draft!.definition, pg ? "pgsql" : "mysql");
+    const model = monaco.editor.createModel(draft!.definition, editorLanguage(connDialect(connId)));
     const editor = monaco.editor.create(host.current, {
       model,
       theme: editorTheme(),
@@ -204,7 +206,7 @@ export function ViewDesigner({ tab }: { tab: Tab }) {
   const result = run.results.find((r) => r.resultId);
   const sections: Array<[Section, string, boolean]> = [
     ["definition", "Definition", true],
-    ["advanced", "Advanced", true],
+    ["advanced", "Advanced", !sqlite],
     ["comment", "Comment", pg],
     ["sql", `SQL Preview${preview.statements.length ? ` (${preview.statements.length})` : ""}`, true],
   ];

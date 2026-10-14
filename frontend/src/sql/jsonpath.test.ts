@@ -3,7 +3,7 @@ import { analyze } from "./analyze";
 import { CompletionCatalog } from "./complete";
 import { ARRAY, buildKeyTree, jsonKeySuggestions, jsonPathContext, pathsInText, resolveColumn } from "./jsonpath";
 
-function ctxAt(sql: string, dialect: "mysql" | "postgres") {
+function ctxAt(sql: string, dialect: "mysql" | "postgres" | "sqlite") {
   const offset = sql.indexOf("|");
   return jsonPathContext(sql.replace("|", ""), offset, dialect);
 }
@@ -22,6 +22,12 @@ const labels = (sql: string, dialect: "mysql" | "postgres") => {
 };
 
 describe("json path context", () => {
+  it("parses SQLite json_extract, json_type and ->> paths", () => {
+    expect(ctxAt("select json_extract(attrs, '$.size.|') from t", "sqlite")).toMatchObject({ column: ["attrs"], path: ["size"], style: "jsonpath" });
+    expect(ctxAt("select json_type(\"attrs\", '$.co|') from t", "sqlite")).toMatchObject({ column: ["attrs"], prefix: "co" });
+    expect(ctxAt("select attrs ->> '$.items[0].|' from t", "sqlite")).toMatchObject({ path: ["items", ARRAY] });
+  });
+
   it("parses MySQL paths in JSON functions and -> operators", () => {
     expect(ctxAt("select JSON_EXTRACT(p.attrs, '$.size.|') from products p", "mysql")).toMatchObject({ column: ["p", "attrs"], path: ["size"], prefix: "", style: "jsonpath" });
     expect(ctxAt("select json_unquote(json_extract(attrs, '$.items[0].sk|'))", "mysql")).toMatchObject({ column: ["attrs"], path: ["items", ARRAY], prefix: "sk" });

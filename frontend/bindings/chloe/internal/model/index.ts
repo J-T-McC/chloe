@@ -9,6 +9,7 @@ export {
 
 export type {
     Advanced,
+    AttachedDB,
     Catalog,
     CatalogColumn,
     CatalogFK,
@@ -23,6 +24,7 @@ export type {
     Process,
     ResultColumn,
     RowPage,
+    SQLiteConfig,
     SSHConfig,
     SSLConfig,
     ServerInfo,

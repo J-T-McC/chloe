@@ -17,6 +17,7 @@ import (
 	"chloe/internal/core"
 	_ "chloe/internal/driver/mysql"
 	_ "chloe/internal/driver/postgres"
+	_ "chloe/internal/driver/sqlite"
 	"chloe/internal/model"
 	"chloe/internal/store"
 )

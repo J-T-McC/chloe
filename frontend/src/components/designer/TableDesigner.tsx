@@ -1,10 +1,11 @@
 import { Save } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { D, DBType, Design, ObjectKind, arr, errorText } from "../../api";
+import { D, Design, ObjectKind, arr, errorText } from "../../api";
 import { Dialect, Table, newTable, normalize, toWire } from "../../designer/model";
 import { invalidateCatalog } from "../../editor/completion";
 import { Tab, connById, useApp } from "../../store";
 import { useTree } from "../../tree";
+import { connDialect } from "../../dialect";
 import { confirm } from "../Dialogs";
 import { CodeBlock } from "../ObjectsPane";
 import { ChecksTab, FieldToolbar, FieldsTab, ForeignKeysTab, connectionRefs, IndexesTab, OptionsTab, TriggersTab, UniquesTab } from "./DesignerTabs";
@@ -13,7 +14,7 @@ type Section = "fields" | "indexes" | "foreignKeys" | "uniques" | "checks" | "tr
 
 export function TableDesigner({ tab }: { tab: Tab }) {
   const connId = tab.connId!;
-  const dialect: Dialect = connById(connId)?.type === DBType.PostgreSQL ? "postgres" : "mysql";
+  const dialect: Dialect = connDialect(connId);
   const isNew = !tab.ref?.name;
   const [original, setOriginal] = useState<Table | null>(null);
   const [draft, setDraft] = useState<Table | null>(null);
@@ -108,11 +109,11 @@ export function TableDesigner({ tab }: { tab: Tab }) {
     ["fields", "Fields", true],
     ["indexes", "Indexes", true],
     ["foreignKeys", "Foreign Keys", true],
-    ["uniques", "Uniques", dialect === "postgres"],
+    ["uniques", "Uniques", dialect !== "mysql"],
     ["checks", "Checks", true],
     ["triggers", "Triggers", true],
     ["options", "Options", true],
-    ["comment", "Comment", true],
+    ["comment", "Comment", dialect !== "sqlite"],
     ["sql", `SQL Preview${preview?.statements.length ? ` (${preview.statements.length})` : ""}`, true],
   ];
 

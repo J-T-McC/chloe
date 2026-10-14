@@ -41,6 +41,7 @@ type Connection struct {
 	Advanced  Advanced        `json:"advanced"`
 	SSH       SSHConfig       `json:"ssh"`
 	SSL       SSLConfig       `json:"ssl"`
+	SQLite    SQLiteConfig    `json:"sqlite"`
 	Remark    string          `json:"remark,omitempty"`
 }
 
@@ -109,6 +110,21 @@ type SSLConfig struct {
 	// MySQL: verify the server certificate against the CA.
 	VerifyHost bool   `json:"verifyHost"`
 	Cipher     string `json:"cipher,omitempty"` // MySQL: restrict to this cipher suite
+}
+
+// SQLiteConfig locates a SQLite connection's database files. The main file opens
+// as "main"; attached files appear as further databases.
+type SQLiteConfig struct {
+	Path string `json:"path,omitempty"`
+	// Create makes a new, empty database file when Path doesn't exist.
+	Create   bool         `json:"create,omitempty"`
+	Attached []AttachedDB `json:"attached,omitempty"`
+}
+
+// AttachedDB is a database file attached to a SQLite connection under Name.
+type AttachedDB struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
 }
 
 // DefaultPort returns the default server port for a database type.

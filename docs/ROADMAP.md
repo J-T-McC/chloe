@@ -47,7 +47,10 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 
 ## 7. More engines
 - [x] Redis: key browser, typed value editors, TTL, console, server monitor (pub/sub, cluster and sentinel still to do)
-- MongoDB, SQLite, SQL Server, Oracle (each must be testable in Docker; Snowflake is out of scope)
+- [x] SQLite: open or create database files, attach more files, tables/views/indexes/triggers,
+  table designer (ALTER where SQLite allows it, otherwise a table rebuild that keeps rows,
+  indexes, triggers and foreign keys), view designer, dump/execute SQL, import/export
+- MongoDB, SQL Server, Oracle (each must be testable in Docker; Snowflake is out of scope)
 
 ## 8. Advanced
 - Structure sync and data sync (diff + deploy script)

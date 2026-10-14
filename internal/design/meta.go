@@ -23,9 +23,20 @@ var PostgresTypes = []string{
 	"integer[]", "bigint[]", "text[]", "varchar[]", "uuid[]", "jsonb[]",
 }
 
+// SQLiteTypes are the type names SQLite tools conventionally offer; SQLite
+// accepts any name and maps it to an affinity (STRICT tables allow only the first six).
+var SQLiteTypes = []string{
+	"INTEGER", "REAL", "TEXT", "BLOB", "ANY", "INT",
+	"NUMERIC", "BOOLEAN", "DATE", "DATETIME", "TIMESTAMP", "TIME", "VARCHAR", "CHAR", "DECIMAL", "DOUBLE", "FLOAT", "BIGINT", "JSON",
+}
+
 // OfflineMeta is designer metadata for a dialect without a server to ask: built-in
 // types and the usual charsets, collations, engines and index methods.
 func OfflineMeta(dialect string) Meta {
+	if dialect == "sqlite" {
+		return Meta{Types: append([]string(nil), SQLiteTypes...),
+			Collations: []CollationInfo{{Name: "BINARY", Default: true}, {Name: "NOCASE"}, {Name: "RTRIM"}}}
+	}
 	if dialect == "postgres" {
 		return Meta{
 			Types:        append([]string(nil), PostgresTypes...),

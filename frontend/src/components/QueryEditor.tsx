@@ -9,6 +9,7 @@ import { Cell, DataGrid } from "./DataGrid";
 import { Split } from "./Split";
 import { ValuePanel } from "./ValuePanel";
 import { readFlag, writeFlag } from "../prefs";
+import { connDialect, editorLanguage } from "../dialect";
 import { openExport } from "./transfer/state";
 
 export interface RunState {
@@ -22,6 +23,7 @@ export function QueryEditor({ tab }: { tab: Tab }) {
   const connId = tab.connId!;
   const conn = connById(connId);
   const isPG = conn?.type === DBType.PostgreSQL;
+  const dialect = connDialect(connId);
   const host = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const decorations = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null);
@@ -29,7 +31,7 @@ export function QueryEditor({ tab }: { tab: Tab }) {
   const [sessionError, setSessionError] = useState("");
   const [dbs, setDbs] = useState<string[]>([]);
   const [schemas, setSchemas] = useState<string[]>([]);
-  const [database, setDatabase] = useState(tab.database ?? "");
+  const [database, setDatabase] = useState(tab.database ?? (dialect === "sqlite" ? "main" : ""));
   const [schema, setSchema] = useState(tab.schema ?? (isPG ? "public" : ""));
   const [run, setRun] = useState<RunState>({ results: [], running: false });
   const [resultTab, setResultTab] = useState(0);
@@ -42,7 +44,7 @@ export function QueryEditor({ tab }: { tab: Tab }) {
   useEffect(() => {
     registerSqlCompletion();
     registerFormatter();
-    const model = monaco.editor.createModel(tab.sql ?? "", isPG ? "pgsql" : "mysql");
+    const model = monaco.editor.createModel(tab.sql ?? "", editorLanguage(dialect));
     const editor = monaco.editor.create(host.current!, {
       model,
       theme: editorTheme(),

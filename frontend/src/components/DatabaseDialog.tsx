@@ -8,6 +8,7 @@ import { useTree } from "../tree";
 import { alert, confirm } from "./Dialogs";
 import { CodeBlock } from "./ObjectsPane";
 import { Combobox } from "./Combobox";
+import { pickSQLiteFile } from "./ConnectionDialog";
 
 const useDbDialog = create<{ target?: { connId: string; name?: string } }>(() => ({}));
 
@@ -18,7 +19,9 @@ const refreshConnection = (connId: string) =>
   useTree.getState().refresh({ key: connId, type: "conn", label: "", connId, depth: 0, expandable: true });
 
 export async function deleteDatabase(connId: string, name: string) {
-  if (!(await confirm(`Delete database ${name}?`, { message: "All of its tables and data are deleted. This can't be undone.", okLabel: "Delete" }))) return;
+  if (connById(connId)?.type === DBType.SQLite) {
+    if (!(await confirm(`Detach database ${name}?`, { message: "It's removed from this connection; the file stays on disk.", okLabel: "Detach" }))) return;
+  } else if (!(await confirm(`Delete database ${name}?`, { message: "All of its tables and data are deleted. This can't be undone.", okLabel: "Delete" }))) return;
   await useApp.getState().closeDatabase(connId, name);
   const res = await Design.DropDatabase(connId, name);
   if (res.error) return alert("Delete failed", res.error);
@@ -36,6 +39,7 @@ type DB = D.Database;
 
 function DatabaseDialogInner({ connId, editName }: { connId: string; editName?: string }) {
   const pg = connById(connId)?.type === DBType.PostgreSQL;
+  const sqlite = connById(connId)?.type === DBType.SQLite;
   const [meta, setMeta] = useState<D.DatabaseMeta | null>(null);
   const [original, setOriginal] = useState<DB | null>(null);
   const [d, setD] = useState<DB>({ name: "" });
@@ -102,7 +106,7 @@ function DatabaseDialogInner({ connId, editName }: { connId: string; editName?: 
   return (
     <div className="modal-backdrop" onMouseDown={close}>
       <div className="modal database-dialog" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === "Escape" && close()}>
-        <div className="modal-title">{editing ? `Edit Database — ${editName}` : "New Database"}</div>
+        <div className="modal-title">{sqlite ? "Attach Database" : editing ? `Edit Database — ${editName}` : "New Database"}</div>
         <div className="seg-tabs centered">
           <button className={tab === "general" ? "active" : ""} onClick={() => setTab("general")}>
             General
@@ -119,7 +123,34 @@ function DatabaseDialogInner({ connId, editName }: { connId: string; editName?: 
                 <input autoFocus value={d.name} disabled={editing && !pg} onChange={(e) => set({ name: e.target.value })} onKeyDown={(e) => e.key === "Enter" && ok()} />
               </div>
             </div>
-            {!pg && (
+            {sqlite && (
+              <>
+                <div className="field">
+                  <label>Database File</label>
+                  <div className="field-input row">
+                    <input value={d.file ?? ""} placeholder={d.create ? "where to create the file" : "path to a .db / .sqlite file"} onChange={(e) => set({ file: e.target.value })} />
+                    <button
+                      title="Browse…"
+                      onClick={async () => {
+                        const p = await pickSQLiteFile(!!d.create);
+                        if (p) set({ file: p, name: d.name || (p.split(/[\\/]/).pop() ?? "").replace(/\.[^.]*$/, "") });
+                      }}
+                    >
+                      Browse…
+                    </button>
+                  </div>
+                </div>
+                <div className="field">
+                  <label />
+                  <div className="field-input">
+                    <label className="check">
+                      <input type="checkbox" checked={!!d.create} onChange={(e) => set({ create: e.target.checked })} /> Create a new database file
+                    </label>
+                  </div>
+                </div>
+              </>
+            )}
+            {!pg && !sqlite && (
               <>
                 {select("Character Set", d.charset, arr(meta?.charsets), (v) => set({ charset: v || undefined, collation: undefined }), meta?.defaultCharset ? `(default: ${meta.defaultCharset})` : "")}
                 {select("Collation", d.collation, collations.map((c) => c.name), (v) => set({ collation: v || undefined }), !d.charset && meta?.defaultCollation ? `(default: ${meta.defaultCollation})` : collations.find((c) => c.default) ? `(default: ${collations.find((c) => c.default)!.name})` : "")}

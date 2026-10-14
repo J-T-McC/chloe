@@ -5,7 +5,7 @@ import { RedisBrowser } from "./redis/RedisBrowser";
 import { RedisDatabases } from "./redis/RedisDatabases";
 import { designTable, newTable, runTableAction } from "../tableActions";
 import { newView, viewDesign } from "./designer/ViewDesigner";
-import { objectsAreaMenu, openERD, tableMenu, viewMenu } from "../menus";
+import { objectsAreaMenu, openERD, tableChildMenu, tableMenu, viewMenu } from "../menus";
 import { openExport, openImport } from "./transfer/state";
 import { editorTheme, monaco } from "../editor/monaco";
 import { connById, dbKey, useApp } from "../store";
@@ -260,6 +260,8 @@ function SqlObjectsPane() {
                     const refs = objects.filter((x) => names.includes(x.name)).map(refOfObj);
                     if (o.kind === ObjectKind.KindTable) return openMenu(e, tableMenu(sel.connId, refs));
                     if (o.kind === ObjectKind.KindView || o.kind === ObjectKind.KindMatView) return openMenu(e, viewMenu(sel.connId, refOfObj(o)));
+                    if (o.kind === ObjectKind.KindIndex || (o.kind === ObjectKind.KindTrigger && connById(sel.connId)?.type === DBType.SQLite))
+                      return openMenu(e, tableChildMenu(sel.connId, refOfObj(o), (o.comment ?? "").replace(/^ON /, "")));
                     openMenu(e, [
                       { label: "Show DDL", onClick: () => useApp.getState().openTab({ kind: "ddl", title: o.name, connId: sel.connId, database: sel.database, schema: o.schema || sel.schema, ref: refOfObj(o) }) },
                       { label: "New Query", onClick: () => newQuery(sel.connId, sel.database, sel.schema) },

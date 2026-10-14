@@ -1,9 +1,9 @@
 import { format } from "sql-formatter";
 import { Monaco, monaco } from "./monaco";
 
-const LANG = { mysql: "mysql", pgsql: "postgresql" } as const;
+const LANG = { mysql: "mysql", pgsql: "postgresql", sql: "sqlite" } as const;
 
-/** Pretty-print SQL in the given Monaco language ("mysql" or "pgsql"). */
+/** Pretty-print SQL in the given Monaco language ("mysql", "pgsql" or "sql" for SQLite). */
 export function beautify(sql: string, language: string): string {
   return format(sql, {
     language: LANG[language as keyof typeof LANG] ?? "sql",
@@ -35,7 +35,7 @@ let registered = false;
 export function registerFormatter() {
   if (registered) return;
   registered = true;
-  for (const lang of ["mysql", "pgsql"]) {
+  for (const lang of ["mysql", "pgsql", "sql"]) {
     monaco.languages.registerDocumentRangeFormattingEditProvider(lang, {
       provideDocumentRangeFormattingEdits(model, range) {
         return [{ range, text: beautify(model.getValueInRange(range), lang) }];

@@ -139,7 +139,7 @@ const RESERVED = new Set(
 export function quoteIdent(name: string, d: DialectName, force = false): string {
   const plain = d === "postgres" ? /^[a-z_][a-z0-9_$]*$/ : /^[A-Za-z_][A-Za-z0-9_$]*$/;
   if (!force && plain.test(name) && !RESERVED.has(name.toLowerCase())) return name;
-  const q = d === "postgres" ? '"' : "`";
+  const q = d === "mysql" ? "`" : '"';
   return q + name.split(q).join(q + q) + q;
 }
 
@@ -177,6 +177,7 @@ const STATEMENT_STARTERS: Array<[string, string?]> = [
   ["ROLLBACK"],
 ];
 const MYSQL_STARTERS = ["SHOW TABLES", "SHOW DATABASES", "SHOW CREATE TABLE", "SHOW PROCESSLIST", "SHOW VARIABLES LIKE", "DESCRIBE", "USE", "CALL", "REPLACE INTO"];
+const SQLITE_STARTERS = ["PRAGMA", "ATTACH DATABASE", "DETACH DATABASE", "VACUUM", "ANALYZE", "REINDEX", "EXPLAIN QUERY PLAN", "REPLACE INTO"];
 const PG_STARTERS = ["SET search_path TO", "VACUUM", "ANALYZE", "COPY", "CREATE SCHEMA", "CREATE EXTENSION", "DO", "LISTEN", "NOTIFY"];
 
 const AFTER_TABLE = ["WHERE", "INNER JOIN", "LEFT JOIN", "RIGHT JOIN", "CROSS JOIN", "JOIN", "GROUP BY", "ORDER BY", "LIMIT", "AS", "ON", "USING", "UNION", "UNION ALL", "HAVING", "FULL OUTER JOIN"];
@@ -186,6 +187,7 @@ const VALUE_KEYWORDS = ["NOT", "EXISTS", "CASE", "WHEN", "THEN", "ELSE", "END", 
 const OPERATORS_COMMON = ["AND", "OR", "LIKE", "NOT LIKE", "IN", "NOT IN", "BETWEEN", "NOT BETWEEN", "IS NULL", "IS NOT NULL", "IS TRUE", "IS FALSE"];
 const OPERATORS: Record<DialectName, string[]> = {
   mysql: [...OPERATORS_COMMON, "REGEXP", "NOT REGEXP", "RLIKE", "NOT RLIKE", "SOUNDS LIKE", "MEMBER OF", "DIV", "MOD", "XOR", "COLLATE"],
+  sqlite: [...OPERATORS_COMMON, "GLOB", "NOT GLOB", "REGEXP", "MATCH", "IS DISTINCT FROM", "IS NOT DISTINCT FROM", "COLLATE"],
   postgres: [...OPERATORS_COMMON, "ILIKE", "NOT ILIKE", "SIMILAR TO", "NOT SIMILAR TO", "IS DISTINCT FROM", "IS NOT DISTINCT FROM", "COLLATE", "AT TIME ZONE"],
 };
 const EXPR_KEYWORDS = [...VALUE_KEYWORDS, "AND", "OR", "IN", "IS NULL", "IS NOT NULL", "LIKE", "BETWEEN", "AS"];
@@ -256,7 +258,7 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
     }
     if (withSchemas && schemaFilter === undefined) {
       for (const s of cat.schemas) {
-        out.push({ label: s, kind: "schema", insertText: quoteIdent(s, d) + ".", detail: d === "mysql" ? "database" : "schema", rank: rank + 3, retrigger: true });
+        out.push({ label: s, kind: "schema", insertText: quoteIdent(s, d) + ".", detail: d === "postgres" ? "schema" : "database", rank: rank + 3, retrigger: true });
       }
     }
   };
@@ -359,7 +361,7 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
       for (const [label, snip] of STATEMENT_STARTERS) {
         if (snip) out.push({ label: label + "…", kind: "snippet", insertText: snip, snippet: true, rank: 0.5, filterText: label, retrigger: true });
       }
-      out.push(...kw(d === "mysql" ? MYSQL_STARTERS : PG_STARTERS, 1, opts));
+      out.push(...kw(d === "mysql" ? MYSQL_STARTERS : d === "sqlite" ? SQLITE_STARTERS : PG_STARTERS, 1, opts));
       break;
 
     case "from": {

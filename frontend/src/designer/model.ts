@@ -19,7 +19,7 @@ export type Table = Omit<D.Table, "columns" | "indexes" | "uniques" | "foreignKe
   triggers: Trigger[];
   primaryKey?: PrimaryKey;
 };
-export type Dialect = "mysql" | "postgres";
+export type Dialect = "mysql" | "postgres" | "sqlite";
 
 const arr = <T,>(x: T[] | null | undefined): T[] => x ?? [];
 
@@ -41,6 +41,7 @@ export function normalize(t: D.Table): Table {
 export function newColumn(d: Dialect, taken: string[]): Column {
   let name = "column";
   for (let i = 1; taken.includes(name); i++) name = `column${i}`;
+  if (d === "sqlite") return { name, origName: "", type: "TEXT", nullable: true };
   return { name, origName: "", type: d === "postgres" ? "text" : "varchar", length: d === "postgres" ? "" : "255", nullable: true };
 }
 
@@ -48,7 +49,9 @@ export function newTable(d: Dialect, database: string, schema: string | undefine
   const id: Column =
     d === "postgres"
       ? { name: "id", origName: "", type: "bigint", nullable: false, identity: "by default" }
-      : { name: "id", origName: "", type: "bigint", unsigned: true, nullable: false, autoIncrement: true };
+      : d === "sqlite"
+        ? { name: "id", origName: "", type: "INTEGER", nullable: false }
+        : { name: "id", origName: "", type: "bigint", unsigned: true, nullable: false, autoIncrement: true };
   return normalize({
     database,
     schema,

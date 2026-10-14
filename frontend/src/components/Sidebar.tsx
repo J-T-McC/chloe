@@ -10,7 +10,7 @@ import { MenuItem, openMenu } from "./ContextMenu";
 import { alert, confirm, prompt } from "./Dialogs";
 import { ConnIcon, KindIcon } from "./icons";
 import { newTable } from "../tableActions";
-import { databaseTools, objectsAreaMenu, tableMenu, viewMenu } from "../menus";
+import { databaseTools, objectsAreaMenu, tableChildMenu, tableMenu, viewMenu } from "../menus";
 import { deleteDatabase, openDatabaseDialog } from "./DatabaseDialog";
 import { openExecuteFile } from "./transfer/state";
 
@@ -217,10 +217,12 @@ export function newQuery(connId: string, database?: string, schema?: string, sql
 
 /** "SELECT * FROM table;" with the table quoted for the connection's dialect. */
 export function selectAllSQL(connId: string, ref: ObjectRef) {
-  const pg = connById(connId)?.type === "postgres";
-  const q = pg ? '"' : "`";
+  const type = connById(connId)?.type;
+  const pg = type === "postgres";
+  const q = pg || type === "sqlite" ? '"' : "`";
   const qi = (s: string) => (/^[a-z_][a-z0-9_]*$/.test(s) ? s : q + s.split(q).join(q + q) + q);
-  const name = pg && ref.schema && ref.schema !== "public" ? `${qi(ref.schema)}.${qi(ref.name)}` : qi(ref.name);
+  const qualifier = pg ? (ref.schema && ref.schema !== "public" ? ref.schema : "") : type === "sqlite" && ref.database !== "main" ? ref.database : "";
+  const name = qualifier ? `${qi(qualifier)}.${qi(ref.name)}` : qi(ref.name);
   return `SELECT * FROM ${name};`;
 }
 
@@ -330,6 +332,7 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
     case "conn": {
       const c = connById(n.connId)!;
       if (c.type === DBType.Redis) return redisConnMenu(n, c, connected);
+      const lite = c.type === DBType.SQLite;
       return [
         connected
           ? { label: "Close Connection", onClick: () => { app.disconnect(n.connId); tree.collapseConnection(n.connId); } }
@@ -339,12 +342,16 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
         { label: "Delete Connection…", danger: true, onClick: () => deleteConnection(c) },
         { label: "Duplicate Connection", onClick: async () => { await Connections.Duplicate(c.id); await reload(); } },
         { separator: true },
-        { label: "New Database…", disabled: !connected, onClick: () => openDatabaseDialog(n.connId) },
+        { label: lite ? "Attach Database…" : "New Database…", disabled: !connected, onClick: () => openDatabaseDialog(n.connId) },
         { label: "New Query", disabled: !connected, shortcut: "⌘T", onClick: () => newQuery(n.connId) },
         { separator: true },
-        { label: "Execute SQL File…", disabled: !connected, onClick: () => openExecuteFile(n.connId, "") },
-        { label: c.type === "postgres" ? "Roles" : "Users", disabled: !connected, onClick: () => openUsers(n.connId) },
-        { label: "Server Monitor", disabled: !connected, onClick: () => openMonitor(n.connId) },
+        { label: "Execute SQL File…", disabled: !connected, onClick: () => openExecuteFile(n.connId, lite ? "main" : "") },
+        ...(lite
+          ? []
+          : [
+              { label: c.type === "postgres" ? "Roles" : "Users", disabled: !connected, onClick: () => openUsers(n.connId) },
+              { label: "Server Monitor", disabled: !connected, onClick: () => openMonitor(n.connId) },
+            ]),
         { label: "Connection Info…", disabled: !connected, onClick: () => showInfo(n.connId) },
         { separator: true },
         {
@@ -385,6 +392,7 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
     }
     case "db":
       if (n.count !== undefined) return redisDbMenu(n);
+      if (connById(n.connId)?.type === DBType.SQLite) return sqliteDbMenu(n, dbOpen);
       return [
         dbOpen
           ? { label: "Close Database", onClick: () => tree.closeDatabase(n) }
@@ -421,6 +429,8 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
       const ref = refOf(n);
       if (n.kind === ObjectKind.KindTable) return tableMenu(n.connId, [ref]);
       if (n.kind === ObjectKind.KindView || n.kind === ObjectKind.KindMatView) return viewMenu(n.connId, ref);
+      if (n.kind === ObjectKind.KindIndex || (n.kind === ObjectKind.KindTrigger && connById(n.connId)?.type === DBType.SQLite))
+        return tableChildMenu(n.connId, ref, (n.info?.comment ?? "").replace(/^ON /, ""));
       return [
         { label: "Show DDL", onClick: () => app.openTab({ kind: "ddl", title: n.info!.name, connId: n.connId, database: n.database, schema: n.schema, ref }) },
         { label: "New Query", onClick: () => newQuery(n.connId, n.database, n.schema) },
@@ -432,6 +442,23 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
 }
 
 const isPGConn = (id: string) => connById(id)?.type === "postgres";
+
+function sqliteDbMenu(n: TreeNode, dbOpen: boolean): MenuItem[] {
+  const tree = useTree.getState();
+  return [
+    dbOpen ? { label: "Close Database", onClick: () => tree.closeDatabase(n) } : { label: "Open Database", onClick: () => tree.expand(n) },
+    { label: "Attach Database…", onClick: () => openDatabaseDialog(n.connId) },
+    ...(n.database === "main" ? [] : [{ label: "Detach Database", onClick: () => deleteDatabase(n.connId, n.database!) }]),
+    { separator: true },
+    { label: "New Query", onClick: () => newQuery(n.connId, n.database) },
+    { label: "New Table", onClick: () => newTable(n.connId, n.database!) },
+    { separator: true },
+    ...databaseTools(n.connId, n.database!),
+    { separator: true },
+    { label: "Copy Name", onClick: () => copy(n.label) },
+    { label: "Refresh", shortcut: "⌘R", disabled: !dbOpen, onClick: () => tree.refresh(n) },
+  ];
+}
 
 function redisConnMenu(n: TreeNode, c: Connection, connected: boolean): MenuItem[] {
   const app = useApp.getState();

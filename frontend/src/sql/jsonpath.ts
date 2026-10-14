@@ -49,6 +49,15 @@ const MYSQL_PATH_FUNCS: Record<string, (i: number) => boolean> = {
   JSON_ARRAY_INSERT: (i) => i % 2 === 1,
   JSON_SEARCH: (i) => i >= 4,
   JSON_TABLE: (i) => i === 1,
+  // SQLite
+  JSON_TYPE: (i) => i === 1,
+  JSON_EACH: (i) => i === 1,
+  JSON_TREE: (i) => i === 1,
+  JSONB_EXTRACT: (i) => i >= 1,
+  JSONB_SET: (i) => i % 2 === 1,
+  JSONB_INSERT: (i) => i % 2 === 1,
+  JSONB_REPLACE: (i) => i % 2 === 1,
+  JSONB_REMOVE: (i) => i >= 1,
 };
 
 const PG_JSONPATH_FUNCS = new Set(
@@ -103,7 +112,8 @@ export function jsonPathContext(text: string, offset: number, dialect: DialectNa
   // Operators: col->'..', col->>'..', col #> '{..}', PG chains.
   if (prev.type === "op") {
     if (prev.text === "->" || prev.text === "->>") {
-      if (dialect === "mysql") {
+      if (dialect !== "postgres") {
+        // MySQL and SQLite: col->'$.path'
         const column = columnBefore(sig, si - 2);
         return column ? jsonpath(column, [], inner, offset) : null;
       }
@@ -127,7 +137,8 @@ export function jsonPathContext(text: string, offset: number, dialect: DialectNa
   const fn = call.name;
   const column = call.args[0].length ? columnBefore(call.args[0], call.args[0].length - 1) : null;
   if (!column || call.args[0].length > 3) return null;
-  if (dialect === "mysql") {
+  if (dialect !== "postgres") {
+    // SQLite's json_extract/json_set/json_type/... take MySQL-style paths too.
     const isPath = MYSQL_PATH_FUNCS[fn];
     if (!isPath || !isPath(call.argIndex)) return null;
     return jsonpath(column, [], inner, offset);

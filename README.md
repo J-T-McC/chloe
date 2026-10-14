@@ -2,7 +2,7 @@
 
 <h1 align="center">Chloe</h1>
 
-A fast desktop database client for MySQL, MariaDB, PostgreSQL and Redis (SQLite, MongoDB, SQL Server and Oracle planned).
+A fast desktop database client for MySQL, MariaDB, PostgreSQL, SQLite and Redis (MongoDB, SQL Server and Oracle planned).
 
 Built with Go and [Wails v3](https://v3.wails.io) (system webview), React and Monaco.
 
@@ -11,7 +11,7 @@ Built with Go and [Wails v3](https://v3.wails.io) (system webview), React and Mo
 | Path | What |
 |---|---|
 | `internal/core` | Connections, editor sessions, streamed result buffers, table browse and edits. No UI dependencies. |
-| `internal/driver/{mysql,postgres}` | Engine drivers: metadata, DDL, sessions, cancel. |
+| `internal/driver/{mysql,postgres,sqlite}` | Engine drivers: metadata, DDL, sessions, cancel. |
 | `internal/tunnel` | Direct and SSH dialers. |
 | `internal/store` | Saved connections (JSON) with secrets in the OS keychain. |
 | `internal/sqlsplit` | Dialect-aware statement splitter (DELIMITER, `$$`, comments). |

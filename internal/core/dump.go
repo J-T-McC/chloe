@@ -121,8 +121,11 @@ func (d *dumper) run(ctx context.Context) error {
 		fmt.Fprintf(d.w, "-- Schema: %s\n", d.req.Schema)
 	}
 	fmt.Fprintf(d.w, "-- Date: %s\n", time.Now().Format(time.RFC3339))
-	if d.pg() {
+	switch d.d.Name {
+	case "postgres":
 		return d.runPG(ctx, tables, all)
+	case "sqlite":
+		return d.runSQLite(ctx, tables, all)
 	}
 	return d.runMySQL(ctx, tables, all)
 }
@@ -188,6 +191,65 @@ func (d *dumper) runMySQL(ctx context.Context, tables []model.ObjectInfo, all bo
 		}
 	}
 	d.w.WriteString("\nSET FOREIGN_KEY_CHECKS = 1;\n")
+	return nil
+}
+
+// runSQLite writes tables, then data, then indexes, views and triggers, in one
+// transaction with foreign keys off, using the statements SQLite stored.
+func (d *dumper) runSQLite(ctx context.Context, tables []model.ObjectInfo, all bool) error {
+	d.w.WriteString("\nPRAGMA foreign_keys = OFF;\nBEGIN TRANSACTION;\n")
+	var later []string
+	for _, t := range tables {
+		if t.Engine == "virtual" {
+			continue
+		}
+		ref := d.ref(t.Name, model.KindTable)
+		ddl, err := d.c.DDL(ctx, ref)
+		if err != nil {
+			return fmt.Errorf("%s: %w", t.Name, err)
+		}
+		// DDL returns the table followed by its indexes and triggers.
+		stmts := sqlsplit.Split(ddl, sqlsplit.SQLite)
+		if len(stmts) == 0 {
+			continue
+		}
+		d.section("Table structure for " + t.Name)
+		fmt.Fprintf(d.w, "DROP TABLE IF EXISTS %s;\n%s;\n", d.d.QuoteIdent(t.Name), stmts[0].SQL)
+		for _, st := range stmts[1:] {
+			later = append(later, st.SQL)
+		}
+		if d.req.Data {
+			td, err := d.c.LoadDesign(ctx, ref)
+			if err != nil {
+				return err
+			}
+			if err := d.data(ctx, td); err != nil {
+				return err
+			}
+		}
+		d.tables++
+	}
+	if len(later) > 0 {
+		d.section("Indexes and triggers")
+		for _, st := range later {
+			fmt.Fprintf(d.w, "%s;\n", st)
+		}
+	}
+	if all {
+		views, err := d.list(ctx, model.KindView)
+		if err != nil {
+			return err
+		}
+		for _, v := range views {
+			ddl, err := d.c.DDL(ctx, d.ref(v.Name, model.KindView))
+			if err != nil {
+				return err
+			}
+			d.section("View structure for " + v.Name)
+			fmt.Fprintf(d.w, "DROP VIEW IF EXISTS %s;\n%s\n", d.d.QuoteIdent(v.Name), ddl)
+		}
+	}
+	d.w.WriteString("\nCOMMIT;\nPRAGMA foreign_keys = ON;\n")
 	return nil
 }
 

@@ -23,6 +23,9 @@ type Database struct {
 	// ConnLimit is the connection limit; -1 (or nil) means unlimited.
 	ConnLimit *int   `json:"connLimit,omitempty"`
 	Comment   string `json:"comment,omitempty"`
+	// SQLite: the attached database file, created when Create is set.
+	File   string `json:"file,omitempty"`
+	Create bool   `json:"create,omitempty"`
 }
 
 // DatabaseMeta lists choices for the database dialog.
@@ -44,8 +47,11 @@ func DatabaseSQL(dialect string, old *Database, d Database) ([]string, error) {
 	if strings.TrimSpace(d.Name) == "" {
 		return nil, fmt.Errorf("enter a database name")
 	}
-	if dialect == "postgres" {
+	switch dialect {
+	case "postgres":
 		return pgDatabaseSQL(old, d)
+	case "sqlite":
+		return sqliteDatabaseSQL(old, d)
 	}
 	return myDatabaseSQL(old, d)
 }

@@ -3028,3 +3028,13 @@ table.mapping select {
   white-space: nowrap;
   text-align: center;
 }
+
+/* Radio choices on one line (SQLite connection type). */
+.radio-row {
+  gap: 18px;
+}
+
+.radio-row > label.check {
+  flex: none;
+  white-space: nowrap;
+}

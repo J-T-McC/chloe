@@ -3,10 +3,12 @@ package core
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"chloe/internal/datamodel"
 	"chloe/internal/design"
+	"chloe/internal/driver"
 	"chloe/internal/model"
 )
 
@@ -42,7 +44,7 @@ func (m *Manager) PreviewDesign(connID string, old *design.Table, nw design.Tabl
 		return DesignPreview{}, err
 	}
 	gen := c.DesignGenerator()
-	p := DesignPreview{Transactional: c.Dialect().Name == "postgres"}
+	p := DesignPreview{Transactional: c.Dialect().TransactionalDDL()}
 	if old == nil {
 		p.Statements, err = gen.Create(nw)
 		return p, err
@@ -102,6 +104,23 @@ func (m *Manager) ExecuteDDL(ctx context.Context, connID, database, schema strin
 		return res
 	}
 	defer ds.Close()
+	// A SQLite table rebuild drops the old table: foreign keys must not cascade
+	// or block it, and views naming the table must survive the rename. The
+	// session is discarded afterwards, so the pragmas don't leak.
+	rebuild := c.Dialect().Name == "sqlite" && slices.ContainsFunc(stmts, func(s string) bool { return strings.Contains(s, design.RebuildPrefix) })
+	var fkBefore map[string]int
+	if rebuild {
+		for _, p := range []string{"PRAGMA foreign_keys = OFF", "PRAGMA legacy_alter_table = ON"} {
+			if _, err := ds.Exec(ctx, p); err != nil {
+				res.Error = err.Error()
+				return res
+			}
+		}
+		if fkBefore, err = fkViolations(ctx, ds, database); err != nil {
+			res.Error = err.Error()
+			return res
+		}
+	}
 	if transactional {
 		if _, err := ds.Exec(ctx, "BEGIN"); err != nil {
 			res.Error = err.Error()
@@ -119,6 +138,22 @@ func (m *Manager) ExecuteDDL(ctx context.Context, connID, database, schema strin
 		}
 		res.Executed++
 	}
+	if rebuild {
+		after, err := fkViolations(ctx, ds, database)
+		if err == nil {
+			for table, n := range after {
+				if n > fkBefore[table] {
+					err = fmt.Errorf("the change breaks foreign keys: %d row(s) of %s no longer match their parent", n-fkBefore[table], table)
+					break
+				}
+			}
+		}
+		if err != nil {
+			_, _ = ds.Exec(ctx, "ROLLBACK")
+			res.Error, res.Executed = err.Error(), 0
+			return res
+		}
+	}
 	if transactional {
 		if _, err := ds.Exec(ctx, "COMMIT"); err != nil {
 			res.Error = err.Error()
@@ -126,6 +161,28 @@ func (m *Manager) ExecuteDDL(ctx context.Context, connID, database, schema strin
 		}
 	}
 	return res
+}
+
+// fkViolations counts rows breaking foreign keys, per child table (SQLite).
+func fkViolations(ctx context.Context, ds driver.Session, database string) (map[string]int, error) {
+	rows, err := ds.Query(ctx, "PRAGMA "+sqliteIdent(database)+".foreign_key_check")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	cell := make([]*string, len(rows.Columns()))
+	for rows.Next(cell) {
+		out[str(cell[0])]++
+	}
+	return out, rows.Err()
+}
+
+func sqliteIdent(s string) string {
+	if s == "" {
+		s = "main"
+	}
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
 // TableAction is a one-click table operation from the tree or object list.
@@ -159,6 +216,9 @@ func (m *Manager) TableActionSQL(connID string, ref model.ObjectRef, action Tabl
 	if (action == ActionRename || action == ActionDuplicate || action == ActionCopy) && strings.TrimSpace(newName) == "" {
 		return nil, fmt.Errorf("a new name is required")
 	}
+	if d.Name == "sqlite" {
+		return sqliteTableAction(c, ref, action, newName)
+	}
 	switch action {
 	case ActionDrop:
 		return []string{"DROP " + kind + " " + tbl}, nil
@@ -186,6 +246,62 @@ func (m *Manager) TableActionSQL(connID string, ref model.ObjectRef, action Tabl
 	return nil, fmt.Errorf("unknown table action %q", action)
 }
 
+// sqliteTableAction: SQLite has no TRUNCATE or CREATE TABLE … LIKE.
+func sqliteTableAction(c driver.Conn, ref model.ObjectRef, action TableAction, newName string) ([]string, error) {
+	d := c.Dialect()
+	tbl := d.Qualified(ref)
+	switch action {
+	case ActionDrop:
+		kind := map[model.ObjectKind]string{model.KindView: "VIEW", model.KindIndex: "INDEX", model.KindTrigger: "TRIGGER"}[ref.Kind]
+		if kind == "" {
+			kind = "TABLE"
+		}
+		return []string{"DROP " + kind + " " + tbl}, nil
+	case ActionTruncate, ActionEmpty:
+		return []string{"DELETE FROM " + tbl}, nil
+	case ActionRename:
+		return []string{"ALTER TABLE " + tbl + " RENAME TO " + d.QuoteIdent(newName)}, nil
+	case ActionDuplicate, ActionCopy:
+		t, err := c.LoadDesign(context.Background(), ref)
+		if err != nil {
+			return nil, err
+		}
+		// Index and trigger names are unique per database, so the copy's get the new table name.
+		rename := func(n string) string {
+			if strings.Contains(n, ref.Name) {
+				return strings.ReplaceAll(n, ref.Name, newName)
+			}
+			return newName + "_" + n
+		}
+		t.Name, t.OrigName = newName, ""
+		for i := range t.Indexes {
+			t.Indexes[i].Name = rename(t.Indexes[i].Name)
+		}
+		for i := range t.Triggers {
+			t.Triggers[i].Name = rename(t.Triggers[i].Name)
+		}
+		out, err := c.DesignGenerator().Create(t)
+		if err != nil {
+			return nil, err
+		}
+		if action == ActionCopy {
+			var cols []string
+			for _, col := range t.Columns {
+				if col.GeneratedExpr == "" {
+					cols = append(cols, d.QuoteIdent(col.Name))
+				}
+			}
+			list := strings.Join(cols, ", ")
+			target := d.Qualified(model.ObjectRef{Database: ref.Database, Name: newName})
+			// Rows go in before the triggers are created, so copying doesn't fire them.
+			n := 1 + len(t.Indexes)
+			out = slices.Insert(out, n, fmt.Sprintf("INSERT INTO %s (%s) SELECT %s FROM %s", target, list, list, tbl))
+		}
+		return out, nil
+	}
+	return nil, fmt.Errorf("unknown table action %q", action)
+}
+
 // RunTableAction executes a table operation.
 func (m *Manager) RunTableAction(ctx context.Context, connID string, ref model.ObjectRef, action TableAction, newName string) ApplyResult {
 	stmts, err := m.TableActionSQL(connID, ref, action, newName)
@@ -193,7 +309,7 @@ func (m *Manager) RunTableAction(ctx context.Context, connID string, ref model.O
 		return ApplyResult{Error: err.Error()}
 	}
 	c, _ := m.conn(connID)
-	return m.ExecuteDDL(ctx, connID, ref.Database, ref.Schema, stmts, c.Dialect().Name == "postgres")
+	return m.ExecuteDDL(ctx, connID, ref.Database, ref.Schema, stmts, c.Dialect().TransactionalDDL())
 }
 
 // MaintainOp is a table maintenance operation (Navicat's Maintain menu).
@@ -209,6 +325,50 @@ const (
 	MaintainVacuumAnalyz MaintainOp = "vacuum_analyze"
 	MaintainReindex      MaintainOp = "reindex" // PostgreSQL
 )
+
+// sqliteMaintain runs ANALYZE, REINDEX, VACUUM (whole database) or an integrity check.
+func sqliteMaintain(ctx context.Context, ds driver.Session, refs []model.ObjectRef, op MaintainOp) ([]MaintainResult, error) {
+	var out []MaintainResult
+	for _, r := range refs {
+		db, name := sqliteIdent(r.Database), sqliteIdent(r.Name)
+		var stmt string
+		switch op {
+		case MaintainAnalyze:
+			stmt = "ANALYZE " + db + "." + name
+		case MaintainReindex:
+			stmt = "REINDEX " + db + "." + name
+		case MaintainCheck:
+			stmt = "PRAGMA " + db + ".integrity_check(" + name + ")"
+		case MaintainVacuum:
+			stmt = "VACUUM " + db
+		default:
+			return nil, fmt.Errorf("%s isn't available for SQLite", op)
+		}
+		rows, err := ds.Query(ctx, stmt)
+		if err != nil {
+			out = append(out, MaintainResult{Table: r.Name, Status: "error", Message: err.Error()})
+			continue
+		}
+		msg := "OK"
+		cell := make([]*string, len(rows.Columns()))
+		var lines []string
+		for rows.Next(cell) {
+			if len(cell) > 0 && str(cell[0]) != "ok" {
+				lines = append(lines, str(cell[0]))
+			}
+		}
+		rows.Close()
+		status := "ok"
+		if len(lines) > 0 {
+			status, msg = "error", strings.Join(lines, "; ")
+		}
+		out = append(out, MaintainResult{Table: r.Name, Status: status, Message: msg})
+		if op == MaintainVacuum {
+			break // VACUUM covers the whole database
+		}
+	}
+	return out, nil
+}
 
 // MaintainResult is one line of maintenance output.
 type MaintainResult struct {
@@ -233,6 +393,9 @@ func (m *Manager) Maintain(ctx context.Context, connID string, refs []model.Obje
 	}
 	defer ds.Close()
 	var out []MaintainResult
+	if d.Name == "sqlite" {
+		return sqliteMaintain(ctx, ds, refs, op)
+	}
 	if d.Name != "postgres" {
 		kw := map[MaintainOp]string{MaintainAnalyze: "ANALYZE", MaintainCheck: "CHECK", MaintainOptimize: "OPTIMIZE", MaintainRepair: "REPAIR"}[op]
 		if kw == "" {
@@ -347,7 +510,7 @@ func (m *Manager) ApplyModelSync(ctx context.Context, connID string, to datamode
 	if err != nil {
 		return ApplyResult{Error: err.Error()}
 	}
-	return m.ExecuteDDL(ctx, connID, to.Database, to.Schema, plan.Statements(), c.Dialect().Name == "postgres")
+	return m.ExecuteDDL(ctx, connID, to.Database, to.Schema, plan.Statements(), c.Dialect().TransactionalDDL())
 }
 
 func tableRef(database, schema, name string) model.ObjectRef {
@@ -388,6 +551,13 @@ func (m *Manager) ApplyDatabase(ctx context.Context, connID string, old *design.
 		return ApplyResult{Error: err.Error()}
 	}
 	c, _ := m.conn(connID)
+	if a, ok := c.(driver.Attacher); ok {
+		if err := a.Attach(ctx, d.Name, d.File, d.Create); err != nil {
+			return ApplyResult{Error: err.Error()}
+		}
+		m.saveAttachments(connID, a)
+		return ApplyResult{Executed: 1}
+	}
 	if old != nil && old.Name != d.Name {
 		// PostgreSQL can't rename a database we hold connections to.
 		c.CloseDatabase(old.Name)
@@ -401,8 +571,32 @@ func (m *Manager) DropDatabase(ctx context.Context, connID, name string) ApplyRe
 	if err != nil {
 		return ApplyResult{Error: err.Error()}
 	}
+	if a, ok := c.(driver.Attacher); ok {
+		// SQLite: detach; the file stays on disk.
+		if err := a.Detach(ctx, name); err != nil {
+			return ApplyResult{Error: err.Error()}
+		}
+		m.saveAttachments(connID, a)
+		return ApplyResult{Executed: 1}
+	}
 	c.CloseDatabase(name)
 	return m.ExecuteDDL(ctx, connID, "", "", []string{"DROP DATABASE " + c.Dialect().QuoteIdent(name)}, false)
+}
+
+// saveAttachments records a SQLite connection's attached files in its profile,
+// so they're attached again next time.
+func (m *Manager) saveAttachments(connID string, a driver.Attacher) {
+	p, err := m.Store.Get(connID)
+	if err != nil {
+		return
+	}
+	p.SQLite.Attached = a.Attached()
+	_, _ = m.Store.Save(p)
+	m.mu.Lock()
+	if oc, ok := m.conns[connID]; ok {
+		oc.profile.SQLite.Attached = p.SQLite.Attached
+	}
+	m.mu.Unlock()
 }
 
 // LoadView reads a view for the view designer.
@@ -420,9 +614,8 @@ func (m *Manager) PreviewView(connID string, old *design.View, v design.View) (D
 	if err != nil {
 		return DesignPreview{}, err
 	}
-	pg := c.Dialect().Name == "postgres"
 	stmts, warns, err := design.ViewSQL(c.Dialect().Name, old, v)
-	return DesignPreview{Statements: stmts, Warnings: warns, Transactional: pg}, err
+	return DesignPreview{Statements: stmts, Warnings: warns, Transactional: c.Dialect().TransactionalDDL()}, err
 }
 
 // ApplyView saves a view and returns it re-read from the server.

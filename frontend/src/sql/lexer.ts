@@ -1,7 +1,7 @@
 // A small, forgiving SQL tokenizer used by autocomplete. It never throws: incomplete
 // strings and comments simply run to the end of the input.
 
-export type DialectName = "mysql" | "postgres";
+export type DialectName = "mysql" | "postgres" | "sqlite";
 
 export type TokenType =
   | "word" // identifier or keyword
@@ -58,11 +58,17 @@ export function tokenize(sql: string, dialect: DialectName): Token[] {
       continue;
     }
     if (c === "'" || (c === '"' && dialect === "mysql")) {
-      i = skipString(sql, i, c, dialect === "mysql" || (i > 0 && /[eE]/.test(sql[i - 1])));
+      i = skipString(sql, i, c, dialect === "mysql" || (dialect === "postgres" && i > 0 && /[eE]/.test(sql[i - 1])));
       push("string", start, i);
       continue;
     }
-    if (c === "`" || (c === '"' && dialect === "postgres")) {
+    if (c === "[" && dialect === "sqlite") {
+      const end = sql.indexOf("]", i + 1);
+      i = end < 0 ? n : end + 1;
+      push("quoted", start, i, sql.slice(start + 1, end < 0 ? n : end));
+      continue;
+    }
+    if (c === "`" || (c === '"' && dialect !== "mysql")) {
       i = skipString(sql, i, c, false);
       const closed = sql[i - 1] === c && i - start > 1;
       const inner = sql.slice(start + 1, closed ? i - 1 : i).split(c + c).join(c);

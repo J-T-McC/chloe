@@ -45,8 +45,11 @@ func ViewSQL(dialect string, old *View, v View) (stmts, warnings []string, err e
 	if v.definition() == "" {
 		return nil, nil, fmt.Errorf("enter the view's SELECT statement")
 	}
-	if dialect == "postgres" {
+	switch dialect {
+	case "postgres":
 		return pgViewSQL(old, v)
+	case "sqlite":
+		return sqliteViewSQL(old, v)
 	}
 	if v.Materialized {
 		return nil, nil, fmt.Errorf("MySQL has no materialized views")

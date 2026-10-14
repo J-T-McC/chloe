@@ -79,6 +79,18 @@ type Conn interface {
 	Status(ctx context.Context) ([]model.ServerVar, error)
 }
 
+// Attacher is implemented by SQLite, whose databases are files attached to the connection.
+type Attacher interface {
+	Attach(ctx context.Context, name, path string, create bool) error
+	Detach(ctx context.Context, name string) error
+	Attached() []model.AttachedDB
+	// Path is the main database file.
+	Path() string
+}
+
+// TransactionalDDL reports whether DDL can run inside a transaction (all but MySQL).
+func (d Dialect) TransactionalDDL() bool { return d.Name != "mysql" }
+
 // Session is a single dedicated server connection.
 type Session interface {
 	// Query executes one statement. If it produces rows, the returned Rows must be closed.

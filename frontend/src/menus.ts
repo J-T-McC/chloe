@@ -5,7 +5,7 @@ import { newView, viewDesign } from "./components/designer/ViewDesigner";
 import { openSetPrivileges } from "./components/users/SetPrivilegesDialog";
 import { useTree } from "./tree";
 import { MenuItem } from "./components/ContextMenu";
-import { alert } from "./components/Dialogs";
+import { alert, confirm } from "./components/Dialogs";
 import { newQuery, openObject, selectAllSQL } from "./components/Sidebar";
 import { openExecuteFile, openExport, openImport, track } from "./components/transfer/state";
 import { connById, useApp } from "./store";
@@ -13,6 +13,7 @@ import { designTable, newTable, runTableAction } from "./tableActions";
 import { reverseToModel } from "./components/model/actions";
 
 const isPG = (connId: string) => connById(connId)?.type === DBType.PostgreSQL;
+const isSQLite = (connId: string) => connById(connId)?.type === DBType.SQLite;
 
 /** Dump SQL File for a whole database/schema (tables empty) or chosen tables. */
 export async function dumpSQL(connId: string, database: string, schema: string | undefined, tables: string[], data: boolean) {
@@ -36,7 +37,14 @@ async function maintain(connId: string, refs: ObjectRef[], op: MaintainOp, label
 }
 
 function maintainMenu(connId: string, refs: ObjectRef[]): MenuItem[] {
-  const items: Array<[MaintainOp, string]> = isPG(connId)
+  const items: Array<[MaintainOp, string]> = isSQLite(connId)
+    ? [
+        [MaintainOp.MaintainAnalyze, "Analyze Table"],
+        [MaintainOp.MaintainCheck, "Check Integrity"],
+        [MaintainOp.MaintainReindex, "Reindex Table"],
+        [MaintainOp.MaintainVacuum, "Vacuum Database"],
+      ]
+    : isPG(connId)
     ? [
         [MaintainOp.MaintainAnalyze, "Analyze Table"],
         [MaintainOp.MaintainVacuum, "Vacuum Table"],
@@ -60,6 +68,7 @@ export function tableMenu(connId: string, refs: ObjectRef[]): MenuItem[] {
   const ref = refs[0];
   const one = refs.length === 1;
   const { database, schema } = ref;
+  const lite = isSQLite(connId);
   const node = { key: "", type: "object" as const, label: ref.name, connId, database, schema, kind: ObjectKind.KindTable, info: { ...ref, rows: 0, dataSize: 0 }, depth: 0, expandable: false };
   return [
     { label: "Open Table", shortcut: "⌘O", disabled: !one, onClick: () => openObject(node) },
@@ -68,7 +77,7 @@ export function tableMenu(connId: string, refs: ObjectRef[]): MenuItem[] {
     { label: "New Table", shortcut: "⌘N", onClick: () => newTable(connId, database, schema) },
     { label: "Delete Table", disabled: !one, onClick: () => runTableAction(connId, ref, TableAction.ActionDrop) },
     { label: "Empty Table", disabled: !one, onClick: () => runTableAction(connId, ref, TableAction.ActionEmpty) },
-    { label: "Truncate Table", disabled: !one, onClick: () => runTableAction(connId, ref, TableAction.ActionTruncate) },
+    ...(lite ? [] : [{ label: "Truncate Table", disabled: !one, onClick: () => runTableAction(connId, ref, TableAction.ActionTruncate) }]),
     {
       label: "Duplicate Table",
       disabled: !one,
@@ -77,7 +86,7 @@ export function tableMenu(connId: string, refs: ObjectRef[]): MenuItem[] {
         { label: "Structure Only", onClick: () => runTableAction(connId, ref, TableAction.ActionDuplicate) },
       ],
     },
-    { label: "Set Privileges…", disabled: !one, onClick: () => openSetPrivileges(connId, { level: "table", database, schema, object: ref.name }, `${schema ? schema + "." : database + "."}${ref.name}`) },
+    ...(lite ? [] : [{ label: "Set Privileges…", disabled: !one, onClick: () => openSetPrivileges(connId, { level: "table", database, schema, object: ref.name }, `${schema ? schema + "." : database + "."}${ref.name}`) }]),
     { separator: true },
     { label: "Import Wizard…", disabled: !one, onClick: () => openImport({ connId, database, schema, table: ref }) },
     { label: "Export Wizard…", onClick: () => openExport({ connId, database, schema, tables: refs }) },
@@ -92,7 +101,7 @@ export function tableMenu(connId: string, refs: ObjectRef[]): MenuItem[] {
       ],
     },
     { label: "Maintain", submenu: maintainMenu(connId, refs) },
-    { label: "Reverse Tables to Model…", onClick: () => reverseToModel(connId, database, schema, refs.map((r) => r.name)) },
+    ...(lite ? [] : [{ label: "Reverse Tables to Model…", onClick: () => reverseToModel(connId, database, schema, refs.map((r) => r.name)) }]),
     { separator: true },
     { label: "Copy", shortcut: "⌘C", onClick: () => navigator.clipboard.writeText(refs.map((r) => r.name).join("\n")) },
     later("Paste"),
@@ -124,7 +133,9 @@ export function viewMenu(connId: string, ref: ObjectRef): MenuItem[] {
           },
         ]
       : []),
-    { label: "Set Privileges…", onClick: () => openSetPrivileges(connId, { level: "table", database: ref.database, schema: ref.schema, object: ref.name }, `${ref.schema ? ref.schema + "." : ref.database + "."}${ref.name}`) },
+    ...(isSQLite(connId)
+      ? []
+      : [{ label: "Set Privileges…", onClick: () => openSetPrivileges(connId, { level: "table", database: ref.database, schema: ref.schema, object: ref.name }, `${ref.schema ? ref.schema + "." : ref.database + "."}${ref.name}`) }]),
     { separator: true },
     { label: "Query View", shortcut: "⌘T", onClick: () => newQuery(connId, ref.database, ref.schema, selectAllSQL(connId, ref)) },
     { label: "Show DDL", onClick: () => useApp.getState().openTab({ kind: "ddl", title: ref.name, connId, database: ref.database, schema: ref.schema, ref }) },
@@ -166,7 +177,7 @@ function refreshFolder(connId: string, ref: ObjectRef) {
 }
 
 function quoted(connId: string, ref: ObjectRef) {
-  const q = isPG(connId) ? '"' : "`";
+  const q = isPG(connId) || isSQLite(connId) ? '"' : "`";
   const qi = (s: string) => q + s.split(q).join(q + q) + q;
   return isPG(connId) ? `${qi(ref.schema || "public")}.${qi(ref.name)}` : `${qi(ref.database)}.${qi(ref.name)}`;
 }
@@ -179,13 +190,17 @@ export function objectsAreaMenu(connId: string, database: string, schema: string
     ...(tables ? [{ label: "New Table", shortcut: "⌘N", onClick: () => newTable(connId, database, schema) }] : []),
     ...(kind === ObjectKind.KindView ? [{ label: "New View", shortcut: "⌘N", onClick: () => newView(connId, database, schema) }] : []),
     ...(views && isPG(connId) ? [{ label: "New Materialized View", onClick: () => newView(connId, database, schema, true) }] : []),
-    {
-      label: "Set Privileges…",
-      onClick: () =>
-        schema
-          ? openSetPrivileges(connId, { level: "schema", database, schema }, `schema ${schema}`)
-          : openSetPrivileges(connId, { level: "database", database }, `database ${database}`),
-    },
+    ...(isSQLite(connId)
+      ? []
+      : [
+          {
+            label: "Set Privileges…",
+            onClick: () =>
+              schema
+                ? openSetPrivileges(connId, { level: "schema", database, schema }, `schema ${schema}`)
+                : openSetPrivileges(connId, { level: "database", database }, `database ${database}`),
+          },
+        ]),
     { separator: true },
     { label: "Import Wizard…", onClick: () => openImport({ connId, database, schema }) },
     { label: "Export Wizard…", onClick: () => openExport({ connId, database, schema, tables: [] }) },
@@ -200,6 +215,28 @@ export function objectsAreaMenu(connId: string, database: string, schema: string
   ];
 }
 
+/** Menu for SQLite indexes and triggers, which belong to a table. */
+export function tableChildMenu(connId: string, ref: ObjectRef, table: string): MenuItem[] {
+  const word = ref.kind === ObjectKind.KindIndex ? "Index" : "Trigger";
+  return [
+    { label: "Show DDL", onClick: () => useApp.getState().openTab({ kind: "ddl", title: ref.name, connId, database: ref.database, ref }) },
+    ...(table ? [{ label: "Design Table", shortcut: "⌘D", onClick: () => designTable(connId, { database: ref.database, name: table, kind: ObjectKind.KindTable }) }] : []),
+    {
+      label: `Delete ${word}`,
+      onClick: async () => {
+        if (!(await confirm(`Delete ${word.toLowerCase()} ${ref.name}?`, { okLabel: "Delete" }))) return;
+        const res = await Design.RunTableAction(connId, ref, TableAction.ActionDrop, "");
+        if (res.error) return alert("Delete failed", res.error);
+        useApp.setState((s) => ({ objectsVersion: s.objectsVersion + 1 }));
+        refreshFolder(connId, ref);
+      },
+    },
+    { separator: true },
+    { label: "New Query", onClick: () => newQuery(connId, ref.database) },
+    { label: "Copy Name", onClick: () => navigator.clipboard.writeText(ref.name) },
+  ];
+}
+
 export function openERD(connId: string, database: string, schema?: string) {
   const title = `ER — ${schema ?? database}`;
   useApp.getState().openTab({ kind: "erd", title, connId, database, schema, ref: { database, schema, name: "erd", kind: ObjectKind.$zero } });
@@ -209,7 +246,7 @@ export function openERD(connId: string, database: string, schema?: string) {
 export function databaseTools(connId: string, database: string, schema?: string): MenuItem[] {
   return [
     { label: "ER Diagram", onClick: () => openERD(connId, database, schema) },
-    { label: `Reverse ${schema ? "Schema" : "Database"} to Model…`, onClick: () => reverseToModel(connId, database, schema) },
+    ...(isSQLite(connId) ? [] : [{ label: `Reverse ${schema ? "Schema" : "Database"} to Model…`, onClick: () => reverseToModel(connId, database, schema) }]),
     { separator: true },
     { label: "Execute SQL File…", onClick: () => openExecuteFile(connId, database, schema) },
     {

@@ -166,6 +166,12 @@ func (m *Manager) Connect(ctx context.Context, id, password string) (string, err
 		return existing.version(), nil
 	}
 	m.conns[id] = oc
+	if c.Type == model.SQLite && c.SQLite.Create {
+		// The file exists now; a later missing file is an error, not a new database.
+		c.SQLite.Create = false
+		oc.profile.SQLite.Create = false
+		_, _ = m.Store.Save(c)
+	}
 	return oc.version(), nil
 }
 
@@ -265,6 +271,8 @@ func (m *Manager) Info(connID string) (model.ServerInfo, error) {
 	info := model.ServerInfo{Version: oc.version(), Sessions: oc.openConnections(),
 		Host: fmt.Sprintf("%s:%d", p.Host, p.Port), User: p.User, Via: "direct", SSL: p.SSL.Enabled}
 	switch {
+	case p.Type == model.SQLite:
+		info.Host, info.Via = p.SQLite.Path, "file"
 	case p.SSH.Enabled:
 		info.Via = fmt.Sprintf("SSH %s@%s:%d", p.SSH.User, p.SSH.Host, p.SSH.Port)
 	case p.Advanced.SocketFile != "" && (p.Type == model.MySQL || p.Type == model.MariaDB):
