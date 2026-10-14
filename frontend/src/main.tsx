@@ -6,6 +6,16 @@ import { initTheme } from "./theme";
 
 initTheme();
 
+// ⌘R / F5 must never reload the app (views use ⌘R to run or refresh). Capture
+// phase, so it holds even when a view stops the event.
+window.addEventListener(
+  "keydown",
+  (e) => {
+    if (((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "r") || e.key === "F5") e.preventDefault();
+  },
+  true,
+);
+
 // A database tool's inputs are names and code: no autocorrect, capitalisation or
 // spellcheck suggestions (WebKit offers them on every field by default).
 document.addEventListener(

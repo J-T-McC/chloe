@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Redis, arr, errorText } from "../../api";
 import { tabComplete } from "../../redis/complete";
-import { Tab, connById } from "../../store";
+import { Tab, connById, useApp } from "../../store";
 
 interface Line {
   kind: "cmd" | "out" | "err" | "info";
@@ -52,6 +52,12 @@ export function RedisConsole({ tab }: { tab: Tab }) {
   useEffect(() => {
     out.current?.scrollTo({ top: out.current.scrollHeight });
   }, [lines]);
+
+  // Focus the command line when the console is ready and whenever its tab is shown.
+  const isActive = useApp((s) => s.activeTab === tab.id);
+  useEffect(() => {
+    if (isActive) setTimeout(() => field.current?.focus(), 0);
+  }, [isActive, session]);
 
   const word = input.trimStart().split(/\s+/)[0].toUpperCase();
   // While cycling with Tab, keep offering the matches for the word as first typed.
@@ -114,11 +120,13 @@ export function RedisConsole({ tab }: { tab: Tab }) {
           ref={field}
           autoFocus
           value={input}
-          disabled={!session}
           placeholder={session ? "" : "Connecting…"}
           onChange={(e) => ((typed.current = null), setInput(e.target.value))}
           onKeyDown={(e) => {
-            if (e.key === "Enter") run();
+            if (e.key === "Enter" || ((e.metaKey || e.ctrlKey) && e.key === "r")) {
+              e.preventDefault();
+              run();
+            }
             else if (e.key === "Tab") {
               e.preventDefault();
               const next = tabComplete(base, matches, typed.current && input.trim().toUpperCase() === typed.current.last.trim() ? typed.current.last : null);

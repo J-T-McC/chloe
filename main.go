@@ -62,6 +62,8 @@ func main() {
 		},
 	})
 
+	app.Menu.Set(appMenu())
+
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:     "Chloe",
 		Width:     1400,
@@ -79,4 +81,20 @@ func main() {
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// appMenu is the standard macOS menu minus the shortcuts Chloe uses itself:
+// View > Reload (⌘R runs/refreshes) and File > Close Window (⌘W closes a tab).
+func appMenu() *application.Menu {
+	menu := application.NewMenu()
+	menu.AddRole(application.AppMenu)
+	menu.AddRole(application.EditMenu)
+	view := menu.AddSubmenu("View")
+	view.AddRole(application.ResetZoom)
+	view.AddRole(application.ZoomIn)
+	view.AddRole(application.ZoomOut)
+	view.AddSeparator()
+	view.AddRole(application.ToggleFullscreen)
+	menu.AddRole(application.WindowMenu)
+	return menu
 }
