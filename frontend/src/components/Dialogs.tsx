@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 
 interface Request {
-  kind: "prompt" | "confirm" | "alert";
+  kind: "prompt" | "confirm" | "alert" | "choose";
+  /** choose: button labels, the last one the default */
+  buttons?: string[];
   title: string;
   message?: string;
   defaultValue?: string;
@@ -30,6 +32,10 @@ export const confirm = (title: string, opts: { message?: string; danger?: boolea
 
 export const alert = (title: string, message?: string) => push({ kind: "alert", title, message }) as Promise<boolean>;
 
+/** Ask with several buttons; resolves to the chosen label, or null when dismissed. */
+export const choose = (title: string, opts: { message?: string; buttons: string[] }) =>
+  push({ kind: "choose", title, ...opts }) as Promise<string | null>;
+
 export function DialogHost() {
   const req = useDialogs((s) => s.queue[0]);
   const [value, setValue] = useState("");
@@ -47,8 +53,9 @@ export function DialogHost() {
     useDialogs.setState((s) => ({ queue: s.queue.slice(1) }));
     req.resolve(v);
   };
-  const ok = () => done(req.kind === "prompt" ? value : true);
-  const cancel = () => done(req.kind === "prompt" ? null : false);
+  const buttons = req.buttons ?? [];
+  const ok = () => done(req.kind === "prompt" ? value : req.kind === "choose" ? buttons[buttons.length - 1] : true);
+  const cancel = () => done(req.kind === "prompt" || req.kind === "choose" ? null : false);
 
   return (
     <div className="modal-backdrop" onMouseDown={cancel}>
@@ -68,11 +75,24 @@ export function DialogHost() {
           )}
         </div>
         <div className="modal-footer">
-          <span className="spacer" />
-          {req.kind !== "alert" && <button onClick={cancel}>Cancel</button>}
-          <button className={req.danger ? "danger" : "primary"} onClick={ok} autoFocus={req.kind !== "prompt"}>
-            {req.okLabel ?? "OK"}
-          </button>
+          {req.kind === "choose" ? (
+            [buttons.length <= 2 && <span key="" className="spacer" />, ...buttons.map((b, i) => (
+              <span key={b} style={{ display: "contents" }}>
+                <button className={i === buttons.length - 1 ? "primary" : ""} autoFocus={i === buttons.length - 1} onClick={() => done(b)}>
+                  {b}
+                </button>
+                {i === 0 && buttons.length > 2 && <span className="spacer" />}
+              </span>
+            ))]
+          ) : (
+            <>
+              <span className="spacer" />
+              {req.kind !== "alert" && <button onClick={cancel}>Cancel</button>}
+              <button className={req.danger ? "danger" : "primary"} onClick={ok} autoFocus={req.kind !== "prompt"}>
+                {req.okLabel ?? "OK"}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

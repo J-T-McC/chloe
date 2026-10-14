@@ -35,7 +35,9 @@ type Store struct {
 	secrets Secrets
 	conns   map[string]model.Connection
 	groups  []string
-	key     []byte // connections.json key, once read from the keychain
+	keyMu   sync.Mutex
+	key     []byte // file key, once read from the keychain
+	work    *Workspace
 	// locked explains why an encrypted connections.json couldn't be read. The
 	// store is then empty and never writes, so the file is left as it was.
 	locked string
@@ -195,6 +197,7 @@ func (s *Store) Delete(id string) error {
 	delete(s.conns, id)
 	err := s.flushLocked()
 	s.mu.Unlock()
+	s.Workspace().forgetConnection(id)
 	for _, k := range secretNames {
 		_ = s.secrets.Delete(secretKey(id, k))
 	}
@@ -310,11 +313,15 @@ func (s *Store) flushLocked() error {
 			return err
 		}
 	}
-	tmp := s.path + ".tmp"
+	return writeAtomic(s.path, data)
+}
+
+func writeAtomic(path string, data []byte) error {
+	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, s.path)
+	return os.Rename(tmp, path)
 }
 
 func stripSecrets(c model.Connection) model.Connection {

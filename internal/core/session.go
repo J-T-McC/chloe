@@ -151,6 +151,7 @@ func (m *Manager) Execute(ctx context.Context, sessionID, script string, opts Ex
 			break
 		}
 	}
+	m.recordHistory(s, out)
 	return out, nil
 }
 

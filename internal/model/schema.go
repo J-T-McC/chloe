@@ -17,6 +17,7 @@ const (
 	KindType       ObjectKind = "type"
 	KindIndex      ObjectKind = "index"      // SQLite lists indexes in the tree
 	KindCollection ObjectKind = "collection" // MongoDB
+	KindQuery      ObjectKind = "query"      // saved queries, kept by Chloe rather than the server
 )
 
 // ObjectRef locates an object. Database is the MySQL database or PG database;

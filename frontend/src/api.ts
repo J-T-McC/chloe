@@ -10,6 +10,7 @@ export * as Models from "../bindings/chloe/services/modelservice";
 export * as Redis from "../bindings/chloe/services/redisservice";
 export * as Mongo from "../bindings/chloe/services/mongoservice";
 export type * as MG from "../bindings/chloe/internal/mdb/models";
+export type { SavedQuery, HistoryEntry, Draft } from "../bindings/chloe/internal/store/models";
 export * as Users from "../bindings/chloe/services/userservice";
 export type * as P from "../bindings/chloe/internal/privs/models";
 export type * as R from "../bindings/chloe/internal/rdb/models";

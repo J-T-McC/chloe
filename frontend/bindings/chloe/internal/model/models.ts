@@ -312,6 +312,11 @@ export enum ObjectKind {
      * MongoDB
      */
     KindCollection = "collection",
+
+    /**
+     * saved queries, kept by Chloe rather than the server
+     */
+    KindQuery = "query",
 };
 
 /**

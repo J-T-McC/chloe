@@ -50,10 +50,10 @@ export interface RevealTarget {
   signature?: string;
 }
 
-const MYSQL_FOLDERS = [ObjectKind.KindTable, ObjectKind.KindView, ObjectKind.KindFunction, ObjectKind.KindProcedure, ObjectKind.KindTrigger, ObjectKind.KindEvent];
-const PG_FOLDERS = [ObjectKind.KindTable, ObjectKind.KindView, ObjectKind.KindMatView, ObjectKind.KindFunction, ObjectKind.KindProcedure, ObjectKind.KindSequence, ObjectKind.KindTrigger, ObjectKind.KindType];
+const MYSQL_FOLDERS = [ObjectKind.KindTable, ObjectKind.KindView, ObjectKind.KindFunction, ObjectKind.KindProcedure, ObjectKind.KindTrigger, ObjectKind.KindEvent, ObjectKind.KindQuery];
+const PG_FOLDERS = [ObjectKind.KindTable, ObjectKind.KindView, ObjectKind.KindMatView, ObjectKind.KindFunction, ObjectKind.KindProcedure, ObjectKind.KindSequence, ObjectKind.KindTrigger, ObjectKind.KindType, ObjectKind.KindQuery];
 
-const SQLITE_FOLDERS = [ObjectKind.KindTable, ObjectKind.KindView, ObjectKind.KindIndex, ObjectKind.KindTrigger];
+const SQLITE_FOLDERS = [ObjectKind.KindTable, ObjectKind.KindView, ObjectKind.KindIndex, ObjectKind.KindTrigger, ObjectKind.KindQuery];
 const MONGO_FOLDERS = [ObjectKind.KindCollection, ObjectKind.KindView];
 
 export const isMongo = (connId: string) => connById(connId)?.type === DBType.MongoDB;

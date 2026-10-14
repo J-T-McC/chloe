@@ -13,6 +13,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"chloe/internal/mdb"
+	"chloe/internal/store"
 	"chloe/internal/model"
 )
 
@@ -109,10 +110,12 @@ func (m *Manager) RunMongo(ctx context.Context, id, script string, pageSize int)
 	s.mu.Lock()
 	s.cancel = cancel
 	s.mu.Unlock()
+	db := s.sh.CurrentDB()
 	out := s.sh.Run(ctx, script, pageSize)
 	s.mu.Lock()
 	s.cancel = nil
 	s.mu.Unlock()
+	m.Store.Workspace().AddHistory(store.HistoryEntry{ConnID: s.connID, Database: db, SQL: script, DurationMs: int64(out.ElapsedMS), Rows: -1, Error: out.Error})
 	return out, nil
 }
 

@@ -14,7 +14,8 @@ import { TreeNode, useTree } from "../tree";
 import { openMenu } from "./ContextMenu";
 import { Split } from "./Split";
 import { KIND_LABEL, KindIcon } from "./icons";
-import { newQuery, openObject, selectAllSQL } from "./Sidebar";
+import { newQuery, openObject, savedQueryMenu, selectAllSQL } from "./Sidebar";
+import { deleteSavedQueries } from "../queries";
 
 export function ObjectsPane() {
   const sel = useApp((s) => s.selection);
@@ -112,6 +113,9 @@ function SqlObjectsPane() {
   });
   const isData = kind === ObjectKind.KindTable || kind === ObjectKind.KindView || kind === ObjectKind.KindMatView;
   const isView = kind === ObjectKind.KindView || kind === ObjectKind.KindMatView;
+  const isQueries = kind === ObjectKind.KindQuery;
+  // Saved queries are Chloe's: they have a modified time even where server objects show an owner.
+  const showModified = sel.schema === undefined || isQueries;
   const refOfObj = (o: ObjectInfo): ObjectRef => ({ database: sel.database!, schema: o.schema || sel.schema, name: o.name, kind: o.kind, signature: o.signature });
   const clickRow = (e: React.MouseEvent, o: ObjectInfo) => {
     if (e.metaKey || e.ctrlKey) {
@@ -135,8 +139,13 @@ function SqlObjectsPane() {
     <div className="objects-pane">
       <div className="toolbar">
         <button disabled={!picked} onClick={() => picked && openObject(asNode(picked))}>
-          <Table2 size={14} /> {isData ? "Open" : "View DDL"}
+          <Table2 size={14} /> {isData ? "Open" : isQueries ? "Open Query" : "View DDL"}
         </button>
+        {isQueries && (
+          <button disabled={!pickedList.length} onClick={() => deleteSavedQueries(sel.connId, sel.database!, sel.schema, pickedNames)}>
+            <Trash2 size={14} /> Delete Query
+          </button>
+        )}
         {isView && (
           <>
             <button disabled={!picked} onClick={() => picked && viewDesign(sel.connId, refOfObj(picked))}>
@@ -250,8 +259,8 @@ function SqlObjectsPane() {
                 {showRows && <th className="num" onClick={() => setSortKey("dataSize")}>Size</th>}
                 {kind === ObjectKind.KindTable && sel.schema === undefined && <th>Engine</th>}
                 {(kind === ObjectKind.KindFunction || kind === ObjectKind.KindProcedure) && <th>Returns</th>}
-                <th onClick={() => setSortKey("modified")}>{sel.schema === undefined ? "Modified" : "Owner"}</th>
-                <th>Comment</th>
+                <th onClick={() => setSortKey("modified")}>{showModified ? "Modified" : "Owner"}</th>
+                <th>{isQueries ? "SQL" : "Comment"}</th>
               </tr>
             </thead>
             <tbody>
@@ -265,6 +274,7 @@ function SqlObjectsPane() {
                     const names = pickedNames.includes(o.name) ? pickedNames : [o.name];
                     if (!pickedNames.includes(o.name)) setPicked(o);
                     const refs = objects.filter((x) => names.includes(x.name)).map(refOfObj);
+                    if (o.kind === ObjectKind.KindQuery) return openMenu(e, savedQueryMenu(sel.connId, sel.database!, sel.schema, names));
                     if (o.kind === ObjectKind.KindTable) return openMenu(e, tableMenu(sel.connId, refs));
                     if (o.kind === ObjectKind.KindView || o.kind === ObjectKind.KindMatView) return openMenu(e, viewMenu(sel.connId, refOfObj(o)));
                     if (o.kind === ObjectKind.KindIndex || (o.kind === ObjectKind.KindTrigger && connById(sel.connId)?.type === DBType.SQLite))
@@ -285,7 +295,7 @@ function SqlObjectsPane() {
                   {showRows && <td className="num">{formatBytes(o.dataSize ?? 0)}</td>}
                   {kind === ObjectKind.KindTable && sel.schema === undefined && <td>{o.engine}</td>}
                   {(kind === ObjectKind.KindFunction || kind === ObjectKind.KindProcedure) && <td>{o.returnType}</td>}
-                  <td>{sel.schema === undefined ? o.modified || o.created : o.owner}</td>
+                  <td>{showModified ? o.modified || o.created : o.owner}</td>
                   <td className="muted">{o.comment || (o.engine && kind === ObjectKind.KindTrigger ? o.engine : "")}</td>
                 </tr>
               ))}
@@ -362,7 +372,7 @@ function InfoPanel({ connId, object, database, schema }: { connId: string; objec
             <dd>{object.modified}</dd>
           </>
         )}
-        {object.comment && (
+        {object.comment && object.kind !== ObjectKind.KindQuery && (
           <>
             <dt>Comment</dt>
             <dd>{object.comment}</dd>
@@ -370,7 +380,7 @@ function InfoPanel({ connId, object, database, schema }: { connId: string; objec
         )}
       </dl>
       <div className="info-ddl-head">
-        DDL
+        {object.kind === ObjectKind.KindQuery ? "SQL" : "DDL"}
         <button className="icon" title="Copy DDL" onClick={() => navigator.clipboard.writeText(ddl)} disabled={!ddl}>
           <Copy size={12} />
         </button>
