@@ -82,3 +82,59 @@ func sameTrigger(a, b Trigger) bool {
 	return a.Name == b.Name && a.Timing == b.Timing && slices.Equal(a.Events, b.Events) && strings.TrimSpace(a.Body) == strings.TrimSpace(b.Body) &&
 		a.ForEachRow == b.ForEachRow && a.Function == b.Function && a.When == b.When
 }
+
+// renamer maps original column names to their new names, so keys and indexes that
+// only changed because a column was renamed aren't rebuilt (servers rename references
+// in place).
+type renamer map[string]string
+
+func renames(old, nw Table) renamer {
+	r := renamer{}
+	for _, c := range nw.Columns {
+		if c.OrigName != "" && c.OrigName != c.Name {
+			r[c.OrigName] = c.Name
+		}
+	}
+	return r
+}
+
+func (r renamer) cols(cols []string) []string {
+	if len(r) == 0 {
+		return cols
+	}
+	out := make([]string, len(cols))
+	for i, c := range cols {
+		if n, ok := r[c]; ok {
+			c = n
+		}
+		out[i] = c
+	}
+	return out
+}
+
+func (r renamer) index(ix Index) Index {
+	if len(r) == 0 {
+		return ix
+	}
+	cols := make([]IndexColumn, len(ix.Columns))
+	for i, c := range ix.Columns {
+		if n, ok := r[c.Name]; ok && c.Expr == "" {
+			c.Name = n
+		}
+		cols[i] = c
+	}
+	ix.Columns = cols
+	return ix
+}
+
+func (r renamer) fk(f ForeignKey) ForeignKey {
+	f.Columns = r.cols(f.Columns)
+	return f
+}
+
+func (r renamer) unique(u Unique) Unique {
+	u.Columns = r.cols(u.Columns)
+	return u
+}
+
+func (r renamer) pk(pk *PrimaryKey) []string { return r.cols(pkCols(pk)) }

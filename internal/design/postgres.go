@@ -258,6 +258,7 @@ func (g Postgres) Alter(old, nw Table) ([]string, error) {
 		return nil, err
 	}
 	var out []string
+	rn := renames(old, nw)
 	if nw.Name != old.Name {
 		out = append(out, fmt.Sprintf("ALTER TABLE %s RENAME TO %s", g.table(old, old.Name), pgIdent(nw.Name)))
 	}
@@ -272,7 +273,7 @@ func (g Postgres) Alter(old, nw Table) ([]string, error) {
 		}
 	}
 	for _, fk := range old.ForeignKeys {
-		if n, ok := findBy(nw.ForeignKeys, fk.Name, func(f ForeignKey) string { return f.OrigName }); !ok || !sameFK(fk, n) {
+		if n, ok := findBy(nw.ForeignKeys, fk.Name, func(f ForeignKey) string { return f.OrigName }); !ok || !sameFK(rn.fk(fk), n) {
 			alter("DROP CONSTRAINT " + pgIdent(fk.Name))
 		}
 	}
@@ -282,12 +283,12 @@ func (g Postgres) Alter(old, nw Table) ([]string, error) {
 		}
 	}
 	for _, u := range old.Uniques {
-		if n, ok := findBy(nw.Uniques, u.Name, func(x Unique) string { return x.OrigName }); !ok || n.Name != u.Name || !equalStrings(n.Columns, u.Columns) {
+		if n, ok := findBy(nw.Uniques, u.Name, func(x Unique) string { return x.OrigName }); !ok || n.Name != u.Name || !equalStrings(n.Columns, rn.unique(u).Columns) {
 			alter("DROP CONSTRAINT " + pgIdent(u.Name))
 		}
 	}
 	for _, ix := range old.Indexes {
-		if n, ok := findBy(nw.Indexes, ix.Name, func(i Index) string { return i.OrigName }); !ok || !sameIndex(ix, n) {
+		if n, ok := findBy(nw.Indexes, ix.Name, func(i Index) string { return i.OrigName }); !ok || !sameIndex(rn.index(ix), n) {
 			name := pgIdent(ix.Name)
 			if nw.Schema != "" {
 				name = pgIdent(nw.Schema) + "." + name
@@ -295,7 +296,7 @@ func (g Postgres) Alter(old, nw Table) ([]string, error) {
 			out = append(out, "DROP INDEX "+name)
 		}
 	}
-	oldPK, newPK := pkCols(old.PrimaryKey), pkCols(nw.PrimaryKey)
+	oldPK, newPK := rn.pk(old.PrimaryKey), pkCols(nw.PrimaryKey)
 	pkChanged := !equalStrings(oldPK, newPK) || (old.PrimaryKey != nil && nw.PrimaryKey != nil && old.PrimaryKey.Name != nw.PrimaryKey.Name)
 	if pkChanged && len(oldPK) > 0 {
 		alter("DROP CONSTRAINT " + pgIdent(old.PrimaryKey.Name))
@@ -370,13 +371,13 @@ func (g Postgres) Alter(old, nw Table) ([]string, error) {
 		alter("ADD " + pkDef(nw.PrimaryKey))
 	}
 	for _, u := range nw.Uniques {
-		if o, ok := findBy(old.Uniques, u.OrigName, func(x Unique) string { return x.Name }); ok && u.OrigName != "" && o.Name == u.Name && equalStrings(o.Columns, u.Columns) {
+		if o, ok := findBy(old.Uniques, u.OrigName, func(x Unique) string { return x.Name }); ok && u.OrigName != "" && o.Name == u.Name && equalStrings(rn.unique(o).Columns, u.Columns) {
 			continue
 		}
 		alter(fmt.Sprintf("ADD CONSTRAINT %s UNIQUE (%s)", pgIdent(u.Name), quoteList(u.Columns, pgIdent)))
 	}
 	for _, fk := range nw.ForeignKeys {
-		if o, ok := findBy(old.ForeignKeys, fk.OrigName, func(f ForeignKey) string { return f.Name }); ok && fk.OrigName != "" && sameFK(o, fk) {
+		if o, ok := findBy(old.ForeignKeys, fk.OrigName, func(f ForeignKey) string { return f.Name }); ok && fk.OrigName != "" && sameFK(rn.fk(o), fk) {
 			continue
 		}
 		alter("ADD " + g.fkDef(fk))
@@ -388,7 +389,7 @@ func (g Postgres) Alter(old, nw Table) ([]string, error) {
 		alter(fmt.Sprintf("ADD CONSTRAINT %s CHECK (%s)", pgIdent(ck.Name), ck.Expr))
 	}
 	for _, ix := range nw.Indexes {
-		if o, ok := findBy(old.Indexes, ix.OrigName, func(i Index) string { return i.Name }); ok && ix.OrigName != "" && sameIndex(o, ix) {
+		if o, ok := findBy(old.Indexes, ix.OrigName, func(i Index) string { return i.Name }); ok && ix.OrigName != "" && sameIndex(rn.index(o), ix) {
 			continue
 		}
 		out = append(out, g.indexDDL(nw, ix))

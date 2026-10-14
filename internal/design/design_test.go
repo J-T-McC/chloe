@@ -69,17 +69,18 @@ func TestMySQLAlter(t *testing.T) {
 	nw.PrimaryKey.Columns = []string{"id", "code"}
 	got := joiner(t)(MySQL{}.Alter(old, nw))
 	for _, want := range []string{
-		"DROP INDEX `idx_sku`",
 		"DROP PRIMARY KEY",
 		"CHANGE COLUMN `sku` `code` varchar(64) NOT NULL",
 		"MODIFY COLUMN `note` text NULL AFTER `code`",
 		"ADD COLUMN `qty` int NOT NULL DEFAULT 1 AFTER `price`",
 		"ADD PRIMARY KEY (`id`, `code`)",
-		"ADD INDEX `idx_sku` (`code`)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "idx_sku") {
+		t.Errorf("renaming a column must not rebuild its index\n%s", got)
 	}
 	if strings.Contains(got, "`price` decimal") && !strings.Contains(got, "MODIFY COLUMN `price`") {
 		t.Errorf("unexpected price change\n%s", got)
@@ -174,5 +175,23 @@ func TestValidate(t *testing.T) {
 	tb.Columns = append(tb.Columns, Column{Name: "id", Type: "int"})
 	if err := Validate(tb); err == nil {
 		t.Fatal("expected duplicate column error")
+	}
+}
+
+func TestRenameKeepsIndexes(t *testing.T) {
+	old := baseTable()
+	old.Uniques = []Unique{{Name: "uq", OrigName: "uq", Columns: []string{"sku"}}}
+	nw := baseTable()
+	nw.Uniques = []Unique{{Name: "uq", OrigName: "uq", Columns: []string{"code"}}}
+	nw.Columns[1].Name = "code"
+	nw.Indexes[0].Columns = []IndexColumn{{Name: "code"}}
+	for name, g := range map[string]Generator{"mysql": MySQL{}, "postgres": Postgres{}} {
+		if name == "postgres" {
+			old.Columns[0].AutoIncrement, nw.Columns[0].AutoIncrement = false, false
+		}
+		got := joiner(t)(g.Alter(old, nw))
+		if strings.Contains(got, "INDEX") || strings.Contains(got, "UNIQUE") {
+			t.Errorf("%s: rename should not rebuild indexes:\n%s", name, got)
+		}
 	}
 }

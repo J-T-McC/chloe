@@ -233,6 +233,7 @@ func (g MySQL) Alter(old, nw Table) ([]string, error) {
 		return nil, err
 	}
 	var out []string
+	rn := renames(old, nw)
 	if nw.Name != old.Name {
 		out = append(out, fmt.Sprintf("RENAME TABLE %s TO %s", g.table(old), g.table(nw)))
 	}
@@ -243,7 +244,7 @@ func (g MySQL) Alter(old, nw Table) ([]string, error) {
 	// change; they are re-added at the end.
 	oldFK := byOrig(old.ForeignKeys, func(f ForeignKey) string { return f.Name })
 	for _, fk := range old.ForeignKeys {
-		if n, ok := findBy(nw.ForeignKeys, fk.Name, func(f ForeignKey) string { return f.OrigName }); !ok || !sameFK(fk, n) {
+		if n, ok := findBy(nw.ForeignKeys, fk.Name, func(f ForeignKey) string { return f.OrigName }); !ok || !sameFK(rn.fk(fk), n) {
 			clauses = append(clauses, "DROP FOREIGN KEY "+myq(fk.Name))
 		}
 	}
@@ -254,11 +255,11 @@ func (g MySQL) Alter(old, nw Table) ([]string, error) {
 	}
 	// Indexes that changed are dropped and re-created.
 	for _, ix := range old.Indexes {
-		if n, ok := findBy(nw.Indexes, ix.Name, func(i Index) string { return i.OrigName }); !ok || !sameIndex(ix, n) {
+		if n, ok := findBy(nw.Indexes, ix.Name, func(i Index) string { return i.OrigName }); !ok || !sameIndex(rn.index(ix), n) {
 			clauses = append(clauses, "DROP INDEX "+myq(ix.Name))
 		}
 	}
-	oldPK, newPK := pkCols(old.PrimaryKey), pkCols(nw.PrimaryKey)
+	oldPK, newPK := rn.pk(old.PrimaryKey), pkCols(nw.PrimaryKey)
 	if !equalStrings(oldPK, newPK) && len(oldPK) > 0 {
 		clauses = append(clauses, "DROP PRIMARY KEY")
 	}
@@ -316,13 +317,13 @@ func (g MySQL) Alter(old, nw Table) ([]string, error) {
 		clauses = append(clauses, "ADD PRIMARY KEY ("+quoteList(newPK, myq)+")")
 	}
 	for _, ix := range nw.Indexes {
-		if o, ok := findBy(old.Indexes, ix.OrigName, func(i Index) string { return i.Name }); ok && ix.OrigName != "" && sameIndex(o, ix) {
+		if o, ok := findBy(old.Indexes, ix.OrigName, func(i Index) string { return i.Name }); ok && ix.OrigName != "" && sameIndex(rn.index(o), ix) {
 			continue
 		}
 		clauses = append(clauses, "ADD "+g.indexDef(ix))
 	}
 	for _, fk := range nw.ForeignKeys {
-		if o, ok := oldFK[fk.OrigName]; ok && fk.OrigName != "" && sameFK(o, fk) {
+		if o, ok := oldFK[fk.OrigName]; ok && fk.OrigName != "" && sameFK(rn.fk(o), fk) {
 			continue
 		}
 		clauses = append(clauses, "ADD "+g.fkDef(fk))
