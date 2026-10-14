@@ -59,7 +59,7 @@ func TestGroupsPersistAndRename(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g := s2.Groups(); len(g) != 2 || g[0] != "Clients" || g[1] != "Empty" {
+	if g := s2.Groups(); len(g) != 2 || g[0] != "Empty" || g[1] != "Clients" {
 		t.Fatalf("groups %v", g)
 	}
 	got, _ := s2.Get(c.ID)
@@ -152,3 +152,72 @@ func TestLegacyArrayFormat(t *testing.T) {
 }
 
 func contains(b []byte, s string) bool { return strings.Contains(string(b), s) }
+
+func TestOrderAndMove(t *testing.T) {
+	s, dir, sec := newStore(t)
+	save := func(name, group string) string {
+		c, err := s.Save(model.Connection{Name: name, Type: model.SQLite, Group: group})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c.ID
+	}
+	a, b := save("a", ""), save("b", "G1")
+	c, d := save("c", ""), save("d", "G1")
+	s.AddGroup("G2")
+	names := func(s *Store) string {
+		var out []string
+		for _, c := range s.List() {
+			out = append(out, c.Group+"/"+c.Name)
+		}
+		return strings.Join(out, " ") + " | " + strings.Join(s.Groups(), " ")
+	}
+	if got := names(s); got != "/a /c G1/b G1/d | G1 G2" {
+		t.Fatalf("order %q", got)
+	}
+	// Reorder within the top level, into a group before another, and to the end of a group.
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(s.Move(c, "", a))
+	must(s.Move(a, "G1", d))
+	must(s.Move(b, "G2", ""))
+	must(s.MoveGroup("G2", "G1"))
+	want := "/c G1/a G1/d G2/b | G2 G1"
+	if got := names(s); got != want {
+		t.Fatalf("after moves %q, want %q", got, want)
+	}
+	// A before that isn't in the target group means "last in the group".
+	must(s.Move(d, "", b))
+	if got := names(s); got != "/c /d G1/a G2/b | G2 G1" {
+		t.Fatalf("move with foreign before %q", got)
+	}
+	must(s.Move(d, "G1", ""))
+	s2, err := Open(dir, sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := names(s2); got != want {
+		t.Fatalf("reopened %q, want %q", got, want)
+	}
+}
+
+func TestVersion1SortsByGroupThenName(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "connections.json"), []byte(`{"version":1,"groups":["Z","A"],"connections":[
+		{"id":"1","name":"beta","type":"sqlite","group":"Z"},{"id":"2","name":"Alpha","type":"sqlite","group":"Z"},{"id":"3","name":"top","type":"sqlite"}]}`), 0o600)
+	s, err := Open(dir, &MemorySecrets{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, c := range s.List() {
+		got = append(got, c.Name)
+	}
+	if strings.Join(got, ",") != "top,Alpha,beta" || strings.Join(s.Groups(), ",") != "A,Z" {
+		t.Fatalf("%v %v", got, s.Groups())
+	}
+}

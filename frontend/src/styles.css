@@ -346,6 +346,31 @@ button.icon {
   background: var(--sel);
 }
 
+/* Drop indicators while dragging connections and groups */
+.tree-row.drop-before {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.tree-row.drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.tree-row.drop-into {
+  background: var(--sel);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.tree.drop-end .tree-rows::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 2px;
+  background: var(--accent);
+}
+
 .twisty {
   width: 14px;
   display: inline-flex;

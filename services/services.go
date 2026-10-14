@@ -154,6 +154,16 @@ func (s *ConnectionService) MoveToGroup(id, group string) error {
 	return s.M.Store.MoveToGroup(id, group)
 }
 
+// Move puts a connection in a group ("" = top level) before another connection ("" = last).
+func (s *ConnectionService) Move(id, group, before string) error {
+	return s.M.Store.Move(id, group, before)
+}
+
+// MoveGroup puts a group before another group ("" = last).
+func (s *ConnectionService) MoveGroup(name, before string) error {
+	return s.M.Store.MoveGroup(name, before)
+}
+
 // Presets lists hosted-service presets (Supabase, Neon, ...).
 func (s *ConnectionService) Presets() []connurl.Preset { return connurl.Presets() }
 
