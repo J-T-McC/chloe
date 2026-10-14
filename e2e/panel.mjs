@@ -1,0 +1,57 @@
+import { chromium } from "playwright";
+const out = process.argv[2];
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1400, height: 860 } });
+page.setDefaultTimeout(10000);
+page.on("pageerror", (e) => console.log("PAGE ERROR", e.message));
+await page.goto("http://localhost:8080/");
+const field = (l) => page.locator(".field", { has: page.locator(`label:text-is("${l}")`) }).locator("input").first();
+await page.getByRole("button", { name: "Connection" }).first().click();
+await page.locator(".type-card").filter({ has: page.locator(`span:text-is("MySQL")`) }).click();
+await field("Connection Name").fill("M"); await field("Host").fill("127.0.0.1"); await field("Port").fill("33306"); await field("Password").fill("chloe");
+await page.getByRole("button", { name: "Save" }).click();
+await page.locator(".tree-row", { hasText: "M" }).first().dblclick();
+await page.locator(".tree-row", { hasText: /^\s*shop\s*$/ }).dblclick();
+await page.locator(".tree-row", { hasText: "Tables" }).first().dblclick();
+await page.locator(".tree-row", { hasText: /^\s*products\s*$/ }).dblclick();
+await page.locator(".viewer .grid-cell").first().waitFor();
+await page.locator(".viewer").getByRole("button", { name: "Value" }).click();
+// attrs is the 5th column; click row 1
+const cell = page.locator(".viewer .grid-row").first().locator(".grid-cell").nth(4);
+await cell.click();
+await page.waitForTimeout(400);
+const panel = page.locator(".value-panel");
+console.log("mode:", await panel.locator(".seg-tabs button.active").innerText(), "| col:", await panel.locator(".value-panel-col").innerText());
+console.log("panel text:", (await panel.locator(".view-lines").innerText()).replace(/\s+/g, " "));
+await page.screenshot({ path: `${out}/p1.png` });
+// edit: replace "black" with "red"
+await panel.locator(".view-lines").click();
+await page.keyboard.press("Meta+a");
+await page.keyboard.press("Backspace");
+await page.keyboard.type('{"color": "red", "dims": {"w": 1}}', { delay: 15 });
+await page.waitForTimeout(300);
+console.log("after typing:", (await panel.locator(".view-lines").innerText()).replace(/\s+/g, " "), "| badge:", await panel.locator(".badge").count(), "| readonly:", await panel.locator(".monaco-editor").getAttribute("class"));
+await page.screenshot({ path: `${out}/p1b.png` });
+console.log("grid cell now:", await cell.innerText(), "| dirty:", await page.locator(".viewer .dirty-dot").count());
+await page.locator(".viewer .statusbar button[title^='Apply changes']").click();
+await page.waitForTimeout(800);
+console.log("message:", await page.locator(".viewer .sql-preview").innerText());
+await page.locator(".viewer .grid-row").first().locator(".grid-cell").nth(4).click();
+await page.waitForTimeout(300);
+console.log("after save:", (await panel.locator(".view-lines").innerText()).replace(/\s+/g, " "));
+// a text cell: name
+await page.locator(".viewer .grid-row").first().locator(".grid-cell").nth(2).click();
+await page.waitForTimeout(300);
+console.log("text cell mode:", await panel.locator(".seg-tabs button.active").innerText(), (await panel.locator(".view-lines").innerText()).trim());
+await page.screenshot({ path: `${out}/p2.png` });
+// query results: read-only panel
+await page.keyboard.press("Meta+t");
+await page.locator(".monaco-editor .view-lines").last().click();
+await page.keyboard.insertText("SELECT attrs FROM products");
+await page.keyboard.press("Meta+Enter");
+await page.locator(".result-grid .grid-cell").first().waitFor();
+await page.locator(".result-grid .grid-row").first().locator(".grid-cell").first().click();
+await page.waitForTimeout(400);
+console.log("query panel:", await page.locator(".result-grid .value-panel").count(), (await page.locator(".result-grid .value-panel .view-lines").innerText()).replace(/\s+/g, " ").slice(0, 60));
+await page.screenshot({ path: `${out}/p3.png` });
+await browser.close();

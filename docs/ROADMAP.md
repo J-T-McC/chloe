@@ -2,6 +2,14 @@
 
 Order reflects dependencies: later features build on the earlier ones. Specs for each area live in `docs/specs/`.
 
+## Next up
+1. **MongoDB** (Docker-testable): connection, collection browser, document grid/JSON view, shell-style console
+2. **Data transfer between connections**, then **structure sync and data sync** (section 8)
+3. **SQL Server and Oracle**, both in Docker
+4. Polish: Redis pub/sub, cluster and sentinel; Form view and hex/image cell editors
+
+The MCP server (6b) waits until the user has discussed it.
+
 ## 1. Foundation ✅
 Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, table viewer, query editor with autocomplete.
 
@@ -29,14 +37,14 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 - Dump SQL file (structure, structure + data), Execute SQL file
 - Data transfer between connections
 
-## 5. Data model / ER diagrams
-- Reverse-engineer an ER diagram from a database
-- Model editing, forward engineer to SQL, sync model ↔ database
+## 5. Data model / ER diagrams ✅
+- [x] Reverse-engineer an ER diagram from a database
+- [x] Model editing, forward engineer to SQL, sync model ↔ database
 
-## 6. Users & privileges
+## 6. Users & privileges ✅
 - Users/roles, server privileges, object privileges (MySQL, PostgreSQL)
 
-## 6b. MCP server (after users & privileges)
+## 6b. MCP server (on hold until discussed with the user)
 - Chloe as an MCP server for AI assistants: pick connections to expose, with
   per-table / per-column read and write permissions
 - Structured tools (list/describe tables, select/insert/update rows) where
@@ -57,4 +65,5 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 - Backup/restore, scheduled automation
 - Query builder, explain/visual explain, find in database
 - Grammar-based (ANTLR) autocomplete layer, preferences window
-- Form view, cell editors (text/hex/image/JSON), FK value picker
+- [x] Value panel for viewing and editing cell text/JSON
+- Form view, hex/image cell editors, FK value picker
