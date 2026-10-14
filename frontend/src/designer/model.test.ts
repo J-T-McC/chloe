@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deleteColumn, insertColumn, moveColumn, newTable, renameColumn, togglePrimaryKey } from "./model";
+import { changeType, deleteColumn, insertColumn, moveColumn, newTable, renameColumn, togglePrimaryKey } from "./model";
 
 function fixture() {
   const t = newTable("mysql", "shop", undefined);
@@ -46,5 +46,13 @@ describe("designer model", () => {
     expect(moveColumn(t, 0, -1)).toBe(t);
     t = insertColumn(t, 1, "postgres");
     expect(t.columns[1]).toMatchObject({ name: "column", origName: "", type: "text" });
+  });
+
+  it("drops modifiers the new type doesn't take", () => {
+    const v = { name: "n", origName: "", type: "varchar", length: "255", nullable: true };
+    expect(changeType(v, "int")).toMatchObject({ type: "int", length: undefined });
+    expect(changeType({ ...v, type: "int", unsigned: true }, "text")).toMatchObject({ length: undefined, unsigned: undefined });
+    expect(changeType({ ...v, type: "decimal", length: "10", scale: "2" }, "numeric").scale).toBe("2");
+    expect(changeType({ ...v, type: "decimal", length: "10", scale: "2" }, "varchar")).toMatchObject({ length: "10", scale: undefined });
   });
 });

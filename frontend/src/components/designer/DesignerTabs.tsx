@@ -1,7 +1,7 @@
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, KeyRound, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { D, Explorer, ObjectKind, arr } from "../../api";
-import { Column, Dialect, ForeignKey, Index, Table, Trigger, Unique, renameColumn, takesLength, takesScale, isTextType, uniqueName } from "../../designer/model";
+import { Column, Dialect, ForeignKey, Index, Table, Trigger, Unique, changeType, renameColumn, takesLength, takesScale, isTextType, uniqueName } from "../../designer/model";
 
 type Update = (fn: (t: Table) => Table) => void;
 
@@ -27,6 +27,8 @@ export function FieldsTab(p: { table: Table; meta: D.Meta; dialect: Dialect; sel
               <th>Length</th>
               <th>Decimals</th>
               <th>Not Null</th>
+              {dialect === "mysql" && <th title="Unsigned">Unsigned</th>}
+              {dialect === "mysql" && <th title="Auto Increment">Auto Inc</th>}
               <th>Key</th>
               <th>Default</th>
               <th>Comment</th>
@@ -40,7 +42,7 @@ export function FieldsTab(p: { table: Table; meta: D.Meta; dialect: Dialect; sel
                   <input value={c.name} onChange={(e) => update((tb) => renameColumn(tb, i, e.target.value))} />
                 </td>
                 <td>
-                  <input list={`types-${dialect}`} value={c.type} onChange={(e) => setCol(i, { type: e.target.value })} />
+                  <input list={`types-${dialect}`} value={c.type} onChange={(e) => update((tb) => ({ ...tb, columns: tb.columns.map((x, j) => (j === i ? changeType(x, e.target.value) : x)) }))} />
                 </td>
                 <td>
                   <input className="num-input" disabled={!takesLength(c.type) && !c.length} value={c.length ?? ""} onChange={(e) => setCol(i, { length: e.target.value })} />
@@ -51,6 +53,21 @@ export function FieldsTab(p: { table: Table; meta: D.Meta; dialect: Dialect; sel
                 <td className="center">
                   <input type="checkbox" checked={!c.nullable} onChange={(e) => setCol(i, { nullable: !e.target.checked })} />
                 </td>
+                {dialect === "mysql" && (
+                  <td className="center">
+                    <input type="checkbox" disabled={!/int|dec|num|float|double|real/i.test(c.type)} checked={!!c.unsigned} onChange={(e) => setCol(i, { unsigned: e.target.checked })} />
+                  </td>
+                )}
+                {dialect === "mysql" && (
+                  <td className="center">
+                    <input
+                      type="checkbox"
+                      disabled={!/int/i.test(c.type)}
+                      checked={!!c.autoIncrement}
+                      onChange={(e) => update((tb) => ({ ...tb, columns: tb.columns.map((x, j) => (j === i ? { ...x, autoIncrement: e.target.checked, default: e.target.checked ? undefined : x.default } : e.target.checked ? { ...x, autoIncrement: false } : x)) }))}
+                    />
+                  </td>
+                )}
                 <td className="center key-cell" onClick={() => update((tb) => togglePK(tb, c.name))} title="Toggle primary key">
                   {pk.includes(c.name) && (
                     <span className="pk">

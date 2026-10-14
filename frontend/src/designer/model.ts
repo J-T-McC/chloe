@@ -144,3 +144,17 @@ export function toWire(t: Table): Table {
     columns: t.columns.map((c) => (c.generatedExpr?.trim() ? { ...c, generatedExpr: c.generatedExpr.trim() } : { ...c, generatedExpr: undefined, generatedStored: undefined })),
   };
 }
+
+/** Apply a type change, dropping modifiers the new type doesn't take. */
+export function changeType(c: Column, type: string): Column {
+  const next: Column = { ...c, type };
+  const intType = /^(tiny|small|medium|big)?int(eger)?$/i.test(type.trim());
+  if (!takesLength(type) || (intType && !c.zerofill)) next.length = undefined;
+  if (!takesScale(type)) next.scale = undefined;
+  if (!/int|dec|num|float|double|real/i.test(type)) {
+    next.unsigned = undefined;
+    next.zerofill = undefined;
+    next.autoIncrement = undefined;
+  }
+  return next;
+}
