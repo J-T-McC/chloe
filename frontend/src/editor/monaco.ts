@@ -3,6 +3,9 @@ import type * as Monaco from "monaco-editor";
 import * as core from "./monaco-core.js";
 import EditorWorker from "monaco-esm/editor/editor.worker.js?worker";
 import { onThemeChange, resolvedTheme } from "../theme";
+import { language as mysqlLanguage } from "monaco-esm/languages/definitions/mysql/mysql.js";
+import { language as pgsqlLanguage } from "monaco-esm/languages/definitions/pgsql/pgsql.js";
+import { language as sqlLanguage } from "monaco-esm/languages/definitions/sql/sql.js";
 
 export const monaco = core as unknown as typeof Monaco;
 export type { Monaco };
@@ -37,6 +40,15 @@ monaco.editor.defineTheme("chloe-dark", {
   ],
   colors: { "editor.background": "#1e1f22", "editorLineNumber.foreground": "#5c6068" },
 });
+
+// Monaco's SQL grammars tag word operators (JOIN, UNION, AND, LIKE...) as operators,
+// which the themes grey out; highlight them as keywords like the rest. Symbolic
+// operators (=, <, +...) have their own rule and stay operators. LEFT and RIGHT are
+// also string functions, but in a query they are mostly joins.
+for (const [id, lang] of [["mysql", mysqlLanguage], ["pgsql", pgsqlLanguage], ["sql", sqlLanguage]] as const) {
+  const builtinFunctions = (lang.builtinFunctions ?? []).filter((f) => f !== "LEFT" && f !== "RIGHT");
+  monaco.languages.setMonarchTokensProvider(id, { ...lang, keywords: [...lang.keywords, ...lang.operators], operators: [], builtinFunctions } as unknown as Monaco.languages.IMonarchLanguage);
+}
 
 export const editorTheme = () => (resolvedTheme() === "dark" ? "chloe-dark" : "chloe-light");
 

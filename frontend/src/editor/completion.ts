@@ -233,10 +233,15 @@ export function autoTrigger(editor: Monaco.editor.IStandaloneCodeEditor) {
     const model = editor.getModel();
     const pos = editor.getPosition();
     if (!model || !pos) return;
-    const before = model.getValueInRange(new monaco.Range(pos.lineNumber, Math.max(1, pos.column - 12), pos.lineNumber, pos.column)).toUpperCase();
-    if (/\b(FROM|JOIN|INTO|UPDATE|TABLE|ON|DESCRIBE)\s$/.test(before)) {
+    const before = model.getValueInRange(new monaco.Range(pos.lineNumber, Math.max(1, pos.column - 16), pos.lineNumber, pos.column)).toUpperCase();
+    if (/\b(FROM|JOIN|INTO|UPDATE|TABLE|ON|DESCRIBE|UNION|INTERSECT|EXCEPT|UNION ALL|UNION DISTINCT)\s$/.test(before)) {
       // Defer: triggering inside the change event is cancelled by the edit in progress.
-      setTimeout(() => editor.trigger("chloe", "editor.action.triggerSuggest", {}), 0);
+      // Close an open list first, or Monaco keeps filtering it ("UNION " still matching
+      // "UNION ALL") instead of asking for what follows the keyword.
+      setTimeout(() => {
+        editor.trigger("chloe", "hideSuggestWidget", {});
+        editor.trigger("chloe", "editor.action.triggerSuggest", {});
+      }, 0);
     }
   });
 }

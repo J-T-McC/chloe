@@ -21,6 +21,7 @@ export type Clause =
   | "deleteTable"
   | "ddlTable" // ALTER/DROP/TRUNCATE TABLE <name>
   | "limit"
+  | "setOp" // after UNION / INTERSECT / EXCEPT, expecting the next SELECT
   | "other";
 
 export interface TableRef {
@@ -77,6 +78,9 @@ const CLAUSE_KEYWORDS: Record<string, Clause> = {
   OFFSET: "limit",
   USING: "on",
   RETURNING: "select",
+  UNION: "setOp",
+  INTERSECT: "setOp",
+  EXCEPT: "setOp",
 };
 
 // Words that terminate a table reference (so they're never taken as an alias).

@@ -313,4 +313,16 @@ describe("joins", () => {
     expect(r.sorted.some((s) => s.kind === "join")).toBe(false);
     expect(at("select * from customers c left join |", "mysql").sorted.some((s) => s.kind === "join")).toBe(true);
   });
+  it("keeps offering joins, UNION and the later clauses after several ON conditions", () => {
+    const q = "select * from customers c left join orders o on o.customer_id = c.id\ninner join orders o2 on o2.customer_id = c.id\n";
+    for (const d of ["mysql", "postgres"] as const) {
+      expect(at(q + "un|", d).labels).toEqual(expect.arrayContaining(["UNION", "UNION ALL", "CROSS JOIN", "LIMIT", "HAVING"]));
+    }
+  });
+  it("expects a SELECT after UNION", () => {
+    const q = "select id from customers c join orders o on o.customer_id = c.id union |";
+    expect(analyze(q, q.length, "mysql").clause).toBe("setOp");
+    expect(at(q.replace(/\|?$/, "|"), "mysql").labels).toEqual(["SELECT", "ALL", "DISTINCT"]);
+    expect(at("select id from customers union all |").labels).toEqual(["SELECT"]);
+  });
 });

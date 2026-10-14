@@ -404,6 +404,14 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
       break;
     }
 
+    case "setOp": {
+      // SQLite only accepts UNION ALL; MySQL and PostgreSQL take ALL or DISTINCT after each operator.
+      const op = wordBefore(text, a.prefixStart);
+      const quant = op === "UNION" ? (d === "sqlite" ? ["ALL"] : ["ALL", "DISTINCT"]) : op === "INTERSECT" || op === "EXCEPT" ? (d === "sqlite" ? [] : ["ALL", "DISTINCT"]) : [];
+      out.push(...kw(["SELECT", ...quant], 0, opts));
+      break;
+    }
+
     case "updateTable":
     case "insertTable":
     case "deleteTable":
@@ -434,7 +442,7 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
       if (a.afterOperand) out.push(...kw(OPERATORS[d], -0.5, opts));
       addRefNames(1);
       addColumns(2);
-      out.push(...kw(["AND", "OR", "WHERE", ...JOINS(d), "ORDER BY", "GROUP BY"], 3, opts));
+      out.push(...kw(["AND", "OR", "WHERE", ...JOINS(d), ...AFTER_WHERE], 3, opts));
       break;
     }
 
