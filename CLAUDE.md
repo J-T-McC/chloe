@@ -50,4 +50,7 @@ Sample data lives in `testdata/seed_*` (`seed_mongo.js` runs in mongosh). To reb
   (`store.Workspace`) use the same key. Saved queries are tree objects of kind `query`, served by `ListObjects`/`DDL`.
 - Tab panes mount when first shown and stay mounted. Query tabs aren't closed by Close Connection/Database; close
   tabs through `requestCloseTabs` (it asks to save edited queries), not `closeTabs`.
+- Data Transfer (`core/datatransfer.go`) converts tables with `design.Convert(t, from, to)`: types, defaults (literal
+  re-quoting), auto increment ↔ identity ↔ `INTEGER PRIMARY KEY`, unnamed SQLite constraints. Cells arrive as display
+  strings, so `convertValue` turns hex back into bytes and booleans/timestamps into what the target takes.
 - Wails sets the macOS Dock icon before launch finishes, so `main.go` sets it again on ApplicationStarted.

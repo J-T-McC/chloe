@@ -417,6 +417,14 @@ func (s *TransferService) ExecuteFile(connID string, req core.ExecuteFileRequest
 	return s.M.ExecuteFile(connID, req)
 }
 
+// DataTransfer copies tables and views between databases, schemas or connections.
+func (s *TransferService) DataTransfer(req core.DataTransferRequest) (core.Job, error) {
+	return s.M.DataTransfer(req)
+}
+
+// DefaultTransferOptions are the Data Transfer options a new transfer starts with.
+func (s *TransferService) DefaultTransferOptions() core.TransferOptions { return core.DefaultTransferOptions() }
+
 func (s *TransferService) Jobs() []core.Job    { return s.M.Jobs() }
 func (s *TransferService) CancelJob(id string) { s.M.CancelJob(id) }
 func (s *TransferService) ClearJobs()          { s.M.ClearJobs() }

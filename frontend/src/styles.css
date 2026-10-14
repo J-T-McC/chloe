@@ -3374,3 +3374,205 @@ table.mapping select {
   white-space: pre-wrap;
   user-select: text;
 }
+
+/* ---- data transfer --------------------------------------------------------------- */
+
+.data-transfer .dt-body {
+  height: 440px;
+  overflow: auto;
+}
+
+.dt-header {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+
+.dt-end {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dt-end > span {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.dt-general {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.dt-side {
+  min-width: 0;
+}
+
+.dt-side-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.dt-swap {
+  margin-top: 64px;
+}
+
+.dt-info {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 2px 8px;
+  margin: 12px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.dt-info dt {
+  color: var(--text-3);
+}
+
+.dt-info dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hint.err {
+  color: var(--danger);
+}
+
+.dt-objects {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  height: 100%;
+}
+
+.dt-group {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.dt-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+
+.dt-group .hint {
+  margin: 6px 8px 0;
+}
+
+.dt-group-list {
+  flex: 1;
+  overflow: auto;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.dt-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dt-summary p {
+  margin: 0;
+}
+
+.dt-summary-grid {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-height: 280px;
+  overflow: auto;
+  font-size: 12px;
+}
+
+.dt-summary-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dt-summary-row.head {
+  background: var(--bg-2);
+  color: var(--text-2);
+  font-weight: 500;
+  position: sticky;
+  top: 0;
+}
+
+.dt-progress {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 8px;
+}
+
+.dt-counters {
+  display: flex;
+  gap: 18px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.dt-log {
+  flex: 1;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-2);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.dt-options {
+  width: 460px;
+}
+
+.dt-options-body fieldset {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin: 0 0 10px;
+  padding: 6px 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dt-options-body legend {
+  font-weight: 600;
+  padding: 0 4px;
+}
+
+.dt-options-body .indent {
+  padding-left: 22px;
+}
+
+.dt-options-body .row {
+  display: flex;
+  gap: 16px;
+}

@@ -3,7 +3,8 @@
 Order reflects dependencies: later features build on the earlier ones. Specs for each area live in `docs/specs/`.
 
 ## Next up
-1. **Data transfer between connections**, then **structure sync and data sync** (section 8)
+1. **Structure sync and data sync** (section 8); Data Transfer follow-ups: file target, per-table Advanced
+   mode (rename, fields, filters), functions/procedures/events, MongoDB → MongoDB
 2. **Explain / visual explain** for MySQL and PostgreSQL, with MongoDB's explain
 3. **MongoDB, second pass**: aggregation pipeline builder, GridFS buckets, saved queries in MongoDB databases
 4. **SQL Server and Oracle**, both in Docker
@@ -42,11 +43,13 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 - SQL preview before saving; generates ALTER for edits; rename-safe diffs
 - Also: New/Drop/Rename/Truncate/Empty/Duplicate table, create/edit database (charset, collation), view and function editors
 
-## 4. Import / export ✅ (except data transfer between connections)
+## 4. Import / export ✅
 - Export: CSV, TSV, JSON, SQL INSERTs, Excel (xlsx), with column and row selection
 - Import: CSV/JSON/xlsx with column mapping, append/update/replace modes
 - Dump SQL file (structure, structure + data), Execute SQL file
-- Data transfer between connections
+- [x] Data Transfer (Tools menu, or a connection/database/schema's menu): tables and views between databases,
+  schemas and connections, MySQL/MariaDB ↔ PostgreSQL ↔ SQLite. Types, defaults, auto increment, indexes,
+  uniques, checks and foreign keys are converted; Navicat's options, summary, `[DTF]` message log and profiles
 
 ## 5. Data model / ER diagrams ✅
 - [x] Reverse-engineer an ER diagram from a database
