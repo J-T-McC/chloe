@@ -51,6 +51,17 @@ export function Sidebar() {
   const v = useVirtualizer({ count: rows.length, getScrollElement: () => scroller.current, estimateSize: () => ROW, overscan: 20 });
   const selectedKey = selection ? selectionKey(selection) : "";
 
+  // Reveal in Navigation Pane: scroll to the node and select it.
+  const revealKey = useTree((s) => s.revealKey);
+  useEffect(() => {
+    if (!revealKey) return;
+    const i = rows.findIndex((r) => r.key === revealKey);
+    if (i < 0) return;
+    v.scrollToIndex(i, { align: "center" });
+    selectNode(rows[i], false);
+    useTree.setState({ revealKey: null });
+  }, [revealKey, rows, v]);
+
   return (
     <div className="sidebar">
       <div className="sidebar-search">
@@ -103,13 +114,24 @@ export function Sidebar() {
   );
 }
 
-function selectionKey(s: { group?: string; connId: string; database?: string; schema?: string; kind?: ObjectKind }) {
+function selectionKey(s: { group?: string; connId: string; database?: string; schema?: string; kind?: ObjectKind; object?: ObjectRef }) {
   if (s.group !== undefined && !s.connId) return "group:" + s.group;
   let k = s.connId;
+  if (s.database && connById(s.connId)?.type === "redis") return `${k}/db${s.database}`;
   if (s.database) k += "/" + s.database;
   if (s.schema) k += "/" + s.schema;
   if (s.kind) k += "/#" + s.kind;
+  if (s.object) k += "/" + s.object.name + (s.object.signature ? `(${s.object.signature})` : "");
   return k;
+}
+
+/** Select a tree node (what a click does); showObjects switches to the Objects tab. */
+function selectNode(n: TreeNode, showObjects = true) {
+  const app = useApp.getState();
+  if (n.type === "group") app.select({ group: n.group, connId: "" });
+  else if (n.type === "object") app.select({ connId: n.connId, database: n.database, schema: n.schema, kind: n.kind, object: refOf(n) });
+  else app.select({ connId: n.connId, database: n.database, schema: n.schema, kind: n.kind });
+  if (showObjects && app.activeTab !== "objects" && n.type !== "object") app.setActive("objects");
 }
 
 function refOf(n: TreeNode): ObjectRef {
@@ -120,13 +142,7 @@ function TreeRow(props: { node: TreeNode; top: number; expanded: boolean; loadin
   const { node: n, top, expanded, loading, error, connected, dbOpen, selected } = props;
   const conn = n.type === "conn" ? connById(n.connId) : undefined;
 
-  const onClick = () => {
-    const app = useApp.getState();
-    if (n.type === "group") app.select({ group: n.group, connId: "" });
-    else if (n.type === "object") app.select({ connId: n.connId, database: n.database, schema: n.schema, kind: n.kind, object: refOf(n) });
-    else app.select({ connId: n.connId, database: n.database, schema: n.schema, kind: n.kind });
-    if (app.activeTab !== "objects" && n.type !== "object") app.setActive("objects");
-  };
+  const onClick = () => selectNode(n);
 
   const onDouble = () => {
     if (n.type === "object") openObject(n);

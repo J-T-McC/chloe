@@ -63,6 +63,8 @@ interface AppState {
   select(sel: Selection): void;
   openTab(tab: Omit<Tab, "id"> & { id?: string }): string;
   closeTab(id: string): void;
+  /** Close several tabs at once (the Objects tab always stays). */
+  closeTabs(ids: string[]): void;
   setActive(id: string): void;
   updateTab(id: string, patch: Partial<Tab>): void;
   editConnection(c?: Connection | "new"): void;
@@ -191,6 +193,20 @@ export const useApp = create<AppState>((set, get) => ({
       const idx = s.tabs.findIndex((t) => t.id === id);
       const tabs = s.tabs.filter((t) => t.id !== id);
       const activeTab = s.activeTab === id ? (tabs[Math.max(0, idx - 1)]?.id ?? "objects") : s.activeTab;
+      return { tabs, activeTab };
+    });
+  },
+
+  closeTabs(ids) {
+    const gone = new Set(ids.filter((id) => id !== "objects"));
+    set((s) => {
+      const tabs = s.tabs.filter((t) => !gone.has(t.id));
+      let activeTab = s.activeTab;
+      if (gone.has(activeTab)) {
+        const idx = s.tabs.findIndex((t) => t.id === activeTab);
+        // The nearest surviving tab to the left, else the first one.
+        activeTab = [...s.tabs.slice(0, idx)].reverse().find((t) => !gone.has(t.id))?.id ?? tabs[0]?.id ?? "objects";
+      }
       return { tabs, activeTab };
     });
   },

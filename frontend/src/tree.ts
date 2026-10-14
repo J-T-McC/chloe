@@ -35,6 +35,19 @@ interface TreeState {
   collapseConnection(connId: string): void;
   closeDatabase(node: TreeNode): Promise<void>;
   setFilter(f: string): void;
+  /** Key of a node the sidebar should scroll to and select (set by reveal). */
+  revealKey: string | null;
+  /** Expand the tree down to a connection, database, schema, folder or object. */
+  reveal(t: RevealTarget): Promise<void>;
+}
+
+export interface RevealTarget {
+  connId: string;
+  database?: string;
+  schema?: string;
+  kind?: ObjectKind;
+  name?: string;
+  signature?: string;
 }
 
 const MYSQL_FOLDERS = [ObjectKind.KindTable, ObjectKind.KindView, ObjectKind.KindFunction, ObjectKind.KindProcedure, ObjectKind.KindTrigger, ObjectKind.KindEvent];
@@ -101,6 +114,7 @@ export const useTree = create<TreeState>((set, get) => ({
   loading: {},
   errors: {},
   filter: "",
+  revealKey: null,
 
   async toggle(node) {
     if (node.type === "group") {
@@ -158,6 +172,34 @@ export const useTree = create<TreeState>((set, get) => ({
       const strip = <T,>(m: Record<string, T>) => Object.fromEntries(Object.entries(m).filter(([k]) => k !== connId && !k.startsWith(connId + "/")));
       return { expanded: strip(s.expanded), children: strip(s.children) };
     });
+  },
+
+  async reveal(t) {
+    const conn = connById(t.connId);
+    if (!conn) return;
+    const node = (key: string, type: NodeType, extra: Partial<TreeNode> = {}): TreeNode => ({ key, type, label: "", connId: t.connId, depth: 0, expandable: true, ...extra });
+    // Hidden by a search? Clear it so the target can show.
+    set((s) => ({ filter: "", expanded: conn.group ? { ...s.expanded, ["group:" + conn.group]: true } : s.expanded }));
+    let key = t.connId;
+    await get().expand(node(key, "conn"));
+    const redis = conn.type === DBType.Redis;
+    if (t.database !== undefined && t.database !== "") {
+      key = redis ? `${t.connId}/db${t.database}` : `${t.connId}/${t.database}`;
+      if (!redis) await get().expand(node(key, "db", { database: t.database }));
+      if (!redis && t.schema && isPG(t.connId)) {
+        key = `${key}/${t.schema}`;
+        await get().expand(node(key, "schema", { database: t.database, schema: t.schema }));
+      }
+      if (!redis && t.kind) {
+        key = `${key}/#${t.kind}`;
+        await get().expand(node(key, "folder", { database: t.database, schema: t.schema, kind: t.kind }));
+        if (t.name) {
+          const objKey = `${key}/${t.name}${t.signature ? `(${t.signature})` : ""}`;
+          if (get().children[key]?.some((c) => c.key === objKey)) key = objKey;
+        }
+      }
+    }
+    set({ revealKey: key });
   },
 
   setFilter(filter) {

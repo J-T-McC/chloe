@@ -20,7 +20,7 @@ import { RedisConsole } from "./components/redis/RedisConsole";
 import { ERDiagram } from "./components/erd/ERDiagram";
 import { ModelEditor } from "./components/model/ModelEditor";
 import { newModel, openModel } from "./components/model/actions";
-import { openMenu } from "./components/ContextMenu";
+import { MenuItem, openMenu } from "./components/ContextMenu";
 import { DBType, Models, arr } from "./api";
 import { DDLView, ObjectsPane } from "./components/ObjectsPane";
 import { QueryEditor } from "./components/QueryEditor";
@@ -29,7 +29,7 @@ import { TableViewer } from "./components/TableViewer";
 import { Tab, connById, useApp } from "./store";
 import { openRedisConsole } from "./components/redis/actions";
 import { newTable } from "./tableActions";
-import { useTree } from "./tree";
+import { RevealTarget, useTree } from "./tree";
 
 export default function App() {
   useInitialLoad();
@@ -194,8 +194,9 @@ function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
       className={"tab" + (active ? " active" : "")}
       onMouseDown={(e) => {
         if (e.button === 1) useApp.getState().closeTab(tab.id);
-        else useApp.getState().setActive(tab.id);
+        else if (e.button === 0) useApp.getState().setActive(tab.id);
       }}
+      onContextMenu={(e) => openMenu(e, tabMenu(tab))}
       title={tab.title}
     >
       {icon}
@@ -234,6 +235,41 @@ function ThemeButton() {
       <Icon size={15} />
     </button>
   );
+}
+
+/** Right-click menu of a tab (Navicat's). */
+function tabMenu(tab: Tab): MenuItem[] {
+  const app = useApp.getState();
+  const tabs = app.tabs;
+  const idx = tabs.findIndex((t) => t.id === tab.id);
+  const closable = (t: Tab) => t.kind !== "objects";
+  const others = tabs.filter((t) => t.id !== tab.id && closable(t)).map((t) => t.id);
+  const right = tabs.slice(idx + 1).filter(closable).map((t) => t.id);
+  const target = revealTarget(tab);
+  return [
+    { label: "Close", shortcut: "⌘W", disabled: !closable(tab), onClick: () => app.closeTab(tab.id) },
+    { label: "Close Other Tabs", disabled: !others.length, onClick: () => app.closeTabs(others) },
+    { label: "Close Tabs to the Right", disabled: !right.length, onClick: () => app.closeTabs(right) },
+    { label: "Close All", disabled: !tabs.some(closable), onClick: () => app.closeTabs(tabs.filter(closable).map((t) => t.id)) },
+    { separator: true },
+    { label: "Move Tab to New Window", disabled: true },
+    { separator: true },
+    { label: "Add to Favorites", disabled: true },
+    { label: "Reveal in Navigation Pane", disabled: !target, onClick: () => target && useTree.getState().reveal(target) },
+  ];
+}
+
+/** Where a tab's object lives in the tree, if anywhere. */
+function revealTarget(tab: Tab): RevealTarget | null {
+  if (!tab.connId) return null;
+  const r = tab.ref;
+  const database = tab.database ?? r?.database;
+  const schema = tab.schema ?? r?.schema;
+  const hasObject = r && r.name && (tab.kind === "table" || tab.kind === "design" || tab.kind === "ddl" || tab.kind === "viewdesign");
+  if (hasObject) return { connId: tab.connId, database: r.database, schema: r.schema, kind: r.kind, name: r.name, signature: r.signature };
+  // New table/view designers point at their folder.
+  if ((tab.kind === "design" || tab.kind === "viewdesign") && r) return { connId: tab.connId, database: r.database, schema: r.schema, kind: r.kind };
+  return { connId: tab.connId, database: database || undefined, schema: schema || undefined };
 }
 
 async function modelMenu(e: React.MouseEvent) {
