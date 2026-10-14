@@ -7,6 +7,7 @@ require (
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
+	github.com/keybase/go-keychain v0.0.1
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/wailsapp/wails/v3 v3.0.0-beta.29
 	github.com/xuri/excelize/v2 v2.11.0

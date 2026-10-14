@@ -1,7 +1,6 @@
 package store
 
 import (
-	"errors"
 	"sync"
 
 	"github.com/zalando/go-keyring"
@@ -12,15 +11,9 @@ const keyringService = "app.chloe.desktop"
 // Keyring stores secrets in the macOS Keychain / Windows Credential Manager / Secret Service.
 type Keyring struct{}
 
-func (Keyring) Get(key string) (string, error) { return keyring.Get(keyringService, key) }
-func (Keyring) Set(key, value string) error    { return keyring.Set(keyringService, key, value) }
-func (Keyring) Delete(key string) error {
-	err := keyring.Delete(keyringService, key)
-	if errors.Is(err, keyring.ErrNotFound) {
-		return nil
-	}
-	return err
-}
+func (Keyring) Get(key string) (string, error) { return osGet(key) }
+func (Keyring) Set(key, value string) error    { return osSet(key, value) }
+func (Keyring) Delete(key string) error        { return osDelete(key) }
 
 // MemorySecrets is an in-memory Secrets implementation for tests.
 type MemorySecrets struct {

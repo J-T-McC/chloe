@@ -41,4 +41,6 @@ Sample data lives in `testdata/seed_*` (`seed_mongo.js` runs in mongosh). To reb
 - `Dialect.TransactionalDDL()` is false only for MySQL. SQLite ALTERs it can't express become a table rebuild
   (`design.RebuildPrefix`), guarded by a `foreign_key_check` before and after in `core.ExecuteDDL`.
 - modernc.org/sqlite always parses DATE/DATETIME text columns into `time.Time`.
+- macOS secrets go through the Security framework (`internal/store/keyring_darwin.go`), never `/usr/bin/security`: items the
+  CLI creates can be read by any process without a prompt. `CHLOE_KEYCHAIN_IT=1 go test ./internal/store` exercises it.
 - Wails sets the macOS Dock icon before launch finishes, so `main.go` sets it again on ApplicationStarted.

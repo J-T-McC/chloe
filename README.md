@@ -14,7 +14,7 @@ Built with Go and [Wails v3](https://v3.wails.io) (system webview), React and Mo
 | `internal/driver/{mysql,postgres,sqlite}` | Engine drivers: metadata, DDL, sessions, cancel. |
 | `internal/mdb`, `internal/rdb` | MongoDB (documents, indexes, a goja-based shell) and Redis clients. |
 | `internal/tunnel` | Direct and SSH dialers. |
-| `internal/store` | Saved connections (JSON) with secrets in the OS keychain. |
+| `internal/store` | Saved connections (JSON) with secrets in the OS keychain (on macOS through the Security framework, so only Chloe's signature can read them). |
 | `internal/sqlsplit` | Dialect-aware statement splitter (DELIMITER, `$$`, comments). |
 | `services` | Thin Wails bindings over `internal/core`. |
 | `frontend/src/sql`, `frontend/src/mongo` | SQL and MongoDB autocomplete engines (pure TS, unit tested). |
@@ -37,3 +37,7 @@ Test databases (from `docker-compose.yml`): MySQL on `127.0.0.1:33306`, PostgreS
 The browser build (`bin/Chloe-server`) has no login, so it refuses to start without `CHLOE_SECRETS=memory` and only listens on
 loopback (`CHLOE_ALLOW_REMOTE=1` overrides that, as the Docker image does). Exported connections carry passwords only when
 a passphrase is given, encrypted with it (scrypt + AES-256-GCM).
+
+macOS builds are signed with `CHLOE_SIGN_IDENTITY`, else the first "Apple Development" certificate in the keychain, else ad hoc.
+A stable signature lets the Keychain keep trusting Chloe across rebuilds. Sharing builds needs a Developer ID certificate
+and notarization (`wails3 setup`, then `wails3 task darwin:sign:notarize`).

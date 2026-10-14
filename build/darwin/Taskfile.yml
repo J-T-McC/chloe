@@ -43,6 +43,9 @@ tasks:
     cmds:
       - wails3 tool prepare-macos-output --dir "{{.BIN_DIR}}"
       - '{{if eq .OBFUSCATED "true"}}garble {{.GARBLE_ARGS}} build{{else}}go build{{end}} {{.BUILD_FLAGS}} -o "{{.OUTPUT}}"'
+      - task: codesign:local
+        vars:
+          TARGET: '{{.OUTPUT}}'
     vars:
       BUILD_FLAGS: '{{if eq .DEV "true"}}{{if or .EXTRA_TAGS (eq .OBFUSCATED "true")}}-tags {{if eq .OBFUSCATED "true"}}wails_obfuscated{{if .EXTRA_TAGS}},{{end}}{{end}}{{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production{{if eq .OBFUSCATED "true"}},wails_obfuscated{{end}}{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s"{{end}}'
       DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}'
@@ -171,15 +174,26 @@ tasks:
         fi
       - cp "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/MacOS"
       - cp build/darwin/Info.plist "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents"
-      - task: '{{if eq OS "darwin"}}codesign:adhoc{{else}}codesign:skip{{end}}'
+      - task: '{{if eq OS "darwin"}}codesign:local{{else}}codesign:skip{{end}}'
+        vars:
+          TARGET: '{{.BIN_DIR}}/{{.APP_NAME}}.app'
 
-  codesign:adhoc:
-    summary: Ad-hoc signs the app bundle (macOS only)
+  codesign:local:
+    summary: Signs a local build with a stable identity (macOS only)
+    desc: |
+      The Keychain gives saved passwords only to the app that stored them, matched
+      by code signature. An ad-hoc signature changes with every build, so each
+      rebuild would have to be allowed again. This signs with CHLOE_SIGN_IDENTITY,
+      else the first "Apple Development" certificate in the keychain, else ad hoc.
+      Not for distribution: that needs Developer ID and notarization (darwin:sign:notarize).
     internal: true
     cmds:
-      - xattr -cr "{{.BIN_DIR}}/{{.APP_NAME}}.app"
-      - codesign --force --deep --sign - "{{.BIN_DIR}}/{{.APP_NAME}}.app"
-      - codesign --verify --deep --strict "{{.BIN_DIR}}/{{.APP_NAME}}.app"
+      - xattr -cr "{{.TARGET}}"
+      - |
+        id="${CHLOE_SIGN_IDENTITY:-$(security find-identity -v -p codesigning | sed -n 's/.*"\(Apple Development:[^"]*\)".*/\1/p' | head -1)}"
+        echo "codesign: ${id:-ad hoc}"
+        codesign --force --deep --timestamp=none --identifier app.chloe.desktop --sign "${id:--}" "{{.TARGET}}"
+      - codesign --verify --deep --strict "{{.TARGET}}"
 
   codesign:skip:
     summary: Skips codesigning when cross-compiling
@@ -200,9 +214,9 @@ tasks:
         fi
       - cp "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS"
       - cp "build/darwin/Info.dev.plist" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Info.plist"
-      - xattr -cr "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app"
-      - codesign --force --deep --sign - "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app"
-      - codesign --verify --deep --strict "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app"
+      - task: codesign:local
+        vars:
+          TARGET: '{{.BIN_DIR}}/{{.APP_NAME}}.dev.app'
       - '"{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS/{{.APP_NAME}}"'
 
   sign:
