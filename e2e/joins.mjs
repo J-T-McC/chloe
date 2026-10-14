@@ -45,6 +45,25 @@ await check("CROSS JOIN after two joins", s.includes("CROSS JOIN"), s.slice(0, 6
 await page.keyboard.press("Escape");
 await page.screenshot({ path: `${out}/joins.png` });
 
+// Derived tables and union branches, typed with Monaco's auto-closing brackets.
+const retype = async (sql) => {
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.type(sql, { delay: 10 });
+};
+await retype("select * from (select * from customers) x where x.");
+s = await suggestions();
+await check("derived SELECT * columns", s.includes("email") && !s.includes("status"), s.slice(0, 6).join(", "));
+await retype("select c.id from customers c union select p.");
+await page.keyboard.press("Escape");
+await page.keyboard.type(" from products p");
+for (let i = 0; i < " from products p".length; i++) await page.keyboard.press("ArrowLeft");
+await page.keyboard.press("Control+Space");
+s = await suggestions();
+await check("union branch sees only its table", s.includes("sku") && !s.includes("email"), s.slice(0, 6).join(", "));
+await retype("SELECT * FROM customers c LEFT JOIN orders o ON o.customer_id = c.id INNER JOIN orders o2 ON o2.customer_id = c.id ");
+
 // JOIN, LEFT and INNER should be coloured like ON (keywords), not like operators.
 const colors = await page.evaluate(() => {
   const c = {};

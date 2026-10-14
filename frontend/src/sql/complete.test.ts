@@ -321,8 +321,99 @@ describe("joins", () => {
   });
   it("expects a SELECT after UNION", () => {
     const q = "select id from customers c join orders o on o.customer_id = c.id union |";
-    expect(analyze(q, q.length, "mysql").clause).toBe("setOp");
+    expect(analyze(q, q.length, "mysql").clause).toBe("selectStart");
     expect(at(q.replace(/\|?$/, "|"), "mysql").labels).toEqual(["SELECT", "ALL", "DISTINCT"]);
     expect(at("select id from customers union all |").labels).toEqual(["SELECT"]);
   });
+});
+
+// Odd query shapes: each row is [query with "|" at the cursor, dialect, labels that must be
+// offered, labels that must not be]. Exclusions catch tables leaking in from the wrong scope.
+describe("aliases, subqueries, unions and CTEs", () => {
+  const C = ["id", "email", "full_name"]; // customers
+  const CX = ["email", "full_name"]; // only customers has these
+  const O = ["customer_id", "status", "placed_at"]; // orders
+  const P = ["sku", "name", "price"]; // products
+  const I = ["order_id", "product_id", "qty"]; // order_items
+  type Row = [string, "mysql" | "postgres", string[], string[]];
+  const rows: Row[] = [
+    // derived tables: select lists, stars, joins and unions inside
+    ["select x.| from (select * from customers) x", "postgres", C, O],
+    ["select x.| from (select c.*, o.status from customers c join orders o on o.customer_id = c.id) x", "postgres", [...C, "status"], ["placed_at"]],
+    ["select u.| from (select id, email from customers union all select id, sku from products) u", "postgres", ["id", "email"], ["sku", "full_name"]],
+    ["select u.| from (select * from customers union select * from customers) u", "postgres", C, P],
+    ["select b.| from (select * from (select id, full_name from customers) a) b", "postgres", ["id", "full_name"], ["email"]],
+    ["select x.| from (select id, email from customers) as x(a, b)", "postgres", ["id", "email"], O],
+    ["select * from customers c join (select customer_id, count(*) as n from orders group by customer_id) t on t.|", "postgres", ["customer_id", "n"], CX],
+    ["select * from customers c right join (select customer_id, max(placed_at) last_at from orders group by customer_id) r on r.|", "postgres", ["customer_id", "last_at"], ["placed_at"]],
+    ["select * from (select * from customers c join orders o on o.|) x", "postgres", O, ["email"]],
+    ["select * from (select * from customers c join orders o on o.customer_id = c.id where o.|) x", "postgres", O, ["email"]],
+    ["select * from (select | from customers c join orders o on o.customer_id = c.id) x", "postgres", [...C, ...O, "c", "o"], ["x"]],
+    ["select * from (select id from customers union select p.| from products p) u", "postgres", P, ["email"]],
+    ["select * from (select * from orders) o join customers c on c.id = o.customer_id where o.|", "postgres", O, ["email"]],
+    ["select x.| from customers c cross join lateral (select * from orders o where o.customer_id = c.id limit 1) x", "postgres", O, ["email"]],
+    ["select x.| from customers c, lateral (select * from orders o where o.customer_id = c.id) x", "postgres", O, ["email"]],
+    // unions: each SELECT sees only its own tables
+    ["select c.id from customers c union select p.| from products p", "postgres", P, ["email"]],
+    ["select c.| from customers c union select p.id from products p", "postgres", C, P],
+    ["select x.| from customers x union select x.sku from products x", "postgres", C, P],
+    ["select x.id from customers x union select x.| from products x", "postgres", P, ["email"]],
+    ["select id from customers c union select | from products p", "postgres", [...P, "p"], ["email", "c"]],
+    ["(select c.id from customers c) union (select p.| from products p)", "postgres", P, ["email"]],
+    ["select id from customers union select id from products order by |", "postgres", ["id"], ["sku", "email"]],
+    // correlated and nested subqueries see enclosing queries, innermost alias first
+    ["select c.id, (select count(*) from orders o where o.customer_id = c.|) from customers c", "postgres", C, O],
+    ["select * from customers c where c.id in (select o.| from orders o)", "postgres", O, ["email"]],
+    ["select * from customers c where exists (select 1 from orders c where c.|)", "postgres", O, ["email"]],
+    ["select * from customers c where c.id = (select max(o.|) from orders o)", "postgres", O, ["email"]],
+    ["select * from customers c where c.id in (select o.customer_id from orders o where o.id in (select i.order_id from order_items i where i.qty > c.|))", "postgres", C, I],
+    ["select * from customers c join orders o on o.customer_id = (select max(c2.id) from customers c2 where c2.|)", "postgres", C, O],
+    ["select (select max(x.|) from (select id from orders) x) from customers", "postgres", ["id"], ["email"]],
+    // statements still being typed (no closing paren yet)
+    ["select * from (select * from customers c where c.|", "postgres", C, O],
+    ["select * from customers c where c.id in (select o.| from orders o", "postgres", O, ["email"]],
+    ["select * from customers c where exists (select 1 from orders o join order_items i on i.|", "postgres", I, ["email"]],
+    // CTEs
+    ["with x as (select id, email from customers union select id, sku from products) select x.| from x", "postgres", ["id", "email"], ["sku"]],
+    ["with a as (select id, email from customers), b as (select a.| from a) select * from b", "postgres", ["id", "email"], ["full_name"]],
+    ["with a as (select * from customers) select a.| from a", "postgres", C, O],
+    ["with a(k, v) as (select id, email from customers) select a.| from a", "postgres", ["k", "v"], ["email"]],
+    ["with recursive t(n) as (select 1 union all select n + 1 from t where n < 5) select t.| from t", "postgres", ["n"], CX],
+    ["with orders as (select id, sku from products) select orders.| from orders", "postgres", ["id", "sku"], ["status"]],
+    // aliases: AS, quoted, keyword-named, schema- or database-qualified tables
+    ["select o.| from orders as o", "postgres", O, CX],
+    ['select "order".| from orders "order"', "postgres", O, CX],
+    ["select `order`.| from orders `order`", "mysql", O, CX],
+    ["select orders.| from customers orders", "postgres", C, O],
+    ["select o.| from shop.orders o", "postgres", O, CX],
+    ["select o.| from shop.orders o", "mysql", O, CX],
+    ["select a.| from public.audit_log a", "postgres", ["message"], CX],
+    ["select c.| from customers -- note\n c", "postgres", C, O],
+    ["select c.| from customers /* x */ c", "postgres", C, O],
+    ["select a.| from customers a, orders b where a.id = b.customer_id", "postgres", C, O],
+    ["select i.| from orders o straight_join order_items i on i.order_id = o.id", "mysql", I, CX],
+    // several statements: only the one under the cursor counts
+    ["select * from products p; select o.| from orders o", "postgres", O, P],
+    ["select * from (((; select o.| from orders o", "postgres", O, P],
+    // clauses
+    ["select * from orders o join order_items i using (|", "postgres", I, ["i.order_id = o.id"]],
+    ["select o.status as s from orders o order by |", "postgres", ["s", ...O], []],
+    ["select date(o.placed_at) as day, count(*) from orders o group by |", "postgres", ["day", ...O], []],
+    ["select row_number() over (partition by o.| order by o.id) from orders o", "postgres", O, CX],
+    ["update orders o join customers c on c.id = o.customer_id set o.|", "mysql", O, ["email"]],
+    ["delete o from orders o join customers c on c.id = o.customer_id where c.|", "mysql", C, O],
+    ["delete from orders o using customers c where c.|", "postgres", C, O],
+    ["insert into orders (customer_id) select c.| from customers c join orders o on o.customer_id = c.id", "postgres", C, O],
+    ["insert into orders (customer_id, status) values (|", "postgres", ["NULL", "DEFAULT"], ["status"]],
+    ["select * from (|", "postgres", ["SELECT", "WITH", "VALUES"], ["customers"]],
+    ["select * from customers c join (|", "mysql", ["SELECT"], ["VALUES", "email"]],
+    ["select * from customers c where c.id in (|", "postgres", ["SELECT"], []],
+  ];
+  for (const [sql, d, want, not] of rows) {
+    it(`${d}: ${sql.replace(/\s+/g, " ")}`, () => {
+      const labels = at(sql, d).labels;
+      expect(labels).toEqual(expect.arrayContaining(want));
+      for (const n of not) expect(labels).not.toContain(n);
+    });
+  }
 });

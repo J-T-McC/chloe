@@ -102,8 +102,11 @@ export class CatalogIndex {
   resolve(name: string, schema?: string): CatTable | undefined {
     const cands = this.byName.get(name.toLowerCase());
     if (!cands?.length) return undefined;
-    if (schema) return cands.find((t) => (t.schema ?? "").toLowerCase() === schema.toLowerCase());
     const def = (this.cat.defaultSchema ?? "").toLowerCase();
+    if (schema) {
+      const s = schema.toLowerCase();
+      return cands.find((t) => (t.schema ?? "").toLowerCase() === s) ?? (s === def ? cands.find((t) => !t.schema) : undefined);
+    }
     return (
       cands.find((t) => (t.schema ?? "").toLowerCase() === def) ??
       cands.find((t) => (t.schema ?? "").toLowerCase() === "public") ??
@@ -194,6 +197,8 @@ const JOIN_REST = (d: DialectName): Record<string, string[]> => ({
   NATURAL: ["JOIN", "LEFT JOIN", "RIGHT JOIN", "INNER JOIN"],
   OUTER: ["JOIN"],
 });
+/** Whether the last non-blank character before at is ch. */
+const prevTokenIs = (text: string, at: number, ch: string) => text.slice(0, at).trimEnd().endsWith(ch);
 /** The word directly before the prefix being typed, upper-cased. */
 const wordBefore = (text: string, at: number) => /([A-Za-z_]+)\s+$/.exec(text.slice(0, at))?.[1].toUpperCase();
 // Keywords that start a value or expression.
@@ -252,8 +257,26 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
   // Visible references, resolved against the catalog.
   const scope = a.tables.map((r) => ({ ref: r, table: r.kind === "table" ? ix.resolve(r.name, r.schema) : undefined }));
   const qualName = (r: TableRef) => r.alias ?? r.name;
-  const columnsOf = (r: TableRef, t?: CatTable): CatColumn[] =>
-    t?.columns ?? (r.columns ?? []).map((name) => ({ name, type: r.kind === "cte" ? "cte column" : "derived column" }));
+  // Columns of a reference; "*" and "x.*" in a derived table or CTE expand to its sources.
+  const columnsOf = (r: TableRef, t?: CatTable, depth = 0): CatColumn[] => {
+    if (t) return t.columns;
+    const out: CatColumn[] = [];
+    for (const name of r.columns ?? []) {
+      if (!name.endsWith("*")) {
+        out.push({ name, type: r.kind === "cte" ? "cte column" : "derived column" });
+        continue;
+      }
+      if (depth > 8) continue;
+      const qual = name === "*" ? undefined : name.slice(0, -2).toLowerCase();
+      for (const src of r.sources ?? []) {
+        if (qual && (src.alias ?? src.name).toLowerCase() !== qual) continue;
+        out.push(...columnsOf(src, src.kind === "table" ? ix.resolve(src.name, src.schema) : undefined, depth + 1));
+      }
+    }
+    // The same name twice (SELECT * over a join) is one output column for completion.
+    const seen = new Set<string>();
+    return out.filter((c) => !seen.has(c.name.toLowerCase()) && !!seen.add(c.name.toLowerCase()));
+  };
 
   const addTables = (rank: number, schemaFilter?: string, withSchemas = true) => {
     for (const c of a.ctes) out.push({ label: c.name, kind: "cte", insertText: q(c.name), detail: "CTE", rank: rank - 1 });
@@ -404,11 +427,28 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
       break;
     }
 
-    case "setOp": {
+    case "selectStart": {
       // SQLite only accepts UNION ALL; MySQL and PostgreSQL take ALL or DISTINCT after each operator.
       const op = wordBefore(text, a.prefixStart);
+      if (prevTokenIs(text, a.prefixStart, "(")) {
+        out.push(...kw(["SELECT", "WITH", ...(d === "mysql" ? [] : ["VALUES"])], 0, opts));
+        break;
+      }
       const quant = op === "UNION" ? (d === "sqlite" ? ["ALL"] : ["ALL", "DISTINCT"]) : op === "INTERSECT" || op === "EXCEPT" ? (d === "sqlite" ? [] : ["ALL", "DISTINCT"]) : [];
       out.push(...kw(["SELECT", ...quant], 0, opts));
+      break;
+    }
+
+    case "using": {
+      // JOIN t USING ( <columns both sides have> )
+      const target = [...scope].filter((s) => s.ref.at >= 0 && s.ref.at < a.prefixStart).sort((x, y) => y.ref.at - x.ref.at)[0] ?? scope[scope.length - 1];
+      if (target) {
+        const others = new Set(scope.filter((s) => s !== target).flatMap((s) => columnsOf(s.ref, s.table).map((c) => c.name.toLowerCase())));
+        for (const c of columnsOf(target.ref, target.table)) {
+          const shared = others.has(c.name.toLowerCase());
+          out.push({ label: c.name, kind: "column", insertText: q(c.name), detail: shared ? "in both tables" : `${c.type} — ${qualName(target.ref)}`, filterText: c.name, rank: shared ? -1 : 1 });
+        }
+      }
       break;
     }
 
@@ -470,7 +510,12 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
         const cols = scope.flatMap((s) => columnsOf(s.ref, s.table).map((c) => (multi ? quoteIdent(qualName(s.ref), d) + "." : "") + quoteIdent(c.name, d)));
         out.push({ label: "Expand * to column list", kind: "snippet", insertText: cols.join(", "), rangeStart: offset - 1, rank: -2, filterText: "*" });
       }
-      if (a.clause === "values" || a.clause === "limit") break;
+      if (a.clause === "limit") break;
+      if (a.clause === "values") {
+        out.push(...kw(["NULL", "DEFAULT", "TRUE", "FALSE"], 0, opts));
+        addFunctions(1);
+        break;
+      }
       // After a complete operand an operator or clause keyword comes next, so those
       // rank first ("WHERE email REG" -> REGEXP before REGEXP_LIKE()).
       const conditional = a.clause === "where" || a.clause === "set" || a.clause === "other";
@@ -483,6 +528,22 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
       }
       if (a.afterOperand && a.clause === "select") {
         out.push(...kw(["FROM", "AS", ...OPERATORS[d].filter((o) => o !== "AND" && o !== "OR")], -1, opts));
+      }
+      if (a.clause === "orderBy" && a.afterSetOp) {
+        // ORDER BY after a UNION sorts the combined result: only its output columns exist.
+        for (const n of a.outputColumns) out.push({ label: n, kind: "column", insertText: q(n), detail: "result column", filterText: n, rank: 0 });
+        out.push(...kw(AFTER_ORDER(d), 3, opts));
+        break;
+      }
+      if (a.clause === "orderBy" || a.clause === "groupBy") {
+        // Select-list aliases ("SELECT price * qty AS total ... ORDER BY total").
+        const cols = new Set(scope.flatMap((s) => columnsOf(s.ref, s.table).map((c) => c.name.toLowerCase())));
+        for (const n of a.outputColumns) {
+          if (!cols.has(n.toLowerCase())) out.push({ label: n, kind: "column", insertText: q(n), detail: "select list", filterText: n, rank: -0.5 });
+        }
+      }
+      if (a.clause === "where" && /\b(IN|EXISTS|ANY|SOME|ALL)\s*\(\s*$/i.test(text.slice(0, a.prefixStart))) {
+        out.push(...kw(["SELECT"], -1, opts));
       }
       addColumns(0);
       addRefNames(1);

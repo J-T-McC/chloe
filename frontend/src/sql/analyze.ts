@@ -10,6 +10,7 @@ export type Clause =
   | "from" // after FROM / JOIN, expecting a table
   | "afterTable" // just after a table reference (alias, JOIN, WHERE...)
   | "on" // join condition
+  | "using" // JOIN ... USING ( <columns> )
   | "where" // WHERE / HAVING / any boolean expression
   | "groupBy"
   | "orderBy"
@@ -21,7 +22,7 @@ export type Clause =
   | "deleteTable"
   | "ddlTable" // ALTER/DROP/TRUNCATE TABLE <name>
   | "limit"
-  | "setOp" // after UNION / INTERSECT / EXCEPT, expecting the next SELECT
+  | "selectStart" // a SELECT is expected: after UNION / INTERSECT / EXCEPT, or "FROM (" 
   | "other";
 
 export interface TableRef {
@@ -29,8 +30,13 @@ export interface TableRef {
   name: string;
   alias?: string;
   kind: "table" | "cte" | "derived";
-  /** Columns known from the query text itself (CTE column lists, derived table select lists). */
+  /**
+   * Columns known from the query text itself (CTE column lists, derived table select lists).
+   * "*" and "x.*" entries stand for the columns of `sources`.
+   */
   columns?: string[];
+  /** Tables of a derived table's or CTE's (first) SELECT, which "*" columns expand to. */
+  sources?: TableRef[];
   /** Token index range of the reference, for "the table just typed" lookups. */
   at: number;
 }
@@ -63,6 +69,10 @@ export interface Analysis {
   afterOperand: boolean;
   /** Statement start offset in the full text. */
   statementStart: number;
+  /** Output column names of the query at the cursor (select-list aliases and columns). */
+  outputColumns: string[];
+  /** The cursor follows a UNION / INTERSECT / EXCEPT of its query (ORDER BY then sorts the whole result). */
+  afterSetOp: boolean;
 }
 
 const CLAUSE_KEYWORDS: Record<string, Clause> = {
@@ -78,9 +88,9 @@ const CLAUSE_KEYWORDS: Record<string, Clause> = {
   OFFSET: "limit",
   USING: "on",
   RETURNING: "select",
-  UNION: "setOp",
-  INTERSECT: "setOp",
-  EXCEPT: "setOp",
+  UNION: "selectStart",
+  INTERSECT: "selectStart",
+  EXCEPT: "selectStart",
 };
 
 // Words that terminate a table reference (so they're never taken as an alias).
@@ -145,7 +155,7 @@ export function analyze(text: string, offset: number, dialect: DialectName): Ana
   // Depth just after the token preceding the cursor.
   const cursorDepth = cur > 0 ? depthAt[cur - 1] + (sig[cur - 1].type === "punct" && sig[cur - 1].text === "(" ? 1 : 0) : 0;
 
-  const ctes = findCTEs(sig, dialect);
+  const ctes = findCTEs(sig, depthAt);
   const tables = visibleTables(sig, cur, depthAt, cursorDepth, ctes, dialect);
 
   const before = sig.slice(0, q + 1).filter((_, i) => i < cur);
@@ -181,7 +191,21 @@ export function analyze(text: string, offset: number, dialect: DialectName): Ana
       (prevTok.text === "*" && (!sig[cur - 2] || ["SELECT", "DISTINCT", "ALL"].includes(sig[cur - 2].upper) || [",", "."].includes(sig[cur - 2].text))) ||
       (prevTok.type === "word" && (!OPERAND_BREAKERS.has(prevTok.upper) || ["NULL", "TRUE", "FALSE"].includes(prevTok.upper))));
 
-  return { prefix, prefixStart, prefixQuoted, qualifier, clause, tables, ctes, prevKeyword, joinTarget, afterStar, afterOperand, statementStart };
+  // The query level around the cursor; after a UNION its first SELECT names the columns.
+  let lvlStart = 0;
+  for (let i = Math.min(cur, sig.length) - 1; i >= 0; i--) if (depthAt[i] < cursorDepth) { lvlStart = i + 1; break; }
+  let lvlEnd = sig.length;
+  for (let i = lvlStart; i < sig.length; i++) if (depthAt[i] < cursorDepth) { lvlEnd = i; break; }
+  if (sig[lvlStart]?.upper === "WITH") {
+    // skip the CTE definitions to the main SELECT
+    for (let i = lvlStart; i < lvlEnd; i++) if (depthAt[i] === cursorDepth && sig[i].upper === "SELECT" && i > lvlStart) { lvlStart = i; break; }
+  }
+  const outputColumns = selectListNames(sig.slice(lvlStart, firstBranchEnd(sig, lvlStart, lvlEnd, depthAt))).filter((n) => !n.endsWith("*"));
+
+  let afterSetOp = false;
+  for (let i = lvlStart; i < cur; i++) if (depthAt[i] === cursorDepth && SET_OPS.has(sig[i].upper)) afterSetOp = true;
+
+  return { prefix, prefixStart, prefixQuoted, qualifier, clause, tables, ctes, prevKeyword, joinTarget, afterStar, afterOperand, statementStart, outputColumns, afterSetOp };
 }
 
 function parenDepths(sig: Token[]): number[] {
@@ -231,7 +255,11 @@ function detectClause(sig: Token[], cur: number, depths: number[], depth: number
           return "insertColumns";
         }
         if (p?.upper === "VALUES") return "values";
-        if (p?.upper === "USING") return "on";
+        if (p?.upper === "USING") return "using";
+        // A derived table or set operand still empty: "FROM (", "JOIN LATERAL (", "UNION (".
+        if (!p || ["FROM", "JOIN", "LATERAL", "UNION", "INTERSECT", "EXCEPT", "ALL", "DISTINCT", "(", ","].includes(p.upper) || p.text === "(" || p.text === ",") {
+          if (!p || p.text !== "," || detectClause(sig, i, depths, depths[i]) === "from") return "selectStart";
+        }
         if (p && (p.upper === "IN" || p.upper === "EXISTS" || p.upper === "ANY" || p.upper === "ALL")) {
           // subquery start or value list
           const next = sig[i + 1];
@@ -302,7 +330,7 @@ function fromState(sig: Token[], k: number, cur: number, depths: number[], depth
 }
 
 /** WITH name [(cols)] AS ( ... ), ... */
-function findCTEs(sig: Token[], _d: DialectName): TableRef[] {
+function findCTEs(sig: Token[], depths: number[]): TableRef[] {
   const out: TableRef[] = [];
   if (sig[0]?.upper !== "WITH") return out;
   let i = 1;
@@ -327,7 +355,8 @@ function findCTEs(sig: Token[], _d: DialectName): TableRef[] {
     if (sig[i]?.text !== "(") break;
     const close = matchParen(sig, i);
     if (!columns) columns = selectListNames(sig.slice(i + 1, close));
-    out.push({ name, kind: "cte", columns, at });
+    const sources = refsInRange(sig, i + 1, firstBranchEnd(sig, i + 1, close, depths), depths[i] + 1, depths, out);
+    out.push({ name, kind: "cte", columns, sources, at });
     i = close + 1;
     if (sig[i]?.text !== ",") break;
     i++;
@@ -357,9 +386,9 @@ export function selectListNames(sig: Token[]): string[] {
   const flush = () => {
     if (!item.length) return;
     const last = item[item.length - 1];
-    if (isIdent(last) && !(item.length >= 2 && item[item.length - 2].text === "." && last.text === "*")) {
-      names.push(last.value);
-    }
+    if (last.text === "*" && item.length === 1) names.push("*");
+    else if (last.text === "*" && item.length === 3 && item[1].text === "." && isIdent(item[0])) names.push(item[0].value + ".*");
+    else if (isIdent(last)) names.push(last.value);
     item = [];
   };
   for (let i = sel + 1; i < sig.length; i++) {
@@ -403,8 +432,12 @@ function visibleTables(sig: Token[], cur: number, depths: number[], cursorDepth:
         break;
       }
     }
-    ranges.push([start, end, depth]);
+    const [bs, be] = branchAround(sig, start, end, Math.min(lo, sig.length), depth, depths);
+    ranges.push([bs, be, depth]);
     if (depth === 0) break;
+    // A derived table (FROM (...) x) can't see the query it's part of, unless LATERAL.
+    const opener = sig[start - 2]?.upper;
+    if ((opener === "FROM" || opener === "JOIN") && sig[start]?.upper === "SELECT") break;
     lo = start - 1;
     depth--;
   }
@@ -417,7 +450,35 @@ function visibleTables(sig: Token[], cur: number, depths: number[], cursorDepth:
   return out;
 }
 
-function refsInRange(sig: Token[], start: number, end: number, depth: number, depths: number[], ctes: TableRef[], _d: DialectName): TableRef[] {
+const SET_OPS = new Set(["UNION", "INTERSECT", "EXCEPT"]);
+
+/** End of the first SELECT of a set operation between start and end (all of it if none). */
+function firstBranchEnd(sig: Token[], start: number, end: number, depths: number[]): number {
+  const d = depths[start];
+  for (let i = start; i < end; i++) if (depths[i] === d && SET_OPS.has(sig[i].upper)) return i;
+  return end;
+}
+
+/** Narrow [start, end) to the SELECT of a set operation that contains position at. */
+function branchAround(sig: Token[], start: number, end: number, at: number, depth: number, depths: number[]): [number, number] {
+  let s = start;
+  let e = end;
+  for (let i = Math.min(at, end) - 1; i >= start; i--) {
+    if (depths[i] === depth && SET_OPS.has(sig[i].upper)) {
+      s = i + 1;
+      break;
+    }
+  }
+  for (let i = Math.max(at, start); i < end; i++) {
+    if (depths[i] === depth && SET_OPS.has(sig[i].upper)) {
+      e = i;
+      break;
+    }
+  }
+  return [s, e];
+}
+
+function refsInRange(sig: Token[], start: number, end: number, depth: number, depths: number[], ctes: TableRef[], _d?: DialectName): TableRef[] {
   const out: TableRef[] = [];
   const cteNames = new Map(ctes.map((c) => [c.name.toLowerCase(), c]));
   let i = start;
@@ -431,7 +492,8 @@ function refsInRange(sig: Token[], start: number, end: number, depth: number, de
     const startsRefs =
       u === "FROM" || u === "JOIN" || u === "UPDATE" || u === "STRAIGHT_JOIN" ||
       (u === "INTO" && ["INSERT", "REPLACE", "IGNORE"].includes(sig[i - 1]?.upper ?? "")) ||
-      (u === "USING" && sig[i - 2]?.upper === "DELETE");
+      // DELETE FROM t USING a, b (MySQL, PostgreSQL); JOIN ... USING (cols) is not a table list.
+      (u === "USING" && sig[0]?.upper === "DELETE" && sig[i + 1]?.text !== "(");
     if (!startsRefs) {
       i++;
       continue;
@@ -443,12 +505,14 @@ function refsInRange(sig: Token[], start: number, end: number, depth: number, de
       if (sig[i].upper === "LATERAL" || sig[i].upper === "ONLY") i++;
       if (sig[i]?.text === "(") {
         // derived table
+        const open = i;
         const close = matchParen(sig, i);
         const inner = sig.slice(i + 1, close);
         i = close + 1;
         const alias = readAlias(sig, i, end);
         if (alias) {
-          out.push({ name: alias.name, alias: alias.name, kind: "derived", columns: selectListNames(inner), at: i });
+          const sources = refsInRange(sig, open + 1, firstBranchEnd(sig, open + 1, close, depths), depths[open] + 1, depths, ctes, _d);
+          out.push({ name: alias.name, alias: alias.name, kind: "derived", columns: selectListNames(inner), sources, at: i });
           i = alias.next;
         }
       } else if (isIdent(sig[i])) {
@@ -468,7 +532,7 @@ function refsInRange(sig: Token[], start: number, end: number, depth: number, de
         const alias = readAlias(sig, i, end);
         const cte = !schema ? cteNames.get(name.toLowerCase()) : undefined;
         const ref: TableRef = cte
-          ? { name, kind: "cte", columns: cte.columns, at }
+          ? { name, kind: "cte", columns: cte.columns, sources: cte.sources, at }
           : { schema, name, kind: "table", at };
         if (alias) {
           ref.alias = alias.name;
