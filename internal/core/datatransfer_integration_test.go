@@ -214,3 +214,52 @@ func TestIntegrationDataTransfer(t *testing.T) {
 		}
 	}
 }
+
+// Laravel-style ids: BIGINT UNSIGNED AUTO_INCREMENT, referenced by BIGINT UNSIGNED foreign keys.
+func TestIntegrationTransferUnsignedBigintIDs(t *testing.T) {
+	m, sides, _ := transferRig(t)
+	ctx := context.Background()
+	my, pg := sides["mysql"], sides["pg"]
+	run := func(s side, sql string) {
+		t.Helper()
+		sid, err := m.OpenSession(ctx, s.id, s.database, s.schema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer m.CloseSession(sid)
+		res, err := m.Execute(ctx, sid, sql, core.ExecOptions{})
+		if err != nil || res[len(res)-1].Error != "" {
+			t.Fatalf("%s: %v %+v", sql, err, res)
+		}
+	}
+	src := side{"mysql", my.id, "laravel_src", ""}
+	run(my, "DROP DATABASE IF EXISTS laravel_src; CREATE DATABASE laravel_src")
+	t.Cleanup(func() { run(my, "DROP DATABASE IF EXISTS laravel_src") })
+	run(src, "CREATE TABLE laravel_src.teams (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL)")
+	run(src, "CREATE TABLE laravel_src.team_members (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, team_id BIGINT UNSIGNED NOT NULL,"+
+		" CONSTRAINT tm_team FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE CASCADE)")
+	run(src, "INSERT INTO laravel_src.teams (name) VALUES ('a'), ('b'); INSERT INTO laravel_src.team_members (team_id) VALUES (1), (2), (2)")
+	dst := side{"pg", pg.id, pg.database, "laravel_dst"}
+	run(pg, "DROP SCHEMA IF EXISTS laravel_dst CASCADE; CREATE SCHEMA laravel_dst")
+	t.Cleanup(func() { run(pg, "DROP SCHEMA IF EXISTS laravel_dst CASCADE") })
+
+	job, err := m.DataTransfer(core.DataTransferRequest{Source: core.Endpoint{ConnID: src.id, Database: src.database},
+		Target: core.Endpoint{ConnID: dst.id, Database: dst.database, Schema: dst.schema}, AllTables: true, Options: core.DefaultTransferOptions()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	done, _ := m.WaitJob(wctx, job.ID)
+	if done.Status != core.JobDone || done.Errors > 0 {
+		t.Fatalf("%s %s\n%s", done.Status, done.Message, strings.Join(done.Log, "\n"))
+	}
+	if n := count(t, m, dst, "team_members"); n != "3" {
+		t.Fatalf("team_members: %s rows", n)
+	}
+	// The identity carries on after the copied ids.
+	run(dst, "INSERT INTO laravel_dst.teams (name) VALUES ('c')")
+	if n := *queryAll(t, m, dst.id, dst.database, dst.schema, "SELECT max(id) FROM laravel_dst.teams")[0][0]; n != "3" {
+		t.Fatalf("next team id %s, want 3", n)
+	}
+}
