@@ -36,6 +36,7 @@ type Driver struct{}
 var dialect = driver.Dialect{Name: "mysql", IdentQuote: "`", Split: sqlsplit.MySQL}
 
 func (Driver) Open(ctx context.Context, c model.Connection, d tunnel.Dialer) (driver.Conn, error) {
+	a := c.Advanced
 	cfg := gomysql.NewConfig()
 	cfg.User = c.User
 	cfg.Passwd = c.Password
@@ -44,25 +45,36 @@ func (Driver) Open(ctx context.Context, c model.Connection, d tunnel.Dialer) (dr
 		port = 3306
 	}
 	cfg.Addr = net.JoinHostPort(c.Host, strconv.Itoa(port))
-	cfg.DBName = c.InitialDatabase
 	cfg.AllowNativePasswords = true
-	cfg.AllowCleartextPasswords = c.Options["cleartextPlugin"] == "true"
-	cfg.Timeout = 15 * time.Second
+	cfg.AllowCleartextPasswords = a.CleartextAuth
+	cfg.Timeout = seconds(a.ConnectTimeoutSec, 15)
+	cfg.ReadTimeout = seconds(a.ReadTimeoutSec, 0)
+	cfg.WriteTimeout = seconds(a.WriteTimeoutSec, 0)
 	cfg.ParseTime = false // keep server text for DATETIME so zero dates and precision survive
 	cfg.InterpolateParams = true
+	cfg.ConnectionAttributes = "program_name:Chloe"
 	charset := "utf8mb4"
-	if enc := c.Options["encoding"]; enc != "" && enc != "auto" {
-		charset = enc
+	if a.Encoding != "" && a.Encoding != "auto" {
+		charset = a.Encoding
 	}
-	if err := cfg.Apply(gomysql.Charset(charset, "")); err != nil {
+	if err := cfg.Apply(gomysql.Charset(charset, ""), gomysql.EnableCompression(a.Compression)); err != nil {
 		return nil, err
 	}
 
-	// Each opened profile gets its own registered network so the dialer can be an SSH tunnel.
+	// Each opened profile gets its own registered network so the dialer can be an SSH
+	// tunnel, or a local socket file.
 	netName := fmt.Sprintf("chloe-%d", netSeq.Add(1))
-	gomysql.RegisterDialContext(netName, func(ctx context.Context, addr string) (net.Conn, error) {
-		return d.DialContext(ctx, "tcp", addr)
-	})
+	if a.SocketFile != "" && !c.SSH.Enabled {
+		sock := a.SocketFile
+		gomysql.RegisterDialContext(netName, func(ctx context.Context, _ string) (net.Conn, error) {
+			var nd net.Dialer
+			return nd.DialContext(ctx, "unix", sock)
+		})
+	} else {
+		gomysql.RegisterDialContext(netName, func(ctx context.Context, addr string) (net.Conn, error) {
+			return d.DialContext(ctx, "tcp", addr)
+		})
+	}
 	cfg.Net = netName
 
 	if c.SSL.Enabled {
@@ -82,15 +94,23 @@ func (Driver) Open(ctx context.Context, c model.Connection, d tunnel.Dialer) (dr
 		return nil, err
 	}
 	db := sql.OpenDB(connector)
-	db.SetMaxIdleConns(4)
-	db.SetConnMaxIdleTime(5 * time.Minute)
+	stop := sqlcommon.ConfigurePool(db, a)
 	if err := db.PingContext(ctx); err != nil {
+		stop()
 		db.Close()
 		return nil, err
 	}
 	var version string
 	_ = db.QueryRowContext(ctx, "SELECT VERSION()").Scan(&version)
-	return &Conn{db: db, version: version, mariadb: c.Type == model.MariaDB || strings.Contains(strings.ToLower(version), "mariadb")}, nil
+	return &Conn{db: db, stopKeepalive: stop, initial: a.InitialQueries, version: version,
+		mariadb: c.Type == model.MariaDB || strings.Contains(strings.ToLower(version), "mariadb")}, nil
+}
+
+func seconds(n, def int) time.Duration {
+	if n <= 0 {
+		n = def
+	}
+	return time.Duration(n) * time.Second
 }
 
 func tlsConfig(s model.SSLConfig, host string) (*tls.Config, error) {
@@ -113,16 +133,48 @@ func tlsConfig(s model.SSLConfig, host string) (*tls.Config, error) {
 		}
 		tc.Certificates = []tls.Certificate{cert}
 	}
+	if s.Cipher != "" {
+		id, err := cipherID(s.Cipher)
+		if err != nil {
+			return nil, err
+		}
+		tc.CipherSuites = []uint16{id}
+		tc.MaxVersion = tls.VersionTLS12 // TLS 1.3 suites aren't configurable
+	}
 	return tc, nil
 }
 
-type Conn struct {
-	db      *sql.DB
-	version string
-	mariadb bool
+// cipherID accepts Go/IANA names (TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256) and
+// OpenSSL-style names (ECDHE-RSA-AES128-GCM-SHA256).
+func cipherID(name string) (uint16, error) {
+	// Both spellings reduce to the same letters once separators and TLS_/WITH_ are removed.
+	norm := func(s string) string {
+		return strings.ToUpper(strings.NewReplacer("TLS_", "", "WITH_", "", "_", "", "-", "").Replace(s))
+	}
+	want := norm(name)
+	for _, cs := range append(tls.CipherSuites(), tls.InsecureCipherSuites()...) {
+		if norm(cs.Name) == want || cs.Name == name {
+			return cs.ID, nil
+		}
+	}
+	return 0, fmt.Errorf("unknown TLS cipher %q", name)
 }
 
-func (c *Conn) Close() error                   { return c.db.Close() }
+type Conn struct {
+	db            *sql.DB
+	stopKeepalive func()
+	initial       string
+	version       string
+	mariadb       bool
+}
+
+func (c *Conn) Close() error {
+	c.stopKeepalive()
+	return c.db.Close()
+}
+
+// CloseDatabase is a no-op: MySQL sessions aren't bound to a database.
+func (c *Conn) CloseDatabase(string)           {}
 func (c *Conn) Ping(ctx context.Context) error { return c.db.PingContext(ctx) }
 func (c *Conn) ServerVersion() string          { return c.version }
 func (c *Conn) Dialect() driver.Dialect        { return dialect }
@@ -342,6 +394,10 @@ func (c *Conn) NewSession(ctx context.Context, database, _ string) (driver.Sessi
 	}
 	s := &Session{c: c, conn: conn}
 	if err := conn.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&s.id); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if err := sqlcommon.RunInitialQueries(ctx, conn, c.initial, sqlsplit.MySQL); err != nil {
 		conn.Close()
 		return nil, err
 	}

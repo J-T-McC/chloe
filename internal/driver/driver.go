@@ -43,6 +43,17 @@ type Conn interface {
 	// NewSession reserves a dedicated server connection, e.g. for one editor tab, so that
 	// session state (USE, SET, transactions) persists across statements.
 	NewSession(ctx context.Context, database, schema string) (Session, error)
+	// CloseDatabase releases resources held for one database (PostgreSQL pools).
+	CloseDatabase(database string)
+	// OpenConnections reports how many server connections the profile holds.
+	OpenConnections() int
+
+	// Server monitor.
+	Processes(ctx context.Context) ([]model.Process, error)
+	// KillProcess terminates a session, or only its running query when queryOnly is set.
+	KillProcess(ctx context.Context, id string, queryOnly bool) error
+	Variables(ctx context.Context) ([]model.ServerVar, error)
+	Status(ctx context.Context) ([]model.ServerVar, error)
 }
 
 // Session is a single dedicated server connection.

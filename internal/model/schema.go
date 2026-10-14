@@ -108,3 +108,35 @@ type Catalog struct {
 	Columns  []CatalogColumn `json:"columns"`
 	FKs      []CatalogFK     `json:"fks"`
 }
+
+// Process is one server session, as shown by the server monitor.
+type Process struct {
+	ID          string `json:"id"`
+	User        string `json:"user"`
+	Host        string `json:"host"`
+	Database    string `json:"database"`
+	Application string `json:"application,omitempty"`
+	Command     string `json:"command,omitempty"` // MySQL: Query/Sleep/...; PG: backend type
+	State       string `json:"state"`
+	TimeSec     int64  `json:"timeSec"` // seconds in the current state/query
+	Query       string `json:"query"`
+	// Self marks sessions opened by this Chloe connection.
+	Self bool `json:"self"`
+}
+
+// ServerVar is a server variable or status counter.
+type ServerVar struct {
+	Name        string `json:"name"`
+	Value       string `json:"value"`
+	Description string `json:"description,omitempty"`
+}
+
+// ServerInfo summarises an open connection.
+type ServerInfo struct {
+	Version  string `json:"version"`
+	Sessions int    `json:"sessions"` // server connections this profile holds open
+	Host     string `json:"host"`
+	User     string `json:"user"`
+	Via      string `json:"via"` // "direct", "SSH host:port", "socket path"
+	SSL      bool   `json:"ssl"`
+}

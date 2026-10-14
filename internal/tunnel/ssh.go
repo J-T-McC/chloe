@@ -155,25 +155,18 @@ func keepAlive(c *ssh.Client, stop chan struct{}) {
 func authMethods(cfg model.SSHConfig) ([]ssh.AuthMethod, error) {
 	switch cfg.Auth {
 	case model.SSHPublicKey:
-		path := expandHome(cfg.PrivateKeyPath)
-		key, err := os.ReadFile(path)
+		key, err := publicKey(cfg)
 		if err != nil {
-			return nil, fmt.Errorf("read private key: %w", err)
+			return nil, err
 		}
-		var signer ssh.Signer
-		if cfg.Passphrase != "" {
-			signer, err = ssh.ParsePrivateKeyWithPassphrase(key, []byte(cfg.Passphrase))
-		} else {
-			signer, err = ssh.ParsePrivateKey(key)
-		}
+		return []ssh.AuthMethod{key}, nil
+	case model.SSHPasswordPublicKey:
+		// Servers configured with "AuthenticationMethods publickey,password" need both.
+		key, err := publicKey(cfg)
 		if err != nil {
-			var missing *ssh.PassphraseMissingError
-			if errors.As(err, &missing) {
-				return nil, errors.New("private key is encrypted: passphrase required")
-			}
-			return nil, fmt.Errorf("parse private key: %w", err)
+			return nil, err
 		}
-		return []ssh.AuthMethod{ssh.PublicKeys(signer)}, nil
+		return append([]ssh.AuthMethod{key}, passwordAuth(cfg.Password)...), nil
 	case model.SSHAgent:
 		sock := os.Getenv("SSH_AUTH_SOCK")
 		if sock == "" {
@@ -185,17 +178,42 @@ func authMethods(cfg model.SSHConfig) ([]ssh.AuthMethod, error) {
 		}
 		return []ssh.AuthMethod{ssh.PublicKeysCallback(agent.NewClient(conn).Signers)}, nil
 	default:
-		pw := cfg.Password
-		return []ssh.AuthMethod{
-			ssh.Password(pw),
-			ssh.KeyboardInteractive(func(_, _ string, qs []string, _ []bool) ([]string, error) {
-				ans := make([]string, len(qs))
-				for i := range ans {
-					ans[i] = pw
-				}
-				return ans, nil
-			}),
-		}, nil
+		return passwordAuth(cfg.Password), nil
+	}
+}
+
+func publicKey(cfg model.SSHConfig) (ssh.AuthMethod, error) {
+	key, err := os.ReadFile(expandHome(cfg.PrivateKeyPath))
+	if err != nil {
+		return nil, fmt.Errorf("read private key: %w", err)
+	}
+	var signer ssh.Signer
+	if cfg.Passphrase != "" {
+		signer, err = ssh.ParsePrivateKeyWithPassphrase(key, []byte(cfg.Passphrase))
+	} else {
+		signer, err = ssh.ParsePrivateKey(key)
+	}
+	if err != nil {
+		var missing *ssh.PassphraseMissingError
+		if errors.As(err, &missing) {
+			return nil, errors.New("private key is encrypted: passphrase required")
+		}
+		return nil, fmt.Errorf("parse private key: %w", err)
+	}
+	return ssh.PublicKeys(signer), nil
+}
+
+// passwordAuth answers both plain password and keyboard-interactive prompts.
+func passwordAuth(pw string) []ssh.AuthMethod {
+	return []ssh.AuthMethod{
+		ssh.Password(pw),
+		ssh.KeyboardInteractive(func(_, _ string, qs []string, _ []bool) ([]string, error) {
+			ans := make([]string, len(qs))
+			for i := range ans {
+				ans[i] = pw
+			}
+			return ans, nil
+		}),
 	}
 }
 

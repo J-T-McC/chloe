@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -29,7 +28,7 @@ type Driver struct{}
 var dialect = driver.Dialect{Name: "postgres", IdentQuote: `"`, HasSchemas: true, DefaultSchema: "public", Split: sqlsplit.Postgres}
 
 func (Driver) Open(ctx context.Context, c model.Connection, d tunnel.Dialer) (driver.Conn, error) {
-	conn := &Conn{profile: c, dialer: d, pools: map[string]*sql.DB{}}
+	conn := &Conn{profile: c, dialer: d, pools: map[string]*pool{}}
 	conn.defaultDB = c.InitialDatabase
 	if conn.defaultDB == "" {
 		conn.defaultDB = "postgres"
@@ -49,7 +48,12 @@ type Conn struct {
 	version   string
 
 	mu    sync.Mutex
-	pools map[string]*sql.DB
+	pools map[string]*pool
+}
+
+type pool struct {
+	db            *sql.DB
+	stopKeepalive func()
 }
 
 // pool returns the connection pool for a database, opening it on first use.
@@ -60,8 +64,8 @@ func (c *Conn) pool(ctx context.Context, database string) (*sql.DB, error) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if db, ok := c.pools[database]; ok {
-		return db, nil
+	if p, ok := c.pools[database]; ok {
+		return p.db, nil
 	}
 	cfg, err := pgx.ParseConfig(c.dsn(database))
 	if err != nil {
@@ -71,14 +75,19 @@ func (c *Conn) pool(ctx context.Context, database string) (*sql.DB, error) {
 		return c.dialer.DialContext(ctx, network, addr)
 	}
 	cfg.RuntimeParams["application_name"] = "Chloe"
+	if crl := c.profile.SSL.CRLFile; c.profile.SSL.Enabled && crl != "" {
+		if err := addCRLCheck(cfg, crl); err != nil {
+			return nil, err
+		}
+	}
 	db := stdlib.OpenDB(*cfg)
-	db.SetMaxIdleConns(2)
-	db.SetConnMaxIdleTime(5 * time.Minute)
+	stop := sqlcommon.ConfigurePool(db, c.profile.Advanced)
 	if err := db.PingContext(ctx); err != nil {
+		stop()
 		db.Close()
 		return nil, err
 	}
-	c.pools[database] = db
+	c.pools[database] = &pool{db: db, stopKeepalive: stop}
 	return db, nil
 }
 
@@ -95,7 +104,18 @@ func (c *Conn) dsn(database string) string {
 		Path:   "/" + database,
 	}
 	q := url.Values{}
-	q.Set("connect_timeout", "15")
+	// Extra key=value parameters first, so the explicit settings below win.
+	for _, line := range strings.Split(p.Advanced.ConnectionParams, "\n") {
+		if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok && strings.TrimSpace(k) != "" {
+			q.Set(strings.TrimSpace(k), strings.TrimSpace(v))
+		}
+	}
+	timeout := p.Advanced.ConnectTimeoutSec
+	if timeout <= 0 {
+		timeout = 15
+	}
+	q.Set("connect_timeout", strconv.Itoa(timeout))
+	// Without "Use SSL", behave like libpq's default: use TLS if the server offers it.
 	mode := "prefer"
 	if p.SSL.Enabled {
 		mode = p.SSL.Mode
@@ -111,10 +131,10 @@ func (c *Conn) dsn(database string) string {
 		if p.SSL.KeyFile != "" {
 			q.Set("sslkey", p.SSL.KeyFile)
 		}
-	} else if p.Options["sslmode"] != "" {
-		mode = p.Options["sslmode"]
 	}
-	q.Set("sslmode", mode)
+	if q.Get("sslmode") == "" || p.SSL.Enabled {
+		q.Set("sslmode", mode)
+	}
 	u.RawQuery = q.Encode()
 	return u.String()
 }
@@ -122,11 +142,23 @@ func (c *Conn) dsn(database string) string {
 func (c *Conn) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	for k, db := range c.pools {
-		db.Close()
+	for k, p := range c.pools {
+		p.stopKeepalive()
+		p.db.Close()
 		delete(c.pools, k)
 	}
 	return nil
+}
+
+// CloseDatabase releases the pool of a non-default database.
+func (c *Conn) CloseDatabase(database string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if p, ok := c.pools[database]; ok && database != c.defaultDB {
+		p.stopKeepalive()
+		p.db.Close()
+		delete(c.pools, database)
+	}
 }
 
 func (c *Conn) Ping(ctx context.Context) error {
@@ -382,6 +414,10 @@ func (c *Conn) NewSession(ctx context.Context, database, schema string) (driver.
 	}
 	s := &Session{c: c, db: db, conn: conn, database: database}
 	if err := conn.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&s.pid); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if err := sqlcommon.RunInitialQueries(ctx, conn, c.profile.Advanced.InitialQueries, sqlsplit.Postgres); err != nil {
 		conn.Close()
 		return nil, err
 	}
