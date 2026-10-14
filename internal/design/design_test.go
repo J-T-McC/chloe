@@ -195,3 +195,14 @@ func TestRenameKeepsIndexes(t *testing.T) {
 		}
 	}
 }
+
+func TestTypeAliases(t *testing.T) {
+	for _, pair := range [][2]string{{"int", "integer"}, {"bool", "BOOLEAN"}, {"decimal", "numeric"}, {"character varying", "varchar"}, {"int4[]", "integer[]"}, {"timestamp with time zone", "timestamptz"}} {
+		if CanonType(pair[0]) != CanonType(pair[1]) {
+			t.Errorf("%s vs %s", pair[0], pair[1])
+		}
+	}
+	if CanonType("int") == CanonType("bigint") {
+		t.Error("int and bigint must differ")
+	}
+}

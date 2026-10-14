@@ -53,9 +53,46 @@ func identityEqual(a, b *IdentityOpts) bool {
 	return *a == *b
 }
 
+// typeAliases maps type spellings to one canonical name, so a model saying "int" and
+// a server reporting "integer" (or "bool"/"boolean", "decimal"/"numeric") agree.
+var typeAliases = map[string]string{
+	"int": "integer", "int4": "integer", "integer": "integer",
+	"int8": "bigint", "bigint": "bigint",
+	"int2": "smallint", "smallint": "smallint",
+	"bool": "boolean", "boolean": "boolean",
+	"decimal": "numeric", "numeric": "numeric",
+	"float8": "double precision", "double precision": "double precision", "double": "double precision",
+	"float4": "real", "real": "real",
+	"character varying": "varchar", "varchar": "varchar",
+	"character": "char", "char": "char", "bpchar": "char",
+	"timestamp with time zone": "timestamptz", "timestamptz": "timestamptz",
+	"timestamp without time zone": "timestamp", "timestamp": "timestamp",
+	"time with time zone": "timetz", "timetz": "timetz",
+	"time without time zone": "time", "time": "time",
+	"bit varying": "varbit", "varbit": "varbit",
+}
+
+// CanonType returns the canonical spelling of a base type (arrays keep their []).
+func CanonType(t string) string {
+	t = strings.ToLower(strings.TrimSpace(t))
+	arr := ""
+	for strings.HasSuffix(t, "[]") {
+		t, arr = strings.TrimSpace(t[:len(t)-2]), arr+"[]"
+	}
+	if c, ok := typeAliases[t]; ok {
+		t = c
+	}
+	return t + arr
+}
+
+// sameType compares types including modifiers, treating aliases as equal.
+func sameType(a, b Column) bool {
+	return CanonType(a.Type) == CanonType(b.Type) && a.Length == b.Length && a.Scale == b.Scale
+}
+
 // sameColumn compares everything but the name.
 func sameColumn(a, b Column) bool {
-	return strings.EqualFold(a.Type, b.Type) && a.Length == b.Length && a.Scale == b.Scale && a.Nullable == b.Nullable &&
+	return sameType(a, b) && a.Scale == b.Scale && a.Nullable == b.Nullable &&
 		strPtrEqual(a.Default, b.Default) && a.Comment == b.Comment && a.AutoIncrement == b.AutoIncrement &&
 		a.Unsigned == b.Unsigned && a.Zerofill == b.Zerofill && a.OnUpdateNow == b.OnUpdateNow &&
 		a.Charset == b.Charset && a.Collation == b.Collation && a.GeneratedExpr == b.GeneratedExpr &&

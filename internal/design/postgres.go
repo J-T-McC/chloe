@@ -325,7 +325,7 @@ func (g Postgres) Alter(old, nw Table) ([]string, error) {
 			alter(fmt.Sprintf("RENAME COLUMN %s TO %s", pgIdent(o.Name), pgIdent(c.Name)))
 		}
 		col := pgIdent(c.Name)
-		typeChanged := !strings.EqualFold(TypeSQL(o), TypeSQL(c)) || o.Collation != c.Collation
+		typeChanged := !sameType(o, c) || o.Collation != c.Collation
 		// Identity and defaults are dropped before a type change and restored after.
 		if o.Identity != "" && (c.Identity == "" || typeChanged || !identityEqual(o.IdentityOpts, c.IdentityOpts) || o.Identity != c.Identity) {
 			alter(fmt.Sprintf("ALTER COLUMN %s DROP IDENTITY", col))
