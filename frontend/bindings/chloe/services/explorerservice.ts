@@ -52,6 +52,13 @@ export function ListSchemas(connID: string, database: string): $CancellablePromi
     return $Call.ByID(2620038241, connID, database);
 }
 
+/**
+ * SampleColumn returns up to limit non-null values of a column.
+ */
+export function SampleColumn(connID: string, ref: model$0.ObjectRef, column: string, limit: number): $CancellablePromise<string[] | null> {
+    return $Call.ByID(899540111, connID, ref, column, limit);
+}
+
 export function TableDetail(connID: string, ref: model$0.ObjectRef): $CancellablePromise<model$0.TableDetail> {
     return $Call.ByID(3058535264, connID, ref);
 }

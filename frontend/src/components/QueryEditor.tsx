@@ -53,7 +53,7 @@ export function QueryEditor({ tab }: { tab: Tab }) {
       renderLineHighlight: "line",
       tabSize: 2,
       wordBasedSuggestions: "off",
-      quickSuggestions: { other: true, comments: false, strings: false },
+      quickSuggestions: { other: true, comments: false, strings: true },
       suggest: { showWords: false, snippetsPreventQuickSuggestions: false, preview: true, showStatusBar: true },
       suggestSelection: "first",
       fixedOverflowWidgets: true,

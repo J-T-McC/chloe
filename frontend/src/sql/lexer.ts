@@ -111,7 +111,7 @@ export function tokenize(sql: string, dialect: DialectName): Token[] {
       continue;
     }
     // operators: group runs of operator characters
-    while (i < n && /[<>=!~+\-*/%^&|@:]/.test(sql[i])) i++;
+    while (i < n && /[<>=!~+\-*/%^&|@:#]/.test(sql[i])) i++;
     if (i === start) i++;
     push("op", start, i);
   }

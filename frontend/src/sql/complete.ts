@@ -46,7 +46,7 @@ export interface CompletionCatalog {
   functions: CatFunction[];
 }
 
-export type SuggestionKind = "keyword" | "schema" | "table" | "view" | "column" | "alias" | "function" | "join" | "snippet" | "cte";
+export type SuggestionKind = "keyword" | "schema" | "table" | "view" | "column" | "alias" | "function" | "join" | "snippet" | "cte" | "property";
 
 export interface Suggestion {
   label: string;

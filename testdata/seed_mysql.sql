@@ -34,7 +34,7 @@ CREATE TABLE order_items (
 );
 CREATE OR REPLACE VIEW customer_orders AS SELECT c.full_name, o.id AS order_id, o.status FROM customers c JOIN orders o ON o.customer_id = c.id;
 INSERT INTO customers (email, full_name, avatar) VALUES ('ada@example.com','Ada Lovelace', X'89504E47'), ('alan@example.com','Alan Turing', NULL), ('grace@example.com','Grace Hopper', NULL);
-INSERT INTO products (sku, name, price, attrs) VALUES ('KB-1','Keyboard',49.99,'{"color":"black"}'),('MS-1','Mouse',19.50,NULL);
+INSERT INTO products (sku, name, price, attrs) VALUES ('KB-1','Keyboard',49.99,'{"color":"black","wireless":false,"dims":{"w":44,"h":13,"d":3}}'),('MS-1','Mouse',19.50,'{"color":"white","dims":{"w":6,"h":4},"ports":[{"type":"usb","version":"2.0"}]}');
 INSERT INTO orders (customer_id, status, placed_at) VALUES (1,'paid','2026-10-01 10:00:00'),(2,'new',NULL);
 INSERT INTO order_items VALUES (1,1,1),(1,2,2),(2,2,1);
 DROP PROCEDURE IF EXISTS add_order;

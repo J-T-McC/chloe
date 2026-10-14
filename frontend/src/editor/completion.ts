@@ -1,6 +1,8 @@
 // Connects the completion engine to Monaco and keeps a per-database catalog cache.
 import { DBType, Explorer, ObjectKind, arr } from "../api";
+import { analyze } from "../sql/analyze";
 import { CatFunction, CatTable, CompletionCatalog, Suggestion, complete } from "../sql/complete";
+import { KeyNode, addPath, buildKeyTree, inString, jsonKeySuggestions, jsonPathContext, pathsInText, resolveColumn } from "../sql/jsonpath";
 import { connById } from "../store";
 import { Monaco, monaco } from "./monaco";
 
@@ -106,6 +108,37 @@ export function preloadCatalog(ctx: EditorContext) {
   catalogFor(ctx).catch(() => {});
 }
 
+// ---- JSON key samples ------------------------------------------------------------
+
+const SAMPLE_TTL = 5 * 60_000;
+const samples = new Map<string, { at: number; tree: Promise<KeyNode> }>();
+
+function sampleTree(connId: string, database: string, schema: string | undefined, table: string, column: string): Promise<KeyNode> {
+  const k = [connId, database, schema ?? "", table, column].join("\u0000");
+  const hit = samples.get(k);
+  if (hit && Date.now() - hit.at < SAMPLE_TTL) return hit.tree;
+  const tree = Explorer.SampleColumn(connId, { database, schema, name: table, kind: ObjectKind.KindTable }, column, 200).then((v) => buildKeyTree(arr(v)));
+  samples.set(k, { at: Date.now(), tree });
+  tree.catch(() => samples.delete(k));
+  return tree;
+}
+
+/** Keys for a JSON path under the cursor, or null when the cursor isn't in one. */
+async function jsonCompletion(ctx: EditorContext, cat: CompletionCatalog, text: string, offset: number): Promise<Suggestion[] | null> {
+  const jp = jsonPathContext(text, offset, cat.dialect);
+  if (!jp) return null;
+  const target = resolveColumn(jp, analyze(text, offset, cat.dialect), cat);
+  if (!target) return [];
+  const db = cat.dialect === "mysql" ? (target.schema ?? ctx.database ?? "") : (ctx.database ?? connById(ctx.connId)?.initialDatabase ?? "postgres");
+  const sampled = await sampleTree(ctx.connId, db, cat.dialect === "postgres" ? target.schema : undefined, target.table, target.column).catch(() => null);
+  // Copy so paths from the text don't leak into the cached sample.
+  const tree: KeyNode = sampled ? structuredClone(sampled) : buildKeyTree([]);
+  // Paths written elsewhere in the editor (minus the one being typed).
+  const here = text.slice(0, jp.replaceStart) + text.slice(offset);
+  for (const p of pathsInText(here, cat.dialect).get(target.column.toLowerCase()) ?? []) addPath(tree, p);
+  return jsonKeySuggestions(jp, tree);
+}
+
 // ---- Monaco provider ----------------------------------------------------------
 
 const KIND: Record<Suggestion["kind"], Monaco.languages.CompletionItemKind> = {
@@ -119,7 +152,11 @@ const KIND: Record<Suggestion["kind"], Monaco.languages.CompletionItemKind> = {
   join: monaco.languages.CompletionItemKind.Reference,
   snippet: monaco.languages.CompletionItemKind.Snippet,
   cte: monaco.languages.CompletionItemKind.Struct,
+  property: monaco.languages.CompletionItemKind.Property,
 };
+
+// Characters that only open suggestions inside a JSON path.
+const JSON_TRIGGERS = new Set(["'", "{", ","]);
 
 let registered = false;
 
@@ -128,14 +165,18 @@ export function registerSqlCompletion() {
   registered = true;
   for (const lang of ["mysql", "pgsql"]) {
     monaco.languages.registerCompletionItemProvider(lang, {
-      triggerCharacters: [".", "`", '"', "*"],
-      async provideCompletionItems(model, position) {
+      triggerCharacters: [".", "`", '"', "*", "'", "{", ","],
+      async provideCompletionItems(model, position, context) {
         const ctx = contexts.get(model.uri.toString());
         if (!ctx) return { suggestions: [] };
         const text = model.getValue();
         const offset = model.getOffsetAt(position);
         let cat = await catalogFor(ctx);
         if (!cat) return { suggestions: [] };
+        const json = await jsonCompletion(ctx, cat, text, offset);
+        if (json) return { suggestions: toItems(model, position, json, offset) };
+        // Quick suggestions are on inside strings for JSON paths only.
+        if ((context.triggerCharacter && JSON_TRIGGERS.has(context.triggerCharacter)) || inString(text, offset, cat.dialect)) return { suggestions: [] };
         let res = complete(text, offset, cat);
 
         // "otherdb." in MySQL: load that database's tables and retry.
@@ -149,32 +190,35 @@ export function registerSqlCompletion() {
           }
         }
 
-        const start = model.getPositionAt(res.replaceStart);
-        const range = new monaco.Range(start.lineNumber, start.column, position.lineNumber, position.column);
-        const width = String(res.suggestions.length).length;
-        const suggestions = res.suggestions.map((s, i): Monaco.languages.CompletionItem => {
-          let r = range;
-          if (s.rangeStart !== undefined) {
-            const rs = model.getPositionAt(s.rangeStart);
-            r = new monaco.Range(rs.lineNumber, rs.column, position.lineNumber, position.column);
-          }
-          return {
-            label: { label: s.label, description: s.detail },
-            kind: KIND[s.kind],
-            insertText: s.insertText,
-            insertTextRules: s.snippet ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet : undefined,
-            filterText: s.filterText ?? s.label,
-            // Rank first, then the engine's order (keeps columns in table order).
-            sortText: String(Math.round((s.rank + 10) * 10)).padStart(4, "0") + String(i).padStart(width, "0"),
-            documentation: s.documentation,
-            range: r,
-            command: s.retrigger ? { id: "editor.action.triggerSuggest", title: "" } : undefined,
-          };
-        });
-        return { suggestions, incomplete: false };
+        return { suggestions: toItems(model, position, res.suggestions, res.replaceStart), incomplete: false };
       },
     });
   }
+}
+
+function toItems(model: Monaco.editor.ITextModel, position: Monaco.Position, list: Suggestion[], replaceStart: number): Monaco.languages.CompletionItem[] {
+  const start = model.getPositionAt(replaceStart);
+  const range = new monaco.Range(start.lineNumber, start.column, position.lineNumber, position.column);
+  const width = String(list.length).length;
+  return list.map((s, i): Monaco.languages.CompletionItem => {
+    let r = range;
+    if (s.rangeStart !== undefined) {
+      const rs = model.getPositionAt(s.rangeStart);
+      r = new monaco.Range(rs.lineNumber, rs.column, position.lineNumber, position.column);
+    }
+    return {
+      label: { label: s.label, description: s.detail },
+      kind: KIND[s.kind],
+      insertText: s.insertText,
+      insertTextRules: s.snippet ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet : undefined,
+      filterText: s.filterText ?? s.label,
+      // Rank first, then the engine's order (keeps columns in table order).
+      sortText: String(Math.round((s.rank + 10) * 10)).padStart(4, "0") + String(i).padStart(width, "0"),
+      documentation: s.documentation,
+      range: r,
+      command: s.retrigger ? { id: "editor.action.triggerSuggest", title: "" } : undefined,
+    };
+  });
 }
 
 /** Open the suggest widget automatically after keywords that expect a name. */

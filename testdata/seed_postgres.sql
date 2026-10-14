@@ -18,6 +18,6 @@ CREATE VIEW shop.customer_orders AS SELECT c.full_name, o.id AS order_id, o.stat
 CREATE FUNCTION shop.order_total(oid bigint) RETURNS numeric AS $$ SELECT COALESCE(sum(p.price * i.qty),0) FROM shop.order_items i JOIN shop.products p ON p.id = i.product_id WHERE i.order_id = oid; $$ LANGUAGE sql;
 CREATE FUNCTION shop.order_total(oid bigint, discount numeric) RETURNS numeric AS $$ SELECT shop.order_total(oid) * (1 - discount); $$ LANGUAGE sql;
 INSERT INTO shop.customers (email, full_name, avatar) VALUES ('ada@example.com','Ada Lovelace','\x89504e47'),('alan@example.com','Alan Turing',NULL),('grace@example.com','Grace Hopper',NULL);
-INSERT INTO shop.products (sku,name,price,attrs,tags) VALUES ('KB-1','Keyboard',49.99,'{"color":"black"}','{input,usb}'),('MS-1','Mouse',19.50,NULL,NULL);
+INSERT INTO shop.products (sku,name,price,attrs,tags) VALUES ('KB-1','Keyboard',49.99,'{"color":"black","wireless":false,"dims":{"w":44,"h":13,"d":3}}','{input,usb}'),('MS-1','Mouse',19.50,'{"color":"white","dims":{"w":6,"h":4},"ports":[{"type":"usb","version":"2.0"}]}',NULL);
 INSERT INTO shop.orders (customer_id,status,placed_at) VALUES (1,'paid','2026-10-01 10:00'),(2,'new',NULL);
 INSERT INTO shop.order_items VALUES (1,1,1),(1,2,2),(2,2,1);

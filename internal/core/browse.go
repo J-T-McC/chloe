@@ -112,3 +112,36 @@ func buildSelect(d driver.Dialect, req BrowseRequest) string {
 	}
 	return b.String()
 }
+
+// SampleColumn returns up to limit non-null values of one column (JSON key
+// completion builds its key tree from these).
+func (m *Manager) SampleColumn(ctx context.Context, connID string, ref model.ObjectRef, column string, limit int) ([]string, error) {
+	c, err := m.conn(connID)
+	if err != nil {
+		return nil, err
+	}
+	d := c.Dialect()
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	col := d.QuoteIdent(column)
+	q := fmt.Sprintf("SELECT %s FROM %s WHERE %s IS NOT NULL LIMIT %d", col, d.Qualified(ref), col, limit)
+	ds, err := c.NewSession(ctx, ref.Database, ref.Schema)
+	if err != nil {
+		return nil, err
+	}
+	defer ds.Close()
+	rows, err := ds.Query(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	cell := make([]*string, 1)
+	for rows.Next(cell) {
+		if cell[0] != nil {
+			out = append(out, *cell[0])
+		}
+	}
+	return out, rows.Err()
+}

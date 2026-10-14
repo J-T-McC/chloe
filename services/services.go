@@ -232,6 +232,11 @@ func (s *ExplorerService) Catalog(ctx context.Context, connID, database string) 
 	return s.M.Catalog(ctx, connID, database)
 }
 
+// SampleColumn returns up to limit non-null values of a column.
+func (s *ExplorerService) SampleColumn(ctx context.Context, connID string, ref model.ObjectRef, column string, limit int) ([]string, error) {
+	return s.M.SampleColumn(ctx, connID, ref, column, limit)
+}
+
 func (s *ExplorerService) DDL(ctx context.Context, connID string, ref model.ObjectRef) (string, error) {
 	return s.M.DDL(ctx, connID, ref)
 }

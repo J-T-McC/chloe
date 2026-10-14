@@ -361,3 +361,19 @@ func TestIntegrationSSHTunnel(t *testing.T) {
 		}
 	})
 }
+
+func TestIntegrationSampleColumn(t *testing.T) {
+	for _, e := range engines() {
+		t.Run(e.conn.Name, func(t *testing.T) {
+			m, id := setup(t, e)
+			ref := model.ObjectRef{Database: e.database, Schema: e.schema, Name: "products", Kind: model.KindTable}
+			vals, err := m.SampleColumn(context.Background(), id, ref, "attrs", 10)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(vals) != 2 || !strings.Contains(strings.Join(vals, ""), `"dims"`) {
+				t.Fatalf("samples %q", vals)
+			}
+		})
+	}
+}
