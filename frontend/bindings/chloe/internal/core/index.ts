@@ -13,8 +13,10 @@ export type {
     ApplyResult,
     BrowseRequest,
     ChangeResult,
+    DataTransferRequest,
     DesignPreview,
     DumpRequest,
+    Endpoint,
     ExecOptions,
     ExecuteFileRequest,
     ExportRequest,
@@ -26,5 +28,6 @@ export type {
     MaintainResult,
     RedisConsoleResult,
     RowChange,
-    SortSpec
+    SortSpec,
+    TransferOptions
 } from "./models.js";

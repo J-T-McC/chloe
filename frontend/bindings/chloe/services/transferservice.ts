@@ -32,6 +32,20 @@ export function ClearJobs(): $CancellablePromise<void> {
     return $Call.ByID(3827986244);
 }
 
+/**
+ * DataTransfer copies tables and views between databases, schemas or connections.
+ */
+export function DataTransfer(req: core$0.DataTransferRequest): $CancellablePromise<core$0.Job> {
+    return $Call.ByID(2330727424, req);
+}
+
+/**
+ * DefaultTransferOptions are the Data Transfer options a new transfer starts with.
+ */
+export function DefaultTransferOptions(): $CancellablePromise<core$0.TransferOptions> {
+    return $Call.ByID(2356222931);
+}
+
 export function Dump(connID: string, req: core$0.DumpRequest): $CancellablePromise<core$0.Job> {
     return $Call.ByID(3707992437, connID, req);
 }

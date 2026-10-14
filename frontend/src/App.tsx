@@ -12,6 +12,7 @@ import { Split } from "./components/Split";
 import { ExecuteFileDialog } from "./components/transfer/ExecuteFileDialog";
 import { ExportWizard } from "./components/transfer/ExportWizard";
 import { ImportWizard } from "./components/transfer/ImportWizard";
+import { DataTransferWizard, openDataTransfer } from "./components/transfer/DataTransferWizard";
 import { JobsButton } from "./components/transfer/JobsPanel";
 import { ServerMonitor } from "./components/ServerMonitor";
 import { TableDesigner } from "./components/designer/TableDesigner";
@@ -57,6 +58,7 @@ export default function App() {
   seen.current.add(active);
   // Tools > History Log in the native menu.
   useEffect(() => Events.On("menu:history-log", () => openHistoryLog()), []);
+  useEffect(() => Events.On("menu:data-transfer", () => openDataTransfer(useApp.getState().selection)), []);
   const selection = useApp((s) => s.selection);
   const open = useApp((s) => s.open);
 
@@ -189,6 +191,7 @@ export default function App() {
       <ManageConnections />
       <ExportWizard />
       <ImportWizard />
+      <DataTransferWizard />
       <ExecuteFileDialog />
       <DatabaseDialog />
       <SetPrivilegesDialog />

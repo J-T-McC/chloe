@@ -73,6 +73,20 @@ export interface ChangeResult {
 }
 
 /**
+ * DataTransferRequest says what to copy. With AllTables/AllViews set, the lists
+ * are ignored and every object present when the transfer runs is copied.
+ */
+export interface DataTransferRequest {
+    "source": Endpoint;
+    "target": Endpoint;
+    "allTables": boolean;
+    "tables": string[] | null;
+    "allViews": boolean;
+    "views": string[] | null;
+    "options": TransferOptions;
+}
+
+/**
  * DesignPreview returns the statements that turn old into new (old nil = create).
  */
 export interface DesignPreview {
@@ -106,6 +120,15 @@ export interface DumpRequest {
      */
     "data": boolean;
     "path": string;
+}
+
+/**
+ * Endpoint is one side of a transfer.
+ */
+export interface Endpoint {
+    "connId": string;
+    "database": string;
+    "schema"?: string;
 }
 
 /**
@@ -405,3 +428,48 @@ export enum TableAction {
      */
     ActionCopy = "copy",
 };
+
+/**
+ * TransferOptions follow Navicat's Data Transfer options.
+ */
+export interface TransferOptions {
+    /**
+     * Table options
+     */
+    "createTables": boolean;
+    "includeIndexes": boolean;
+    "includeForeignKeys": boolean;
+    "includeChecks": boolean;
+    "includeUniques": boolean;
+    "includeAutoIncrement": boolean;
+    "includeTriggers": boolean;
+    "includeCharset": boolean;
+    "includeEngine": boolean;
+    "includeOtherOptions": boolean;
+
+    /**
+     * "", "lower" or "upper"
+     */
+    "convertNames"?: string;
+
+    /**
+     * Record options
+     */
+    "createRecords": boolean;
+    "emptyTarget": boolean;
+    "useTransaction": boolean;
+    "extendedInserts": boolean;
+
+    /**
+     * "", "ignore" or "replace"
+     */
+    "insertMode"?: string;
+
+    /**
+     * Other options
+     */
+    "continueOnError": boolean;
+    "dropTarget": boolean;
+    "dropCascade": boolean;
+    "createTargetDatabase": boolean;
+}

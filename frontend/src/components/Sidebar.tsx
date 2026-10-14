@@ -15,6 +15,7 @@ import { databaseTools, objectsAreaMenu, tableChildMenu, tableMenu, viewMenu } f
 import { deleteDatabase, openDatabaseDialog } from "./DatabaseDialog";
 import { openExecuteFile } from "./transfer/state";
 import { deleteSavedQueries, duplicateSavedQuery, openSavedQuery, renameSavedQuery, restoreDrafts } from "../queries";
+import { openDataTransfer } from "./transfer/DataTransferWizard";
 
 const ROW = 24;
 export const COLORS: Array<[string, string]> = [
@@ -353,6 +354,7 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
         { label: "New Query", disabled: !connected, shortcut: "⌘T", onClick: () => newQuery(n.connId) },
         { separator: true },
         { label: "Execute SQL File…", disabled: !connected, onClick: () => openExecuteFile(n.connId, lite ? "main" : "") },
+        { label: "Data Transfer…", onClick: () => openDataTransfer({ connId: n.connId, database: lite ? "main" : "" }) },
         ...(lite
           ? []
           : [
@@ -413,6 +415,7 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
         ...(isPGConn(n.connId) ? [] : [{ label: "New Table", onClick: () => newTable(n.connId, n.database!) }]),
         { separator: true },
         ...(isPGConn(n.connId) ? [{ label: "Execute SQL File…", onClick: () => openExecuteFile(n.connId, n.database!) }] : databaseTools(n.connId, n.database!)),
+        { label: "Data Transfer…", onClick: () => openDataTransfer({ connId: n.connId, database: n.database }) },
         { separator: true },
         { label: "Copy Name", onClick: () => copy(n.label) },
         { label: "Refresh", shortcut: "⌘R", disabled: !dbOpen, onClick: () => tree.refresh(n) },
@@ -423,6 +426,7 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
         { label: "New Table", onClick: () => newTable(n.connId, n.database!, n.schema) },
         { separator: true },
         ...databaseTools(n.connId, n.database!, n.schema),
+        { label: "Data Transfer…", onClick: () => openDataTransfer({ connId: n.connId, database: n.database, schema: n.schema }) },
         { separator: true },
         { label: "Copy Name", onClick: () => copy(n.label) },
         { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) },
@@ -491,6 +495,7 @@ function sqliteDbMenu(n: TreeNode, dbOpen: boolean): MenuItem[] {
     { label: "New Table", onClick: () => newTable(n.connId, n.database!) },
     { separator: true },
     ...databaseTools(n.connId, n.database!),
+    { label: "Data Transfer…", onClick: () => openDataTransfer({ connId: n.connId, database: n.database }) },
     { separator: true },
     { label: "Copy Name", onClick: () => copy(n.label) },
     { label: "Refresh", shortcut: "⌘R", disabled: !dbOpen, onClick: () => tree.refresh(n) },
