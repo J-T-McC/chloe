@@ -1123,7 +1123,7 @@ button.icon {
   color: var(--text-2);
 }
 
-.form .field-input input:not([type="checkbox"]),
+.form .field-input input:not([type="checkbox"]):not([type="radio"]),
 .form .field-input select,
 .form .field-input textarea {
   width: 100%;
@@ -1504,7 +1504,8 @@ textarea.remarks {
   color: var(--accent-text);
 }
 
-.modal-body input[type="checkbox"] {
+.modal-body input[type="checkbox"],
+.modal-body input[type="radio"] {
   width: auto;
 }
 
