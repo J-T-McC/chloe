@@ -9,6 +9,7 @@ import (
 
 	"chloe/internal/design"
 	"chloe/internal/model"
+	"chloe/internal/privs"
 	"chloe/internal/sqlsplit"
 	"chloe/internal/tunnel"
 )
@@ -54,6 +55,15 @@ type Conn interface {
 	LoadDesign(ctx context.Context, ref model.ObjectRef) (design.Table, error)
 	DesignMeta(ctx context.Context, database string) (design.Meta, error)
 	DesignGenerator() design.Generator
+	// Users and privileges. LoadUser reads object privileges inside database
+	// (PostgreSQL); MySQL accounts are server-wide.
+	ListUsers(ctx context.Context) ([]privs.UserInfo, error)
+	LoadUser(ctx context.Context, name, host, database string) (privs.User, error)
+	UserMeta(ctx context.Context) (privs.Meta, error)
+	// ObjectGrants lists every account's privileges on one object (database,
+	// schema, table/view or routine); target's Privilege is ignored.
+	ObjectGrants(ctx context.Context, target privs.Grant) ([]privs.ObjectGrant, error)
+
 	// LoadView reads a view (or materialized view) for the view designer.
 	LoadView(ctx context.Context, ref model.ObjectRef) (design.View, error)
 

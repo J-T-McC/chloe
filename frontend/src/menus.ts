@@ -2,6 +2,7 @@
 // Navicat's table / objects-area menus.
 import { DBType, Design, Explorer, MaintainOp, ObjectKind, ObjectRef, TableAction, Transfer, arr, errorText } from "./api";
 import { newView, viewDesign } from "./components/designer/ViewDesigner";
+import { openSetPrivileges } from "./components/users/SetPrivilegesDialog";
 import { useTree } from "./tree";
 import { MenuItem } from "./components/ContextMenu";
 import { alert } from "./components/Dialogs";
@@ -76,7 +77,7 @@ export function tableMenu(connId: string, refs: ObjectRef[]): MenuItem[] {
         { label: "Structure Only", onClick: () => runTableAction(connId, ref, TableAction.ActionDuplicate) },
       ],
     },
-    later("Set Privileges"),
+    { label: "Set Privileges…", disabled: !one, onClick: () => openSetPrivileges(connId, { level: "table", database, schema, object: ref.name }, `${schema ? schema + "." : database + "."}${ref.name}`) },
     { separator: true },
     { label: "Import Wizard…", disabled: !one, onClick: () => openImport({ connId, database, schema, table: ref }) },
     { label: "Export Wizard…", onClick: () => openExport({ connId, database, schema, tables: refs }) },
@@ -123,7 +124,7 @@ export function viewMenu(connId: string, ref: ObjectRef): MenuItem[] {
           },
         ]
       : []),
-    later("Set Privileges"),
+    { label: "Set Privileges…", onClick: () => openSetPrivileges(connId, { level: "table", database: ref.database, schema: ref.schema, object: ref.name }, `${ref.schema ? ref.schema + "." : ref.database + "."}${ref.name}`) },
     { separator: true },
     { label: "Query View", shortcut: "⌘T", onClick: () => newQuery(connId, ref.database, ref.schema, selectAllSQL(connId, ref)) },
     { label: "Show DDL", onClick: () => useApp.getState().openTab({ kind: "ddl", title: ref.name, connId, database: ref.database, schema: ref.schema, ref }) },
@@ -178,7 +179,13 @@ export function objectsAreaMenu(connId: string, database: string, schema: string
     ...(tables ? [{ label: "New Table", shortcut: "⌘N", onClick: () => newTable(connId, database, schema) }] : []),
     ...(kind === ObjectKind.KindView ? [{ label: "New View", shortcut: "⌘N", onClick: () => newView(connId, database, schema) }] : []),
     ...(views && isPG(connId) ? [{ label: "New Materialized View", onClick: () => newView(connId, database, schema, true) }] : []),
-    later("Set Privileges"),
+    {
+      label: "Set Privileges…",
+      onClick: () =>
+        schema
+          ? openSetPrivileges(connId, { level: "schema", database, schema }, `schema ${schema}`)
+          : openSetPrivileges(connId, { level: "database", database }, `database ${database}`),
+    },
     { separator: true },
     { label: "Import Wizard…", onClick: () => openImport({ connId, database, schema }) },
     { label: "Export Wizard…", onClick: () => openExport({ connId, database, schema, tables: [] }) },

@@ -2885,3 +2885,141 @@ table.mapping select {
   max-height: 100%;
   object-fit: contain;
 }
+
+/* ---- users & privileges -------------------------------------------------------- */
+
+.users-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.users-pane .toolbar .search {
+  width: 200px;
+}
+
+.users-table-wrap {
+  flex: 1;
+  overflow: auto;
+}
+
+.users-table td:first-child {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.user-designer .designer-form {
+  max-width: 640px;
+}
+
+.server-privs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 4px 16px;
+  padding: 10px 14px;
+  overflow: auto;
+  font-size: 12px;
+}
+
+.user-privileges {
+  height: 100%;
+}
+
+.privs-tree {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border-right: 1px solid var(--border);
+}
+
+.privs-db {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.privs-db select {
+  flex: 1;
+}
+
+.privs-tree-rows {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 0;
+}
+
+.privs-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding-right: 8px;
+  font-size: 12px;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.privs-row:hover {
+  background: var(--bg-2);
+}
+
+.privs-row.selected {
+  background: var(--sel);
+}
+
+.privs-row.granted .privs-label {
+  font-weight: 600;
+}
+
+.privs-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.privs-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.privs-list {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: auto;
+}
+
+.privs-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.privs-table td:not(:first-child),
+.privs-table th:not(:first-child) {
+  width: 140px;
+  text-align: center;
+}
+
+.modal.set-privs {
+  width: min(1100px, calc(100vw - 80px));
+}
+
+.set-privs-body {
+  overflow: auto;
+  max-height: 60vh;
+}
+
+.set-privs .privs-table th:not(:first-child),
+.set-privs .privs-table td:not(:first-child) {
+  width: auto;
+  white-space: nowrap;
+  text-align: center;
+}

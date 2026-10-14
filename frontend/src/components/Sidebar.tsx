@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Folder, Loader2, Search, TriangleAlert } fro
 import { useEffect, useMemo, useRef } from "react";
 import { Connection, Connections, DBType, ObjectKind, ObjectRef, Redis, errorText } from "../api";
 import { openRedisConsole } from "./redis/actions";
+import { openUsers } from "./users/actions";
 import { connById, dbKey, useApp } from "../store";
 import { TreeNode, flatten, matchParts, useTree } from "../tree";
 import { MenuItem, openMenu } from "./ContextMenu";
@@ -342,6 +343,7 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
         { label: "New Query", disabled: !connected, shortcut: "⌘T", onClick: () => newQuery(n.connId) },
         { separator: true },
         { label: "Execute SQL File…", disabled: !connected, onClick: () => openExecuteFile(n.connId, "") },
+        { label: c.type === "postgres" ? "Roles" : "Users", disabled: !connected, onClick: () => openUsers(n.connId) },
         { label: "Server Monitor", disabled: !connected, onClick: () => openMonitor(n.connId) },
         { label: "Connection Info…", disabled: !connected, onClick: () => showInfo(n.connId) },
         { separator: true },

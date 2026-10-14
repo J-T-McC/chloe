@@ -10,6 +10,7 @@ import * as MonitorService from "./monitorservice.js";
 import * as QueryService from "./queryservice.js";
 import * as RedisService from "./redisservice.js";
 import * as TransferService from "./transferservice.js";
+import * as UserService from "./userservice.js";
 export {
     ConnectionService,
     DesignService,
@@ -19,7 +20,8 @@ export {
     MonitorService,
     QueryService,
     RedisService,
-    TransferService
+    TransferService,
+    UserService
 };
 
 export type {

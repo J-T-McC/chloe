@@ -8,6 +8,8 @@ export * as Transfer from "../bindings/chloe/services/transferservice";
 export * as Layouts from "../bindings/chloe/services/layoutservice";
 export * as Models from "../bindings/chloe/services/modelservice";
 export * as Redis from "../bindings/chloe/services/redisservice";
+export * as Users from "../bindings/chloe/services/userservice";
+export type * as P from "../bindings/chloe/internal/privs/models";
 export type * as R from "../bindings/chloe/internal/rdb/models";
 export type * as DM from "../bindings/chloe/internal/datamodel/models";
 export { Format, type ExportOptions, type ImportOptions } from "../bindings/chloe/internal/transfer/models";

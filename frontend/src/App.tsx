@@ -1,4 +1,4 @@
-import { Activity, Database, FilePlus2, Monitor, Moon, Network, PencilRuler, Plug, Shapes, Sun, Table2, TerminalSquare, X } from "lucide-react";
+import { Activity, Database, FilePlus2, Monitor, Moon, Network, PencilRuler, Plug, Shapes, Sun, Table2, TerminalSquare, UserRound, UsersRound, X } from "lucide-react";
 import { ThemePref, onThemeChange, setThemePref, themePref } from "./theme";
 import { useEffect, useState } from "react";
 import { Events, ObjectKind } from "./api";
@@ -17,6 +17,10 @@ import { ServerMonitor } from "./components/ServerMonitor";
 import { TableDesigner } from "./components/designer/TableDesigner";
 import { ViewDesigner } from "./components/designer/ViewDesigner";
 import { RedisConsole } from "./components/redis/RedisConsole";
+import { UsersPane } from "./components/users/UsersPane";
+import { UserDesigner } from "./components/users/UserDesigner";
+import { SetPrivilegesDialog } from "./components/users/SetPrivilegesDialog";
+import { openUsers } from "./components/users/actions";
 import { ERDiagram } from "./components/erd/ERDiagram";
 import { ModelEditor } from "./components/model/ModelEditor";
 import { newModel, openModel } from "./components/model/actions";
@@ -102,6 +106,7 @@ export default function App() {
             disabled={!selection?.database || selRedis}
             onClick={() => selection && useApp.getState().select({ ...selection, kind: ObjectKind.KindTable, object: undefined })}
           />
+          <ToolButton icon={<UsersRound size={20} />} label="User" disabled={!selConnected || selRedis} onClick={() => selection && openUsers(selection.connId)} />
           <ToolButton icon={<Shapes size={20} />} label="Model" onClick={(e) => modelMenu(e)} />
           <ToolButton icon={<Activity size={20} />} label="Monitor" disabled={!Object.keys(open).length} onClick={() => openMonitor(selConnected ? selection!.connId : Object.keys(open)[0])} />
           <ToolButton
@@ -155,6 +160,7 @@ export default function App() {
       <ImportWizard />
       <ExecuteFileDialog />
       <DatabaseDialog />
+      <SetPrivilegesDialog />
       <ConnectionDialog />
       <DialogHost />
       <ContextMenuHost />
@@ -184,11 +190,15 @@ function TabContent({ tab }: { tab: Tab }) {
       return <ViewDesigner tab={tab} />;
     case "redisconsole":
       return <RedisConsole tab={tab} />;
+    case "users":
+      return <UsersPane tab={tab} />;
+    case "user":
+      return <UserDesigner tab={tab} />;
   }
 }
 
 function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
-  const icon = tab.kind === "redisconsole" ? <TerminalSquare size={13} /> : tab.kind === "model" ? <Shapes size={13} /> : tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" || tab.kind === "viewdesign" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
+  const icon = tab.kind === "users" ? <UsersRound size={13} /> : tab.kind === "user" ? <UserRound size={13} /> : tab.kind === "redisconsole" ? <TerminalSquare size={13} /> : tab.kind === "model" ? <Shapes size={13} /> : tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" || tab.kind === "viewdesign" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
   return (
     <div
       className={"tab" + (active ? " active" : "")}
