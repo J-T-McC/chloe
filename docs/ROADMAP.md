@@ -6,14 +6,14 @@ Order reflects dependencies: later features build on the earlier ones. Specs for
 Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, table viewer, query editor with autocomplete.
 
 ## 2. Connections (in progress)
-- [ ] Groups (folders), New Group, move connections between groups
-- [ ] Open/close databases (closed until opened; Close Database releases sessions)
-- [ ] Context menus: empty area (New Connection, Close All, Manage Connections, New Group, Refresh ⌘R), connection, database
-- [ ] Connection dialog per spec: Add To group, Advanced (auto connect, session limit, keepalive, initial queries, timeouts, compression, socket, PG parameters), custom database list with Auto Open, full SSL options, SSH password + key, Remarks
-- [ ] Presets for hosted services (Supabase, Neon, RDS, DigitalOcean, PlanetScale, TiDB) and paste-a-URL
-- [ ] Manage Connections window, duplicate, connection info, copy URL, import/export
-- [ ] Server monitor: sessions/processes (kill session or query), variables, status
-- [ ] Beautify SQL
+- [x] Groups (folders), New Group, move connections between groups
+- [x] Open/close databases (closed until opened; Close Database releases sessions)
+- [x] Context menus: empty area (New Connection, Close All, Manage Connections, New Group, Refresh ⌘R), connection, database
+- [x] Connection dialog per spec: Add To group, Advanced (auto connect, session limit, keepalive, initial queries, timeouts, compression, socket, PG parameters), custom database list with Auto Open, full SSL options, SSH password + key, Remarks
+- [x] Presets for hosted services (Supabase, Neon, RDS, DigitalOcean, PlanetScale, TiDB) and paste-a-URL
+- [x] Manage Connections window, duplicate, connection info, copy URL, import/export
+- [x] Server monitor: sessions/processes (kill session or query), variables, status
+- [x] Beautify SQL
 
 ## 3. Table designer
 - Columns: name, type, length/scale, nullable, default, auto increment/identity, comment, **collation/charset**, generated columns
