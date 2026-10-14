@@ -427,7 +427,7 @@ export function complete(text: string, offset: number, cat: CompletionCatalog, o
         break;
       }
       if (a.afterOperand && a.clause === "select") {
-        out.push(...kw(["AS", "FROM", ...OPERATORS[d].filter((o) => o !== "AND" && o !== "OR")], -1, opts));
+        out.push(...kw(["FROM", "AS", ...OPERATORS[d].filter((o) => o !== "AND" && o !== "OR")], -1, opts));
       }
       addColumns(0);
       addRefNames(1);

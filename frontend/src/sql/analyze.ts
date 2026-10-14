@@ -173,6 +173,8 @@ export function analyze(text: string, offset: number, dialect: DialectName): Ana
       prevTok.type === "string" ||
       prevTok.type === "param" ||
       (prevTok.type === "punct" && prevTok.text === ")") ||
+      // "*" as a select item (SELECT *, t.*, a, *) is complete; elsewhere it multiplies.
+      (prevTok.text === "*" && (!sig[cur - 2] || ["SELECT", "DISTINCT", "ALL"].includes(sig[cur - 2].upper) || [",", "."].includes(sig[cur - 2].text))) ||
       (prevTok.type === "word" && (!OPERAND_BREAKERS.has(prevTok.upper) || ["NULL", "TRUE", "FALSE"].includes(prevTok.upper))));
 
   return { prefix, prefixStart, prefixQuoted, qualifier, clause, tables, ctes, prevKeyword, joinTarget, afterStar, afterOperand, statementStart };

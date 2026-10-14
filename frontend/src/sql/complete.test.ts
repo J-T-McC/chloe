@@ -26,6 +26,7 @@ function shop(dialect: "mysql" | "postgres"): CompletionCatalog {
     functions: [
       { name: "count", builtin: true },
       { name: "coalesce", builtin: true },
+      { name: "FROM_UNIXTIME", builtin: true },
       { name: "order_total", schema: "shop", signature: "oid bigint", returnType: "numeric", builtin: false },
     ],
   };
@@ -202,5 +203,18 @@ describe("operators", () => {
   it("offers operators after a closing paren and in ON", () => {
     expect(at("select * from customers where lower(email) |").labels).toContain("LIKE");
     expect(at("select * from orders o join customers c on c.id |").labels).toContain("IN");
+  });
+});
+
+describe("select list", () => {
+  it("ranks FROM first after SELECT *", () => {
+    for (const sql of ["select * fro|", "select * |", "select c.* fro| ", "select id, email fro|"]) {
+      const r = at(sql, "mysql");
+      expect(r.sorted[0].label).toBe("FROM");
+      expect(r.labels.indexOf("FROM")).toBeLessThan(r.labels.findIndex((l) => l.startsWith("FROM_")));
+    }
+  });
+  it("still offers functions after an operator", () => {
+    expect(at("select 2 * |", "mysql").labels).toContain("COUNT");
   });
 });
