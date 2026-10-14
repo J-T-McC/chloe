@@ -31,7 +31,13 @@ export function MongoUsers({ tab }: { tab: Tab }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const loadUsers = () => Mongo.Users(connId).then((u) => setUsers(arr(u))).catch((e) => setError(errorText(e)));
+  const loadUsers = () =>
+    Mongo.Users(connId)
+      .then((u) => {
+        setUsers(arr(u));
+        return arr(u);
+      })
+      .catch((e) => (setError(errorText(e)), [] as MG.User[]));
   const loadRoles = () => Mongo.Roles(connId, roleDb, showBuiltin).then((r) => setRoles(arr(r))).catch((e) => setError(errorText(e)));
   useEffect(() => {
     loadUsers();
@@ -84,8 +90,12 @@ export function MongoUsers({ tab }: { tab: Tab }) {
     try {
       if (userDraft) {
         await Mongo.SaveUser(connId, userDraft.orig, { ...userDraft.cur, roles: arr(userDraft.cur.roles).filter((r) => r.role.trim()) });
-        await loadUsers();
-        setUserDraft({ orig: { ...userDraft.cur, password: "" }, cur: { ...userDraft.cur, password: "" }, confirm: "" });
+        // Show what the server now has (it fills in mechanisms, drops empty rows).
+        const list = await loadUsers();
+        const i = list.findIndex((u) => u.user === userDraft.cur.user && u.db === userDraft.cur.db);
+        const saved = list[i] ?? { ...userDraft.cur, password: "" };
+        setPicked(i);
+        setUserDraft({ orig: saved, cur: { ...saved, roles: [...arr(saved.roles)], password: "" }, confirm: "" });
       } else if (roleDraft) {
         await Mongo.SaveRole(connId, roleDraft.orig, roleDraft.cur);
         await loadRoles();
@@ -219,7 +229,7 @@ export function MongoUsers({ tab }: { tab: Tab }) {
   );
 }
 
-function RolesGrid({ roles, onChange, dbs, grantable, readOnly }: { roles: MG.RoleRef[]; onChange(r: MG.RoleRef[]): void; dbs: string[]; grantable: string[]; readOnly?: boolean }) {
+function RolesGrid({ roles, onChange, dbs, grantable, readOnly, defaultDb }: { roles: MG.RoleRef[]; onChange(r: MG.RoleRef[]): void; dbs: string[]; grantable: string[]; readOnly?: boolean; defaultDb: string }) {
   const set = (i: number, patch: Partial<MG.RoleRef>) => onChange(roles.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   return (
     <div className="fields-grid compact">
@@ -252,7 +262,7 @@ function RolesGrid({ roles, onChange, dbs, grantable, readOnly }: { roles: MG.Ro
         </tbody>
       </table>
       {!readOnly && (
-        <button className="small-btn" onClick={() => onChange([...roles, { role: "", db: roles[roles.length - 1]?.db ?? dbs[0] ?? "admin" }])}>
+        <button className="small-btn" onClick={() => onChange([...roles, { role: "", db: defaultDb || "admin" }])}>
           <Plus size={12} /> Add Role
         </button>
       )}
@@ -322,7 +332,7 @@ function UserEditor(p: {
         <div className="field top">
           <label>Roles</label>
           <div className="field-input">
-            <RolesGrid roles={arr(cur.roles)} onChange={(roles) => set({ roles })} dbs={p.dbs} grantable={p.grantable} />
+            <RolesGrid roles={arr(cur.roles)} onChange={(roles) => set({ roles })} dbs={p.dbs} grantable={p.grantable} defaultDb={cur.db} />
           </div>
         </div>
         <div className="field top">
@@ -377,7 +387,7 @@ function RoleEditor(p: {
         <div className="field top">
           <label>Inherits</label>
           <div className="field-input">
-            <RolesGrid roles={arr(cur.roles)} onChange={(roles) => set({ roles })} dbs={p.dbs} grantable={p.grantable} readOnly={p.readOnly} />
+            <RolesGrid roles={arr(cur.roles)} onChange={(roles) => set({ roles })} dbs={p.dbs} grantable={p.grantable} readOnly={p.readOnly} defaultDb={cur.db} />
           </div>
         </div>
         <div className="field top">

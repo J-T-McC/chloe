@@ -282,4 +282,46 @@ await step("export and import", async () => {
   await shot("m11-jobs");
 });
 
+await step("users and roles", async () => {
+  await page.locator(".tree-row", { hasText: /^\s*shop\s*$/ }).click();
+  await page.getByRole("button", { name: "User", exact: true }).click();
+  await tab().locator(".object-list tbody tr").first().waitFor();
+  console.log("     users:", (await texts(".tab-pane:visible .object-list tbody tr")).join(" | "));
+  // a role
+  await tab().locator(".seg-tabs button", { hasText: "Roles" }).click();
+  await tab().getByRole("button", { name: "New Role" }).click();
+  await tab().locator(".field", { has: page.locator("label:text-is('Role Name')") }).locator("input").fill("reporter");
+  await tab().getByRole("button", { name: "Add Privilege" }).click();
+  await tab().locator(".fields-grid tbody tr").last().locator("input").nth(1).fill("orders");
+  await tab().locator(".fields-grid tbody tr").last().locator("input[list=mongo-actions]").fill("find, listIndexes");
+  await page.waitForTimeout(400);
+  console.log("     role script:", (await tab().locator(".code-block").innerText()).replace(/\s+/g, " "));
+  await tab().getByRole("button", { name: "Create Role" }).click();
+  await tab().locator(".object-list tr", { hasText: "reporter" }).waitFor();
+  // a user granted it
+  await tab().locator(".seg-tabs button", { hasText: "Users" }).click();
+  await tab().getByRole("button", { name: "New User" }).click();
+  const f = (l) => tab().locator(".field", { has: page.locator(`label:text-is('${l}')`) }).locator("input").first();
+  await f("User Name").fill("app");
+  await f("Password").fill("pw1");
+  await f("Confirm Password").fill("pw1");
+  await tab().getByRole("button", { name: "Add Role" }).click();
+  await tab().locator(".fields-grid tbody tr").last().locator("input").first().fill("reporter");
+  await page.waitForTimeout(400);
+  console.log("     user script:", (await tab().locator(".code-block").innerText()).replace(/\s+/g, " "));
+  await tab().getByRole("button", { name: "Create User" }).click();
+  await tab().locator(".object-list tr", { hasText: /^\s*app/ }).waitFor();
+  await shot("m12-users");
+  // delete both again
+  await tab().locator(".object-list tr", { hasText: /^\s*app/ }).click();
+  await tab().getByRole("button", { name: "Delete User" }).click();
+  await page.locator(".modal.small").getByRole("button", { name: "Delete" }).click();
+  await tab().locator(".object-list tr", { hasText: /^\s*app/ }).waitFor({ state: "detached" });
+  await tab().locator(".seg-tabs button", { hasText: "Roles" }).click();
+  await tab().locator(".object-list tr", { hasText: "reporter" }).click();
+  await tab().getByRole("button", { name: "Delete Role" }).click();
+  await page.locator(".modal.small").getByRole("button", { name: "Delete" }).click();
+  await tab().locator(".object-list tr", { hasText: "reporter" }).waitFor({ state: "detached" });
+});
+
 await browser.close();
