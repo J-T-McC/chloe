@@ -7,6 +7,7 @@ import { connById, useApp } from "../store";
 import { useTree } from "../tree";
 import { alert, confirm } from "./Dialogs";
 import { CodeBlock } from "./ObjectsPane";
+import { Combobox } from "./Combobox";
 
 const useDbDialog = create<{ target?: { connId: string; name?: string } }>(() => ({}));
 
@@ -93,13 +94,7 @@ function DatabaseDialogInner({ connId, editName }: { connId: string; editName?: 
     <div className="field">
       <label>{label}</label>
       <div className="field-input">
-        <select value={value ?? ""} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
-          <option value="">{placeholder}</option>
-          {value && !options.includes(value) && <option>{value}</option>}
-          {options.map((o) => (
-            <option key={o}>{o}</option>
-          ))}
-        </select>
+        <Combobox value={value ?? ""} options={options} onChange={onChange} placeholder={placeholder} disabled={disabled} strict />
       </div>
     </div>
   );
