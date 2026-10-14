@@ -3,11 +3,12 @@
 Order reflects dependencies: later features build on the earlier ones. Specs for each area live in `docs/specs/`.
 
 ## Next up
-1. **MongoDB, second pass**: aggregation pipeline builder, explain, GridFS buckets,
-   transfer between connections
-2. **Data transfer between connections**, then **structure sync and data sync** (section 8)
-3. **SQL Server and Oracle**, both in Docker
-4. Polish: Redis pub/sub, cluster and sentinel; Form view and hex/image cell editors
+1. **Data transfer between connections**, then **structure sync and data sync** (section 8)
+2. **Explain / visual explain** for MySQL and PostgreSQL, with MongoDB's explain
+3. **MongoDB, second pass**: aggregation pipeline builder, GridFS buckets, saved queries in MongoDB databases
+4. **SQL Server and Oracle**, both in Docker
+5. Polish: Redis pub/sub, cluster and sentinel; Form view and hex/image cell editors; preferences window
+   (history logging on/off, autosave interval)
 
 The MCP server (6b) waits until the user has discussed it.
 
@@ -23,6 +24,15 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 - [x] Manage Connections window, duplicate, connection info, copy URL, import/export
 - [x] Server monitor: sessions/processes (kill session or query), variables, status
 - [x] Beautify SQL
+- [x] Saved queries: a Queries folder per database (schema in PostgreSQL), Save ⌘S / Save As ⇧⌘S, rename,
+  duplicate, delete, a Save / Don't Save prompt when closing an edited query
+- [x] Open query tabs (saved or not) come back after a quit or crash; a query tab survives its connection
+  being closed and reconnects
+- [x] History Log (Tools menu, or History in a query tab): every statement run, filter by connection, errors
+  only, search, open in a query
+- [x] Security: passwords in the OS keychain (on macOS only Chloe's signature can read them); connections,
+  saved queries, history and drafts encrypted with a keychain key; passphrase-encrypted connection exports;
+  console histories leave out commands carrying passwords
 
 ## 3. Table designer ✅
 - Columns: name, type, length/scale, nullable, default, auto increment/identity, comment, **collation/charset**, generated columns
