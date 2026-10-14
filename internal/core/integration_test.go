@@ -8,6 +8,7 @@ package core_test
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -211,4 +212,152 @@ func deref(s *string) string {
 		return "<nil>"
 	}
 	return *s
+}
+
+func TestIntegrationConnectionFeatures(t *testing.T) {
+	for _, e := range engines() {
+		t.Run(e.conn.Name, func(t *testing.T) {
+			e.conn.Advanced.InitialQueries = "SET @chloe_init = 42"
+			if e.conn.Type == model.PostgreSQL {
+				e.conn.Advanced.InitialQueries = "SET application_name = 'chloe-init-test'"
+			}
+			e.conn.Advanced.SessionLimit = 5
+			e.conn.Advanced.KeepaliveSec = 1
+			e.conn.Databases = model.CustomDatabases{Enabled: true, List: []model.DatabaseEntry{{Name: e.database}}}
+			m, id := setup(t, e)
+			ctx := context.Background()
+
+			dbs, err := m.ListDatabases(ctx, id)
+			if err != nil || len(dbs) != 1 || dbs[0] != e.database {
+				t.Fatalf("custom database list: %v %v", dbs, err)
+			}
+
+			sid, err := m.OpenSession(ctx, id, e.database, e.schema)
+			if err != nil {
+				t.Fatal(err)
+			}
+			check := "SELECT @chloe_init"
+			want := "42"
+			if e.conn.Type == model.PostgreSQL {
+				check, want = "SHOW application_name", "chloe-init-test"
+			}
+			res, _ := m.Execute(ctx, sid, check, core.ExecOptions{})
+			page, _ := m.FetchRows(res[0].ResultID, 0, 1)
+			if len(page.Rows) != 1 || page.Rows[0][0] == nil || *page.Rows[0][0] != want {
+				t.Fatalf("initial query not applied: %+v", page.Rows)
+			}
+
+			// A slow query shows in the process list and can be cancelled from the monitor.
+			sleep := "SELECT SLEEP(20)"
+			if e.conn.Type == model.PostgreSQL {
+				sleep = "SELECT pg_sleep(20)"
+			}
+			done := make(chan time.Duration, 1)
+			go func() {
+				start := time.Now()
+				m.Execute(ctx, sid, sleep, core.ExecOptions{})
+				done <- time.Since(start)
+			}()
+			var target string
+			for i := 0; i < 40 && target == ""; i++ {
+				time.Sleep(100 * time.Millisecond)
+				procs, err := m.Processes(ctx, id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, p := range procs {
+					if strings.Contains(strings.ToLower(p.Query), "sleep(20)") && !strings.Contains(p.Query, "pg_stat_activity") {
+						target = p.ID
+					}
+				}
+			}
+			if target == "" {
+				t.Fatal("sleeping query not found in process list")
+			}
+			if err := m.KillProcess(ctx, id, target, true); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case d := <-done:
+				if d > 10*time.Second {
+					t.Fatalf("cancel took %v", d)
+				}
+			case <-time.After(15 * time.Second):
+				t.Fatal("query was not cancelled")
+			}
+
+			vars, err := m.Variables(ctx, id)
+			if err != nil || len(vars) < 50 {
+				t.Fatalf("variables %d %v", len(vars), err)
+			}
+			status, err := m.ServerStatus(ctx, id)
+			if err != nil || len(status) < 5 {
+				t.Fatalf("status %d %v", len(status), err)
+			}
+			info, err := m.Info(id)
+			if err != nil || info.Version == "" || info.Sessions < 1 {
+				t.Fatalf("info %+v %v", info, err)
+			}
+
+			// Closing the database ends its editor sessions.
+			if err := m.CloseDatabase(id, e.database); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := m.Execute(ctx, sid, "SELECT 1", core.ExecOptions{}); err == nil {
+				t.Fatal("session should be closed with its database")
+			}
+		})
+	}
+}
+
+// TestIntegrationSSHTunnel connects through the chloe-sshd container, which reaches
+// the databases by their compose service names.
+func TestIntegrationSSHTunnel(t *testing.T) {
+	key, _ := filepath.Abs("../../testdata/sshd/id_ed25519")
+	auths := []model.SSHConfig{
+		{Enabled: true, Host: "127.0.0.1", Port: 2222, User: "tunnel", Auth: model.SSHPassword, Password: "chloe", SavePassword: true},
+		{Enabled: true, Host: "127.0.0.1", Port: 2222, User: "tunnel", Auth: model.SSHPublicKey, PrivateKeyPath: key, SavePassword: true},
+	}
+	targets := map[model.DBType]struct {
+		host string
+		port int
+	}{model.MySQL: {"mysql", 3306}, model.PostgreSQL: {"postgres", 5432}}
+
+	for _, e := range engines() {
+		for _, ssh := range auths {
+			t.Run(e.conn.Name+"/"+string(ssh.Auth), func(t *testing.T) {
+				tg := targets[e.conn.Type]
+				e.conn.Host, e.conn.Port, e.conn.SSH = tg.host, tg.port, ssh
+				m, id := setup(t, e)
+				ctx := context.Background()
+				info, err := m.Info(id)
+				if err != nil || !strings.HasPrefix(info.Via, "SSH tunnel@") {
+					t.Fatalf("info %+v %v", info, err)
+				}
+				sid, err := m.OpenSession(ctx, id, e.database, e.schema)
+				if err != nil {
+					t.Fatal(err)
+				}
+				res, err := m.Execute(ctx, sid, "SELECT count(*) FROM customers", core.ExecOptions{})
+				if err != nil || res[0].Error != "" {
+					t.Fatalf("query over tunnel: %+v %v", res, err)
+				}
+			})
+		}
+	}
+
+	t.Run("wrong password", func(t *testing.T) {
+		if os.Getenv("CHLOE_IT") == "" {
+			t.Skip()
+		}
+		st, _ := store.Open(t.TempDir(), &store.MemorySecrets{})
+		m := core.NewManager(st, nil, core.DefaultSettings)
+		c := engines()[1].conn
+		c.Host = "postgres"
+		c.SSH = model.SSHConfig{Enabled: true, Host: "127.0.0.1", Port: 2222, User: "tunnel", Auth: model.SSHPassword, Password: "nope"}
+		_, err := m.TestConnection(context.Background(), c)
+		if err == nil || !strings.Contains(err.Error(), "ssh") {
+			t.Fatalf("expected ssh auth error, got %v", err)
+		}
+	})
 }
