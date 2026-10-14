@@ -34,3 +34,6 @@ cd frontend && npx vitest # frontend unit tests
 Test databases (from `docker-compose.yml`): MySQL on `127.0.0.1:33306`, PostgreSQL on `127.0.0.1:55432`, MongoDB on `127.0.0.1:37017` (user `root`) and Redis on `127.0.0.1:63790`, password `chloe`, with `shop` sample data from `testdata/`.
 
 `CHLOE_CONFIG_DIR=<dir>` and `CHLOE_SECRETS=memory` run the app against an isolated config without touching the keychain.
+The browser build (`bin/Chloe-server`) has no login, so it refuses to start without `CHLOE_SECRETS=memory` and only listens on
+loopback (`CHLOE_ALLOW_REMOTE=1` overrides that, as the Docker image does). Exported connections carry passwords only when
+a passphrase is given, encrypted with it (scrypt + AES-256-GCM).

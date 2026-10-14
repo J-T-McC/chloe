@@ -16,6 +16,9 @@ import * as connurl$0 from "../internal/connurl/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as model$0 from "../internal/model/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as store$0 from "../internal/store/models.js";
 
 export function AddGroup(name: string): $CancellablePromise<void> {
     return $Call.ByID(109250262, name);
@@ -52,11 +55,11 @@ export function Duplicate(id: string): $CancellablePromise<model$0.Connection> {
 }
 
 /**
- * ExportToFile asks for a destination and writes the selected connections there.
- * Returns the chosen path, or "" if the user cancelled.
+ * Export writes the selected connections (all when ids is empty) to path. With a
+ * passphrase, saved passwords are included, encrypted with it.
  */
-export function ExportToFile(ids: string[] | null, withSecrets: boolean): $CancellablePromise<string> {
-    return $Call.ByID(371908169, ids, withSecrets);
+export function Export(ids: string[] | null, path: string, passphrase: string): $CancellablePromise<void> {
+    return $Call.ByID(2687311362, ids, path, passphrase);
 }
 
 /**
@@ -72,10 +75,10 @@ export function Groups(): $CancellablePromise<string[] | null> {
 }
 
 /**
- * ImportFromFile asks for an export file and imports it. Returns the number imported.
+ * Import adds the connections in an export file. Returns the number imported.
  */
-export function ImportFromFile(): $CancellablePromise<number> {
-    return $Call.ByID(1497354583);
+export function Import(path: string, passphrase: string): $CancellablePromise<number> {
+    return $Call.ByID(9373561, path, passphrase);
 }
 
 /**
@@ -83,6 +86,14 @@ export function ImportFromFile(): $CancellablePromise<number> {
  */
 export function Info(id: string): $CancellablePromise<model$0.ServerInfo> {
     return $Call.ByID(1735590280, id);
+}
+
+/**
+ * InspectExport reads an export file's header: how many connections, and
+ * whether its passwords need a passphrase.
+ */
+export function InspectExport(path: string): $CancellablePromise<store$0.ExportSummary> {
+    return $Call.ByID(734899006, path);
 }
 
 export function IsConnected(id: string): $CancellablePromise<boolean> {

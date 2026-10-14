@@ -17,7 +17,7 @@ What's done and what's next: `docs/ROADMAP.md`. Behaviour specs: `docs/specs/`.
 export PATH=$PATH:$(go env GOPATH)/bin
 wails3 task common:generate:bindings   # after changing a service or any type it exposes
 wails3 task build                      # desktop app -> bin/Chloe
-wails3 task build:server               # browser build on :8080 -> bin/Chloe-server (used by e2e)
+wails3 task build:server               # browser build on :8080 -> bin/Chloe-server (used by e2e; needs CHLOE_SECRETS=memory)
 docker compose up -d                   # MySQL :33306, Postgres :55432, Redis :63790, MongoDB :37017 (root), sshd :2222 (password "chloe")
 go test ./...                          # unit tests plus SQLite (no Docker needed)
 CHLOE_IT=1 go test ./internal/...      # integration tests against the Docker databases

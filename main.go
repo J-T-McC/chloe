@@ -26,6 +26,9 @@ var assets embed.FS
 var icon []byte
 
 func main() {
+	if err := checkServerMode(); err != nil {
+		log.Fatal(err)
+	}
 	// CHLOE_CONFIG_DIR and CHLOE_SECRETS=memory isolate test runs from the user's
 	// saved connections and keychain.
 	dir := os.Getenv("CHLOE_CONFIG_DIR")

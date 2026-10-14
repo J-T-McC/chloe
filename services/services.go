@@ -5,7 +5,6 @@ package services
 import (
 	"context"
 	"encoding/base64"
-	"fmt"
 	"os"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -15,6 +14,7 @@ import (
 	"chloe/internal/design"
 	"chloe/internal/driver"
 	"chloe/internal/model"
+	"chloe/internal/store"
 	"chloe/internal/transfer"
 )
 
@@ -166,40 +166,33 @@ func (s *ConnectionService) URL(id string) (string, error) {
 	return connurl.Format(c), nil
 }
 
-// ExportToFile asks for a destination and writes the selected connections there.
-// Returns the chosen path, or "" if the user cancelled.
-func (s *ConnectionService) ExportToFile(ids []string, withSecrets bool) (string, error) {
-	data, err := s.M.Store.Export(ids, withSecrets)
+// Export writes the selected connections (all when ids is empty) to path. With a
+// passphrase, saved passwords are included, encrypted with it.
+func (s *ConnectionService) Export(ids []string, path, passphrase string) error {
+	data, err := s.M.Store.Export(ids, passphrase)
 	if err != nil {
-		return "", err
+		return err
 	}
-	path, err := application.Get().Dialog.SaveFile().
-		SetFilename("connections.chloe.json").
-		AddFilter("Chloe connections", "*.json").
-		PromptForSingleSelection()
-	if err != nil || path == "" {
-		return "", err
-	}
-	return path, os.WriteFile(path, data, 0o600)
+	return os.WriteFile(path, data, 0o600)
 }
 
-// ImportFromFile asks for an export file and imports it. Returns the number imported.
-func (s *ConnectionService) ImportFromFile() (int, error) {
-	path, err := application.Get().Dialog.OpenFile().
-		AddFilter("Chloe connections", "*.json").
-		PromptForSingleSelection()
-	if err != nil || path == "" {
-		return 0, err
+// InspectExport reads an export file's header: how many connections, and
+// whether its passwords need a passphrase.
+func (s *ConnectionService) InspectExport(path string) (store.ExportSummary, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return store.ExportSummary{}, err
 	}
+	return store.Inspect(data)
+}
+
+// Import adds the connections in an export file. Returns the number imported.
+func (s *ConnectionService) Import(path, passphrase string) (int, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return 0, err
 	}
-	n, err := s.M.Store.Import(data)
-	if err != nil {
-		return n, fmt.Errorf("%s: %w", path, err)
-	}
-	return n, nil
+	return s.M.Store.Import(data, passphrase)
 }
 
 // PickFile opens a file chooser (for key and certificate fields). Returns "" on cancel.

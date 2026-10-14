@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { chromium } from "playwright";
 
 const out = process.argv[2];
@@ -173,6 +174,42 @@ await step("manage connections", async () => {
   await page.locator(".menu-item", { hasText: "Manage Connections" }).click();
   await page.locator(".modal.manage tbody tr").first().waitFor();
   await shot("18-manage");
+  const field = (l) => page.locator(".modal .field", { has: page.locator(`label:text-is("${l}")`) }).locator("input").first();
+  const file = `${process.env.LITE}/connections.chloe.json`;
+  const before = await page.locator(".modal.manage tbody tr").count();
+
+  // export with passwords: a short or mismatched passphrase is refused
+  await page.getByRole("button", { name: /^Export all/ }).click();
+  await field("File").fill(file);
+  await page.getByText("Include passwords").click();
+  await field("Passphrase").fill("short");
+  await page.locator(".modal").last().getByRole("button", { name: "Export", exact: true }).click();
+  await page.locator(".status-line.err", { hasText: "at least 8" }).waitFor();
+  await field("Passphrase").fill("correct horse");
+  await field("Confirm Passphrase").fill("correct horsf");
+  await page.locator(".modal").last().getByRole("button", { name: "Export", exact: true }).click();
+  await page.locator(".status-line.err", { hasText: "don't match" }).waitFor();
+  await field("Confirm Passphrase").fill("correct horse");
+  await shot("18b-export");
+  await page.locator(".modal").last().getByRole("button", { name: "Export", exact: true }).click();
+  await page.locator(".status-line.ok", { hasText: "with encrypted passwords" }).waitFor();
+  const text = readFileSync(file, "utf8");
+  if (!text.includes('"secrets"') || text.includes('"password":')) throw new Error("export isn't encrypted");
+
+  // import: the file asks for its passphrase, a wrong one is refused
+  await page.getByRole("button", { name: "Import…" }).click();
+  await field("File").fill(file);
+  await field("Passphrase").waitFor();
+  await field("Passphrase").fill("wrong passphrase");
+  await page.locator(".modal").last().getByRole("button", { name: "Import", exact: true }).click();
+  await page.locator(".status-line.err", { hasText: "wrong passphrase" }).waitFor();
+  await field("Passphrase").fill("correct horse");
+  await shot("18c-import");
+  await page.locator(".modal").last().getByRole("button", { name: "Import", exact: true }).click();
+  await page.locator(".status-line.ok", { hasText: "Imported" }).waitFor();
+  const after = await page.locator(".modal.manage tbody tr").count();
+  if (after !== before * 2) throw new Error(`expected ${before * 2} connections, got ${after}`);
+  console.log("     connections:", before, "->", after);
   await page.getByRole("button", { name: "Done" }).click();
 });
 

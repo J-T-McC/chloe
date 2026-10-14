@@ -61,7 +61,8 @@ EXPOSE 8080
 
 # Bind to all interfaces (required for Docker)
 # Can be overridden at runtime with -e WAILS_SERVER_HOST=...
-ENV WAILS_SERVER_HOST=0.0.0.0
+# The browser build has no login: in-memory secrets only, and listening beyond loopback is opted into here.
+ENV WAILS_SERVER_HOST=0.0.0.0 CHLOE_ALLOW_REMOTE=1 CHLOE_SECRETS=memory CHLOE_CONFIG_DIR=/tmp/chloe
 
 # Run the server
 ENTRYPOINT ["/server"]
