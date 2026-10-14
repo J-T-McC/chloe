@@ -21,6 +21,13 @@ import * as mdb$0 from "../internal/mdb/models.js";
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
+/**
+ * Actions lists privilege actions for the role editor.
+ */
+export function Actions(): $CancellablePromise<string[] | null> {
+    return $Call.ByID(2385264861);
+}
+
 export function CloseShell(shellID: string): $CancellablePromise<void> {
     return $Call.ByID(2321770916, shellID);
 }
@@ -72,6 +79,14 @@ export function DropDatabase(connID: string, db: string): $CancellablePromise<vo
 
 export function DropIndex(connID: string, db: string, coll: string, name: string): $CancellablePromise<void> {
     return $Call.ByID(1713669665, connID, db, coll, name);
+}
+
+export function DropRole(connID: string, db: string, role: string): $CancellablePromise<void> {
+    return $Call.ByID(2945830895, connID, db, role);
+}
+
+export function DropUser(connID: string, db: string, user: string): $CancellablePromise<void> {
+    return $Call.ByID(1626354216, connID, db, user);
 }
 
 export function DuplicateCollection(connID: string, db: string, $from: string, to: string, data: boolean): $CancellablePromise<void> {
@@ -171,6 +186,17 @@ export function ReplaceIndex(connID: string, db: string, coll: string, oldName: 
     return $Call.ByID(666087702, connID, db, coll, oldName, spec);
 }
 
+/**
+ * RoleScript previews the commands that create role r, or with old, change it.
+ */
+export function RoleScript(old: mdb$0.Role | null, r: mdb$0.Role): $CancellablePromise<mdb$0.Command[] | null> {
+    return $Call.ByID(2182154861, old, r);
+}
+
+export function Roles(connID: string, db: string, builtin: boolean): $CancellablePromise<mdb$0.Role[] | null> {
+    return $Call.ByID(1594062935, connID, db, builtin);
+}
+
 export function Run(shellID: string, script: string, pageSize: number): $CancellablePromise<mdb$0.RunOutput> {
     return $Call.ByID(659379759, shellID, script, pageSize);
 }
@@ -180,6 +206,14 @@ export function Run(shellID: string, script: string, pageSize: number): $Cancell
  */
 export function SampleFields(connID: string, db: string, coll: string): $CancellablePromise<mdb$0.FieldInfo[] | null> {
     return $Call.ByID(2896757201, connID, db, coll);
+}
+
+export function SaveRole(connID: string, old: mdb$0.Role | null, r: mdb$0.Role): $CancellablePromise<void> {
+    return $Call.ByID(2108264023, connID, old, r);
+}
+
+export function SaveUser(connID: string, old: mdb$0.User | null, u: mdb$0.User): $CancellablePromise<void> {
+    return $Call.ByID(1214406224, connID, old, u);
 }
 
 export function SetValidation(connID: string, db: string, name: string, o: mdb$0.CollOptions): $CancellablePromise<void> {
@@ -196,4 +230,15 @@ export function ShellDB(shellID: string): $CancellablePromise<string> {
 
 export function Stop(shellID: string): $CancellablePromise<void> {
     return $Call.ByID(3831273630, shellID);
+}
+
+/**
+ * UserScript previews the commands that create user u, or with old, change it.
+ */
+export function UserScript(old: mdb$0.User | null, u: mdb$0.User): $CancellablePromise<mdb$0.Command[] | null> {
+    return $Call.ByID(3263394054, old, u);
+}
+
+export function Users(connID: string): $CancellablePromise<mdb$0.User[] | null> {
+    return $Call.ByID(89326062, connID);
 }

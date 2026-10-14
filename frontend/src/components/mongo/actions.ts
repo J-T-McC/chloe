@@ -33,6 +33,10 @@ export function newMongoQuery(connId: string, db?: string, text = "") {
   useApp.getState().openTab({ kind: "mongoquery", title: `Query — ${database}`, connId, database, sql: text, ref: { database, name: "query", kind: ObjectKind.$zero, signature: String(Date.now()) } });
 }
 
+export function openMongoUsers(connId: string, db?: string) {
+  useApp.getState().openTab({ kind: "mongousers", title: `Users — ${connById(connId)?.name ?? ""}`, connId, database: db, ref: { database: db ?? "", name: "users", kind: ObjectKind.$zero } });
+}
+
 export function openMongoShell(connId: string, db?: string) {
   const database = db ?? connById(connId)?.initialDatabase ?? "test";
   useApp.getState().openTab({ kind: "mongoshell", title: `MongoShell — ${connById(connId)?.name ?? ""}`, connId, database, ref: { database, name: "shell", kind: ObjectKind.$zero, signature: String(Date.now()) } });
@@ -201,6 +205,7 @@ export function mongoConnMenu(n: TreeNode, c: Connection, connected: boolean, ex
     { label: "New Query", disabled: !connected, shortcut: "⌘T", onClick: () => newMongoQuery(n.connId) },
     { label: "MongoShell", disabled: !connected, onClick: () => openMongoShell(n.connId) },
     { separator: true },
+    { label: "Users", disabled: !connected, onClick: () => openMongoUsers(n.connId) },
     { label: "Server Monitor", disabled: !connected, onClick: extra.monitor },
     { label: "Connection Info…", disabled: !connected, onClick: extra.info },
     { separator: true },

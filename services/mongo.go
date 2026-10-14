@@ -281,3 +281,74 @@ func (s *MongoService) Export(connID, db, coll string, o mdb.ExportOptions, path
 func (s *MongoService) Import(connID, db, coll string, o mdb.ImportOptions, path string) (core.Job, error) {
 	return s.M.MongoImport(connID, db, coll, o, path)
 }
+
+// ---- users and roles -------------------------------------------------------------------------
+
+func (s *MongoService) Users(ctx context.Context, connID string) ([]mdb.User, error) {
+	c, err := s.client(connID)
+	if err != nil {
+		return nil, err
+	}
+	return c.Users(ctx)
+}
+
+func (s *MongoService) Roles(ctx context.Context, connID, db string, builtin bool) ([]mdb.Role, error) {
+	c, err := s.client(connID)
+	if err != nil {
+		return nil, err
+	}
+	return c.Roles(ctx, db, builtin)
+}
+
+// UserScript previews the commands that create user u, or with old, change it.
+func (s *MongoService) UserScript(old *mdb.User, u mdb.User) ([]mdb.Command, error) {
+	return mdb.UserCommands(old, u)
+}
+
+func (s *MongoService) SaveUser(ctx context.Context, connID string, old *mdb.User, u mdb.User) error {
+	c, err := s.client(connID)
+	if err != nil {
+		return err
+	}
+	cmds, err := mdb.UserCommands(old, u)
+	if err != nil {
+		return err
+	}
+	return c.Run(ctx, cmds)
+}
+
+func (s *MongoService) DropUser(ctx context.Context, connID, db, user string) error {
+	c, err := s.client(connID)
+	if err != nil {
+		return err
+	}
+	return c.Run(ctx, []mdb.Command{mdb.DropUserCommand(db, user)})
+}
+
+// RoleScript previews the commands that create role r, or with old, change it.
+func (s *MongoService) RoleScript(old *mdb.Role, r mdb.Role) ([]mdb.Command, error) {
+	return mdb.RoleCommands(old, r)
+}
+
+func (s *MongoService) SaveRole(ctx context.Context, connID string, old *mdb.Role, r mdb.Role) error {
+	c, err := s.client(connID)
+	if err != nil {
+		return err
+	}
+	cmds, err := mdb.RoleCommands(old, r)
+	if err != nil {
+		return err
+	}
+	return c.Run(ctx, cmds)
+}
+
+func (s *MongoService) DropRole(ctx context.Context, connID, db, role string) error {
+	c, err := s.client(connID)
+	if err != nil {
+		return err
+	}
+	return c.Run(ctx, []mdb.Command{mdb.DropRoleCommand(db, role)})
+}
+
+// Actions lists privilege actions for the role editor.
+func (s *MongoService) Actions() []string { return mdb.Actions }

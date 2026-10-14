@@ -23,7 +23,8 @@ import { DocEditorHost } from "./components/mongo/DocEditor";
 import { MongoTransferHost } from "./components/mongo/TransferDialog";
 import { MongoConsole } from "./components/mongo/MongoConsole";
 import { MongoQuery } from "./components/mongo/MongoQuery";
-import { designCollection } from "./components/mongo/actions";
+import { designCollection, openMongoUsers } from "./components/mongo/actions";
+import { MongoUsers } from "./components/mongo/MongoUsers";
 import { registerMongoLanguage } from "./editor/mongo";
 import { UsersPane } from "./components/users/UsersPane";
 import { UserDesigner } from "./components/users/UserDesigner";
@@ -120,7 +121,7 @@ export default function App() {
             disabled={!selection?.database || selRedis}
             onClick={() => selection && useApp.getState().select({ ...selection, kind: selMongo ? ObjectKind.KindCollection : ObjectKind.KindTable, object: undefined })}
           />
-          <ToolButton icon={<UsersRound size={20} />} label="User" disabled={!selConnected || selRedis || selSQLite || selMongo} onClick={() => selection && openUsers(selection.connId)} />
+          <ToolButton icon={<UsersRound size={20} />} label="User" disabled={!selConnected || selRedis || selSQLite} onClick={() => selection && (selMongo ? openMongoUsers(selection.connId, selection.database) : openUsers(selection.connId))} />
           <ToolButton icon={<Shapes size={20} />} label="Model" onClick={(e) => modelMenu(e)} />
           <ToolButton icon={<Activity size={20} />} label="Monitor" disabled={!monitorable.length} onClick={() => openMonitor(selConnected && !selSQLite ? selection!.connId : monitorable[0])} />
           <ToolButton
@@ -218,11 +219,13 @@ function TabContent({ tab }: { tab: Tab }) {
       return <MongoConsole tab={tab} />;
     case "mongodesign":
       return <CollectionDesigner tab={tab} />;
+    case "mongousers":
+      return <MongoUsers tab={tab} />;
   }
 }
 
 function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
-  const icon = tab.kind === "users" ? <UsersRound size={13} /> : tab.kind === "user" ? <UserRound size={13} /> : tab.kind === "redisconsole" || tab.kind === "mongoshell" ? <TerminalSquare size={13} /> : tab.kind === "mongoquery" ? <FilePlus2 size={13} /> : tab.kind === "mongodesign" ? <PencilRuler size={13} /> : tab.kind === "model" ? <Shapes size={13} /> : tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" || tab.kind === "viewdesign" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
+  const icon = tab.kind === "users" || tab.kind === "mongousers" ? <UsersRound size={13} /> : tab.kind === "user" ? <UserRound size={13} /> : tab.kind === "redisconsole" || tab.kind === "mongoshell" ? <TerminalSquare size={13} /> : tab.kind === "mongoquery" ? <FilePlus2 size={13} /> : tab.kind === "mongodesign" ? <PencilRuler size={13} /> : tab.kind === "model" ? <Shapes size={13} /> : tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" || tab.kind === "viewdesign" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
   return (
     <div
       className={"tab" + (active ? " active" : "")}

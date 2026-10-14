@@ -77,6 +77,14 @@ export interface CollOptions {
     "expireAfterSeconds": number;
 }
 
+/**
+ * Command is one command to run in a database, with its shell text for previews.
+ */
+export interface Command {
+    "db": string;
+    "shell": string;
+}
+
 export interface DBInfo {
     "name": string;
 
@@ -253,6 +261,17 @@ export interface Page {
 }
 
 /**
+ * Privilege allows actions on a resource: a collection (empty for every collection),
+ * a database (empty for every database), or the cluster.
+ */
+export interface Privilege {
+    "db": string;
+    "collection": string;
+    "cluster": boolean;
+    "actions": string[] | null;
+}
+
+/**
  * Query selects documents of a collection. Filter, Sort and Projection are
  * documents in shell syntax; empty means none.
  */
@@ -305,6 +324,25 @@ export interface Result {
 }
 
 /**
+ * Role is a user-defined or built-in role.
+ */
+export interface Role {
+    "role": string;
+    "db": string;
+    "builtin": boolean;
+    "roles": RoleRef[] | null;
+    "privileges": Privilege[] | null;
+}
+
+/**
+ * RoleRef names a role in a database.
+ */
+export interface RoleRef {
+    "role": string;
+    "db": string;
+}
+
+/**
  * RunOutput is everything one Run produced.
  */
 export interface RunOutput {
@@ -321,6 +359,22 @@ export interface RunOutput {
      */
     "db": string;
     "elapsedMs": number;
+}
+
+/**
+ * User is a database user. Password is only sent when it changes.
+ */
+export interface User {
+    "user": string;
+    "db": string;
+    "roles": RoleRef[] | null;
+    "mechanisms": string[] | null;
+
+    /**
+     * CustomData is a document in shell syntax ("" for none).
+     */
+    "customData": string;
+    "password"?: string;
 }
 
 /**

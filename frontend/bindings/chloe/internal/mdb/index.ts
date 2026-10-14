@@ -4,6 +4,7 @@
 export type {
     CollInfo,
     CollOptions,
+    Command,
     DBInfo,
     ExportOptions,
     Field,
@@ -14,8 +15,12 @@ export type {
     IndexKey,
     IndexSpec,
     Page,
+    Privilege,
     Query,
     Result,
+    Role,
+    RoleRef,
     RunOutput,
+    User,
     Val
 } from "./models.js";

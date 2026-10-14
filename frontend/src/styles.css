@@ -3234,3 +3234,41 @@ table.mapping select {
 .mongo-designer .designer-body > .code-block {
   margin: 10px;
 }
+
+.seg-tabs.inline {
+  border: none;
+  padding: 0;
+  background: none;
+}
+
+.inline-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+}
+
+.fields-grid.compact {
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.fields-grid.compact .small-btn {
+  margin: 4px;
+}
+
+.user-editor {
+  overflow: auto;
+}
+
+.user-editor .form {
+  padding: 0;
+}
+
+.editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
