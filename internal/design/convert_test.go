@@ -50,7 +50,7 @@ func TestConvertMySQLToPostgres(t *testing.T) {
 	out, notes := Convert(src, "mysql", "postgres")
 	want := map[string]string{
 		"id": "bigint", "flag": "boolean", "qty": "smallint", "total": "numeric(10,2)", "note": "character varying(200)", "body": "text",
-		"status": "character varying(7)", "created": "timestamp without time zone", "photo": "bytea", "meta": "jsonb", "big": "numeric(20,0)", "bits": "boolean",
+		"status": "character varying(7)", "created": "timestamp without time zone", "photo": "bytea", "meta": "jsonb", "big": "bigint", "bits": "boolean",
 	}
 	for name, typ := range want {
 		if got := TypeSQL(col(t, out, name)); got != typ {

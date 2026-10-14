@@ -352,9 +352,8 @@ func (c *converter) targetType(k kind) (string, string, string) {
 			}
 			return "integer", "", ""
 		case "int64":
-			if k.unsigned {
-				return "numeric", "20", "0"
-			}
+			// Unsigned too: numeric(20,0) can't be an identity, and foreign keys
+			// to a bigint id need the same type. Values above 2^63-1 won't fit.
 			return "bigint", "", ""
 		case "decimal":
 			return "numeric", k.length, k.scale
