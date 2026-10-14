@@ -54,7 +54,7 @@ func TestParse(t *testing.T) {
 		}
 		tc.check(t, c)
 	}
-	for _, bad := range []string{"", "localhost:5432", "redis://x", "postgres://h:notaport/db"} {
+	for _, bad := range []string{"", "localhost:5432", "mongodb://x", "postgres://h:notaport/db"} {
 		if _, err := Parse(bad); err == nil {
 			t.Fatalf("expected error for %q", bad)
 		}
@@ -71,5 +71,21 @@ func TestFormatRoundTrip(t *testing.T) {
 	back, err := Parse(s)
 	if err != nil || back.Host != c.Host || back.SSL.Mode != "verify-full" || back.InitialDatabase != "main" {
 		t.Fatalf("round trip %+v %v", back, err)
+	}
+}
+
+func TestParseRedis(t *testing.T) {
+	c, err := Parse("rediss://default:s3cret@cache.example.com:6380/2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Type != model.Redis || c.Host != "cache.example.com" || c.Port != 6380 || c.User != "" || c.Password != "s3cret" || !c.SSL.Enabled {
+		t.Fatalf("%+v", c)
+	}
+	if got := Format(c); got != "rediss://cache.example.com:6380" {
+		t.Fatalf("format %q", got)
+	}
+	if c, _ := Parse("redis://localhost"); c.Port != 6379 || c.SSL.Enabled {
+		t.Fatalf("defaults %+v", c)
 	}
 }

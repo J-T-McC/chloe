@@ -24,6 +24,7 @@ export type {
     ImportRequest,
     Job,
     MaintainResult,
+    RedisConsoleResult,
     RowChange,
     SortSpec
 } from "./models.js";

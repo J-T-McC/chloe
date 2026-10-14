@@ -52,6 +52,7 @@ func main() {
 			application.NewService(&services.TransferService{M: mgr}),
 			application.NewService(&services.LayoutService{M: mgr}),
 			application.NewService(&services.ModelService{M: mgr}),
+			application.NewService(&services.RedisService{M: mgr}),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

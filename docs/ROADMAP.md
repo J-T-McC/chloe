@@ -36,8 +36,18 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 ## 6. Users & privileges
 - Users/roles, server privileges, object privileges (MySQL, PostgreSQL)
 
+## 6b. MCP server (after users & privileges)
+- Chloe as an MCP server for AI assistants: pick connections to expose, with
+  per-table / per-column read and write permissions
+- Structured tools (list/describe tables, select/insert/update rows) where
+  Chloe builds the SQL, so table and column rules are enforceable; read-only
+  access also runs in read-only transactions
+- Optional: create a dedicated database user with matching GRANTs (uses the
+  privileges feature) so the database itself enforces the policy
+
 ## 7. More engines
-Redis, MongoDB, SQLite, SQL Server, Oracle (each must be testable in Docker; Snowflake is out of scope)
+- [x] Redis: key browser, typed value editors, TTL, console, server monitor (pub/sub, cluster and sentinel still to do)
+- MongoDB, SQLite, SQL Server, Oracle (each must be testable in Docker; Snowflake is out of scope)
 
 ## 8. Advanced
 - Structure sync and data sync (diff + deploy script)

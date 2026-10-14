@@ -1,6 +1,8 @@
 import { Copy, Download, FilePlus2, Network, PencilRuler, Plus, RefreshCw, Table2, Trash2, Upload } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Explorer, ObjectInfo, ObjectKind, ObjectRef, TableAction, arr, errorText } from "../api";
+import { DBType, Explorer, ObjectInfo, ObjectKind, ObjectRef, TableAction, arr, errorText } from "../api";
+import { RedisBrowser } from "./redis/RedisBrowser";
+import { RedisDatabases } from "./redis/RedisDatabases";
 import { designTable, newTable, runTableAction } from "../tableActions";
 import { newView, viewDesign } from "./designer/ViewDesigner";
 import { objectsAreaMenu, openERD, tableMenu, viewMenu } from "../menus";
@@ -14,6 +16,16 @@ import { KIND_LABEL, KindIcon } from "./icons";
 import { newQuery, openObject, selectAllSQL } from "./Sidebar";
 
 export function ObjectsPane() {
+  const sel = useApp((s) => s.selection);
+  const connected = useApp((s) => !!(sel?.connId && s.open[sel.connId]));
+  if (sel?.connId && connById(sel.connId)?.type === DBType.Redis) {
+    if (!connected) return <div className="center-hint">Open the connection to browse its keys.</div>;
+    return sel.database !== undefined ? <RedisBrowser key={`${sel.connId}/${sel.database}`} connId={sel.connId} db={Number(sel.database)} /> : <RedisDatabases connId={sel.connId} />;
+  }
+  return <SqlObjectsPane />;
+}
+
+function SqlObjectsPane() {
   const sel = useApp((s) => s.selection);
   const open = useApp((s) => s.open);
   const [objects, setObjects] = useState<ObjectInfo[]>([]);

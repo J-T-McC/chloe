@@ -1,6 +1,6 @@
 // Object tree model: lazily loaded nodes cached by key, flattened for rendering.
 import { create } from "zustand";
-import { DBType, Explorer, ObjectInfo, ObjectKind, arr, errorText } from "./api";
+import { DBType, Explorer, ObjectInfo, ObjectKind, Redis, arr, errorText } from "./api";
 import { KIND_LABEL } from "./components/icons";
 import { connById, useApp } from "./store";
 
@@ -17,6 +17,8 @@ export interface TreeNode {
   schema?: string;
   kind?: ObjectKind;
   info?: ObjectInfo;
+  /** Redis databases: number of keys */
+  count?: number;
   depth: number;
   expandable: boolean;
 }
@@ -45,6 +47,10 @@ async function loadChildren(n: TreeNode): Promise<TreeNode[]> {
   switch (n.type) {
     case "conn": {
       if (!(await useApp.getState().connect(n.connId))) throw new Error(useApp.getState().errors[n.connId] || "connection failed");
+      if (connById(n.connId)?.type === DBType.Redis) {
+        const dbs = arr(await Redis.Databases(n.connId));
+        return dbs.map((x) => ({ key: `${n.key}/db${x.index}`, type: "db", label: `db${x.index}`, connId: n.connId, database: String(x.index), count: x.keys, depth: d, expandable: false }));
+      }
       const dbs = arr(await Explorer.ListDatabases(n.connId));
       return dbs.map((db) => ({ key: `${n.key}/${db}`, type: "db", label: db, connId: n.connId, database: db, depth: d, expandable: true }));
     }

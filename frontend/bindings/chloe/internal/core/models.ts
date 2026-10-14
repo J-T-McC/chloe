@@ -346,6 +346,19 @@ export interface MaintainResult {
 }
 
 /**
+ * RedisConsoleResult is the output of one console command.
+ */
+export interface RedisConsoleResult {
+    "output": string;
+    "error"?: string;
+
+    /**
+     * DB is the console's database after the command (SELECT changes it).
+     */
+    "db": number;
+}
+
+/**
  * RowChange is one pending grid edit. Key holds the row's original values used to
  * identify it (primary key columns when the table has one, else every column).
  * Values holds the new values for inserted/updated columns. nil means NULL.

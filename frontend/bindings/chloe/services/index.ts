@@ -8,6 +8,7 @@ import * as LayoutService from "./layoutservice.js";
 import * as ModelService from "./modelservice.js";
 import * as MonitorService from "./monitorservice.js";
 import * as QueryService from "./queryservice.js";
+import * as RedisService from "./redisservice.js";
 import * as TransferService from "./transferservice.js";
 export {
     ConnectionService,
@@ -17,6 +18,7 @@ export {
     ModelService,
     MonitorService,
     QueryService,
+    RedisService,
     TransferService
 };
 

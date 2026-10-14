@@ -1,4 +1,4 @@
-import { Activity, Database, FilePlus2, Monitor, Moon, Network, PencilRuler, Plug, Shapes, Sun, Table2, X } from "lucide-react";
+import { Activity, Database, FilePlus2, Monitor, Moon, Network, PencilRuler, Plug, Shapes, Sun, Table2, TerminalSquare, X } from "lucide-react";
 import { ThemePref, onThemeChange, setThemePref, themePref } from "./theme";
 import { useEffect, useState } from "react";
 import { Events, ObjectKind } from "./api";
@@ -16,16 +16,18 @@ import { JobsButton } from "./components/transfer/JobsPanel";
 import { ServerMonitor } from "./components/ServerMonitor";
 import { TableDesigner } from "./components/designer/TableDesigner";
 import { ViewDesigner } from "./components/designer/ViewDesigner";
+import { RedisConsole } from "./components/redis/RedisConsole";
 import { ERDiagram } from "./components/erd/ERDiagram";
 import { ModelEditor } from "./components/model/ModelEditor";
 import { newModel, openModel } from "./components/model/actions";
 import { openMenu } from "./components/ContextMenu";
-import { Models, arr } from "./api";
+import { DBType, Models, arr } from "./api";
 import { DDLView, ObjectsPane } from "./components/ObjectsPane";
 import { QueryEditor } from "./components/QueryEditor";
 import { Sidebar, newQuery, openMonitor, selectAllSQL, useInitialLoad } from "./components/Sidebar";
 import { TableViewer } from "./components/TableViewer";
-import { Tab, useApp } from "./store";
+import { Tab, connById, useApp } from "./store";
+import { openRedisConsole } from "./components/redis/actions";
 import { newTable } from "./tableActions";
 import { useTree } from "./tree";
 
@@ -59,7 +61,10 @@ export default function App() {
       // matching Navicat on Windows. With a table or view selected, it starts with a SELECT.
       const isMac = /Mac/i.test(navigator.platform);
       const newQueryKey = meta && (e.key === "t" || (!isMac && e.key === "q"));
-      if (newQueryKey && selection?.connId && open[selection.connId]) {
+      if (newQueryKey && selection?.connId && open[selection.connId] && connById(selection.connId)?.type === DBType.Redis) {
+        e.preventDefault();
+        openRedisConsole(selection.connId, Number(selection.database ?? 0));
+      } else if (newQueryKey && selection?.connId && open[selection.connId]) {
         e.preventDefault();
         const o = selection.object;
         const isData = o && (o.kind === ObjectKind.KindTable || o.kind === ObjectKind.KindView || o.kind === ObjectKind.KindMatView);
@@ -71,6 +76,7 @@ export default function App() {
   }, [selection, open]);
 
   const selConnected = !!(selection?.connId && open[selection.connId]);
+  const selRedis = connById(selection?.connId)?.type === DBType.Redis;
 
   return (
     <div className="app">
@@ -78,17 +84,22 @@ export default function App() {
         <div className="titlebar-drag" />
         <div className="main-toolbar">
           <ToolButton icon={<Plug size={20} />} label="Connection" onClick={() => useApp.getState().editConnection("new")} />
-          <ToolButton icon={<FilePlus2 size={20} />} label="New Query" disabled={!selConnected} onClick={() => selection && newQuery(selection.connId, selection.database, selection.schema)} />
+          <ToolButton
+            icon={<FilePlus2 size={20} />}
+            label="New Query"
+            disabled={!selConnected}
+            onClick={() => selection && (selRedis ? openRedisConsole(selection.connId, Number(selection.database ?? 0)) : newQuery(selection.connId, selection.database, selection.schema))}
+          />
           <ToolButton
             icon={<PencilRuler size={20} />}
             label="New Table"
-            disabled={!selection?.database || !selConnected}
+            disabled={!selection?.database || !selConnected || selRedis}
             onClick={() => selection?.database && newTable(selection.connId, selection.database, selection.schema)}
           />
           <ToolButton
             icon={<Table2 size={20} />}
             label="Tables"
-            disabled={!selection?.database}
+            disabled={!selection?.database || selRedis}
             onClick={() => selection && useApp.getState().select({ ...selection, kind: ObjectKind.KindTable, object: undefined })}
           />
           <ToolButton icon={<Shapes size={20} />} label="Model" onClick={(e) => modelMenu(e)} />
@@ -171,11 +182,13 @@ function TabContent({ tab }: { tab: Tab }) {
       return <ModelEditor tab={tab} />;
     case "viewdesign":
       return <ViewDesigner tab={tab} />;
+    case "redisconsole":
+      return <RedisConsole tab={tab} />;
   }
 }
 
 function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
-  const icon = tab.kind === "model" ? <Shapes size={13} /> : tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" || tab.kind === "viewdesign" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
+  const icon = tab.kind === "redisconsole" ? <TerminalSquare size={13} /> : tab.kind === "model" ? <Shapes size={13} /> : tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" || tab.kind === "viewdesign" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
   return (
     <div
       className={"tab" + (active ? " active" : "")}

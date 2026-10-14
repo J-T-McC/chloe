@@ -2498,3 +2498,302 @@ table.mapping select {
   color: inherit;
   border-radius: 2px;
 }
+
+/* ---- redis ------------------------------------------------------------------------ */
+
+.tree-count {
+  margin-left: auto;
+  padding-right: 8px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.redis-browser {
+  height: 100%;
+}
+
+.redis-keys,
+.redis-dbs,
+.redis-value,
+.redis-string,
+.redis-items-top,
+.redis-detail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  outline: none;
+}
+
+.redis-filter {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.redis-filter .erd-search {
+  flex: 1;
+}
+
+.redis-filter .erd-search input {
+  width: 100%;
+}
+
+.redis-key-list {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+}
+
+.redis-key-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-right: 8px;
+  font-size: 12px;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.redis-key-row:hover {
+  background: var(--bg-2);
+}
+
+.redis-key-row.selected {
+  background: var(--sel);
+}
+
+.redis-key-row.current {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.redis-key-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.redis-type {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  min-width: 34px;
+  text-align: center;
+  color: #fff;
+  background: #8b8f98;
+}
+
+.redis-value-head .redis-type {
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.redis-type.t-string { background: #3b8eea; }
+.redis-type.t-hash { background: #9a6bd8; }
+.redis-type.t-list { background: #4fae5a; }
+.redis-type.t-set { background: #e8963c; }
+.redis-type.t-zset { background: #e5534b; }
+.redis-type.t-stream { background: #2fa3a3; }
+
+.redis-value-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.redis-key-input {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.redis-value-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.redis-value-meta .ttl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.redis-value-meta .ttl input {
+  width: 100px;
+}
+
+.redis-value > .redis-string,
+.redis-value > .redis-items,
+.redis-value > .center-hint {
+  flex: 1;
+  min-height: 0;
+}
+
+.redis-text {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  resize: none;
+  border: none;
+  border-radius: 0;
+  padding: 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+}
+
+.redis-table-wrap {
+  flex: 1;
+  overflow: auto;
+}
+
+.redis-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.redis-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-2);
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-2);
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.redis-table td {
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+  max-width: 600px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.redis-table tr.selected td {
+  background: var(--sel);
+}
+
+.redis-table tbody tr:hover td {
+  background: var(--bg-2);
+}
+
+.redis-detail {
+  border-top: 1px solid var(--border);
+}
+
+.redis-detail .form {
+  padding: 8px 12px;
+  overflow: auto;
+}
+
+.redis-detail-edit {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.redis-detail-edit > .row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.redis-detail-edit > .row input {
+  width: 260px;
+}
+
+.redis-detail-edit > .row input.narrow {
+  width: 100px;
+}
+
+.redis-console {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.redis-console-out {
+  flex: 1;
+  overflow: auto;
+  padding: 8px 12px;
+  user-select: text;
+}
+
+.redis-console-out pre {
+  margin: 0 0 2px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.rc-cmd {
+  color: var(--accent);
+  margin-top: 6px !important;
+}
+
+.rc-err {
+  color: var(--danger);
+}
+
+.rc-info {
+  color: var(--text-3);
+}
+
+.redis-console-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.redis-console-hints span {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-3);
+  cursor: pointer;
+}
+
+.redis-console-in {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.redis-console-in .prompt {
+  color: var(--text-3);
+}
+
+.redis-console-in input {
+  flex: 1;
+  font-family: var(--mono);
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 12px;
+}

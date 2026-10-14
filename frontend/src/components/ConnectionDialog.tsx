@@ -10,7 +10,7 @@ const ENGINES: Array<{ type: DBType; label: string; ready: boolean }> = [
   { type: DBType.MariaDB, label: "MariaDB", ready: true },
   { type: DBType.PostgreSQL, label: "PostgreSQL", ready: true },
   { type: DBType.MongoDB, label: "MongoDB", ready: false },
-  { type: DBType.Redis, label: "Redis", ready: false },
+  { type: DBType.Redis, label: "Redis", ready: true },
   { type: DBType.SQLite, label: "SQLite", ready: false },
   { type: DBType.SQLServer, label: "SQL Server", ready: false },
   { type: DBType.Oracle, label: "Oracle", ready: false },
@@ -21,7 +21,7 @@ const isMySQL = (t: DBType) => t === DBType.MySQL || t === DBType.MariaDB;
 
 type Section = "general" | "advanced" | "databases" | "ssl" | "ssh" | "remarks";
 
-const DEFAULT_PORTS: Partial<Record<DBType, number>> = { mysql: 3306, mariadb: 3306, postgres: 5432 } as never;
+const DEFAULT_PORTS: Partial<Record<DBType, number>> = { mysql: 3306, mariadb: 3306, postgres: 5432, redis: 6379 } as never;
 
 export function blankConnection(type: DBType, preset?: Preset): Connection {
   const d = preset?.defaults;
@@ -33,7 +33,7 @@ export function blankConnection(type: DBType, preset?: Preset): Connection {
     group: useApp.getState().selectedGroup ?? "",
     host: d?.host || (preset ? "" : "localhost"),
     port: d?.port || DEFAULT_PORTS[type] || 0,
-    user: d?.user || (preset ? "" : type === DBType.PostgreSQL ? "postgres" : "root"),
+    user: d?.user || (preset || type === DBType.Redis ? "" : type === DBType.PostgreSQL ? "postgres" : "root"),
     password: "",
     savePassword: true,
     initialDatabase: d?.initialDatabase ?? "",
@@ -148,6 +148,7 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
   const groups = useApp((s) => s.groups);
   const mysql = isMySQL(conn.type);
   const pg = conn.type === DBType.PostgreSQL;
+  const redis = conn.type === DBType.Redis;
 
   useEffect(() => {
     if (conn.preset) Connections.Presets().then((p) => setPreset(arr(p).find((x) => x.id === conn.preset) ?? null));
@@ -201,7 +202,7 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
   const sections: Array<[Section, string]> = [
     ["general", "General"],
     ["advanced", "Advanced"],
-    ["databases", "Databases"],
+    ...(redis ? [] : ([["databases", "Databases"]] as Array<[Section, string]>)),
     ["ssl", "SSL"],
     ["ssh", "SSH"],
     ["remarks", "Remarks"],
@@ -268,11 +269,13 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
               <Field label="Port">
                 <input className="narrow" type="number" value={conn.port || ""} placeholder={String(DEFAULT_PORTS[conn.type] ?? "")} onChange={(e) => set({ port: Number(e.target.value) })} />
               </Field>
-              <Field label="Initial Database">
-                <input value={conn.initialDatabase ?? ""} placeholder={pg ? "postgres" : "(none)"} onChange={(e) => set({ initialDatabase: e.target.value })} />
-              </Field>
+              {!redis && (
+                <Field label="Initial Database">
+                  <input value={conn.initialDatabase ?? ""} placeholder={pg ? "postgres" : "(none)"} onChange={(e) => set({ initialDatabase: e.target.value })} />
+                </Field>
+              )}
               <Field label="User Name">
-                <input value={conn.user} onChange={(e) => set({ user: e.target.value })} />
+                <input value={conn.user} placeholder={redis ? "(default user; Redis 6+ ACL users)" : ""} onChange={(e) => set({ user: e.target.value })} />
               </Field>
               <Field label="Password">
                 <SecretInput value={conn.password ?? ""} placeholder={conn.savePassword ? "" : "Used for testing only; asked on connect"} onChange={(v) => set({ password: v })} />
@@ -298,6 +301,12 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
               <ToggleNumber label="Limit connection sessions" value={conn.advanced.sessionLimit} def={10} onChange={(v) => setAdv({ sessionLimit: v })} />
               <ToggleNumber label="Keepalive interval (sec)" value={conn.advanced.keepaliveSec} def={240} onChange={(v) => setAdv({ keepaliveSec: v })} />
               <ToggleNumber label="Connection timeout (sec)" value={conn.advanced.connectTimeoutSec} def={15} onChange={(v) => setAdv({ connectTimeoutSec: v })} />
+              {redis && (
+                <>
+                  <ToggleNumber label="Read timeout (sec)" value={conn.advanced.readTimeoutSec} def={30} onChange={(v) => setAdv({ readTimeoutSec: v })} />
+                  <ToggleNumber label="Write timeout (sec)" value={conn.advanced.writeTimeoutSec} def={30} onChange={(v) => setAdv({ writeTimeoutSec: v })} />
+                </>
+              )}
               {mysql && (
                 <>
                   <ToggleNumber label="Read timeout (sec)" value={conn.advanced.readTimeoutSec} def={30} onChange={(v) => setAdv({ readTimeoutSec: v })} />

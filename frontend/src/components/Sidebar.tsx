@@ -1,7 +1,8 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight, Folder, Loader2, Search, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
-import { Connection, Connections, ObjectKind, ObjectRef, errorText } from "../api";
+import { Connection, Connections, DBType, ObjectKind, ObjectRef, Redis, errorText } from "../api";
+import { openRedisConsole } from "./redis/actions";
 import { connById, dbKey, useApp } from "../store";
 import { TreeNode, flatten, matchParts, useTree } from "../tree";
 import { MenuItem, openMenu } from "./ContextMenu";
@@ -91,7 +92,7 @@ export function Sidebar() {
                 loading={!!loading[n.key]}
                 error={errors[n.key]}
                 connected={!!open[n.connId]}
-                dbOpen={n.type === "db" ? !!openDbs[dbKey(n.connId, n.database!)] : true}
+                dbOpen={n.type === "db" ? (n.count !== undefined ? n.count > 0 : !!openDbs[dbKey(n.connId, n.database!)]) : true}
                 selected={selectedKey === n.key}
               />
             );
@@ -172,6 +173,7 @@ function TreeRow(props: { node: TreeNode; top: number; expanded: boolean; loadin
       <span className={"tree-label" + ((n.type === "conn" && !connected) || (n.type === "db" && !dbOpen) ? " dim" : "")}>
         <Highlighted label={n.label} />
       </span>
+      {n.count !== undefined && <span className="tree-count">{n.count.toLocaleString()}</span>}
       {error && <TriangleAlert size={12} className="tree-error" />}
     </div>
   );
@@ -310,6 +312,7 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
       ];
     case "conn": {
       const c = connById(n.connId)!;
+      if (c.type === DBType.Redis) return redisConnMenu(n, c, connected);
       return [
         connected
           ? { label: "Close Connection", onClick: () => { app.disconnect(n.connId); tree.collapseConnection(n.connId); } }
@@ -363,6 +366,7 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
       ];
     }
     case "db":
+      if (n.count !== undefined) return redisDbMenu(n);
       return [
         dbOpen
           ? { label: "Close Database", onClick: () => tree.closeDatabase(n) }
@@ -410,6 +414,55 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
 }
 
 const isPGConn = (id: string) => connById(id)?.type === "postgres";
+
+function redisConnMenu(n: TreeNode, c: Connection, connected: boolean): MenuItem[] {
+  const app = useApp.getState();
+  const tree = useTree.getState();
+  return [
+    connected
+      ? { label: "Close Connection", onClick: () => { app.disconnect(n.connId); tree.collapseConnection(n.connId); } }
+      : { label: "Open Connection", onClick: () => tree.expand(n) },
+    { label: "Edit Connection…", onClick: () => app.editConnection(c) },
+    { label: "New Connection…", onClick: () => app.editConnection("new") },
+    { label: "Delete Connection…", onClick: () => deleteConnection(c) },
+    { label: "Duplicate Connection", onClick: async () => { await Connections.Duplicate(c.id); await useApp.getState().loadConnections(); } },
+    { separator: true },
+    { label: "Console", disabled: !connected, onClick: () => openRedisConsole(n.connId, 0) },
+    { label: "Server Monitor", disabled: !connected, onClick: () => openMonitor(n.connId) },
+    { label: "Connection Info…", disabled: !connected, onClick: () => showInfo(n.connId) },
+    { separator: true },
+    { label: "Copy Connection URL", onClick: async () => copy(await Connections.URL(c.id)) },
+    { separator: true },
+    { label: "Refresh", shortcut: "⌘R", disabled: !connected, onClick: () => tree.refresh(n) },
+  ];
+}
+
+function redisDbMenu(n: TreeNode): MenuItem[] {
+  const db = Number(n.database);
+  const refreshConn = () => useTree.getState().refresh({ key: n.connId, type: "conn", label: "", connId: n.connId, depth: 0, expandable: true });
+  return [
+    { label: "Open Database", onClick: () => useApp.getState().select({ connId: n.connId, database: n.database }) },
+    { label: "Console", onClick: () => openRedisConsole(n.connId, db) },
+    { separator: true },
+    {
+      label: "Flush Database…",
+      disabled: !n.count,
+      onClick: async () => {
+        if (!(await confirm(`Flush db${db}?`, { message: `All ${n.count?.toLocaleString()} keys in db${db} are deleted. This can't be undone.`, okLabel: "Flush" }))) return;
+        try {
+          await Redis.FlushDB(n.connId, db);
+          useApp.setState((s) => ({ objectsVersion: s.objectsVersion + 1 }));
+          await refreshConn();
+        } catch (e) {
+          alert("Flush failed", errorText(e));
+        }
+      },
+    },
+    { separator: true },
+    { label: "Copy Name", onClick: () => copy(n.label) },
+    { label: "Refresh", shortcut: "⌘R", onClick: refreshConn },
+  ];
+}
 
 /** Load connections on startup and open those marked "Auto connect". */
 export function useInitialLoad() {

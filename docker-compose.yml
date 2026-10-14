@@ -19,3 +19,8 @@ services:
     build: testdata/sshd
     container_name: chloe-sshd
     ports: ["2222:22"]
+  redis:
+    image: redis:7.4
+    container_name: chloe-redis
+    command: ["redis-server", "--requirepass", "chloe"]
+    ports: ["63790:6379"]

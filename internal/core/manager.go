@@ -13,6 +13,7 @@ import (
 
 	"chloe/internal/driver"
 	"chloe/internal/model"
+	"chloe/internal/rdb"
 	"chloe/internal/store"
 	"chloe/internal/tunnel"
 )
@@ -51,12 +52,30 @@ type Manager struct {
 
 	jobsMu sync.Mutex
 	jobs   map[string]*jobState
+
+	consolesMu sync.Mutex
+	consoles   map[string]*redisConsole // Redis consoles by ID
 }
 
 type openConn struct {
 	profile model.Connection
 	dialer  tunnel.Dialer
-	conn    driver.Conn
+	conn    driver.Conn // SQL engines
+	kv      *rdb.Client // Redis
+}
+
+func (oc *openConn) version() string {
+	if oc.kv != nil {
+		return oc.kv.ServerVersion()
+	}
+	return oc.conn.ServerVersion()
+}
+
+func (oc *openConn) openConnections() int {
+	if oc.kv != nil {
+		return oc.kv.OpenConnections()
+	}
+	return oc.conn.OpenConnections()
 }
 
 func NewManager(st *store.Store, ev Events, s Settings) *Manager {
@@ -64,14 +83,17 @@ func NewManager(st *store.Store, ev Events, s Settings) *Manager {
 		ev = nopEvents{}
 	}
 	return &Manager{Store: st, events: ev, settings: s,
-		conns: map[string]*openConn{}, sessions: map[string]*session{}, results: map[string]*resultSet{}, jobs: map[string]*jobState{}}
+		conns: map[string]*openConn{}, sessions: map[string]*session{}, results: map[string]*resultSet{}, jobs: map[string]*jobState{}, consoles: map[string]*redisConsole{}}
 }
 
 // open establishes the network path and driver connection for a profile.
 func open(ctx context.Context, c model.Connection) (*openConn, error) {
-	drv, err := driver.Get(c.Type)
-	if err != nil {
-		return nil, err
+	var drv driver.Driver
+	if c.Type != model.Redis {
+		var err error
+		if drv, err = driver.Get(c.Type); err != nil {
+			return nil, err
+		}
 	}
 	var d tunnel.Dialer = tunnel.NewDirect()
 	if c.SSH.Enabled {
@@ -80,6 +102,14 @@ func open(ctx context.Context, c model.Connection) (*openConn, error) {
 			return nil, err
 		}
 		d = s
+	}
+	if c.Type == model.Redis {
+		kv, err := rdb.Open(ctx, c, d)
+		if err != nil {
+			d.Close()
+			return nil, err
+		}
+		return &openConn{profile: c, dialer: d, kv: kv}, nil
 	}
 	conn, err := drv.Open(ctx, c, d)
 	if err != nil {
@@ -96,11 +126,15 @@ func (m *Manager) TestConnection(ctx context.Context, c model.Connection) (strin
 		return "", err
 	}
 	defer oc.close()
-	return oc.conn.ServerVersion(), nil
+	return oc.version(), nil
 }
 
 func (oc *openConn) close() {
-	oc.conn.Close()
+	if oc.kv != nil {
+		oc.kv.Close()
+	} else {
+		oc.conn.Close()
+	}
 	oc.dialer.Close()
 }
 
@@ -110,7 +144,7 @@ func (m *Manager) Connect(ctx context.Context, id, password string) (string, err
 	m.mu.Lock()
 	if oc, ok := m.conns[id]; ok {
 		m.mu.Unlock()
-		return oc.conn.ServerVersion(), nil
+		return oc.version(), nil
 	}
 	m.mu.Unlock()
 
@@ -129,10 +163,10 @@ func (m *Manager) Connect(ctx context.Context, id, password string) (string, err
 	defer m.mu.Unlock()
 	if existing, ok := m.conns[id]; ok { // lost a race with another Connect
 		oc.close()
-		return existing.conn.ServerVersion(), nil
+		return existing.version(), nil
 	}
 	m.conns[id] = oc
-	return oc.conn.ServerVersion(), nil
+	return oc.version(), nil
 }
 
 // Disconnect closes a connection and every session and result belonging to it.
@@ -151,6 +185,7 @@ func (m *Manager) Disconnect(id string) {
 	for _, s := range toClose {
 		m.closeSession(s)
 	}
+	m.closeConsoles(id)
 	if ok {
 		oc.close()
 		m.events.ConnectionClosed(id)
@@ -178,7 +213,10 @@ func (m *Manager) Close() {
 	}
 }
 
-var ErrNotConnected = errors.New("not connected")
+var (
+	ErrNotConnected = errors.New("not connected")
+	ErrNotSQL       = errors.New("not available for this kind of connection")
+)
 
 func (m *Manager) conn(id string) (driver.Conn, error) {
 	m.mu.Lock()
@@ -186,6 +224,9 @@ func (m *Manager) conn(id string) (driver.Conn, error) {
 	oc, ok := m.conns[id]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrNotConnected, id)
+	}
+	if oc.conn == nil {
+		return nil, ErrNotSQL
 	}
 	return oc.conn, nil
 }
@@ -221,7 +262,7 @@ func (m *Manager) Info(connID string) (model.ServerInfo, error) {
 		return model.ServerInfo{}, fmt.Errorf("%w: %s", ErrNotConnected, connID)
 	}
 	p := oc.profile
-	info := model.ServerInfo{Version: oc.conn.ServerVersion(), Sessions: oc.conn.OpenConnections(),
+	info := model.ServerInfo{Version: oc.version(), Sessions: oc.openConnections(),
 		Host: fmt.Sprintf("%s:%d", p.Host, p.Port), User: p.User, Via: "direct", SSL: p.SSL.Enabled}
 	switch {
 	case p.SSH.Enabled:
@@ -236,6 +277,9 @@ func (m *Manager) Info(connID string) (model.ServerInfo, error) {
 // --- server monitor ----------------------------------------------------------
 
 func (m *Manager) Processes(ctx context.Context, connID string) ([]model.Process, error) {
+	if kv, err := m.redis(connID); err == nil {
+		return redisProcesses(ctx, kv)
+	}
 	c, err := m.conn(connID)
 	if err != nil {
 		return nil, err
@@ -244,6 +288,9 @@ func (m *Manager) Processes(ctx context.Context, connID string) ([]model.Process
 }
 
 func (m *Manager) KillProcess(ctx context.Context, connID, id string, queryOnly bool) error {
+	if kv, err := m.redis(connID); err == nil {
+		return kv.KillClient(ctx, id)
+	}
 	c, err := m.conn(connID)
 	if err != nil {
 		return err
@@ -252,6 +299,9 @@ func (m *Manager) KillProcess(ctx context.Context, connID, id string, queryOnly 
 }
 
 func (m *Manager) Variables(ctx context.Context, connID string) ([]model.ServerVar, error) {
+	if kv, err := m.redis(connID); err == nil {
+		return redisConfig(ctx, kv)
+	}
 	c, err := m.conn(connID)
 	if err != nil {
 		return nil, err
@@ -260,6 +310,9 @@ func (m *Manager) Variables(ctx context.Context, connID string) ([]model.ServerV
 }
 
 func (m *Manager) ServerStatus(ctx context.Context, connID string) ([]model.ServerVar, error) {
+	if kv, err := m.redis(connID); err == nil {
+		return redisStatus(ctx, kv)
+	}
 	c, err := m.conn(connID)
 	if err != nil {
 		return nil, err

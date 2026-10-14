@@ -32,6 +32,9 @@ func Parse(raw string) (model.Connection, error) {
 		c.Type = model.MySQL
 	case "mariadb":
 		c.Type = model.MariaDB
+	case "redis", "rediss", "valkey", "valkeys":
+		c.Type = model.Redis
+		c.SSL.Enabled = strings.EqualFold(u.Scheme, "rediss") || strings.EqualFold(u.Scheme, "valkeys")
 	case "":
 		return c, errors.New("connection URL needs a scheme such as postgres:// or mysql://")
 	default:
@@ -70,7 +73,12 @@ func Parse(raw string) (model.Connection, error) {
 		c.Password, c.SavePassword = v, true
 	}
 
-	if c.Type == model.PostgreSQL {
+	if c.Type == model.Redis {
+		// redis://[user:password@]host:port[/db]; the database number isn't kept.
+		if c.User == "default" {
+			c.User = ""
+		}
+	} else if c.Type == model.PostgreSQL {
 		c.InitialDatabase = db
 		if m := q.Get("sslmode"); m != "" && m != "disable" {
 			c.SSL.Enabled = true
@@ -116,6 +124,11 @@ func Format(c model.Connection) string {
 		scheme = "postgresql"
 	case model.MariaDB:
 		scheme = "mariadb"
+	case model.Redis:
+		scheme = "redis"
+		if c.SSL.Enabled {
+			scheme = "rediss"
+		}
 	}
 	u := url.URL{Scheme: scheme, Host: net.JoinHostPort(c.Host, strconv.Itoa(c.Port))}
 	if c.User != "" {
@@ -136,7 +149,7 @@ func Format(c model.Connection) string {
 				q.Set(k, v)
 			}
 		}
-	} else {
+	} else if c.Type != model.Redis {
 		if c.InitialDatabase != "" {
 			u.Path = "/" + c.InitialDatabase
 		}
