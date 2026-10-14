@@ -137,6 +137,23 @@ await step("postgres tree", async () => {
 });
 
 
+await step("postgres keyword highlighting", async () => {
+  await page.getByRole("button", { name: "New Query" }).first().click();
+  const editor = page.locator(".monaco-editor").last();
+  await editor.locator(".view-lines").click();
+  await page.keyboard.type("UPDATE users SET email = 'x' WHERE id = 1 RETURNING id", { delay: 5 });
+  await page.keyboard.press("Escape");
+  const spans = await editor.locator(".view-line span span").evaluateAll((els) => els.map((e) => [e.textContent.trim(), e.className]));
+  const cls = (word) => spans.find(([t]) => t === word)?.[1];
+  const where = await cls("WHERE");
+  for (const w of ["UPDATE", "SET", "RETURNING"]) {
+    const c = await cls(w);
+    if (c !== where) throw new Error(`${w} is ${c}, WHERE is ${where}`);
+  }
+  if ((await cls("users")) === where) throw new Error("identifier highlighted as keyword");
+  await shot("08a-pg-highlighting");
+});
+
 await step("db open/close", async () => {
   const shop = page.locator(".tree-row", { hasText: /^\s*shop\s*$/ }).first();
   await shop.click({ button: "right" });
