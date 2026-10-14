@@ -422,6 +422,17 @@ func (s *TransferService) DataTransfer(req core.DataTransferRequest) (core.Job, 
 	return s.M.DataTransfer(req)
 }
 
+// CompareStructure diffs two databases/schemas of the same engine (Structure Synchronization).
+func (s *TransferService) CompareStructure(ctx context.Context, req core.StructureCompareRequest) (core.StructureComparison, error) {
+	return s.M.CompareStructure(ctx, req)
+}
+
+// StructureScript orders the chosen comparison items into a deployment script.
+func (s *TransferService) StructureScript(items []core.StructItem) []string { return core.StructureScript(items) }
+
+// Deploy runs a deployment script on the target as a job.
+func (s *TransferService) Deploy(req core.DeployRequest) (core.Job, error) { return s.M.Deploy(req) }
+
 // DefaultTransferOptions are the Data Transfer options a new transfer starts with.
 func (s *TransferService) DefaultTransferOptions() core.TransferOptions { return core.DefaultTransferOptions() }
 

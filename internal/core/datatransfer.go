@@ -966,18 +966,12 @@ func (t *transferRun) copyViews(ctx context.Context, views []string) error {
 
 // retargetView rewrites a view's DDL to create it in the target database/schema.
 func (t *transferRun) retargetView(name, ddl string) string {
-	ddl = viewDefinerRe.ReplaceAllString(ddl, "")
 	q := t.from.QuoteIdent
 	src, dst := t.req.Source.Database, t.req.Target.Database
 	if t.from.HasSchemas {
 		src, dst = t.req.Source.Schema, t.req.Target.Schema
 	}
-	if src != "" && dst != "" && src != dst {
-		ddl = strings.ReplaceAll(ddl, q(src)+".", t.to.QuoteIdent(dst)+".")
-		if t.from.HasSchemas {
-			ddl = regexp.MustCompile(`\b`+regexp.QuoteMeta(src)+`\.`).ReplaceAllString(ddl, t.to.QuoteIdent(dst)+".")
-		}
-	}
+	ddl = retargetDDL(t.to, ddl, src, dst)
 	if t.o.ConvertNames != "" {
 		ddl = strings.Replace(ddl, q(name), t.to.QuoteIdent(t.targetName(name)), 1)
 	}

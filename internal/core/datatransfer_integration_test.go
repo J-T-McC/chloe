@@ -188,8 +188,9 @@ func TestIntegrationDataTransfer(t *testing.T) {
 				}
 				// The target's ids continue after the copied ones.
 				exec(dst, "INSERT INTO customers (email, full_name) VALUES ('new@example.com', 'New Person')")
-				if id := q(dst, "SELECT id FROM customers WHERE email = 'new@example.com'"); id != "4" {
-					t.Errorf("new id %s, want 4", id)
+				// (Same-engine MySQL also carries the source's AUTO_INCREMENT counter, which may be higher.)
+				if id, _ := strconv.Atoi(q(dst, "SELECT id FROM customers WHERE email = 'new@example.com'")); id < 4 {
+					t.Errorf("new id %d reuses a copied id", id)
 				}
 				// Foreign keys came across and are enforced.
 				sid, _ := m.OpenSession(ctx, dst.id, dst.database, dst.schema)

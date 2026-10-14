@@ -16,6 +16,7 @@ import { deleteDatabase, openDatabaseDialog } from "./DatabaseDialog";
 import { openExecuteFile } from "./transfer/state";
 import { deleteSavedQueries, duplicateSavedQuery, openSavedQuery, renameSavedQuery, restoreDrafts } from "../queries";
 import { openDataTransfer } from "./transfer/DataTransferWizard";
+import { openStructureSync } from "./transfer/StructureSyncWizard";
 
 const ROW = 24;
 export const COLORS: Array<[string, string]> = [
@@ -355,6 +356,7 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
         { separator: true },
         { label: "Execute SQL File…", disabled: !connected, onClick: () => openExecuteFile(n.connId, lite ? "main" : "") },
         { label: "Data Transfer…", onClick: () => openDataTransfer({ connId: n.connId, database: lite ? "main" : "" }) },
+        ...(lite ? [] : [{ label: "Structure Synchronization…", onClick: () => openStructureSync({ connId: n.connId }) }]),
         ...(lite
           ? []
           : [
@@ -416,6 +418,7 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
         { separator: true },
         ...(isPGConn(n.connId) ? [{ label: "Execute SQL File…", onClick: () => openExecuteFile(n.connId, n.database!) }] : databaseTools(n.connId, n.database!)),
         { label: "Data Transfer…", onClick: () => openDataTransfer({ connId: n.connId, database: n.database }) },
+        ...(isPGConn(n.connId) ? [] : [{ label: "Structure Synchronization…", onClick: () => openStructureSync({ connId: n.connId, database: n.database }) }]),
         { separator: true },
         { label: "Copy Name", onClick: () => copy(n.label) },
         { label: "Refresh", shortcut: "⌘R", disabled: !dbOpen, onClick: () => tree.refresh(n) },
@@ -427,6 +430,7 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
         { separator: true },
         ...databaseTools(n.connId, n.database!, n.schema),
         { label: "Data Transfer…", onClick: () => openDataTransfer({ connId: n.connId, database: n.database, schema: n.schema }) },
+        { label: "Structure Synchronization…", onClick: () => openStructureSync({ connId: n.connId, database: n.database, schema: n.schema }) },
         { separator: true },
         { label: "Copy Name", onClick: () => copy(n.label) },
         { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) },
