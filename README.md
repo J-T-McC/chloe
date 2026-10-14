@@ -1,6 +1,8 @@
-# Chloe
+<p align="center"><img src="docs/assets/logo.png" alt="Chloe" width="160"></p>
 
-A fast desktop database client for MySQL, MariaDB and PostgreSQL (MongoDB, Redis, SQLite, SQL Server, Oracle and Snowflake planned).
+<h1 align="center">Chloe</h1>
+
+A fast desktop database client for MySQL, MariaDB, PostgreSQL and Redis (SQLite, MongoDB, SQL Server and Oracle planned).
 
 Built with Go and [Wails v3](https://v3.wails.io) (system webview), React and Monaco.
 

@@ -18,6 +18,11 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// icon is shown in the dock and About box when running outside an app bundle.
+//
+//go:embed build/appicon.png
+var icon []byte
+
 func main() {
 	// CHLOE_CONFIG_DIR and CHLOE_SECRETS=memory isolate test runs from the user's
 	// saved connections and keychain.
@@ -43,6 +48,7 @@ func main() {
 	app := application.New(application.Options{
 		Name:        "Chloe",
 		Description: "Database management for MySQL, PostgreSQL, MongoDB, Redis and more",
+		Icon:        icon,
 		Services: []application.Service{
 			application.NewService(&services.ConnectionService{M: mgr}),
 			application.NewService(&services.ExplorerService{M: mgr}),
