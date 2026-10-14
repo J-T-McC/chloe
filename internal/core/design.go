@@ -192,3 +192,83 @@ func (m *Manager) RunTableAction(ctx context.Context, connID string, ref model.O
 	c, _ := m.conn(connID)
 	return m.ExecuteDDL(ctx, connID, ref.Database, ref.Schema, stmts, c.Dialect().Name == "postgres")
 }
+
+// MaintainOp is a table maintenance operation (Navicat's Maintain menu).
+type MaintainOp string
+
+const (
+	MaintainAnalyze      MaintainOp = "analyze"
+	MaintainCheck        MaintainOp = "check"    // MySQL
+	MaintainOptimize     MaintainOp = "optimize" // MySQL
+	MaintainRepair       MaintainOp = "repair"   // MySQL
+	MaintainVacuum       MaintainOp = "vacuum"   // PostgreSQL
+	MaintainVacuumFull   MaintainOp = "vacuum_full"
+	MaintainVacuumAnalyz MaintainOp = "vacuum_analyze"
+	MaintainReindex      MaintainOp = "reindex" // PostgreSQL
+)
+
+// MaintainResult is one line of maintenance output.
+type MaintainResult struct {
+	Table   string `json:"table"`
+	Status  string `json:"status"` // MySQL Msg_type, or "ok"/"error"
+	Message string `json:"message"`
+}
+
+// Maintain runs a maintenance operation on tables and returns the server's report.
+func (m *Manager) Maintain(ctx context.Context, connID string, refs []model.ObjectRef, op MaintainOp) ([]MaintainResult, error) {
+	c, err := m.conn(connID)
+	if err != nil {
+		return nil, err
+	}
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	d := c.Dialect()
+	ds, err := c.NewSession(ctx, refs[0].Database, refs[0].Schema)
+	if err != nil {
+		return nil, err
+	}
+	defer ds.Close()
+	var out []MaintainResult
+	if d.Name != "postgres" {
+		kw := map[MaintainOp]string{MaintainAnalyze: "ANALYZE", MaintainCheck: "CHECK", MaintainOptimize: "OPTIMIZE", MaintainRepair: "REPAIR"}[op]
+		if kw == "" {
+			return nil, fmt.Errorf("%s isn't available for MySQL", op)
+		}
+		names := make([]string, len(refs))
+		for i, r := range refs {
+			names[i] = d.Qualified(r)
+		}
+		rows, err := ds.Query(ctx, kw+" TABLE "+strings.Join(names, ", "))
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		cell := make([]*string, len(rows.Columns()))
+		for rows.Next(cell) {
+			// Table, Op, Msg_type, Msg_text
+			out = append(out, MaintainResult{Table: str(cell[0]), Status: str(cell[2]), Message: str(cell[3])})
+		}
+		return out, rows.Err()
+	}
+	kw := map[MaintainOp]string{MaintainAnalyze: "ANALYZE", MaintainVacuum: "VACUUM", MaintainVacuumFull: "VACUUM FULL",
+		MaintainVacuumAnalyz: "VACUUM ANALYZE", MaintainReindex: "REINDEX TABLE"}[op]
+	if kw == "" {
+		return nil, fmt.Errorf("%s isn't available for PostgreSQL", op)
+	}
+	for _, r := range refs {
+		res := MaintainResult{Table: r.Name, Status: "ok", Message: "OK"}
+		if _, err := ds.Exec(ctx, kw+" "+d.Qualified(r)); err != nil {
+			res.Status, res.Message = "error", err.Error()
+		}
+		out = append(out, res)
+	}
+	return out, nil
+}
+
+func str(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}

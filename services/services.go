@@ -14,12 +14,14 @@ import (
 	"chloe/internal/design"
 	"chloe/internal/driver"
 	"chloe/internal/model"
+	"chloe/internal/transfer"
 )
 
 // Event names emitted to the frontend.
 const (
 	EventResultProgress   = "result:progress"
 	EventConnectionClosed = "connection:closed"
+	EventJobProgress      = "job:progress"
 )
 
 // ResultProgress is the payload of EventResultProgress.
@@ -32,6 +34,13 @@ type ResultProgress struct {
 func init() {
 	application.RegisterEvent[ResultProgress](EventResultProgress)
 	application.RegisterEvent[string](EventConnectionClosed)
+	application.RegisterEvent[core.Job](EventJobProgress)
+}
+
+func (Emitter) JobProgress(j core.Job) {
+	if app := application.Get(); app != nil {
+		app.Event.Emit(EventJobProgress, j)
+	}
 }
 
 // Emitter forwards core events to the frontend.
@@ -339,4 +348,59 @@ func (s *DesignService) TableActionSQL(connID string, ref model.ObjectRef, actio
 
 func (s *DesignService) RunTableAction(ctx context.Context, connID string, ref model.ObjectRef, action core.TableAction, newName string) core.ApplyResult {
 	return s.M.RunTableAction(ctx, connID, ref, action, newName)
+}
+
+func (s *DesignService) Maintain(ctx context.Context, connID string, refs []model.ObjectRef, op core.MaintainOp) ([]core.MaintainResult, error) {
+	return s.M.Maintain(ctx, connID, refs, op)
+}
+
+// TransferService backs import/export wizards, dumps and SQL file execution.
+type TransferService struct{ M *core.Manager }
+
+func (s *TransferService) Export(connID string, req core.ExportRequest) (core.Job, error) {
+	return s.M.Export(connID, req)
+}
+
+func (s *TransferService) PreviewImport(connID, path string, opts transfer.ImportOptions) (core.ImportPreview, error) {
+	return s.M.PreviewImport(connID, path, opts)
+}
+
+func (s *TransferService) Import(ctx context.Context, connID string, req core.ImportRequest) (core.Job, error) {
+	return s.M.Import(ctx, connID, req)
+}
+
+func (s *TransferService) Dump(connID string, req core.DumpRequest) (core.Job, error) {
+	return s.M.Dump(connID, req)
+}
+
+func (s *TransferService) ExecuteFile(connID string, req core.ExecuteFileRequest) (core.Job, error) {
+	return s.M.ExecuteFile(connID, req)
+}
+
+func (s *TransferService) Jobs() []core.Job    { return s.M.Jobs() }
+func (s *TransferService) CancelJob(id string) { s.M.CancelJob(id) }
+func (s *TransferService) ClearJobs()          { s.M.ClearJobs() }
+func (s *TransferService) Encodings() []string { return transfer.Encodings() }
+
+// SaveFileDialog asks where to save; returns "" on cancel.
+func (s *TransferService) SaveFileDialog(defaultName, filterName, pattern string) (string, error) {
+	d := application.Get().Dialog.SaveFile().SetFilename(defaultName).CanCreateDirectories(true)
+	if pattern != "" {
+		d = d.AddFilter(filterName, pattern)
+	}
+	return d.PromptForSingleSelection()
+}
+
+// OpenFileDialog asks for a file to read; returns "" on cancel.
+func (s *TransferService) OpenFileDialog(title, filterName, pattern string) (string, error) {
+	d := application.Get().Dialog.OpenFile().SetTitle(title)
+	if pattern != "" {
+		d = d.AddFilter(filterName, pattern)
+	}
+	return d.PromptForSingleSelection()
+}
+
+// ChooseFolder asks for a directory (exporting several tables at once).
+func (s *TransferService) ChooseFolder(title string) (string, error) {
+	return application.Get().Dialog.OpenFile().SetTitle(title).CanChooseDirectories(true).CanChooseFiles(false).CanCreateDirectories(true).PromptForSingleSelection()
 }

@@ -21,12 +21,14 @@ import (
 type Events interface {
 	ResultProgress(resultID string, rows int, complete bool)
 	ConnectionClosed(connID string)
+	JobProgress(job Job)
 }
 
 type nopEvents struct{}
 
 func (nopEvents) ResultProgress(string, int, bool) {}
 func (nopEvents) ConnectionClosed(string)          {}
+func (nopEvents) JobProgress(Job)                  {}
 
 // Settings that bound memory use.
 type Settings struct {
@@ -46,6 +48,9 @@ type Manager struct {
 	conns    map[string]*openConn  // by connection profile ID
 	sessions map[string]*session   // by session ID
 	results  map[string]*resultSet // by result ID
+
+	jobsMu sync.Mutex
+	jobs   map[string]*jobState
 }
 
 type openConn struct {
@@ -59,7 +64,7 @@ func NewManager(st *store.Store, ev Events, s Settings) *Manager {
 		ev = nopEvents{}
 	}
 	return &Manager{Store: st, events: ev, settings: s,
-		conns: map[string]*openConn{}, sessions: map[string]*session{}, results: map[string]*resultSet{}}
+		conns: map[string]*openConn{}, sessions: map[string]*session{}, results: map[string]*resultSet{}, jobs: map[string]*jobState{}}
 }
 
 // open establishes the network path and driver connection for a profile.
