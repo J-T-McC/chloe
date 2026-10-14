@@ -55,6 +55,10 @@ type Conn interface {
 	DesignMeta(ctx context.Context, database string) (design.Meta, error)
 	DesignGenerator() design.Generator
 
+	// New / Edit Database: current properties and the dialog's choices.
+	LoadDatabase(ctx context.Context, name string) (design.Database, error)
+	DatabaseMeta(ctx context.Context) (design.DatabaseMeta, error)
+
 	// Server monitor.
 	Processes(ctx context.Context) ([]model.Process, error)
 	// KillProcess terminates a session, or only its running query when queryOnly is set.

@@ -360,6 +360,27 @@ func (s *DesignService) Maintain(ctx context.Context, connID string, refs []mode
 	return s.M.Maintain(ctx, connID, refs, op)
 }
 
+func (s *DesignService) DatabaseMeta(ctx context.Context, connID string) (design.DatabaseMeta, error) {
+	return s.M.DatabaseMeta(ctx, connID)
+}
+
+func (s *DesignService) LoadDatabase(ctx context.Context, connID, name string) (design.Database, error) {
+	return s.M.LoadDatabase(ctx, connID, name)
+}
+
+// DatabaseSQL previews New Database (old nil) or Edit Database.
+func (s *DesignService) DatabaseSQL(connID string, old *design.Database, d design.Database) ([]string, error) {
+	return s.M.DatabaseSQL(connID, old, d)
+}
+
+func (s *DesignService) ApplyDatabase(ctx context.Context, connID string, old *design.Database, d design.Database) core.ApplyResult {
+	return s.M.ApplyDatabase(ctx, connID, old, d)
+}
+
+func (s *DesignService) DropDatabase(ctx context.Context, connID, name string) core.ApplyResult {
+	return s.M.DropDatabase(ctx, connID, name)
+}
+
 // TransferService backs import/export wizards, dumps and SQL file execution.
 type TransferService struct{ M *core.Manager }
 

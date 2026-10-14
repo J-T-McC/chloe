@@ -27,8 +27,31 @@ export function Apply(connID: string, old: design$0.Table | null, table: design$
     return $Call.ByID(881975846, connID, old, table);
 }
 
+export function ApplyDatabase(connID: string, old: design$0.Database | null, d: design$0.Database): $CancellablePromise<core$0.ApplyResult> {
+    return $Call.ByID(4015789963, connID, old, d);
+}
+
+export function DatabaseMeta(connID: string): $CancellablePromise<design$0.DatabaseMeta> {
+    return $Call.ByID(3716866558, connID);
+}
+
+/**
+ * DatabaseSQL previews New Database (old nil) or Edit Database.
+ */
+export function DatabaseSQL(connID: string, old: design$0.Database | null, d: design$0.Database): $CancellablePromise<string[] | null> {
+    return $Call.ByID(1496529581, connID, old, d);
+}
+
+export function DropDatabase(connID: string, name: string): $CancellablePromise<core$0.ApplyResult> {
+    return $Call.ByID(1666385270, connID, name);
+}
+
 export function Load(connID: string, ref: model$0.ObjectRef): $CancellablePromise<design$0.Table> {
     return $Call.ByID(785236158, connID, ref);
+}
+
+export function LoadDatabase(connID: string, name: string): $CancellablePromise<design$0.Database> {
+    return $Call.ByID(139255907, connID, name);
 }
 
 export function Maintain(connID: string, refs: model$0.ObjectRef[] | null, op: core$0.MaintainOp): $CancellablePromise<core$0.MaintainResult[] | null> {

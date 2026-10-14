@@ -43,7 +43,7 @@ export function ExecuteFileDialog() {
           </div>
           <div className="field">
             <label>Database</label>
-            <div className="field-input">{[t.database, t.schema].filter(Boolean).join(" › ")}</div>
+            <div className="field-input">{[t.database, t.schema].filter(Boolean).join(" › ") || <span className="muted">None (the file chooses with CREATE DATABASE / USE)</span>}</div>
           </div>
           <div className="field">
             <label>File</label>

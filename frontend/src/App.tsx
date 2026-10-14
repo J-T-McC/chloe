@@ -4,6 +4,7 @@ import { Events, ObjectKind } from "./api";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { ContextMenuHost } from "./components/ContextMenu";
 import { DialogHost } from "./components/Dialogs";
+import { DatabaseDialog } from "./components/DatabaseDialog";
 import { KindIcon } from "./components/icons";
 import { ManageConnections } from "./components/ManageConnections";
 import { Split } from "./components/Split";
@@ -139,6 +140,7 @@ export default function App() {
       <ExportWizard />
       <ImportWizard />
       <ExecuteFileDialog />
+      <DatabaseDialog />
       <ConnectionDialog />
       <DialogHost />
       <ContextMenuHost />

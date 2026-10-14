@@ -2385,3 +2385,20 @@ table.mapping select {
   white-space: pre-wrap;
   font-size: 11px;
 }
+
+.modal.database-dialog {
+  width: 560px;
+}
+
+.seg-tabs.centered {
+  justify-content: center;
+}
+
+.database-dialog .modal-body {
+  min-height: 260px;
+}
+
+.database-dialog textarea {
+  width: 100%;
+  resize: vertical;
+}

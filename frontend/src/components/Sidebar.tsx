@@ -9,6 +9,8 @@ import { alert, confirm, prompt } from "./Dialogs";
 import { ConnIcon, KindIcon } from "./icons";
 import { newTable } from "../tableActions";
 import { databaseTools, objectsAreaMenu, tableMenu, viewMenu } from "../menus";
+import { deleteDatabase, openDatabaseDialog } from "./DatabaseDialog";
+import { openExecuteFile } from "./transfer/state";
 
 const ROW = 24;
 export const COLORS: Array<[string, string]> = [
@@ -309,10 +311,13 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
           : { label: "Open Connection", onClick: () => tree.expand(n) },
         { label: "Edit Connection…", onClick: () => app.editConnection(c) },
         { label: "New Connection…", onClick: () => app.editConnection("new") },
-        { label: "Duplicate Connection", onClick: async () => { await Connections.Duplicate(c.id); await reload(); } },
         { label: "Delete Connection…", danger: true, onClick: () => deleteConnection(c) },
+        { label: "Duplicate Connection", onClick: async () => { await Connections.Duplicate(c.id); await reload(); } },
         { separator: true },
+        { label: "New Database…", disabled: !connected, onClick: () => openDatabaseDialog(n.connId) },
         { label: "New Query", disabled: !connected, shortcut: "⌘T", onClick: () => newQuery(n.connId) },
+        { separator: true },
+        { label: "Execute SQL File…", disabled: !connected, onClick: () => openExecuteFile(n.connId, "") },
         { label: "Server Monitor", disabled: !connected, onClick: () => openMonitor(n.connId) },
         { label: "Connection Info…", disabled: !connected, onClick: () => showInfo(n.connId) },
         { separator: true },
@@ -357,11 +362,15 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
         dbOpen
           ? { label: "Close Database", onClick: () => tree.closeDatabase(n) }
           : { label: "Open Database", onClick: () => tree.expand(n) },
+        { label: "New Database…", onClick: () => openDatabaseDialog(n.connId) },
+        { label: "Edit Database…", onClick: () => openDatabaseDialog(n.connId, n.database) },
+        { label: "Delete Database", onClick: () => deleteDatabase(n.connId, n.database!) },
+        { separator: true },
         { label: "New Query", onClick: () => newQuery(n.connId, n.database) },
         ...(isPGConn(n.connId) ? [] : [{ label: "New Table", onClick: () => newTable(n.connId, n.database!) }]),
         { separator: true },
-        ...(isPGConn(n.connId) ? [] : databaseTools(n.connId, n.database!)),
-        ...(isPGConn(n.connId) ? [] : [{ separator: true }]),
+        ...(isPGConn(n.connId) ? [{ label: "Execute SQL File…", onClick: () => openExecuteFile(n.connId, n.database!) }] : databaseTools(n.connId, n.database!)),
+        { separator: true },
         { label: "Copy Name", onClick: () => copy(n.label) },
         { label: "Refresh", shortcut: "⌘R", disabled: !dbOpen, onClick: () => tree.refresh(n) },
       ];

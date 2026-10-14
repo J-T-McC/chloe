@@ -62,6 +62,54 @@ export interface Column {
     "identityOpts"?: IdentityOpts | null;
 }
 
+/**
+ * Database holds the properties of a database for New / Edit Database.
+ */
+export interface Database {
+    "name": string;
+
+    /**
+     * MySQL: character set and collation. PostgreSQL: Encoding plus LC_COLLATE
+     * (Collation) and LC_CTYPE (Ctype), fixed once the database exists.
+     */
+    "charset"?: string;
+    "collation"?: string;
+
+    /**
+     * PostgreSQL
+     */
+    "encoding"?: string;
+    "ctype"?: string;
+    "owner"?: string;
+    "template"?: string;
+    "tablespace"?: string;
+
+    /**
+     * ConnLimit is the connection limit; -1 (or nil) means unlimited.
+     */
+    "connLimit"?: number | null;
+    "comment"?: string;
+}
+
+/**
+ * DatabaseMeta lists choices for the database dialog.
+ */
+export interface DatabaseMeta {
+    "charsets"?: string[] | null;
+    "collations": CollationInfo[] | null;
+    "encodings"?: string[] | null;
+    "locales"?: string[] | null;
+    "owners"?: string[] | null;
+    "templates"?: string[] | null;
+    "tablespaces"?: string[] | null;
+
+    /**
+     * Server defaults shown as placeholders.
+     */
+    "defaultCharset"?: string;
+    "defaultCollation"?: string;
+}
+
 export interface ForeignKey {
     "name": string;
     "origName"?: string;

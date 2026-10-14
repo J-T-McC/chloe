@@ -351,3 +351,54 @@ func (m *Manager) ApplyModelSync(ctx context.Context, connID string, to datamode
 func tableRef(database, schema, name string) model.ObjectRef {
 	return model.ObjectRef{Database: database, Schema: schema, Name: name, Kind: model.KindTable}
 }
+
+// DatabaseMeta lists the choices for the New / Edit Database dialog.
+func (m *Manager) DatabaseMeta(ctx context.Context, connID string) (design.DatabaseMeta, error) {
+	c, err := m.conn(connID)
+	if err != nil {
+		return design.DatabaseMeta{}, err
+	}
+	return c.DatabaseMeta(ctx)
+}
+
+// LoadDatabase reads a database's properties for Edit Database.
+func (m *Manager) LoadDatabase(ctx context.Context, connID, name string) (design.Database, error) {
+	c, err := m.conn(connID)
+	if err != nil {
+		return design.Database{}, err
+	}
+	return c.LoadDatabase(ctx, name)
+}
+
+// DatabaseSQL returns the statements New Database (old nil) or Edit Database would run.
+func (m *Manager) DatabaseSQL(connID string, old *design.Database, d design.Database) ([]string, error) {
+	c, err := m.conn(connID)
+	if err != nil {
+		return nil, err
+	}
+	return design.DatabaseSQL(c.Dialect().Name, old, d)
+}
+
+// ApplyDatabase creates or alters a database.
+func (m *Manager) ApplyDatabase(ctx context.Context, connID string, old *design.Database, d design.Database) ApplyResult {
+	stmts, err := m.DatabaseSQL(connID, old, d)
+	if err != nil {
+		return ApplyResult{Error: err.Error()}
+	}
+	c, _ := m.conn(connID)
+	if old != nil && old.Name != d.Name {
+		// PostgreSQL can't rename a database we hold connections to.
+		c.CloseDatabase(old.Name)
+	}
+	return m.ExecuteDDL(ctx, connID, "", "", stmts, false)
+}
+
+// DropDatabase deletes a database, releasing Chloe's own connections to it first.
+func (m *Manager) DropDatabase(ctx context.Context, connID, name string) ApplyResult {
+	c, err := m.conn(connID)
+	if err != nil {
+		return ApplyResult{Error: err.Error()}
+	}
+	c.CloseDatabase(name)
+	return m.ExecuteDDL(ctx, connID, "", "", []string{"DROP DATABASE " + c.Dialect().QuoteIdent(name)}, false)
+}

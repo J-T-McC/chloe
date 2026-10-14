@@ -242,3 +242,57 @@ func cloneTable(t design.Table) design.Table {
 func indexOf(ix []design.Index, name string) int {
 	return slices.IndexFunc(ix, func(i design.Index) bool { return i.Name == name })
 }
+
+func TestIntegrationDatabaseLifecycle(t *testing.T) {
+	for _, e := range engines() {
+		t.Run(e.conn.Name, func(t *testing.T) {
+			m, id := setup(t, e)
+			ctx := context.Background()
+			pg := e.conn.Type == model.PostgreSQL
+			m.DropDatabase(ctx, id, "chloe_newdb")
+			m.DropDatabase(ctx, id, "chloe_newdb2")
+			meta, err := m.DatabaseMeta(ctx, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			d := design.Database{Name: "chloe_newdb", Charset: "latin1", Collation: "latin1_swedish_ci"}
+			if pg {
+				if len(meta.Owners) == 0 || len(meta.Templates) == 0 {
+					t.Fatalf("meta %+v", meta)
+				}
+				d = design.Database{Name: "chloe_newdb", Owner: "postgres", Template: "template0", Encoding: "LATIN1", Collation: "C", Ctype: "C", Comment: "made by chloe"}
+			} else if len(meta.Charsets) == 0 || meta.DefaultCharset == "" {
+				t.Fatalf("meta %+v", meta)
+			}
+			if r := m.ApplyDatabase(ctx, id, nil, d); r.Error != "" {
+				t.Fatalf("create: %s\n%s", r.Error, r.FailedStatement)
+			}
+			got, err := m.LoadDatabase(ctx, id, "chloe_newdb")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (!pg && got.Charset != "latin1") || (pg && (got.Encoding != "LATIN1" || got.Comment != "made by chloe")) {
+				t.Fatalf("loaded %+v", got)
+			}
+			// Open a session in it first: rename and drop must cope with our own pool.
+			if pg {
+				if _, err := m.ListSchemas(ctx, id, "chloe_newdb"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			next := got
+			if pg {
+				next.Name = "chloe_newdb2"
+				next.Comment = ""
+			} else {
+				next.Charset, next.Collation = "utf8mb4", "utf8mb4_bin"
+			}
+			if r := m.ApplyDatabase(ctx, id, &got, next); r.Error != "" {
+				t.Fatalf("alter: %s\n%s", r.Error, r.FailedStatement)
+			}
+			if r := m.DropDatabase(ctx, id, next.Name); r.Error != "" {
+				t.Fatalf("drop: %s", r.Error)
+			}
+		})
+	}
+}

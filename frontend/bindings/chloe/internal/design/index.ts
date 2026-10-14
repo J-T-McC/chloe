@@ -5,6 +5,8 @@ export type {
     Check,
     CollationInfo,
     Column,
+    Database,
+    DatabaseMeta,
     ForeignKey,
     IdentityOpts,
     Index,
