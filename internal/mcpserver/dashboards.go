@@ -24,13 +24,13 @@ type TileArg struct {
 }
 
 type RowArg struct {
-	Height string    `json:"height,omitempty" jsonschema:"for rows with a chart: S (3 grid rows), M (5, default), L (8) or XL (11, which fills a 16:9 slide on its own). A 16:9 slide holds 12 grid rows in all. Rows of only text are always as tall as their text"`
+	Height string    `json:"height,omitempty" jsonschema:"for rows with a chart: S (6 grid rows), M (10, default), L (16) or XL (22, which fills a 16:9 slide on its own). A 16:9 slide holds 24 grid rows in all (each 18px with 12px gaps). Rows of only text are always as tall as their text"`
 	Tiles  []TileArg `json:"tiles"`
 }
 
 type PageArg struct {
 	Name string   `json:"name,omitempty"`
-	Size string   `json:"size,omitempty" jsonschema:"report (scrolls; the default) or 16:9 (a 12-row slide)"`
+	Size string   `json:"size,omitempty" jsonschema:"report (scrolls; the default) or 16:9 (a 24-row slide)"`
 	Rows []RowArg `json:"rows"`
 }
 
@@ -612,7 +612,7 @@ func (c *call) layoutPages(w *bi.Workspace, in []PageArg) ([]bi.Page, error) {
 			for r, h := range rowHeights(items) {
 				parts = append(parts, fmt.Sprintf("row %d %d", r+1, h))
 			}
-			return nil, fmt.Errorf("page %d: its rows take %d grid rows (%s) but a 16:9 slide has %d; use smaller heights (S 3, M 5, L 8), fewer rows, or size report", i+1, bottom, strings.Join(parts, ", "), bi.PageRows)
+			return nil, fmt.Errorf("page %d: its rows take %d grid rows (%s) but a 16:9 slide has %d; use smaller heights (S 6, M 10, L 16), fewer rows, or size report", i+1, bottom, strings.Join(parts, ", "), bi.PageRows)
 		}
 		pages = append(pages, bi.Page{ID: uuid.NewString(), Name: pa.Name, Size: size, Items: items})
 	}
@@ -645,7 +645,7 @@ func setNotes(pg *bi.Page, by, md, place string) error {
 		if it.Kind != bi.ItemText || it.CreatedBy != by {
 			continue
 		}
-		if moved := place == "top" && it.Y != 0 || place == "bottom" && it.Y+it.H != pg.Bottom(); moved && pg.Size == bi.SizeReport {
+		if moved := place == "top" && it.Y != 0 || place == "bottom" && it.Y+it.H != pg.Bottom(); moved {
 			// Lift it out, close the gap, and add it again where asked.
 			y, gone := it.Y, it.H
 			pg.Items = append(pg.Items[:i], pg.Items[i+1:]...)
@@ -677,23 +677,19 @@ func setNotes(pg *bi.Page, by, md, place string) error {
 		return nil
 	}
 	note := bi.Item{ID: uuid.NewString(), Kind: bi.ItemText, Text: md, X: 0, W: bi.PageCols, H: h, CreatedBy: by, Updated: now}
-	if pg.Size == bi.SizeReport && place == "bottom" {
+	// A slide has only the rows below its tiles to give.
+	if pg.Size == bi.SizeSlide && pg.Bottom()+h > bi.PageRows {
+		return noRoom{need: h, free: bi.PageRows - pg.Bottom()}
+	}
+	if place == "bottom" {
 		note.Y = pg.Bottom()
 		pg.Items = append(pg.Items, note)
 		return nil
 	}
-	if pg.Size == bi.SizeReport {
-		for j := range pg.Items {
-			pg.Items[j].Y += h
-		}
-		pg.Items = append([]bi.Item{note}, pg.Items...)
-		return nil
+	for j := range pg.Items {
+		pg.Items[j].Y += h
 	}
-	note.Y = pg.Bottom()
-	if note.Y+h > bi.PageRows {
-		return noRoom{need: h, free: bi.PageRows - note.Y}
-	}
-	pg.Items = append(pg.Items, note)
+	pg.Items = append([]bi.Item{note}, pg.Items...)
 	return nil
 }
 

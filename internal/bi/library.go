@@ -233,7 +233,7 @@ func Read(p string) (Workspace, error) {
 
 // Write saves a workspace file.
 func Write(p string, w Workspace) error {
-	w.Format, w.Version = Format, max(w.Version, 1)
+	w.Format, w.Version = Format, FormatVersion
 	if w.DataSources == nil {
 		w.DataSources = []DataSource{}
 	}

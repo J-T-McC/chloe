@@ -164,8 +164,10 @@ export function buildOption(chart: B.Chart, data: B.Data, theme: ChartTheme): EC
     nameGap: 44,
     nameTextStyle: { color: t.ink2 },
     max: pct ? 100 : undefined,
-    // Room above the tallest value, so bars and labels don't touch the top.
+    // Room above the tallest value, so bars and labels don't touch the top; a
+    // few round ticks, so short charts aren't crowded.
     boundaryGap: pct ? undefined : [0, "8%"],
+    splitNumber: 4,
     axisLine: { show: false },
     axisTick: { show: false },
     splitLine: { lineStyle: { color: t.grid, width: 1 } },

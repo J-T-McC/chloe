@@ -24,7 +24,7 @@ import { useWorkspace } from "./WorkspaceView";
 import { renderPages } from "./ExportHost";
 
 const COLS = 12;
-const SLIDE_ROWS = 12;
+const SLIDE_ROWS = 24;
 const MARGIN = 12;
 const REFRESH_CHOICES = [0, 1, 5, 15, 30, 60];
 
@@ -107,7 +107,7 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
   const place = (w: number, h: number): { y: number; h: number } | null => {
     const y = bottom(page);
     if (page.size !== "16:9") return { y, h };
-    if (SLIDE_ROWS - y < 1) return null;
+    if (SLIDE_ROWS - y < 2) return null;
     return { y, h: Math.min(h, SLIDE_ROWS - y) };
   };
   const addTile = (tile: Omit<B.Item, "id" | "x" | "y" | "w" | "h">, w: number, h: number) => {
@@ -122,7 +122,7 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
     const r = e.currentTarget.getBoundingClientRect();
     openMenu(
       { clientX: r.left, clientY: r.bottom + 2, preventDefault() {} },
-      charts.map((c) => ({ label: c.name, onClick: () => addTile({ kind: "chart", chart: c.id }, c.type === "value" ? 3 : 6, c.type === "value" ? 3 : 5) })),
+      charts.map((c) => ({ label: c.name, onClick: () => addTile({ kind: "chart", chart: c.id }, c.type === "value" ? 3 : 6, c.type === "value" ? 6 : 10) })),
     );
   };
   const addPage = (copyOf?: B.Page) => {
@@ -168,7 +168,7 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
         <button onClick={addChart}>
           <Plus size={14} /> Add Chart
         </button>
-        <button onClick={() => addTile({ kind: "text", text: "## Title\n\nWrite a summary here." }, 12, 2)}>
+        <button onClick={() => addTile({ kind: "text", text: "## Title\n\nWrite a summary here." }, 12, 4)}>
           <FileText size={14} /> Add Text
         </button>
         <span className="tb-sep" />
@@ -345,7 +345,8 @@ function useSize() {
  *  fit where they're shown, so the designer, Present and exports look the same. */
 export const PAGE_WIDTH = 1280;
 export const SLIDE_HEIGHT = 720;
-const REPORT_ROW = 48;
+// A grid row is 18px with 12px gaps: tiles grow in 30px steps.
+const REPORT_ROW = 18;
 const SLIDE_ROW = (SLIDE_HEIGHT - 2 * MARGIN - (SLIDE_ROWS - 1) * MARGIN) / SLIDE_ROWS;
 
 /** A page's tiles on the grid, scaled to fit: a slide within the space given. */
@@ -355,7 +356,7 @@ export function PageCanvas({ page, charts, path, theme, tick, editable, selected
   const slide = page.size === "16:9";
   const scale = outer.width ? (slide && maxHeight ? Math.min(outer.width / PAGE_WIDTH, maxHeight / SLIDE_HEIGHT) : outer.width / PAGE_WIDTH) : 0;
   const strategy = useMemo(() => createScaledStrategy(scale || 1), [scale]);
-  const layout = useMemo(() => arr(page.items).map((it) => ({ i: it.id, x: it.x, y: it.y, w: it.w, h: it.h, minW: 2, minH: it.kind === "text" ? 1 : 2 })), [page.items]);
+  const layout = useMemo(() => arr(page.items).map((it) => ({ i: it.id, x: it.x, y: it.y, w: it.w, h: it.h, minW: 2, minH: it.kind === "text" ? 2 : 4 })), [page.items]);
   const t = TOKENS[theme];
   const logicalHeight = slide ? SLIDE_HEIGHT : inner.height;
   return (

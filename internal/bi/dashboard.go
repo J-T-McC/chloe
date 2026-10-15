@@ -26,7 +26,7 @@ const (
 	SizeReport = "report"
 	// PageCols is the grid's width in columns; PageRows a slide's height in rows.
 	PageCols = 12
-	PageRows = 12
+	PageRows = 24
 )
 
 type Page struct {
@@ -163,7 +163,8 @@ func (d *Dashboard) normalize(w *Workspace) error {
 }
 
 // Row heights agents ask for, in grid rows.
-var RowHeights = map[string]int{"S": 3, "M": 5, "L": 8, "XL": 11}
+// (A grid row is 18px with 12px gaps, so tiles grow in 30px steps.)
+var RowHeights = map[string]int{"S": 6, "M": 10, "L": 16, "XL": 22}
 
 // RowTile is a tile in a row an agent describes: a chart or Markdown text,
 // spanning some of the 12 columns.
@@ -191,7 +192,7 @@ func LayoutRows(rows [][]RowTile, heights []string, y int, chartID func(string) 
 			h = v
 		}
 		if textOnly {
-			h = 1
+			h = 2
 		}
 		used, open := 0, 0
 		for _, t := range row {
@@ -246,12 +247,12 @@ func LayoutRows(rows [][]RowTile, heights []string, y int, chartID func(string) 
 // TextRows is the grid rows Markdown needs across a whole page.
 func TextRows(md string) int { return TextRowsAt(md, PageCols, false) }
 
-// Text tile metrics, measured in Chloe at the 1280px page width: rows are 48px
+// Text tile metrics, measured in Chloe at the 1280px page width: rows are 18px
 // with 12px gaps, tiles have 18px of padding and border, and body text is 13.5px
 // on 20.25px lines at about 7.2px a character. A notes tile's header is a caption
 // beside its first line, taking about 34 characters of it.
 const (
-	rowPx      = 48
+	rowPx      = 18
 	gapPx      = 12
 	tilePadPx  = 18
 	notesHead  = 34 // characters
@@ -286,12 +287,12 @@ func TextRowsAt(md string, w int, notes bool) int {
 			inPara = false
 			continue
 		case strings.HasPrefix(t, "# "):
-			px += 36*lines(t, 1.8) + 6
+			px += 26.4*lines(t, 1.65) + 6 // 22px at 1.2
 			inPara, trailing = false, 6
 			blocks++
 			continue
 		case strings.HasPrefix(t, "## "):
-			px += 27*lines(t, 1.35) + 6
+			px += 23.4*lines(t, 1.35) + 6 // 18px at 1.3
 			inPara, trailing = false, 6
 			blocks++
 			continue
@@ -321,10 +322,10 @@ func TextRowsAt(md string, w int, notes bool) int {
 		trailing = 0
 	}
 	px += float64(max(0, blocks-1)*blockGapPx) - trailing
-	// A tile h rows tall is h*48 + (h-1)*12 pixels (a slide's rows are 47px); text
+	// A tile h rows tall is h*18 + (h-1)*12 pixels (a slide's rows are 17.5px); text
 	// that fits only to the pixel would still show a scrollbar, so keep 2px spare.
 	h := int(math.Ceil((px + 2 + gapPx) / (rowPx + gapPx)))
-	return max(1, min(30, h))
+	return max(2, min(60, h))
 }
 
 // Bottom is the first free row below a page's tiles.
