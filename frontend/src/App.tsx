@@ -1,4 +1,4 @@
-import { Activity, Bot, Database, FilePlus2, History, Monitor, Moon, Network, PencilRuler, Plug, Shapes, Sun, Table2, TerminalSquare, UserRound, UsersRound, X } from "lucide-react";
+import { Activity, Bot, ChartColumn, Database, FilePlus2, History, Monitor, Moon, Network, PencilRuler, Plug, Shapes, Sun, Table2, TerminalSquare, UserRound, UsersRound, X } from "lucide-react";
 import { ThemePref, onThemeChange, setThemePref, themePref } from "./theme";
 import { useEffect, useRef, useState } from "react";
 import { Events, ObjectKind } from "./api";
@@ -35,6 +35,12 @@ import { SetPrivilegesDialog } from "./components/users/SetPrivilegesDialog";
 import { openUsers } from "./components/users/actions";
 import { ERDiagram } from "./components/erd/ERDiagram";
 import { ModelEditor } from "./components/model/ModelEditor";
+import { WorkspaceView } from "./components/bi/WorkspaceView";
+import { SourceEditor } from "./components/bi/SourceEditor";
+import { ChartEditor } from "./components/bi/ChartEditor";
+import { CreateChartDialog } from "./components/bi/CreateChartDialog";
+import { listenBI } from "./components/bi/actions";
+import { ChartTypeIcon } from "./components/bi/icons";
 import { MenuItem, openMenu } from "./components/ContextMenu";
 import { DBType } from "./api";
 import { DDLView, ObjectsPane } from "./components/ObjectsPane";
@@ -62,6 +68,7 @@ export default function App() {
   // Tools > History Log in the native menu.
   useEffect(() => Events.On("menu:history-log", () => openHistoryLog()), []);
   useEffect(() => Events.On("menu:mcp", () => openMCPServer()), []);
+  useEffect(() => listenBI(), []);
   useEffect(() => Events.On("menu:data-transfer", () => openDataTransfer(useApp.getState().selection)), []);
   useEffect(() => Events.On("menu:structure-sync", () => openStructureSync(useApp.getState().selection)), []);
   useEffect(() => Events.On("menu:data-sync", () => openDataSync(useApp.getState().selection)), []);
@@ -146,6 +153,7 @@ export default function App() {
           />
           <ToolButton icon={<UsersRound size={20} />} label="User" disabled={!selConnected || selRedis || selSQLite} onClick={() => selection && (selMongo ? openMongoUsers(selection.connId, selection.database) : openUsers(selection.connId))} />
           <ToolButton icon={<Shapes size={20} />} label="Model" onClick={() => useApp.getState().showModels()} />
+          <ToolButton icon={<ChartColumn size={20} />} label="BI" onClick={() => useApp.getState().showBI()} />
           <ToolButton icon={<Activity size={20} />} label="Monitor" disabled={!monitorable.length} onClick={() => openMonitor(selConnected && !selSQLite ? selection!.connId : monitorable[0])} />
           <ToolButton
             icon={<Database size={20} />}
@@ -209,6 +217,7 @@ export default function App() {
       <MongoTransferHost />
       <DialogHost />
       <ApprovalHost />
+      <CreateChartDialog />
       <ContextMenuHost />
     </div>
   );
@@ -236,6 +245,12 @@ function TabContent({ tab, active }: { tab: Tab; active: boolean }) {
       return <ERDiagram tab={tab} />;
     case "model":
       return <ModelEditor tab={tab} />;
+    case "bi":
+      return <WorkspaceView tab={tab} />;
+    case "bisource":
+      return <SourceEditor tab={tab} />;
+    case "bichart":
+      return <ChartEditor tab={tab} />;
     case "viewdesign":
       return <ViewDesigner tab={tab} />;
     case "redisconsole":
@@ -258,7 +273,7 @@ function TabContent({ tab, active }: { tab: Tab; active: boolean }) {
 }
 
 function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
-  const icon = tab.kind === "users" || tab.kind === "mongousers" ? <UsersRound size={13} /> : tab.kind === "user" ? <UserRound size={13} /> : tab.kind === "redisconsole" || tab.kind === "mongoshell" ? <TerminalSquare size={13} /> : tab.kind === "mongoquery" ? <FilePlus2 size={13} /> : tab.kind === "mongodesign" ? <PencilRuler size={13} /> : tab.kind === "model" ? <Shapes size={13} /> : tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" || tab.kind === "viewdesign" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.kind === "history" ? <History size={13} /> : tab.kind === "mcp" ? <Bot size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
+  const icon = tab.kind === "bi" ? <ChartColumn size={13} /> : tab.kind === "bisource" ? <Database size={13} /> : tab.kind === "bichart" ? <ChartTypeIcon type="bar" size={13} /> : tab.kind === "users" || tab.kind === "mongousers" ? <UsersRound size={13} /> : tab.kind === "user" ? <UserRound size={13} /> : tab.kind === "redisconsole" || tab.kind === "mongoshell" ? <TerminalSquare size={13} /> : tab.kind === "mongoquery" ? <FilePlus2 size={13} /> : tab.kind === "mongodesign" ? <PencilRuler size={13} /> : tab.kind === "model" ? <Shapes size={13} /> : tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" || tab.kind === "viewdesign" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.kind === "history" ? <History size={13} /> : tab.kind === "mcp" ? <Bot size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
   return (
     <div
       className={"tab" + (active ? " active" : "")}

@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { Connection, Connections, DBType, Explorer, ObjectKind, ObjectRef, arr, errorText } from "./api";
 import { alert, prompt } from "./components/Dialogs";
 
-export type TabKind = "objects" | "query" | "table" | "ddl" | "monitor" | "design" | "erd" | "model" | "viewdesign" | "redisconsole" | "users" | "user" | "collection" | "mongoquery" | "mongoshell" | "mongodesign" | "mongousers" | "history" | "mcp";
+export type TabKind = "objects" | "query" | "table" | "ddl" | "monitor" | "design" | "erd" | "model" | "viewdesign" | "redisconsole" | "users" | "user" | "collection" | "mongoquery" | "mongoshell" | "mongodesign" | "mongousers" | "history" | "mcp" | "bi" | "bisource" | "bichart";
 
 export interface Tab {
   id: string;
@@ -17,6 +17,10 @@ export interface Tab {
   sql?: string;
   /** file of a model tab */
   modelPath?: string;
+  /** BI workspace file of a bi / bisource / bichart tab */
+  biPath?: string;
+  /** the data source or chart a bisource / bichart tab edits ("" for a new one) */
+  biId?: string;
   /** saved query a query tab edits */
   queryId?: string;
   /** the text as last saved (or opened); the tab is dirty once it differs */
@@ -59,6 +63,9 @@ interface AppState {
   /** The Objects tab shows Chloe's model library (the Model toolbar button) instead of the selection's objects. */
   showingModels: boolean;
   showModels(): void;
+  /** The Objects tab shows the BI workspace library (the BI toolbar button). */
+  showingBI: boolean;
+  showBI(): void;
 
   loadConnections(): Promise<void>;
   connect(id: string): Promise<boolean>;
@@ -95,6 +102,7 @@ export const useApp = create<AppState>((set, get) => ({
   managing: false,
   objectsVersion: 0,
   showingModels: false,
+  showingBI: false,
   connecting: {},
   errors: {},
   tabs: [OBJECTS_TAB],
@@ -189,11 +197,15 @@ export const useApp = create<AppState>((set, get) => ({
 
   select(selection) {
     const conn = get().connections.find((c) => c.id === selection.connId);
-    set({ selection, selectedGroup: selection.group ?? conn?.group ?? undefined, showingModels: false });
+    set({ selection, selectedGroup: selection.group ?? conn?.group ?? undefined, showingModels: false, showingBI: false });
   },
 
   showModels() {
-    set({ showingModels: true, activeTab: "objects" });
+    set({ showingModels: true, showingBI: false, activeTab: "objects" });
+  },
+
+  showBI() {
+    set({ showingBI: true, showingModels: false, activeTab: "objects" });
   },
 
   openTab(tab) {
@@ -201,7 +213,11 @@ export const useApp = create<AppState>((set, get) => ({
     const existing = get().tabs.find(
       (t) =>
         t.kind === tab.kind &&
-        (tab.kind === "model" ? !!tab.modelPath && t.modelPath === tab.modelPath : tab.kind !== "query" && t.connId === tab.connId && sameRef(t.ref, tab.ref)),
+        (tab.kind === "model"
+          ? !!tab.modelPath && t.modelPath === tab.modelPath
+          : tab.kind === "bi" || tab.kind === "bisource" || tab.kind === "bichart"
+            ? !!tab.biPath && t.biPath === tab.biPath && (tab.kind === "bi" || (!!tab.biId && t.biId === tab.biId))
+            : tab.kind !== "query" && t.connId === tab.connId && sameRef(t.ref, tab.ref)),
     );
     if (existing) {
       set({ activeTab: existing.id });

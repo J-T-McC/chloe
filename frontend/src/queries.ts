@@ -152,18 +152,22 @@ export async function deleteSavedQueries(connId: string, database: string, schem
 // ---- closing ------------------------------------------------------------------------------
 
 /** Close tabs, first asking whether to save each edited query. False when the user cancelled. */
+/** Save handlers of other editing tabs (BI designers), by tab id; they resolve false when saving failed. */
+export const tabSavers = new Map<string, () => Promise<boolean>>();
+
 export async function requestCloseTabs(ids: string[]): Promise<boolean> {
   const app = useApp.getState();
   for (const id of ids) {
     const t = app.tabs.find((x) => x.id === id);
-    if (t?.kind !== "query" || !t.dirty) continue;
+    const saver = t?.kind === "query" ? () => saveQueryTab(id) : tabSavers.get(id);
+    if (!t?.dirty || !saver) continue;
     app.setActive(id);
     const answer = await choose(`Save changes to “${t.title}”?`, {
       message: "Your changes will be lost if you don't save them.",
       buttons: ["Don't Save", "Cancel", "Save"],
     });
     if (answer === null || answer === "Cancel") return false;
-    if (answer === "Save" && !(await saveQueryTab(id))) return false;
+    if (answer === "Save" && !(await saver())) return false;
   }
   useApp.getState().closeTabs(ids);
   return true;

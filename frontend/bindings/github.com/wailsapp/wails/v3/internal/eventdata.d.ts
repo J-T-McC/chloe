@@ -21,6 +21,7 @@ import type * as services$0 from "../../../../../chloe/services/models.js";
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
+            "bi:changed": string;
             "connection:closed": string;
             "job:progress": core$0.Job;
             "mcp:activity": mcpserver$0.Activity;
@@ -28,6 +29,7 @@ declare module "@wailsio/runtime" {
             "mcp:approval-done": string;
             "mcp:connection-added": string;
             "mcp:model-changed": string;
+            "mcp:open-bi": services$0.BIObject;
             "mcp:open-model": string;
             "mcp:open-query": mcpserver$0.QueryTab;
             "mcp:query-saved": mcpserver$0.QueryTab;

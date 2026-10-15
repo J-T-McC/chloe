@@ -6,7 +6,8 @@ What's done and what's next: `docs/ROADMAP.md`. Behaviour specs: `docs/specs/`.
 ## Layout
 - `internal/` is plain Go with no Wails dependency: `core` (manager, design/edit/transfer/dump),
   `driver/{mysql,postgres,sqlite}` + `rdb` (Redis) + `mdb` (MongoDB: documents as `Val`, goja shell),
-  `design` (DDL generators), `sqlsplit`, `transfer`, `privs`, `store`, `mcpserver` (MCP tools over `core`).
+  `design` (DDL generators), `sqlsplit`, `transfer`, `privs`, `store`, `mcpserver` (MCP tools over `core`),
+  `bi` (BI workspaces: data sources, charts, the chart query builder).
 - `services/` holds thin Wails services over `core`. Their bindings are generated into `frontend/bindings`.
 - `frontend/src`: `components/` (`mongo/`, `redis/`…), `editor/` (Monaco completion and format), `sql/` (lexer and
   autocomplete engine), `mongo/` (document formatting and shell completion),

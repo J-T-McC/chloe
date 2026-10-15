@@ -3,6 +3,9 @@
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as bi$0 from "../internal/bi/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as core$0 from "../internal/core/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -21,6 +24,25 @@ export interface ApplyResult {
 }
 
 /**
+ * BIObject names an object of a BI workspace.
+ */
+export interface BIObject {
+    "path": string;
+    "id": string;
+}
+
+/**
+ * Catalog is what the designers offer: chart types and their shelves,
+ * aggregates, date buckets and filter operators.
+ */
+export interface Catalog {
+    "types": { [_ in string]?: bi$0.ChartType } | null;
+    "valueAggregates": { [_ in string]?: string[] | null } | null;
+    "dateBuckets": string[] | null;
+    "filterOps": { [_ in string]?: number } | null;
+}
+
+/**
  * FetchResult is a further page of a cursor result.
  */
 export interface FetchResult {
@@ -34,6 +56,16 @@ export interface FetchResult {
 export interface ModelFile {
     "path": string;
     "model": datamodel$0.Model;
+}
+
+/**
+ * NewChart is a data source and an empty chart made from a table or query
+ * (Create Chart in the data grid).
+ */
+export interface NewChart {
+    "path": string;
+    "sourceId": string;
+    "chartId": string;
 }
 
 /**

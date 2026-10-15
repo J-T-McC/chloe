@@ -61,6 +61,11 @@ export interface MCPCapabilities {
     "savedQueries": boolean;
     "monitor": boolean;
     "models": boolean;
+
+    /**
+     * Reports: BI workspaces, data sources and charts.
+     */
+    "reports": boolean;
 }
 
 /**

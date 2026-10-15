@@ -1,11 +1,13 @@
 package store
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 )
 
 // connections.json is encrypted with a random key kept in the keychain, so other
@@ -109,6 +111,56 @@ func (s *Store) openFile(data []byte) ([]byte, error) {
 	plain, err := gcm.Open(nil, f.Nonce, f.Data, fileAAD)
 	if err != nil {
 		return nil, errors.New("the connections key in the keychain doesn't open this file")
+	}
+	return plain, nil
+}
+
+// sealedDataMagic starts data sealed with SealData.
+var sealedDataMagic = []byte("chloe-sealed-data/1\n")
+
+// SealData encrypts rows Chloe keeps on disk (BI archives and snapshots) with
+// the keychain key; purpose binds the data to its use. Stores that don't
+// encrypt (tests, the browser build) keep it plain.
+func (s *Store) SealData(plain []byte, purpose string) ([]byte, error) {
+	if !s.encrypts() {
+		return plain, nil
+	}
+	key, err := s.fileKey(true)
+	if err != nil {
+		return nil, fmt.Errorf("keychain: %w", err)
+	}
+	gcm, err := newGCM(key)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+	out := append(append(slices.Clone(sealedDataMagic), nonce...), gcm.Seal(nil, nonce, plain, []byte(purpose))...)
+	return out, nil
+}
+
+// OpenData reverses SealData; unsealed data is returned as it is.
+func (s *Store) OpenData(data []byte, purpose string) ([]byte, error) {
+	if !bytes.HasPrefix(data, sealedDataMagic) {
+		return data, nil
+	}
+	data = data[len(sealedDataMagic):]
+	key, err := s.fileKey(false)
+	if err != nil {
+		return nil, fmt.Errorf("can't read Chloe's key from the keychain (%v)", err)
+	}
+	gcm, err := newGCM(key)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) < gcm.NonceSize() {
+		return nil, errors.New("the file is damaged")
+	}
+	plain, err := gcm.Open(nil, data[:gcm.NonceSize()], data[gcm.NonceSize():], []byte(purpose))
+	if err != nil {
+		return nil, errors.New("Chloe's key in the keychain doesn't open this file")
 	}
 	return plain, nil
 }

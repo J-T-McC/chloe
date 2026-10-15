@@ -88,6 +88,20 @@ type Attacher interface {
 	Path() string
 }
 
+// ReadOnly runs fn inside a read-only transaction (SQLite: query_only, which
+// lasts for the session, so the session must be discarded afterwards).
+func ReadOnly(ctx context.Context, ds Session, d Dialect, fn func() error) error {
+	begin := map[string]string{"mysql": "START TRANSACTION READ ONLY", "postgres": "BEGIN READ ONLY", "sqlite": "PRAGMA query_only = ON"}[d.Name]
+	if _, err := ds.Exec(ctx, begin); err != nil {
+		return err
+	}
+	err := fn()
+	if d.Name != "sqlite" {
+		_, _ = ds.Exec(context.Background(), "ROLLBACK")
+	}
+	return err
+}
+
 // TransactionalDDL reports whether DDL can run inside a transaction (all but MySQL).
 func (d Dialect) TransactionalDDL() bool { return d.Name != "mysql" }
 

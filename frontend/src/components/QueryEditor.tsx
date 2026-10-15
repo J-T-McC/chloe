@@ -11,6 +11,7 @@ import { ValuePanel } from "./ValuePanel";
 import { readFlag, writeFlag } from "../prefs";
 import { connDialect, editorLanguage } from "../dialect";
 import { openExport } from "./transfer/state";
+import { createChartFrom } from "./bi/actions";
 import { queryTextChanged, registerQueryEditor, saveQueryTab } from "../queries";
 import { openHistoryLog } from "./HistoryLog";
 
@@ -383,6 +384,9 @@ export function ResultGrid({ result, connId, database, schema }: { result: State
         </button>
         <button className="small-btn" title="Export this result (re-runs the query)" onClick={() => openExport({ connId, database: database ?? "", schema, tables: [], sql: result.sql, name: "query_result" })}>
           Export…
+        </button>
+        <button className="small-btn" title="Create a chart on this query in a BI workspace" onClick={() => createChartFrom({ connId, database: database ?? "", schema, sql: result.sql, name: "Query result" })}>
+          Create Chart…
         </button>
         <span>
           {result.rowCount.toLocaleString()}

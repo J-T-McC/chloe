@@ -57,11 +57,19 @@ type events struct {
 	saved  []string // connID/database/schema
 	tabs   []mcpserver.QueryTab
 	models []string // changed model files
-	opened []string // models opened in the UI
+	opened []string // models (and charts, path#id) opened in the UI
+	bi     []string // changed BI workspaces
 }
 
 func (e *events) ModelChanged(p string) { e.mu.Lock(); e.models = append(e.models, p); e.mu.Unlock() }
 func (e *events) OpenModel(p string)    { e.mu.Lock(); e.opened = append(e.opened, p); e.mu.Unlock() }
+
+func (e *events) BIChanged(p string) { e.mu.Lock(); e.bi = append(e.bi, p); e.mu.Unlock() }
+func (e *events) OpenBI(p, id string) {
+	e.mu.Lock()
+	e.opened = append(e.opened, p+"#"+id)
+	e.mu.Unlock()
+}
 
 func (e *events) Activity(mcpserver.Activity) {}
 func (e *events) Status(mcpserver.Status)     {}
