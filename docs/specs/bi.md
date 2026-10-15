@@ -291,7 +291,8 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
   alias is shown as typed. Shelves keep the field names.
 - A date axis bucketed by year, quarter, month, week, day or hour gets its empty periods back (sums and counts 0,
   other aggregates empty), unless the chart uses Top N or sorts by value.
-- A sort by value can name the value it sorts by (`sort.field`); tables sort by their first aggregated column
+- Every dimension value gets a row for every series (0 for sums and counts), so stacked series never have holes.
+- A sort by value can name the value it sorts by (`sort.field`, or the value's field or label as `sort.by`); tables sort by their first aggregated column
   otherwise, and by their first column when sorting "by dimension".
 - `in_last` filters (`[n, unit]`, unit day, week, month or year) keep charts current: the last n units including the
   current one, from the machine's local date.

@@ -55,7 +55,7 @@ type FieldArg struct {
 }
 
 type SortArg struct {
-	By    string `json:"by" jsonschema:"dimension or value"`
+	By    string `json:"by" jsonschema:"dimension, value, or the name or label of one of the chart's values (same as value with field)"`
 	Field string `json:"field,omitempty" jsonschema:"with by value: which value field (name or label) to sort by; tables otherwise use their first aggregated column"`
 	Desc  bool   `json:"desc,omitempty"`
 }

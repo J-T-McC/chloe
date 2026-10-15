@@ -300,6 +300,11 @@ func TestTableSort(t *testing.T) {
 	if got := names(Shape(c, cols, raw)); !reflect.DeepEqual(got, []any{"Charlie", "Bravo"}) {
 		t.Errorf("dimension + top: %v", got)
 	}
+	// A value's name or label works as by.
+	c.Sort, c.Top = &ChartSort{By: "Average of Events", Desc: true}, 0
+	if got := names(Shape(c, cols, raw)); !reflect.DeepEqual(got, []any{"Alpha", "Charlie", "Bravo"}) {
+		t.Errorf("by label: %v", got)
+	}
 	c.Sort = &ChartSort{By: "value", Field: "nope"}
 	if _, err := c.Check(DataSource{Fields: []Field{{Name: "game"}, {Name: "rooms", Type: TypeNumber}, {Name: "events", Type: TypeNumber}}}, "mysql"); err == nil {
 		t.Error("unknown sort field accepted")
@@ -321,7 +326,7 @@ func TestFillPeriods(t *testing.T) {
 	if want := []string{"2026-09-28", "2026-09-29", "2026-09-30", "2026-10-01"}; !reflect.DeepEqual(days, want) {
 		t.Fatalf("days: %v", days)
 	}
-	if len(got) != 7 || got[1][2] != 0.0 {
+	if len(got) != 8 || got[1][2] != 0.0 { // every day × series
 		t.Errorf("filled rows: %v", got)
 	}
 	// Weeks across a new year, and averages left empty.
@@ -366,5 +371,29 @@ func TestInLast(t *testing.T) {
 		if _, err := PreviewQuery(pg, `"t"`, src, 5); err == nil {
 			t.Errorf("%v accepted", bad)
 		}
+	}
+}
+
+func TestFillSeries(t *testing.T) {
+	s := func(v string) *string { return &v }
+	cols := []Column{{Role: "dimension", Aggregate: "day", Type: TypeDateTime}, {Role: "series", Type: TypeString}, {Role: "value", Type: TypeNumber}}
+	raw := [][]*string{{s("2026-09-15"), s("anonymous"), s("2")}, {s("2026-09-17"), s("anonymous"), s("1")}, {s("2026-09-17"), s("signed in"), s("3")}}
+	c := Chart{Type: "stacked_bar", Value: []ChartField{{Field: "id", Aggregate: "count"}}}
+	got := Shape(c, cols, raw)
+	pairs := map[string]any{}
+	for _, r := range got {
+		pairs[r[0].(string)+"/"+r[1].(string)] = r[2]
+	}
+	want := map[string]any{"2026-09-15/anonymous": 2.0, "2026-09-15/signed in": 0.0, "2026-09-16/anonymous": 0.0, "2026-09-16/signed in": 0.0,
+		"2026-09-17/anonymous": 1.0, "2026-09-17/signed in": 3.0}
+	if !reflect.DeepEqual(pairs, want) || len(got) != 6 {
+		t.Errorf("every day × series: %v", got)
+	}
+	// Categories too, also with Top N.
+	cols[0] = Column{Role: "dimension", Type: TypeString}
+	c.Top = 5
+	got = Shape(c, cols, [][]*string{{s("x"), s("a"), s("1")}, {s("y"), s("b"), s("1")}})
+	if len(got) != 4 {
+		t.Errorf("categories: %v", got)
 	}
 }

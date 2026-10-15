@@ -30,6 +30,7 @@ type Data struct {
 // Shape turns raw query cells into chart data: numbers parsed, then the chart's
 // sort, Top N (with Others) and value operations applied.
 func Shape(c Chart, cols []Column, raw [][]*string) [][]any {
+	c.NormalizeSort()
 	rows := make([][]any, len(raw))
 	for i, r := range raw {
 		row := make([]any, len(cols))
@@ -61,6 +62,7 @@ func Shape(c Chart, cols []Column, raw [][]*string) [][]any {
 	if c.Top == 0 && (c.Sort == nil || c.Sort.By == "dimension") && c.Type != "pie" && c.Type != "donut" {
 		rows = fillPeriods(c, cols, rows, dim)
 	}
+	rows = fillSeries(c, cols, rows, dim)
 	// Totals per dimension value (over series) decide value order and Top N.
 	totals := map[string]float64{}
 	var order []string
@@ -378,25 +380,6 @@ func fillPeriods(c Chart, cols []Column, rows [][]any, dim int) [][]any {
 	if ser < 0 {
 		series = []any{nil}
 	}
-	fields := append(slices.Clone(c.Value), c.Secondary...)
-	empty := func(label string, s any) []any {
-		row := make([]any, len(cols))
-		row[dim] = label
-		if ser >= 0 {
-			row[ser] = s
-		}
-		vi := 0
-		for j, col := range cols {
-			if col.Role != "value" && col.Role != "secondary" {
-				continue
-			}
-			if vi < len(fields) && slices.Contains([]string{"sum", "count", "count_distinct"}, fields[vi].Aggregate) {
-				row[j] = 0.0
-			}
-			vi++
-		}
-		return row
-	}
 	step := 24 * time.Hour
 	if bucket == "hour" {
 		step = time.Hour
@@ -409,9 +392,65 @@ func fillPeriods(c Chart, cols []Column, rows [][]any, dim int) [][]any {
 		}
 		have[label] = true
 		for _, s := range series {
-			rows = append(rows, empty(label, s))
+			rows = append(rows, emptyRow(c, cols, dim, ser, label, s))
 		}
 		added++
+	}
+	return rows
+}
+
+// emptyRow is a group with no source rows: sums and counts are 0, other
+// aggregates empty.
+func emptyRow(c Chart, cols []Column, dim, ser int, dimValue, serValue any) []any {
+	fields := append(slices.Clone(c.Value), c.Secondary...)
+	row := make([]any, len(cols))
+	row[dim] = dimValue
+	if ser >= 0 {
+		row[ser] = serValue
+	}
+	vi := 0
+	for j, col := range cols {
+		if col.Role != "value" && col.Role != "secondary" {
+			continue
+		}
+		if vi < len(fields) && slices.Contains([]string{"sum", "count", "count_distinct"}, fields[vi].Aggregate) {
+			row[j] = 0.0
+		}
+		vi++
+	}
+	return row
+}
+
+// fillSeries gives every dimension value a row for every series, so a client
+// stacking series never meets a hole.
+func fillSeries(c Chart, cols []Column, rows [][]any, dim int) [][]any {
+	ser := slices.IndexFunc(cols, func(c Column) bool { return c.Role == "series" })
+	if ser < 0 {
+		return rows
+	}
+	var dims, series []any
+	seenD, seenS, have := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	for _, r := range rows {
+		d, s := key(r[dim]), key(r[ser])
+		if !seenD[d] {
+			seenD[d] = true
+			dims = append(dims, r[dim])
+		}
+		if !seenS[s] {
+			seenS[s] = true
+			series = append(series, r[ser])
+		}
+		have[d+"\x01"+s] = true
+	}
+	if len(dims)*len(series) > MaxChartRows {
+		return rows
+	}
+	for _, d := range dims {
+		for _, s := range series {
+			if !have[key(d)+"\x01"+key(s)] {
+				rows = append(rows, emptyRow(c, cols, dim, ser, d, s))
+			}
+		}
 	}
 	return rows
 }
