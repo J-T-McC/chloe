@@ -117,6 +117,14 @@ refuse them.
   unless `ttl` is given); `redis_edit` changes elements of one collection, creating it when missing, and refuses if
   the key changed type while waiting for approval. `redis_delete` takes at most 1000 keys (UNLINK); there's no
   delete by pattern, and no FLUSHDB.
+- After approval the key is WATCHed and its type checked against what was approved before MULTI/EXEC, so a key
+  created, deleted or retyped by someone else while the dialog was open, or written to during the check, aborts the
+  write ("changed while waiting for approval"). Changes of the same type in that window aren't detected: `redis_set`
+  still replaces the whole value and `redis_edit`'s changes are relative to whatever is there.
+- Summaries quote the key, so a key's text can't read as part of the sentence. Approvals list the first 20
+  commands and cut each value at 4 KB; the summary always gives the full count.
+- Reads have only Chloe's 30 s client timeout: Redis has no server-side limit, so `HGETALL` or `SMEMBERS` on a huge
+  key can stall a single-threaded server for everyone. This is the same trust as `run_query`.
 - Monitor (capability) covers Redis too: `list_sessions` (CLIENT LIST), `server_status` (INFO, with the section as
   description), `server_variables` (CONFIG GET, with passwords hidden), `kill_session` (CLIENT KILL; no
   `query_only`).
@@ -183,7 +191,21 @@ There's no separate `test_connection` tool: it would let an agent probe hosts an
   stays a manual Synchronize to Database or a query tab.
 - MySQL, MariaDB and PostgreSQL; models don't support SQLite.
 
-## Window (Tools > MCP Server…, and the titlebar MCP button)
+### MongoDB (planned)
+Filters, sorts, projections, pipelines and documents arrive as JSON (Extended JSON for `$oid`, `$date`…) and are
+never evaluated as JavaScript in Chloe. Guards, checked recursively before anything is sent:
+- No server-side JavaScript: `$where`, `$function` and `$accumulator` are refused anywhere in a filter, pipeline or
+  update.
+- Updates take operator documents only (`$set`, `$inc`…); pipeline-style updates and whole-document replacement
+  through the update tool are refused.
+- Read tools refuse the writing stages `$out` and `$merge`, also inside `$facet`, `$lookup` and `$unionWith`
+  pipelines; the admin stages `$currentOp`, `$listSessions` and `$listLocalSessions`; and a `$lookup`,
+  `$graphLookup` or `$unionWith` whose source names another database.
+- Every command carries `maxTimeMS` (30 s), so the server stops it rather than only Chloe giving up.
+- Update and delete first collect the matching `_id`s (capped), the user approves that count, and the write runs
+  with `{$and: [filter, {_id: {$in: approved}}]}`, so it can never touch a document that wasn't approved.
+
+
 A tab like the History Log:
 - Toolbar: **Run MCP server**, **HTTP on port** (with the port), and the status (HTTP URL and/or the bridge).
 - **Copy Config** per client: Claude Code (bridge or HTTP), JSON with the bridge (Claude Desktop, `.mcp.json`,

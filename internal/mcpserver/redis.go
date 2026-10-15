@@ -506,13 +506,13 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 				ttl = *in.TTL
 			}
 			var cmds [][]string
-			summary := fmt.Sprintf("Create %s %s in %s", in.Type, redisText(k, 100), t.dbName())
+			summary := fmt.Sprintf("Create %s %s in %s", in.Type, showKey(k), t.dbName())
 			if exists {
 				cmds = append(cmds, []string{"DEL", k})
 				length := redisLength(ctx, t.cl, k, old)
-				summary = fmt.Sprintf("Replace %s %s (%s) with a %s in %s", old, redisText(k, 100), plural(length, "element"), in.Type, t.dbName())
+				summary = fmt.Sprintf("Replace %s %s (%s) with a %s in %s", old, showKey(k), plural(length, "element"), in.Type, t.dbName())
 				if old == "string" {
-					summary = fmt.Sprintf("Replace string %s with a %s in %s", redisText(k, 100), in.Type, t.dbName())
+					summary = fmt.Sprintf("Replace string %s with a %s in %s", showKey(k), in.Type, t.dbName())
 				}
 			}
 			cmds = append(cmds, write...)
@@ -523,7 +523,7 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 			if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.dbName(), Table: k, Summary: summary, SQL: c.act.SQL, Rows: n}); err != nil {
 				return RedisChangedOut{}, err
 			}
-			if err := runTx(ctx, t.cl, cmds); err != nil {
+			if err := runTx(ctx, t.cl, k, old, cmds); err != nil {
 				return RedisChangedOut{}, err
 			}
 			c.act.Rows = n
@@ -558,16 +558,10 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 			}
 			c.act.SQL = shownCommands(cmds)
 			if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.dbName(), Table: k,
-				Summary: fmt.Sprintf("%s %s %s in %s (%s)", verb, typ, redisText(k, 100), t.dbName(), plural(n, "element")), SQL: c.act.SQL, Rows: n}); err != nil {
+				Summary: fmt.Sprintf("%s %s %s in %s (%s)", verb, typ, showKey(k), t.dbName(), plural(n, "element")), SQL: c.act.SQL, Rows: n}); err != nil {
 				return RedisChangedOut{}, err
 			}
-			// The key must still be the type the commands were built for.
-			if now, err := t.cl.Type(ctx, k).Result(); err != nil {
-				return RedisChangedOut{}, err
-			} else if now != old {
-				return RedisChangedOut{}, fmt.Errorf("key %q changed type (now %s) while waiting for approval; nothing was done", redisText(k, 200), now)
-			}
-			if err := runTx(ctx, t.cl, cmds); err != nil {
+			if err := runTx(ctx, t.cl, k, old, cmds); err != nil {
 				return RedisChangedOut{}, err
 			}
 			c.act.Rows = n
@@ -628,22 +622,24 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 			}
 			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
 			defer cancel()
-			if n, err := t.cl.Exists(ctx, k).Result(); err != nil {
+			old, err := t.cl.Type(ctx, k).Result()
+			if err != nil {
 				return RedisChangedOut{}, err
-			} else if n == 0 {
+			}
+			if old == "none" {
 				return RedisChangedOut{}, fmt.Errorf("no key %q in db%d", redisText(k, 200), t.db)
 			}
 			cmd := []string{"PERSIST", k}
-			summary := fmt.Sprintf("Remove the expiry of %s in %s", redisText(k, 100), t.dbName())
+			summary := fmt.Sprintf("Remove the expiry of %s in %s", showKey(k), t.dbName())
 			if in.TTL > 0 {
 				cmd = []string{"EXPIRE", k, strconv.FormatInt(in.TTL, 10)}
-				summary = fmt.Sprintf("Expire %s in %s after %ds", redisText(k, 100), t.dbName(), in.TTL)
+				summary = fmt.Sprintf("Expire %s in %s after %ds", showKey(k), t.dbName(), in.TTL)
 			}
 			c.act.SQL = quoteArgs(cmd...)
 			if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.dbName(), Table: k, Summary: summary, SQL: c.act.SQL, Rows: 1}); err != nil {
 				return RedisChangedOut{}, err
 			}
-			if err := t.cl.Do(ctx, toAny(cmd)...).Err(); err != nil {
+			if err := runTx(ctx, t.cl, k, old, [][]string{cmd}); err != nil {
 				return RedisChangedOut{}, err
 			}
 			c.act.Rows = 1
@@ -889,16 +885,40 @@ func editCommands(k, old string, in RedisEditArgs) (string, [][]string, int64, e
 	return typ, cmds, n, nil
 }
 
-// runTx runs commands in MULTI/EXEC, so they apply together or not at all.
-func runTx(ctx context.Context, cl *redis.Client, cmds [][]string) error {
-	_, err := cl.TxPipelined(ctx, func(p redis.Pipeliner) error {
-		for _, c := range cmds {
-			p.Do(ctx, toAny(c)...)
+// errKeyChanged reports a key that changed between the approval and the write.
+func errKeyChanged(k string) error {
+	return fmt.Errorf("key %s changed while waiting for approval, so nothing was done; read it again before retrying", showKey(k))
+}
+
+// runTx runs commands in MULTI/EXEC, so they apply together or not at all. The
+// key is watched from before its type is checked against old (the type it had
+// when the commands were approved; "none" for a missing key), so a write by
+// anyone else in between aborts the transaction instead of mixing with it.
+func runTx(ctx context.Context, cl *redis.Client, k, old string, cmds [][]string) error {
+	err := cl.Watch(ctx, func(tx *redis.Tx) error {
+		now, err := tx.Type(ctx, k).Result()
+		if err != nil {
+			return err
 		}
-		return nil
-	})
+		if now != old {
+			return errKeyChanged(k)
+		}
+		_, err = tx.TxPipelined(ctx, func(p redis.Pipeliner) error {
+			for _, c := range cmds {
+				p.Do(ctx, toAny(c)...)
+			}
+			return nil
+		})
+		return err
+	}, k)
+	if errors.Is(err, redis.TxFailedErr) {
+		return errKeyChanged(k)
+	}
 	return err
 }
+
+// showKey quotes a key for a summary line, so its text can't read as part of the sentence.
+func showKey(k string) string { return strconv.Quote(redisText(k, 100)) }
 
 // --- monitor --------------------------------------------------------------------------
 

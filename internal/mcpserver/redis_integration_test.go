@@ -117,7 +117,7 @@ func TestIntegrationRedisTools(t *testing.T) {
 		t.Fatalf("set hash: %v", v)
 	}
 	f.call(t, "redis_set", at(map[string]any{"key": "user:1", "type": "list", "value": []any{"x"}}), "")
-	if a := f.appr.last(); !strings.Contains(a.Summary, "Replace hash user:1 (2 elements) with a list") || !strings.Contains(a.SQL, `DEL "user:1"`) {
+	if a := f.appr.last(); !strings.Contains(a.Summary, `Replace hash "user:1" (2 elements) with a list`) || !strings.Contains(a.SQL, `DEL "user:1"`) {
 		t.Fatalf("approval: %+v", a)
 	}
 	f.call(t, "redis_edit", at(map[string]any{"key": "queue", "set_fields": map[string]any{"a": "1"}}), "is a list, not a hash")
@@ -144,6 +144,24 @@ func TestIntegrationRedisTools(t *testing.T) {
 	if out := f.call(t, "redis_delete", at(map[string]any{"keys": []any{"greeting", "queue"}}), ""); out["changed"].(float64) != 2 {
 		t.Fatalf("delete: %v", out)
 	}
+
+	// A key written by someone else while the dialog is open isn't overwritten.
+	kv, _ := f.m.Redis(f.conn)
+	f.appr.mu.Lock()
+	f.appr.during = func() { kv.DB(redisDB).Set(context.Background(), "late", "theirs", 0) }
+	f.appr.mu.Unlock()
+	f.call(t, "redis_set", at(map[string]any{"key": "late", "type": "hash", "value": map[string]any{"a": "1"}}), "changed while waiting for approval")
+	f.appr.mu.Lock()
+	f.appr.during = func() { kv.DB(redisDB).RPush(context.Background(), "late", "x") } // wrong type now
+	f.appr.mu.Unlock()
+	kv.DB(redisDB).Del(context.Background(), "late")
+	f.call(t, "redis_edit", at(map[string]any{"key": "late", "set_fields": map[string]any{"a": "1"}}), "changed while waiting for approval")
+	if typ := kv.DB(redisDB).Type(context.Background(), "late").Val(); typ != "list" {
+		t.Fatalf("late is a %s", typ)
+	}
+	f.appr.mu.Lock()
+	f.appr.during = nil
+	f.appr.mu.Unlock()
 	f.call(t, "redis_set", map[string]any{"connection": "cache", "db": 8, "key": "x", "type": "string", "value": "1"}, "can only read")
 }
 

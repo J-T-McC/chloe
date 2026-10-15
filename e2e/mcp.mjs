@@ -179,7 +179,7 @@ await step("redis write waits for approval", async () => {
   const pending = tool("redis_edit", { connection: "cache", key: "user:1", set_fields: { visits: 13 }, delete_fields: ["email"] });
   await page.getByRole("dialog", { name: "Approve AI change" }).waitFor();
   const body = await page.locator(".mcp-approval").innerText();
-  if (!body.includes("change hash user:1 in db0 (2 elements)") || !body.includes('HSET "user:1" "visits" "13"') || !body.includes('HDEL "user:1" "email"')) throw new Error(body);
+  if (!body.includes('change hash "user:1" in db0 (2 elements)') || !body.includes('HSET "user:1" "visits" "13"') || !body.includes('HDEL "user:1" "email"')) throw new Error(body);
   await shot("mcp-redis-approval");
   await page.getByRole("button", { name: "Approve" }).click();
   const r = await pending;

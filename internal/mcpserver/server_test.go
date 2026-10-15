@@ -38,15 +38,19 @@ type approver struct {
 	mu       sync.Mutex
 	answer   bool
 	password string
-	silent   bool // never answer, like a user who's away
+	silent   bool   // never answer, like a user who's away
+	during   func() // runs while the dialog is open, like a change by someone else
 	asked    []mcpserver.ApprovalRequest
 }
 
 func (a *approver) Approve(ctx context.Context, r mcpserver.ApprovalRequest) mcpserver.Answer {
 	a.mu.Lock()
 	a.asked = append(a.asked, r)
-	silent := a.silent
+	silent, during := a.silent, a.during
 	a.mu.Unlock()
+	if during != nil {
+		during()
+	}
 	if silent {
 		<-ctx.Done()
 		return mcpserver.Answer{}
