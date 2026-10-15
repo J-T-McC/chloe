@@ -4104,3 +4104,40 @@ table.mapping select {
   word-break: break-word;
   user-select: text;
 }
+
+.mcp-group td:first-child {
+  font-weight: 500;
+}
+
+.mcp-folder {
+  color: var(--text-3);
+  vertical-align: -2px;
+}
+
+.mcp-in-group {
+  padding-left: 22px !important;
+}
+
+.mcp-db.mcp-in-group {
+  padding-left: 58px !important;
+}
+
+.mcp-form .mcp-row input[list] {
+  width: 200px;
+}
+
+.mcp-approval-password {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.mcp-approval-password input {
+  flex: 1;
+}
+
+.mcp-approval-warning {
+  color: var(--warn);
+  margin: 8px 0 0;
+}

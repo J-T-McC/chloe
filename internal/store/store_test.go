@@ -221,3 +221,47 @@ func TestVersion1SortsByGroupThenName(t *testing.T) {
 		t.Fatalf("%v %v", got, s.Groups())
 	}
 }
+
+func TestMCPGroupAccessFollowsGroups(t *testing.T) {
+	s, err := Open(t.TempDir(), &MemorySecrets{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.Save(model.Connection{Name: "a", Type: model.SQLite, Group: "Dev"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ep := MCPEndpoint{ID: "e", Name: "e", Groups: map[string]MCPLevel{"Dev": MCPWrite}, ConnectionGroup: "Dev",
+		Access: map[string]MCPConnAccess{c.ID: {Level: MCPInherit, Databases: map[string]MCPLevel{"audit": MCPOff}}}}
+	if err := s.SetMCP(MCPSettings{Endpoints: []MCPEndpoint{ep}}); err != nil {
+		t.Fatal(err)
+	}
+	if l := ep.ConnLevel(c.ID, "Dev"); l != MCPWrite {
+		t.Fatalf("inherit: %q", l)
+	}
+	if l := ep.DBLevel(c.ID, "Dev", "audit"); l != MCPOff {
+		t.Fatalf("db override: %q", l)
+	}
+	if l := ep.ConnLevel("other", ""); l != MCPOff {
+		t.Fatalf("top level: %q", l)
+	}
+	var hooked MCPSettings
+	s.OnMCPChange(func(m MCPSettings) { hooked = m })
+	if err := s.RenameGroup("Dev", "Staging"); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := s.MCP()
+	if e := m.Endpoints[0]; e.Groups["Staging"] != MCPWrite || e.ConnectionGroup != "Staging" || len(e.Groups) != 1 {
+		t.Fatalf("rename: %+v", e)
+	}
+	if hooked.Endpoints == nil {
+		t.Fatal("hook not called")
+	}
+	if err := s.DeleteGroup("Staging"); err != nil {
+		t.Fatal(err)
+	}
+	m, _ = s.MCP()
+	if e := m.Endpoints[0]; len(e.Groups) != 0 || e.NewConnectionGroup() != DefaultMCPConnectionGroup {
+		t.Fatalf("delete: %+v", e)
+	}
+}

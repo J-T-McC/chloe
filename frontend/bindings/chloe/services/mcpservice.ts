@@ -37,10 +37,11 @@ export function Pending(): $CancellablePromise<mcpserver$0.ApprovalRequest[] | n
 }
 
 /**
- * Resolve answers an approval request.
+ * Resolve answers an approval request. password is what the user typed for a
+ * new connection ("" keeps the agent's).
  */
-export function Resolve(id: string, approved: boolean): $CancellablePromise<void> {
-    return $Call.ByID(2806445822, id, approved);
+export function Resolve(id: string, approved: boolean, password: string): $CancellablePromise<void> {
+    return $Call.ByID(2806445822, id, approved, password);
 }
 
 /**

@@ -12,6 +12,8 @@ export function ApprovalHost() {
   const req = useApprovals((s) => s.queue[0]);
   const waiting = useApprovals((s) => s.queue.length);
   const [busy, setBusy] = useState(false);
+  const [password, setPassword] = useState("");
+  useEffect(() => setPassword(""), [req?.id]);
 
   useEffect(() => {
     MCP.Pending()
@@ -28,7 +30,7 @@ export function ApprovalHost() {
   if (!req) return null;
   const answer = async (approved: boolean) => {
     setBusy(true);
-    await MCP.Resolve(req.id, approved).catch(() => {});
+    await MCP.Resolve(req.id, approved, approved ? password : "").catch(() => {});
     drop(req.id);
     setBusy(false);
   };
@@ -36,16 +38,32 @@ export function ApprovalHost() {
   return (
     <div className="modal-backdrop">
       <div className="modal mcp-approval" role="dialog" aria-label="Approve AI change" onKeyDown={(e) => e.key === "Escape" && answer(false)}>
-        <div className="modal-title">Allow this change?</div>
+        <div className="modal-title">{req.kind === "connection" ? "Add this connection?" : "Allow this change?"}</div>
         <div className="modal-body">
           <p className="dialog-message">
             <strong>{req.endpoint}</strong> wants to <strong>{req.summary.charAt(0).toLowerCase() + req.summary.slice(1)}</strong>
           </p>
-          <div className="mcp-approval-target">
-            {req.connection}
-            {req.database ? ` › ${req.database}` : ""}
-          </div>
+          {req.kind !== "connection" && (
+            <div className="mcp-approval-target">
+              {req.connection}
+              {req.database ? ` › ${req.database}` : ""}
+            </div>
+          )}
           <pre className="mcp-approval-sql">{req.sql}</pre>
+          {req.askPassword && (
+            <label className="mcp-approval-password">
+              Password
+              <input
+                type="password"
+                aria-label="Connection password"
+                autoComplete="off"
+                value={password}
+                placeholder={req.hasPassword ? "Leave empty to use the one the agent sent" : ""}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </label>
+          )}
+          {req.warning && <p className="mcp-approval-warning">{req.warning}</p>}
           <p className="hint">The agent waits for your answer. With no answer in two minutes the change is declined.{waiting > 1 ? ` ${waiting - 1} more waiting.` : ""}</p>
         </div>
         <div className="modal-footer">

@@ -18,8 +18,10 @@ discussion with the user (2026-10-14), not from reverse engineering.
 ## Endpoints
 An endpoint is a named access profile (e.g. "Claude Code – dev"):
 - **Name**, **Enabled**, **Token** (Regenerate revokes the old one at once; Copy Config puts it in a client snippet).
-- **Connection access**: Off / Read / Read-write per connection, with an optional override per database.
-  Connections start Off, so a new connection is never exposed until it is added.
+- **Access** follows the connection tree: Off / Read / Read-write per group, per connection ("Same as group" by
+  default) and per database ("Same as connection" by default); the most specific setting wins. Connections outside
+  a group, and groups, start Off, so a new connection is only exposed through a group you've opened up.
+  Renaming a group keeps its access; deleting it removes it (its connections move to the top level, which is Off).
 - **Danger mode** ("Run writes without asking"): writes run without the approval dialog. Every other rule still
   applies. Turning it on asks for confirmation; a titlebar indicator shows while any endpoint has it on.
 - **Capabilities** (each opt-in): Create connections, Saved queries and query tabs, Monitor, ER models.
@@ -74,9 +76,12 @@ parameters. A connection the endpoint can use is opened on demand (it needs a sa
 (opens a query tab with the agent's SQL for the user to review and run; it never runs it).
 
 ### Create connections (capability)
-`create_connection` (engine, host, port, user, database, options or a URL; SQLite file path) always asks.
-New connections go into the "Created by AI" group; the creating endpoint gets the access set on the endpoint
-(default Read); other endpoints see it as Off. `test_connection` tries settings without saving them.
+`create_connection` (a URL, or engine, host, port, user, database, sslmode; or an existing SQLite file) always asks,
+even in danger mode. The dialog shows the settings and has a password field, so the password needn't pass through
+the agent; a SQLite file gets a warning naming the file. Chloe tests the connection and saves it only if it opens.
+No SSH tunnels, client certificates or socket files. New connections go into the endpoint's group for new
+connections ("Created by AI" by default, created when needed) and get that group's access, for every endpoint.
+There's no separate `test_connection` tool: it would let an agent probe hosts and ports without asking.
 
 ### ER models (capability)
 `list_models`, `get_model`, `create_model_from_database`, `edit_model`, `generate_sql` (DDL as text, never run).

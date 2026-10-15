@@ -1,6 +1,6 @@
 // MCP server: endpoint setup in the UI, tool calls over HTTP, approval dialog, danger mode, activity log.
 import { chromium } from "playwright";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 const out = process.argv[2];
 const dir = process.env.LITE;
 const PORT = 47199; // not the default, so a running desktop Chloe can't collide
@@ -165,6 +165,41 @@ await step("regenerate revokes the old token", async () => {
   await page.waitForTimeout(300);
   if ((await rpc("tools/list", {}, old)).status !== 401) throw new Error("old token still works");
   if ((await rpc("tools/list", {})).status !== 200) throw new Error("new token refused");
+});
+
+await step("agent creates a connection into its group", async () => {
+  writeFileSync(`${dir}/made.db`, ""); // an empty file is an empty SQLite database
+  const before = (await rpc("tools/list", {})).result.tools.map((t) => t.name);
+  if (before.includes("create_connection")) throw new Error("offered without the capability");
+  await page.getByLabel("Create connections").check();
+  await page.getByLabel("Group for new connections").waitFor();
+  await page.getByLabel("Access to group Created by AI").first().selectOption("read");
+  await page.waitForTimeout(200);
+  const pending = tool("create_connection", { path: `${dir}/made.db`, name: "made" });
+  await page.getByRole("dialog", { name: "Approve AI change" }).waitFor();
+  const body = await page.locator(".mcp-approval").innerText();
+  if (!body.includes("Add this connection?") || !body.includes(`${dir}/made.db`) || !body.includes("Group:    Created by AI (this endpoint: read)")) throw new Error(body);
+  await shot("mcp-create-connection");
+  await page.getByRole("button", { name: "Approve" }).click();
+  const r = await pending;
+  if (r.isError || r.structuredContent.access !== "read") throw new Error(text(r));
+  await row(/Created by AI/).first().waitFor();
+  await row(/made$/).first().waitFor();
+  const conns = await tool("list_connections", {});
+  if (!text(conns).includes('"group":"Created by AI"')) throw new Error(text(conns));
+});
+
+await step("connection inherits, then overrides, group access", async () => {
+  const sel = page.getByLabel("Access to made", { exact: true });
+  await sel.waitFor();
+  if ((await sel.inputValue()) !== "inherit" || !(await sel.locator("option:checked").innerText()).includes("Same as group (Read)")) throw new Error("not inheriting");
+  await page.getByLabel("Access to group Created by AI").first().selectOption("");
+  await page.waitForTimeout(200);
+  if (text(await tool("list_connections", {})).includes('"made"')) throw new Error("still visible with the group off");
+  await sel.selectOption("read");
+  await page.waitForTimeout(200);
+  if (!text(await tool("list_connections", {})).includes('"name":"made"')) throw new Error("own level ignored");
+  await shot("mcp-groups");
 });
 
 await step("stop server", async () => {

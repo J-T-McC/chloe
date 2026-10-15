@@ -1,6 +1,6 @@
 // MCP Server: endpoints (token, access per connection and database, danger mode)
 // and the activity log of tool calls. See docs/specs/mcp-server.md.
-import { Bot, ChevronDown, ChevronRight, Copy, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Bot, ChevronDown, ChevronRight, Copy, Folder, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { create } from "zustand";
 import { DBType, Events, Explorer, MCP, MCPLevel, arr, errorText, type MCPActivity, type MCPEndpoint, type MCPSettings, type MCPStatus, copyText } from "../../api";
@@ -28,6 +28,9 @@ export function listenMCP() {
   MCP.Status().then((status) => useMCP.setState({ status })).catch(() => {});
   MCP.Activity().then((a) => useMCP.setState({ activity: arr(a) })).catch(() => {});
   Events.On("mcp:status", (ev) => useMCP.setState({ status: ev.data }));
+  // A group rename moves its access; an agent can add connections.
+  Events.On("mcp:settings", (ev) => useMCP.setState({ settings: ev.data }));
+  Events.On("mcp:connection-added", () => useApp.getState().loadConnections());
   Events.On("mcp:activity", (ev) => useMCP.setState((s) => ({ activity: [ev.data, ...s.activity].slice(0, 1000) })));
 }
 
@@ -187,8 +190,6 @@ function EndpointDetail({ ep, url, update }: { ep: MCPEndpoint; url: string; upd
   const [name, setName] = useState(ep.name);
   const [client, setClient] = useState<Client>("claude-code");
   const [copied, setCopied] = useState("");
-  const connections = useApp((s) => s.connections);
-  const sqlConns = connections.filter((c) => SQL_ENGINES.includes(c.type));
   const masked = ep.token.slice(0, 10) + "…" + ep.token.slice(-4);
 
   const copy = async (what: string, text: string) => {
@@ -259,23 +260,62 @@ function EndpointDetail({ ep, url, update }: { ep: MCPEndpoint; url: string; upd
       </div>
       <div className="pane-title mcp-access-title">Connection Access</div>
       <div className="mcp-access">
-        <table>
-          <thead>
-            <tr>
-              <th>Connection</th>
-              <th>Access</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sqlConns.map((c) => (
-              <AccessRows key={c.id} connId={c.id} ep={ep} update={update} />
-            ))}
-          </tbody>
-        </table>
-        {!sqlConns.length && <div className="empty-hint">No MySQL, PostgreSQL or SQLite connections yet.</div>}
-        <p className="hint">MongoDB and Redis connections aren't available over MCP yet.</p>
+        <AccessTable ep={ep} update={update} />
+        <p className="hint">Connections take their group's access unless set otherwise. MongoDB and Redis connections aren't available over MCP yet.</p>
+      </div>
+      <div className="pane-title mcp-access-title">Capabilities</div>
+      <div className="form mcp-form">
+        <label className="check">
+          <input
+            type="checkbox"
+            aria-label="Create connections"
+            checked={ep.capabilities.createConnections}
+            onChange={(e) => update({ ...ep, capabilities: { ...ep.capabilities, createConnections: e.target.checked } })}
+          />
+          Create connections
+        </label>
+        {ep.capabilities.createConnections && <NewConnectionGroup ep={ep} update={update} />}
       </div>
     </div>
+  );
+}
+
+const DEFAULT_GROUP = "Created by AI";
+
+function NewConnectionGroup({ ep, update }: { ep: MCPEndpoint; update(e: MCPEndpoint): void }) {
+  const groups = useApp((s) => s.groups);
+  const group = ep.connectionGroup || DEFAULT_GROUP;
+  const [value, setValue] = useState(group);
+  useEffect(() => setValue(group), [group]);
+  const level = ep.groups?.[group] ?? MCPLevel.MCPOff;
+  const apply = () => {
+    const v = value.trim() || DEFAULT_GROUP;
+    if (v !== group) update({ ...ep, connectionGroup: v === DEFAULT_GROUP ? "" : v });
+    else setValue(group);
+  };
+  return (
+    <>
+      <div className="mcp-row">
+        <span className="mcp-label">Group</span>
+        <input aria-label="Group for new connections" list="mcp-groups" value={value} onChange={(e) => setValue(e.target.value)} onBlur={apply} onKeyDown={(e) => e.key === "Enter" && apply()} />
+        <datalist id="mcp-groups">
+          {[...new Set([DEFAULT_GROUP, ...groups])].map((g) => (
+            <option key={g} value={g} />
+          ))}
+        </datalist>
+        <select aria-label={`Access to group ${group}`} value={level} onChange={(e) => update({ ...ep, groups: { ...ep.groups, [group]: e.target.value as MCPLevel } })}>
+          {LEVELS.map(([v, l]) => (
+            <option key={l} value={v}>
+              {l}
+            </option>
+          ))}
+        </select>
+      </div>
+      <p className="hint">
+        Agents can add MySQL, MariaDB, PostgreSQL and SQLite connections to this group. You review each one, even in danger mode, and can type its password yourself. It gets the group's access, which also
+        applies to other endpoints that have access to the group.
+      </p>
+    </>
   );
 }
 
@@ -285,12 +325,80 @@ const LEVELS: Array<[MCPLevel, string]> = [
   [MCPLevel.MCPWrite, "Read-write"],
 ];
 
-function AccessRows({ connId, ep, update }: { connId: string; ep: MCPEndpoint; update(e: MCPEndpoint): void }) {
+const levelName = (l: MCPLevel | undefined) => LEVELS.find(([v]) => v === (l ?? MCPLevel.MCPOff))?.[1] ?? "Off";
+
+/** Groups with their connections, then top-level connections. */
+function AccessTable({ ep, update }: { ep: MCPEndpoint; update(e: MCPEndpoint): void }) {
+  const connections = useApp((s) => s.connections);
+  const groups = useApp((s) => s.groups);
+  const sql = connections.filter((c) => SQL_ENGINES.includes(c.type));
+  // Groups set on the endpoint show even when empty (e.g. the new-connection group).
+  const allGroups = [...new Set([...groups, ...Object.keys(ep.groups ?? {})])];
+  const top = sql.filter((c) => !c.group);
+  if (!sql.length && !allGroups.length) return <div className="empty-hint">No MySQL, PostgreSQL or SQLite connections yet.</div>;
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Connection</th>
+          <th>Access</th>
+        </tr>
+      </thead>
+      <tbody>
+        {allGroups.map((g) => (
+          <GroupRows key={g} group={g} conns={sql.filter((c) => c.group === g).map((c) => c.id)} ep={ep} update={update} />
+        ))}
+        {top.map((c) => (
+          <AccessRows key={c.id} connId={c.id} ep={ep} update={update} />
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function GroupRows({ group, conns, ep, update }: { group: string; conns: string[]; ep: MCPEndpoint; update(e: MCPEndpoint): void }) {
+  const [expanded, setExpanded] = useState(true);
+  const level = ep.groups?.[group] ?? MCPLevel.MCPOff;
+  return (
+    <>
+      <tr className="mcp-group">
+        <td>
+          <button className="icon mcp-expand" onClick={() => setExpanded(!expanded)} aria-label={`Connections in ${group}`}>
+            {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          </button>
+          <Folder size={14} className="mcp-folder" /> {group}
+        </td>
+        <td>
+          <select aria-label={`Access to group ${group}`} value={level} onChange={(e) => update({ ...ep, groups: { ...ep.groups, [group]: e.target.value as MCPLevel } })}>
+            {LEVELS.map(([v, l]) => (
+              <option key={l} value={v}>
+                {l}
+              </option>
+            ))}
+          </select>
+        </td>
+      </tr>
+      {expanded && conns.map((id) => <AccessRows key={id} connId={id} ep={ep} update={update} groupLevel={level} />)}
+      {expanded && !conns.length && (
+        <tr>
+          <td colSpan={2} className="mcp-db muted">
+            No connections yet
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function AccessRows({ connId, ep, update, groupLevel }: { connId: string; ep: MCPEndpoint; update(e: MCPEndpoint): void; groupLevel?: MCPLevel }) {
   const conn = useApp((s) => s.connections.find((c) => c.id === connId))!;
   const [expanded, setExpanded] = useState(false);
   const [dbs, setDbs] = useState<string[] | null>(null);
   const [error, setError] = useState("");
-  const access = ep.access?.[connId] ?? { level: MCPLevel.MCPOff };
+  const inGroup = groupLevel !== undefined;
+  const access = ep.access?.[connId] ?? { level: MCPLevel.MCPInherit };
+  const inherits = access.level === MCPLevel.MCPInherit;
+  const effective = inherits ? (groupLevel ?? MCPLevel.MCPOff) : access.level;
   const overrides = access.databases ?? {};
 
   const setAccess = (a: typeof access) => update({ ...ep, access: { ...ep.access, [connId]: a } });
@@ -308,20 +416,30 @@ function AccessRows({ connId, ep, update }: { connId: string; ep: MCPEndpoint; u
   };
   // Databases with overrides show even before the list loads (or if they're gone).
   const shown = useMemo(() => [...new Set([...(dbs ?? []), ...Object.keys(overrides)])], [dbs, overrides]);
+  // Top-level connections have no group to inherit from: unset means Off.
+  const value = inherits ? (inGroup ? "inherit" : "off") : access.level || "off";
 
   return (
     <>
       <tr>
-        <td>
+        <td className={inGroup ? "mcp-in-group" : ""}>
           <button className="icon mcp-expand" onClick={expand} title="Access per database" aria-label={`Databases of ${conn.name}`}>
             {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
           </button>
           <ConnIcon type={conn.type} preset={conn.preset} /> {conn.name}
         </td>
         <td>
-          <select aria-label={`Access to ${conn.name}`} value={access.level} onChange={(e) => setAccess({ ...access, level: e.target.value as MCPLevel })}>
+          <select
+            aria-label={`Access to ${conn.name}`}
+            value={value}
+            onChange={(e) => {
+              const v = e.target.value;
+              setAccess({ ...access, level: (v === "off" ? MCPLevel.MCPOff : v) as MCPLevel });
+            }}
+          >
+            {inGroup && <option value="inherit">Same as group ({levelName(groupLevel)})</option>}
             {LEVELS.map(([v, l]) => (
-              <option key={l} value={v}>
+              <option key={l} value={v || "off"}>
                 {l}
               </option>
             ))}
@@ -338,7 +456,7 @@ function AccessRows({ connId, ep, update }: { connId: string; ep: MCPEndpoint; u
       {expanded &&
         shown.map((db) => (
           <tr key={db}>
-            <td className="mcp-db">{db}</td>
+            <td className={"mcp-db" + (inGroup ? " mcp-in-group" : "")}>{db}</td>
             <td>
               <select
                 aria-label={`Access to ${conn.name} ${db}`}
@@ -351,7 +469,7 @@ function AccessRows({ connId, ep, update }: { connId: string; ep: MCPEndpoint; u
                   setAccess({ ...access, databases: next });
                 }}
               >
-                <option value="inherit">Same as connection</option>
+                <option value="inherit">Same as connection ({levelName(effective)})</option>
                 {LEVELS.map(([v, l]) => (
                   <option key={l} value={v || "off"}>
                     {l}
