@@ -1,5 +1,6 @@
 // README screenshots: e2e/run.sh screenshots, then copy e2e/.out/shots/readme-*.png to docs/assets/screenshots/.
 import { chromium } from "playwright";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 const out = process.argv[2];
@@ -197,6 +198,66 @@ await step("mcp approval", async () => {
   await shot("mcp-approval");
   await page.getByRole("button", { name: "Deny" }).click();
   await pending;
+});
+
+// Reporting: an agent builds a dashboard over MCP from a games database dated up to today.
+execFileSync("sqlite3", [
+  `${process.env.LITE}/games.db`,
+  `CREATE TABLE rooms (id INTEGER PRIMARY KEY, game TEXT, created_at TEXT, finished INTEGER);
+   WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 1400),
+   t(i, x) AS (SELECT i, ((i * 7919) % 1400) / 1400.0 FROM n)
+   INSERT INTO rooms SELECT i,
+     CASE i % 9 WHEN 0 THEN 'cats' WHEN 1 THEN 'smear' WHEN 2 THEN 'yacht' WHEN 3 THEN 'yacht' WHEN 4 THEN 'singularity' ELSE 'frontier' END,
+     datetime('now', 'localtime', '-' || CAST(x * x * 56 * 86400 AS INTEGER) || ' seconds'),
+     ((i * 31) % 100) < 58 + 30 * (1 - x) FROM t;`,
+]);
+const mcp = async (name, args) => {
+  const body = await callTool(name, args);
+  const json = JSON.parse(body.startsWith("{") ? body : body.split("\n").find((l) => l.startsWith("data:")).slice(5));
+  if (json.error || json.result?.isError) throw new Error(`${name}: ${body.slice(0, 300)}`);
+  return json.result;
+};
+
+await step("report", async () => {
+  await page.getByRole("button", { name: "Connection" }).first().click();
+  await page.locator(".type-card").filter({ has: page.locator(`span:text-is("SQLite")`) }).click();
+  await field("Connection Name").fill("games");
+  await field("Database File").fill(`${process.env.LITE}/games.db`);
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.getByLabel("Access to games", { exact: true }).selectOption("read");
+  await page.getByLabel("Reports").check();
+  await page.waitForTimeout(300);
+  const w = { workspace: "Game rooms" };
+  await mcp("create_workspace", { name: "Game rooms" });
+  await mcp("create_data_source", { ...w, name: "Rooms", connection: "games", table: "rooms" });
+  const day = [{ field: "created_at", bucket: "day" }];
+  const count = [{ field: "id", aggregate: "count", alias: "Rooms" }];
+  const last = (n, unit) => [{ field: "created_at", op: "in_last", value: [String(n), unit] }];
+  await mcp("create_chart", { ...w, name: "This week", data_source: "Rooms", type: "trend", dimension: [{ field: "created_at", bucket: "week" }], value: count, properties: { sameDays: true } });
+  await mcp("create_chart", { ...w, name: "Rooms, last 30 days", data_source: "Rooms", type: "kpi", value: count, filters: last(30, "day"), properties: { goal: 1000 } });
+  await mcp("create_chart", { ...w, name: "Finish rate", data_source: "Rooms", type: "gauge", value: [{ field: "finished", aggregate: "avg" }], filters: last(7, "day"), properties: { min: 0, max: 1, number: { percent: true } } });
+  await mcp("create_chart", { ...w, name: "Rooms per day", data_source: "Rooms", type: "area", dimension: day, value: count, filters: last(30, "day") });
+  await mcp("create_chart", { ...w, name: "Rooms by game", data_source: "Rooms", type: "hbar", dimension: [{ field: "game" }], value: count, filters: last(30, "day"), properties: { labels: true } });
+  await mcp("create_chart", { ...w, name: "Finish rate by week", data_source: "Rooms", type: "line", dimension: [{ field: "created_at", bucket: "week" }], value: [{ field: "finished", aggregate: "avg", alias: "Finished" }], filters: last(8, "week"), properties: { number: { percent: true }, dateFormat: "MMM D" } });
+  await mcp("create_dashboard", { ...w, name: "Weekly rooms", pages: [{ name: "Overview", size: "16:9", rows: [
+    { height: "M", tiles: [{ chart: "This week", span: 4 }, { chart: "Rooms, last 30 days", span: 4 }, { chart: "Finish rate", span: 4 }] },
+    { height: "M", tiles: [{ chart: "Rooms per day", span: 5 }, { chart: "Rooms by game", span: 3 }, { chart: "Finish rate by week", span: 4 }] },
+  ] }] });
+  await mcp("set_notes", { ...w, dashboard: "Weekly rooms", place: "bottom", markdown: "**Rooms are up on last week** for the same days, and more of them finish. Yacht and Frontier make up most of the month." });
+  await mcp("open_dashboard", { ...w, dashboard: "Weekly rooms" });
+  const dash = page.locator(".bi-dash-editor:visible");
+  await dash.getByTestId("bi-notes").waitFor();
+  await dash.getByTestId("bi-delta").first().waitFor();
+  await page.locator(".tree-row", { hasText: /Redis\s*$/ }).first().locator(".twisty").click();
+  await page.getByRole("button", { name: "Present" }).click();
+  await page.waitForTimeout(1500);
+  await shot("report");
+  await page.keyboard.press("Escape");
+  await mcp("open_chart", { ...w, chart: "Finish rate by week" });
+  await page.locator(".bi-chart-editor:visible .bi-echart svg").waitFor();
+  await page.waitForTimeout(1000);
+  await shot("report-chart");
+  await page.locator(".mcp-button").click();
   await page.getByLabel("Run MCP server").uncheck();
 });
 

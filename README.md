@@ -57,6 +57,33 @@ SQL Server and Oracle are planned. See [docs/ROADMAP.md](docs/ROADMAP.md).
 - Passwords are stored in the OS keychain. On macOS only Chloe's code signature can read them.
 - Connections, saved queries, history and drafts are encrypted at rest with a key held in the keychain.
 
+## Reporting
+
+Chloe includes a BI workspace modelled on Navicat's: turn tables, views and queries into charts, lay them out on
+dashboards, and present or export them.
+
+![A dashboard in Present mode](docs/assets/screenshots/report.png)
+
+- **Data sources.** A table or view (with joined tables) or a read-only query on a MySQL, MariaDB, PostgreSQL or
+  SQLite connection. Read live on every refresh, or as an archive snapshot that stays put until you refresh it.
+  Custom fields add calculated, mapped, concatenated and retyped columns.
+- **Charts.** Drag fields onto shelves: bar, line, area, combined bar and line, pie and donut, waterfall, tornado,
+  treemap, scatter, heatmap, value, trend, KPI, gauge, table and pivot table. Chloe writes the SQL, with dates
+  grouped by period, Top N with Others, running totals and differences, and number and date formats.
+- **Filters and parameters.** Relative dates (the last 30 days, this month, quarter to date) keep reports current.
+  Parameters (`[$days]`) feed filters, source queries, titles and text, and get controls on the dashboard. A trend
+  can compare a week that's still going with the same days of last week.
+- **Dashboards.** Pages of charts, Markdown text and shapes on a 12-column grid, as 16:9 slides or scrolling
+  reports. Clicking a point filters or highlights the page's other charts. Pages can refresh on a timer, be
+  presented full screen, and be exported as PNGs or one PDF.
+- **Workspaces** are `.chloebi` files in a library, with a light or dark theme for every chart.
+
+![The chart designer](docs/assets/screenshots/report-chart.png)
+
+Over [MCP](#mcp-server), an assistant can build the same workspaces, read chart data, export pages to check them,
+and leave notes on a dashboard. The dashboard above was built that way. Details are in
+[docs/specs/bi.md](docs/specs/bi.md).
+
 ## MCP server
 
 Chloe can serve your connections to AI assistants such as Claude Code and Claude Desktop over the
@@ -79,7 +106,10 @@ Chloe can serve your connections to AI assistants such as Claude Code and Claude
   - create connections (always approved; you can type the password into the dialog);
   - read and save queries, and open query tabs with SQL for you to review and run;
   - monitor sessions and server status;
-  - build data models and generate the SQL to apply them.
+  - build data models and generate the SQL to apply them;
+  - build [reports](#reporting): workspaces, data sources, charts and dashboards over the connections it can read.
+    It can read a chart's rows, export pages as PNG or PDF to check them, and write its notes on a dashboard
+    (yours included) without changing your charts. It can only edit what it created.
 - **Activity log.** Every tool call is recorded with its SQL and outcome.
 
 ![Approving an agent's change](docs/assets/screenshots/mcp-approval.png)
