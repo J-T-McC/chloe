@@ -129,6 +129,11 @@ export enum MCPLevel {
 export interface MCPSettings {
     "enabled": boolean;
     "port": number;
+
+    /**
+     * NoHTTP leaves only the socket that the `chloe mcp` stdio bridge uses.
+     */
+    "noHttp"?: boolean;
     "endpoints": MCPEndpoint[] | null;
 }
 

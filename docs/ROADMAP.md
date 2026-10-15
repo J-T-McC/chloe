@@ -71,6 +71,7 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
   unanswered approval is reported as a timeout, not a refusal; SQLite paths checked only after approval
 - [x] Monitor (sessions, status, variables, kill with approval) and saved queries / query tabs (capabilities)
 - [x] ER model tools (capability): list, read, create from a database or a copy, edit agent-created models, generate CREATE or sync SQL, open in Chloe
+- [x] Stdio bridge (`Chloe mcp`) over a user-only Unix socket, so clients need no network port; HTTP can be switched off
 - [ ] MongoDB and Redis tools
 
 Access stays per group, connection and database: no table or column permissions. Without a Chloe-managed

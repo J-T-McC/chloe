@@ -14,6 +14,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -81,6 +83,11 @@ type Status struct {
 	Error   string `json:"error,omitempty"`
 	// Danger is set while the server runs with an enabled danger-mode endpoint.
 	Danger bool `json:"danger"`
+	// HTTP is set while the HTTP listener runs (URL is where).
+	HTTP bool `json:"http"`
+	// Socket is the stdio bridge's socket; Bridge is the command clients launch.
+	Socket string `json:"socket,omitempty"`
+	Bridge string `json:"bridge,omitempty"`
 }
 
 // Events notifies the UI.
@@ -117,12 +124,15 @@ type Server struct {
 	http     *http.Server
 	status   Status
 
+	sock     *socketServer
+	sockPath string
+
 	actMu    sync.Mutex
 	activity []Activity // oldest first
 }
 
 func New(m *core.Manager, approver Approver, events Events) *Server {
-	s := &Server{m: m, approver: approver, events: events, servers: map[string]*mcp.Server{}}
+	s := &Server{m: m, approver: approver, events: events, servers: map[string]*mcp.Server{}, sockPath: filepath.Join(m.Store.Dir(), "mcp.sock")}
 	// Renaming or deleting a group rewrites the endpoints' group access.
 	m.Store.OnMCPChange(func(st store.MCPSettings) {
 		_ = s.apply(st)
@@ -182,8 +192,14 @@ func (s *Server) Save(st store.MCPSettings) error {
 
 func (s *Server) apply(st store.MCPSettings) error {
 	s.mu.Lock()
-	restart := s.http != nil && (!st.Enabled || st.Port != s.settings.Port)
-	start := st.Enabled && (s.http == nil || restart)
+	wantHTTP := st.Enabled && !st.NoHTTP
+	restart := s.http != nil && (!wantHTTP || st.Port != s.settings.Port)
+	startHTTP := wantHTTP && (s.http == nil || restart)
+	startSock := st.Enabled && s.sock == nil
+	var stopSock *socketServer
+	if !st.Enabled {
+		stopSock, s.sock = s.sock, nil
+	}
 	s.settings = st
 	// Servers are rebuilt so a changed endpoint never keeps a stale tool list.
 	s.servers = map[string]*mcp.Server{}
@@ -191,14 +207,32 @@ func (s *Server) apply(st store.MCPSettings) error {
 	if restart {
 		s.http = nil
 	}
+	sock := s.sock
 	s.mu.Unlock()
 	if restart {
 		shutdown(old)
 	}
-	var err error
-	if start {
-		err = s.listen(st.Port)
+	if stopSock != nil {
+		stopSock.close()
 	}
+	if sock != nil {
+		// Bridged sessions of deleted or disabled endpoints end now.
+		sock.drop(func(id string) bool { _, err := s.endpoint(id); return err == nil })
+	}
+	var errs []error
+	if startHTTP {
+		errs = append(errs, s.listen(st.Port))
+	}
+	if startSock {
+		ss, err := s.listenSocket(s.sockPath)
+		errs = append(errs, err)
+		if err == nil {
+			s.mu.Lock()
+			s.sock = ss
+			s.mu.Unlock()
+		}
+	}
+	err := errors.Join(errs...)
 	s.publishStatus(err)
 	return err
 }
@@ -211,14 +245,17 @@ func shutdown(h *http.Server) {
 	}
 }
 
-// Close stops the listener.
+// Close stops the listeners.
 func (s *Server) Close() {
 	s.mu.Lock()
-	h := s.http
-	s.http = nil
+	h, ss := s.http, s.sock
+	s.http, s.sock = nil, nil
 	s.mu.Unlock()
 	if h != nil {
 		h.Close()
+	}
+	if ss != nil {
+		ss.close()
 	}
 }
 
@@ -237,8 +274,12 @@ func (s *Server) listen(port int) error {
 }
 
 func (s *Server) publishStatus(err error) {
+	exe, _ := os.Executable()
 	s.mu.Lock()
-	st := Status{URL: fmt.Sprintf("http://127.0.0.1:%d/mcp", s.settings.Port), Running: s.http != nil}
+	st := Status{URL: fmt.Sprintf("http://127.0.0.1:%d/mcp", s.settings.Port), HTTP: s.http != nil, Running: s.http != nil || s.sock != nil}
+	if s.sock != nil {
+		st.Socket, st.Bridge = s.sock.path, exe
+	}
 	if err != nil {
 		st.Error = err.Error()
 	}

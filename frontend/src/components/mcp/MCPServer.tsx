@@ -92,11 +92,12 @@ export function MCPServer() {
           <input type="checkbox" aria-label="Run MCP server" checked={settings.enabled} onChange={(e) => save({ ...settings, enabled: e.target.checked })} />
           Run MCP server
         </label>
-        <label className="check">
-          Port
-          <input className="mcp-port" aria-label="Port" value={port} onChange={(e) => setPort(e.target.value)} onBlur={applyPort} onKeyDown={(e) => e.key === "Enter" && applyPort()} />
+        <label className="check" title="Clients can also use the bridge (chloe mcp), which needs no network port">
+          <input type="checkbox" aria-label="HTTP" checked={!settings.noHttp} onChange={(e) => save({ ...settings, noHttp: !e.target.checked })} />
+          HTTP on port
+          <input className="mcp-port" aria-label="Port" disabled={settings.noHttp} value={port} onChange={(e) => setPort(e.target.value)} onBlur={applyPort} onKeyDown={(e) => e.key === "Enter" && applyPort()} />
         </label>
-        <span className={"mcp-status" + (status?.error ? " error" : "")}>{status?.error ? status.error : status?.running ? `Listening on ${status.url}` : "Stopped"}</span>
+        <span className={"mcp-status" + (status?.error ? " error" : "")}>{status?.error ? status.error : !status?.running ? "Stopped" : status.http ? `Listening on ${status.url} and the bridge` : "Bridge only (no network port)"}</span>
         <span className="spacer" />
         <div className="seg">
           {(["endpoints", "activity"] as Page[]).map((p) => (
@@ -168,22 +169,29 @@ function Endpoints({ settings, url }: { settings: MCPSettings; url: string }) {
   );
 }
 
-type Client = "claude-code" | "json" | "claude-desktop";
-const CLIENTS: Array<[Client, string]> = [
-  ["claude-code", "Claude Code"],
-  ["json", "JSON (.mcp.json, Cursor, …)"],
-  ["claude-desktop", "Claude Desktop (mcp-remote)"],
+type Client = "claude-code-bridge" | "claude-code" | "json-bridge" | "json" | "claude-desktop";
+const CLIENTS: Array<[Client, string, "bridge" | "http"]> = [
+  ["claude-code-bridge", "Claude Code (bridge)", "bridge"],
+  ["claude-code", "Claude Code (HTTP)", "http"],
+  ["json-bridge", "JSON, bridge (Claude Desktop, .mcp.json, Cursor, …)", "bridge"],
+  ["json", "JSON, HTTP (.mcp.json, Cursor, …)", "http"],
+  ["claude-desktop", "Claude Desktop (HTTP via mcp-remote)", "http"],
 ];
 
 function slug(name: string) {
   return "chloe-" + (name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "db");
 }
 
-export function clientConfig(client: Client, name: string, url: string, token: string): string {
+/** The client snippet. The bridge passes the token in the environment, never on the command line. */
+export function clientConfig(client: Client, name: string, url: string, token: string, bridge = ""): string {
   const id = slug(name);
   switch (client) {
+    case "claude-code-bridge":
+      return `claude mcp add ${id} --env CHLOE_MCP_TOKEN=${token} -- "${bridge}" mcp`;
     case "claude-code":
       return `claude mcp add --transport http ${id} ${url} --header "Authorization: Bearer ${token}"`;
+    case "json-bridge":
+      return JSON.stringify({ mcpServers: { [id]: { command: bridge, args: ["mcp"], env: { CHLOE_MCP_TOKEN: token } } } }, null, 2);
     case "json":
       return JSON.stringify({ mcpServers: { [id]: { type: "http", url, headers: { Authorization: `Bearer ${token}` } } } }, null, 2);
     case "claude-desktop":
@@ -193,7 +201,12 @@ export function clientConfig(client: Client, name: string, url: string, token: s
 
 function EndpointDetail({ ep, url, update }: { ep: MCPEndpoint; url: string; update(e: MCPEndpoint): void }) {
   const [name, setName] = useState(ep.name);
-  const [client, setClient] = useState<Client>("claude-code");
+  const status = useMCP((s) => s.status);
+  // The bridge needs the server running (it reports the command); HTTP needs its port on.
+  const available = CLIENTS.filter(([, , via]) => (via === "bridge" ? !!status?.bridge : !status?.running || status.http));
+  const [picked, setClient] = useState<Client>("claude-code-bridge");
+  const client = available.some(([k]) => k === picked) ? picked : (available[0]?.[0] ?? "claude-code");
+  const bridge = status?.bridge ?? "";
   const [copied, setCopied] = useState("");
   const masked = ep.token.slice(0, 10) + "…" + ep.token.slice(-4);
 
@@ -245,17 +258,17 @@ function EndpointDetail({ ep, url, update }: { ep: MCPEndpoint; url: string; upd
         <div className="mcp-row">
           <span className="mcp-label">Client</span>
           <select aria-label="Client" value={client} onChange={(e) => setClient(e.target.value as Client)}>
-            {CLIENTS.map(([k, l]) => (
+            {available.map(([k, l]) => (
               <option key={k} value={k}>
                 {l}
               </option>
             ))}
           </select>
-          <button onClick={() => copy("config", clientConfig(client, ep.name, url, ep.token))}>
+          <button onClick={() => copy("config", clientConfig(client, ep.name, url, ep.token, bridge))}>
             <Copy size={13} /> {copied === "config" ? "Copied" : "Copy Config"}
           </button>
         </div>
-        <pre className="mcp-snippet">{clientConfig(client, ep.name, url, masked)}</pre>
+        <pre className="mcp-snippet">{clientConfig(client, ep.name, url, masked, bridge)}</pre>
         <p className="hint">The token is shortened here; Copy Config copies it in full.</p>
         <label className="check">
           <input type="checkbox" aria-label="Danger mode" checked={ep.danger} onChange={(e) => setDanger(e.target.checked)} />
