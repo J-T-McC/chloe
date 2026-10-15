@@ -64,7 +64,9 @@ Chloe can serve your connections to AI assistants such as Claude Code and Claude
 
 ![MCP server settings](docs/assets/screenshots/mcp.png)
 
-- **Local only.** The server is off by default, runs only while Chloe is open, and listens on `127.0.0.1`.
+- **Local only.** The server runs inside Chloe, is off by default, and only works while Chloe is open. Clients
+  connect through a stdio bridge (`Chloe mcp`) that talks to the app over a socket only your user account can open,
+  or over HTTP on `127.0.0.1`, which can be switched off.
 - **Endpoints.** Each assistant gets its own endpoint with its own bearer token. Access is Off, Read or Read-write
   per connection group, connection and database.
 - **Approval.** Agents read through structured tools and one read-only query at a time. Inserts, updates and deletes
@@ -81,10 +83,10 @@ Chloe can serve your connections to AI assistants such as Claude Code and Claude
 ![Approving an agent's change](docs/assets/screenshots/mcp-approval.png)
 
 To connect an assistant, open **Tools › MCP Server…**, create an endpoint, choose what it may access, and use
-**Copy Config** for the client snippet. For Claude Code:
+**Copy Config** for the client snippet. For Claude Code, through the bridge:
 
 ```sh
-claude mcp add --transport http chloe-claude-code http://127.0.0.1:47101/mcp --header "Authorization: Bearer chloe_…"
+claude mcp add chloe-claude-code --env CHLOE_MCP_TOKEN=chloe_… -- "/Applications/Chloe.app/Contents/MacOS/Chloe" mcp
 ```
 
 Access is enforced per connection and database, not per table or column. To keep an assistant away from sensitive

@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -10,10 +11,11 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 
 	"chloe/internal/core"
-	"chloe/internal/mcpserver"
 	_ "chloe/internal/driver/mysql"
 	_ "chloe/internal/driver/postgres"
 	_ "chloe/internal/driver/sqlite"
+	"chloe/internal/mcpbridge"
+	"chloe/internal/mcpserver"
 	"chloe/internal/store"
 	"chloe/services"
 )
@@ -27,18 +29,18 @@ var assets embed.FS
 var icon []byte
 
 func main() {
+	dir := configDir()
+	// `Chloe mcp` is the stdio bridge MCP clients launch: it relays to the running
+	// app and never opens a window, the store or the keychain.
+	if len(os.Args) > 1 && os.Args[1] == "mcp" {
+		if err := mcpbridge.Run(filepath.Join(dir, "mcp.sock"), os.Getenv(mcpbridge.TokenEnv), os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "chloe mcp:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := checkServerMode(); err != nil {
 		log.Fatal(err)
-	}
-	// CHLOE_CONFIG_DIR and CHLOE_SECRETS=memory isolate test runs from the user's
-	// saved connections and keychain.
-	dir := os.Getenv("CHLOE_CONFIG_DIR")
-	if dir == "" {
-		cfgDir, err := os.UserConfigDir()
-		if err != nil {
-			log.Fatal(err)
-		}
-		dir = filepath.Join(cfgDir, "Chloe")
 	}
 	var secrets store.Secrets = store.Keyring{}
 	if os.Getenv("CHLOE_SECRETS") == "memory" {
@@ -135,4 +137,17 @@ func appMenu() *application.Menu {
 	tools.Add("MCP Server…").OnClick(func(*application.Context) { application.Get().Event.Emit("menu:mcp") })
 	menu.AddRole(application.WindowMenu)
 	return menu
+}
+
+// configDir is where Chloe keeps its settings. CHLOE_CONFIG_DIR and
+// CHLOE_SECRETS=memory isolate test runs from the user's connections and keychain.
+func configDir() string {
+	if dir := os.Getenv("CHLOE_CONFIG_DIR"); dir != "" {
+		return dir
+	}
+	cfgDir, err := os.UserConfigDir()
+	if err != nil {
+		log.Fatal(err)
+	}
+	return filepath.Join(cfgDir, "Chloe")
 }

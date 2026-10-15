@@ -5,14 +5,31 @@ allowed, change data through the connections Chloe already has. Navicat has no e
 discussion with the user (2026-10-14), not from reverse engineering.
 
 ## Transport and security
-- **Streamable HTTP** served by the running app on `http://127.0.0.1:<port>/mcp` (default port 47101). It only runs
-  while Chloe is open and the server is switched on (off by default). It binds to loopback only, never `0.0.0.0`.
-- **No TLS.** Loopback traffic never leaves the machine; MCP clients reject self-signed certificates and a trusted
-  local CA would mean installing a root certificate. No stdio bridge in v1.
-- **Bearer token per endpoint** (`Authorization: Bearer chloe_…`). The token decides which endpoint applies.
-  Requests without a known token get 401. Tokens are compared by hash in constant time.
-- **Browser protection**: requests whose `Host` isn't `127.0.0.1:<port>`/`localhost:<port>` (DNS rebinding) or
-  that carry a cross-site `Origin` are refused.
+Both transports run inside the app (no separate process) while Chloe is open and the server is switched on (off by
+default), and serve the same endpoints, tools, approvals and activity log.
+
+- **Stdio bridge** (recommended). The client launches `Chloe mcp` (the app binary, e.g.
+  `/Applications/Chloe.app/Contents/MacOS/Chloe mcp`), a stdio MCP server that relays to the running app over the
+  Unix socket `mcp.sock` in Chloe's config folder. It exits before opening a window, the store or the keychain.
+  - The folder is `0700` and the socket `0600`; Chloe also checks the peer's user (`LOCAL_PEERCRED` on macOS,
+    `SO_PEERCRED` on Linux) and refuses other users.
+  - The token comes from `CHLOE_MCP_TOKEN` in the client's server config (never the command line, where other
+    processes can read it). The bridge's first line is `{"token": …}`; Chloe answers `{"ok": true}` or
+    `{"error": …}`, then newline-delimited MCP messages follow.
+  - No network port means no other program can pose as Chloe by taking the port first and collecting the tokens and
+    queries clients send. A bridged session ends when its endpoint is disabled or deleted, or the server stops.
+  - Errors go to the client's log on stderr: Chloe not running or the server off, an unknown token.
+  - macOS and Linux. Windows (untested) would lack the peer-user check, and file modes don't apply there; it
+    should use a named pipe with a user-only ACL instead.
+- **Streamable HTTP** on `http://127.0.0.1:<port>/mcp` (default port 47101), loopback only, never `0.0.0.0`.
+  "HTTP on port" switches it off, leaving only the bridge.
+  - **Bearer token per endpoint** (`Authorization: Bearer chloe_…`). The token decides which endpoint applies.
+    Requests without a known token get 401. Tokens are compared by hash in constant time.
+  - **Browser protection**: requests whose `Host` isn't `127.0.0.1:<port>`/`localhost:<port>` (DNS rebinding) or
+    that carry a cross-site `Origin` are refused.
+- **No TLS.** Loopback traffic never leaves the machine, and reading it needs root. TLS would only add server
+  authentication (the port-squatting case), which MCP clients can't do per server: Claude Code has no per-server
+  certificate pinning or CA option, only a global `NODE_EXTRA_CA_CERTS`. The bridge covers that case instead.
 - Endpoints and tokens live in `mcp.json`, encrypted with the keychain key like `connections.json`.
 
 ## Endpoints
@@ -136,7 +153,9 @@ There's no separate `test_connection` tool: it would let an agent probe hosts an
 
 ## Window (Tools > MCP Server…, and the titlebar MCP button)
 A tab like the History Log:
-- Toolbar: **Server on/off**, port, URL, and **Copy Config** (Claude Code / Claude Desktop / JSON).
+- Toolbar: **Run MCP server**, **HTTP on port** (with the port), and the status (HTTP URL and/or the bridge).
+- **Copy Config** per client: Claude Code (bridge or HTTP), JSON with the bridge (Claude Desktop, `.mcp.json`,
+  Cursor…), JSON over HTTP, Claude Desktop over HTTP via `mcp-remote`. The bridge is the default.
 - Left: endpoints list (**New Endpoint**, **Delete**). Right: the selected endpoint's name, enabled, token
   (Copy, Regenerate), danger mode, capabilities and the connection access tree. The split is draggable and remembered.
 - **Activity** tab: time, endpoint, tool, connection/database, SQL, rows, outcome (ok, error, approved, denied, no answer, ran without asking).

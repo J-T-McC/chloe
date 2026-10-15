@@ -1,6 +1,8 @@
 // MCP server: endpoint setup in the UI, tool calls over HTTP, approval dialog, danger mode, activity log.
 import { chromium } from "playwright";
 import { readFileSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
 const out = process.argv[2];
 const dir = process.env.LITE;
 const PORT = 47199; // not the default, so a running desktop Chloe can't collide
@@ -71,6 +73,8 @@ await step("new endpoint with read-write access", async () => {
   await page.getByLabel("Endpoint name").blur();
   await page.locator(".mcp-list-row", { hasText: "Claude Code – dev" }).waitFor();
   await page.getByLabel("Access to big", { exact: true }).selectOption("write");
+  if (!(await page.locator(".mcp-snippet").innerText()).includes("--env CHLOE_MCP_TOKEN=")) throw new Error("the bridge isn't the default client");
+  await page.getByLabel("Client").selectOption("claude-code");
   const snippet = await page.locator(".mcp-snippet").innerText();
   if (!snippet.includes(`claude mcp add --transport http chloe-claude-code-dev ${URL}`) || snippet.includes(token())) throw new Error("snippet: " + snippet);
   await page.getByLabel("Databases of big").click();
@@ -270,6 +274,71 @@ await step("agent builds an ER model", async () => {
   const user = await tool("edit_model", { model: "/etc/hosts", drop_tables: ["x"] });
   if (!user.isError) throw new Error("edited an unlisted file");
   await mcpTab();
+});
+
+// A stdio MCP client: one JSON-RPC message per line on the bridge's stdin and stdout.
+function stdioClient(command, args, env) {
+  const child = spawn(command, args, { env: { ...process.env, ...env }, stdio: ["pipe", "pipe", "pipe"] });
+  const waiting = new Map();
+  let stderr = "";
+  child.stderr.on("data", (d) => (stderr += d));
+  createInterface({ input: child.stdout }).on("line", (line) => {
+    const msg = JSON.parse(line);
+    waiting.get(msg.id)?.(msg);
+    waiting.delete(msg.id);
+  });
+  let id = 0;
+  const request = (method, params) =>
+    new Promise((resolve, reject) => {
+      const n = ++id;
+      waiting.set(n, resolve);
+      child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: n, method, params }) + "\n");
+      setTimeout(() => reject(new Error(`${method} timed out; bridge stderr: ${stderr}`)), 8000);
+    });
+  const exited = new Promise((resolve) => child.on("exit", (code) => resolve({ code, stderr })));
+  return { request, notify: (method) => child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method }) + "\n"), close: () => child.stdin.end(), exited };
+}
+
+await step("agent connects through the bridge", async () => {
+  await page.locator(".mcp .seg button", { hasText: "Endpoints" }).click();
+  await page.getByLabel("Access to big", { exact: true }).selectOption("write");
+  await page.waitForTimeout(200);
+  await page.getByLabel("Client").selectOption("json-bridge");
+  await page.getByRole("button", { name: "Copy Config" }).click();
+  const cfg = Object.values(JSON.parse(await page.evaluate(() => navigator.clipboard.readText())).mcpServers)[0];
+  if (!cfg.command.endsWith("bin/Chloe-server") || cfg.args[0] !== "mcp" || cfg.env.CHLOE_MCP_TOKEN !== token()) throw new Error("config: " + JSON.stringify(cfg));
+  const c = stdioClient(cfg.command, cfg.args, { ...cfg.env, CHLOE_CONFIG_DIR: `${dir}/../config` });
+  const init = await c.request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "1" } });
+  if (init.result?.serverInfo?.name !== "chloe") throw new Error(JSON.stringify(init));
+  c.notify("notifications/initialized");
+  const tools = (await c.request("tools/list", {})).result.tools.map((t) => t.name);
+  if (!tools.includes("insert_rows")) throw new Error("tools: " + tools.join(", "));
+  // A write still waits in Chloe's approval dialog.
+  const pending = c.request("tools/call", { name: "insert_rows", arguments: { connection: "big", table: "n", rows: [{ v: "via bridge" }] } });
+  await page.getByRole("dialog", { name: "Approve AI change" }).waitFor();
+  await page.getByRole("button", { name: "Approve" }).click();
+  const r = await pending;
+  if (r.result?.isError || r.result.structuredContent.inserted !== 1) throw new Error(JSON.stringify(r));
+
+  // Without HTTP there's no network port, and the bridge keeps working.
+  await page.getByLabel("HTTP", { exact: true }).uncheck();
+  await page.getByText("Bridge only (no network port)").waitFor();
+  if (await fetch(URL).then(() => true).catch(() => false)) throw new Error("HTTP still listening");
+  const httpClients = await page.getByLabel("Client").locator("option", { hasText: "HTTP" }).count();
+  if (httpClients !== 0) throw new Error("HTTP clients offered with HTTP off");
+  const sel = await c.request("tools/call", { name: "select_rows", arguments: { connection: "big", table: "n", where: [{ column: "v", op: "=", value: "via bridge" }] } });
+  if (sel.result.structuredContent.row_count !== 1) throw new Error(JSON.stringify(sel));
+  await shot("mcp-bridge");
+  c.close();
+  const { code } = await c.exited;
+  if (code !== 0) throw new Error("bridge exit code " + code);
+
+  // A wrong token is refused with a clear message.
+  const bad = stdioClient(cfg.command, cfg.args, { CHLOE_MCP_TOKEN: "chloe_nope", CHLOE_CONFIG_DIR: `${dir}/../config` });
+  const out = await bad.exited;
+  if (out.code !== 1 || !out.stderr.includes("unknown or disabled endpoint token")) throw new Error(JSON.stringify(out));
+  await page.getByLabel("HTTP", { exact: true }).check();
+  await page.getByText(`Listening on ${URL} and the bridge`).waitFor();
 });
 
 await step("stop server", async () => {

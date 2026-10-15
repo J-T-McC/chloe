@@ -183,6 +183,9 @@ await step("mcp server", async () => {
   await page.getByLabel("Access to PostgreSQL", { exact: true }).selectOption("read");
   await page.getByLabel("Saved queries and query tabs").check();
   await page.getByLabel("ER models").check();
+  // The browser build runs from bin/; show the path the installed app reports instead.
+  await page.locator(".mcp-snippet").evaluate((n) => (n.textContent = n.textContent.replace(/"[^"]*\/bin\/Chloe-server"/, '"/Applications/Chloe.app/Contents/MacOS/Chloe"')));
+  if (!(await page.locator(".mcp-snippet").innerText()).includes("/Applications/Chloe.app/Contents/MacOS/Chloe")) throw new Error("snippet: " + (await page.locator(".mcp-snippet").innerText()));
   await page.waitForTimeout(400);
   await shot("mcp");
 });

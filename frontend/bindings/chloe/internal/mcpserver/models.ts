@@ -83,4 +83,15 @@ export interface Status {
      * Danger is set while the server runs with an enabled danger-mode endpoint.
      */
     "danger": boolean;
+
+    /**
+     * HTTP is set while the HTTP listener runs (URL is where).
+     */
+    "http": boolean;
+
+    /**
+     * Socket is the stdio bridge's socket; Bridge is the command clients launch.
+     */
+    "socket"?: string;
+    "bridge"?: string;
 }

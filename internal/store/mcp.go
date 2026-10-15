@@ -80,8 +80,10 @@ func (e MCPEndpoint) NewConnectionGroup() string {
 
 // MCPSettings is the MCP server configuration, kept in mcp.json.
 type MCPSettings struct {
-	Enabled   bool          `json:"enabled"`
-	Port      int           `json:"port"`
+	Enabled bool `json:"enabled"`
+	Port    int  `json:"port"`
+	// NoHTTP leaves only the socket that the `chloe mcp` stdio bridge uses.
+	NoHTTP    bool          `json:"noHttp,omitempty"`
 	Endpoints []MCPEndpoint `json:"endpoints"`
 }
 
