@@ -32,7 +32,7 @@ func TestBIChartsAcrossEngines(t *testing.T) {
 			[][]any{{"2026-01", 200.0}, {"2026-02", 345.5}, {"2026-03", 270.0}, {"2026-04", 15.0}}},
 		{"quarter and week", bi.Chart{Type: "bar", Dimension: []bi.ChartField{{Field: "placed_at", Aggregate: "week"}}, Value: []bi.ChartField{{Field: "region", Aggregate: "count"}},
 			Filters: []bi.Filter{{Field: "placed_at", Op: "<", Values: []string{"2026-02-01"}}}},
-			[][]any{{"2026-W01", 1.0}, {"2026-W02", 0.0}, {"2026-W03", 1.0}}}, // the empty week filled
+			[][]any{{"2026-01-04", 1.0}, {"2026-01-11", 0.0}, {"2026-01-18", 1.0}, {"2026-01-25", 0.0}}}, // weeks by their Sunday, filled out to the filter's end
 		{"extracts", bi.Chart{Type: "bar", Dimension: []bi.ChartField{{Field: "placed_at", Aggregate: "weekday_x"}}, Value: []bi.ChartField{{Field: "total", Aggregate: "max"}}},
 			[][]any{{"Sun", 120.0}, {"Mon", 210.0}, {"Tue", 80.0}, {"Thu", 15.0}, {"Sat", 300.0}}},
 		{"series and filters", bi.Chart{Type: "stacked_bar", Dimension: []bi.ChartField{{Field: "placed_at", Aggregate: "quarter"}}, Series: []bi.ChartField{{Field: "region"}},
@@ -55,6 +55,20 @@ func TestBIChartsAcrossEngines(t *testing.T) {
 			p, err := lib.Create(bi.New("it"))
 			if err != nil {
 				t.Fatal(err)
+			}
+			// A time zone moves values across days: Jan 20 00:00 UTC is Monday evening in Los Angeles.
+			for _, mode := range []string{bi.ModeLive, bi.ModeArchive} {
+				src, err := m.BISaveSource(ctx, p, bi.DataSource{Meta: bi.Meta{Name: "Zoned " + mode}, ConnID: id, Database: e.database, Schema: e.schema, SQL: sql(ts), Mode: mode, Timezone: "America/Los_Angeles"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				w, _ := bi.Read(p)
+				c := bi.Chart{DataSource: src.ID, Type: "bar", Dimension: []bi.ChartField{{Field: "placed_at", Aggregate: "weekday_x"}}, Value: []bi.ChartField{{Field: "region", Aggregate: "count"}},
+					Filters: []bi.Filter{{Field: "placed_at", Op: "<", Values: []string{"2026-01-31"}}}}
+				data, err := m.BIChartData(ctx, w, c)
+				if want := [][]any{{"Sun", 1.0}, {"Mon", 1.0}}; err != nil || !reflect.DeepEqual(data.Rows, want) {
+					t.Errorf("%s zoned: %v %v\n%s", mode, err, data.Rows, data.SQL)
+				}
 			}
 			for _, mode := range []string{bi.ModeLive, bi.ModeArchive} {
 				src, err := m.BISaveSource(ctx, p, bi.DataSource{Meta: bi.Meta{Name: "Orders " + mode}, ConnID: id, Database: e.database, Schema: e.schema, SQL: sql(ts), Mode: mode})

@@ -216,6 +216,23 @@ await step("archive data source with a filter", async () => {
   check((await editor().locator(".bi-asof").innerText()).startsWith("Snapshot"), "snapshot status");
 });
 
+await step("a data source time zone moves dates across days", async () => {
+  await page.locator(".tab", { hasText: /^\s*orders\s*$/ }).last().click();
+  const src = page.locator(".bi-source:visible");
+  await src.getByLabel("Time zone").fill("America/Los_Angeles");
+  await src.getByRole("button", { name: "Save" }).click();
+  await page.waitForTimeout(500);
+  check(!(await src.locator(".error-banner").count()), "save error: " + (await src.locator(".error-banner").allInnerTexts()));
+  await page.locator(".tab", { hasText: "Revenue to date" }).click();
+  await editor().locator(".bi-pill.dim").click();
+  await page.locator(".menu-item", { hasText: "Group By" }).hover();
+  await page.locator(".menu-item", { hasText: "Weekday (Extract)" }).click();
+  await page.waitForTimeout(800);
+  // North's orders (Sun Jan 4, Mon Feb 2, Mon Mar 9, at midnight UTC) fall a day earlier in Los Angeles.
+  const text = (await editor().locator(".bi-echart svg").innerHTML()).replace(/<[^>]+>/g, " ");
+  check(text.includes("Sat") && text.includes("Sun") && !text.includes("Mon"), "zoned weekdays: " + text.slice(0, 300));
+});
+
 await step("dark theme", async () => {
   await page.locator(".tab", { hasText: "Sales (BI)" }).click();
   await page.locator(".bi-workspace:visible").getByLabel("Theme").selectOption("dark");

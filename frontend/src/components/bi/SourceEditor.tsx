@@ -16,6 +16,15 @@ import { useWorkspace } from "./WorkspaceView";
 
 const SQL_ENGINES = [DBType.MySQL, DBType.MariaDB, DBType.PostgreSQL, DBType.SQLite];
 
+/** IANA zones the webview knows, for the time zone field's suggestions. */
+const ZONES: string[] = (() => {
+  try {
+    return (Intl as unknown as { supportedValuesOf(k: string): string[] }).supportedValuesOf("timeZone");
+  } catch {
+    return ["UTC", "America/Los_Angeles", "America/New_York", "Europe/London", "Europe/Berlin", "Asia/Tokyo", "Australia/Sydney"];
+  }
+})();
+
 const sameDef = (a: B.DataSource, b: B.DataSource) => a.connId === b.connId && a.database === b.database && (a.schema ?? "") === (b.schema ?? "") && (a.table ?? "") === (b.table ?? "") && (a.sql ?? "") === (b.sql ?? "");
 const comparable = (d: B.DataSource | null) => (d ? JSON.stringify({ ...d, fields: undefined, modified: undefined, refreshedAt: undefined, archiveRows: undefined, filters: cleanFilters(arr(d.filters)) }) : "");
 
@@ -321,6 +330,25 @@ export function SourceEditor({ tab }: { tab: Tab }) {
                       </select>
                     )
                   )}
+                </div>
+              </div>
+              <div className="field">
+                <label>Time zone</label>
+                <div className="field-input bi-row">
+                  <input
+                    aria-label="Time zone"
+                    list="bi-timezones"
+                    placeholder="As stored"
+                    value={draft.timezone ?? ""}
+                    onChange={(e) => update({ timezone: e.target.value })}
+                    title="Bucket and filter date/time fields in this zone (values without a zone are taken as UTC)"
+                  />
+                  <datalist id="bi-timezones">
+                    {ZONES.map((z) => (
+                      <option key={z} value={z} />
+                    ))}
+                  </datalist>
+                  <span className="muted">Dates are grouped and filtered in this zone; stored values without one count as UTC.</span>
                 </div>
               </div>
               {draft.mode === "archive" && (

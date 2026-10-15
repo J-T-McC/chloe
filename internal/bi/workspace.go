@@ -64,7 +64,10 @@ type DataSource struct {
 	Table string `json:"table,omitempty"`
 	SQL   string `json:"sql,omitempty"`
 	// Mode is live (read when used) or archive (read into a snapshot on refresh).
-	Mode       string      `json:"mode"`
+	Mode string `json:"mode"`
+	// Timezone (IANA name) is where date/time fields are bucketed and filtered;
+	// values without a zone are taken as UTC. "" uses them as stored.
+	Timezone   string      `json:"timezone,omitempty"`
 	Filters    []Filter    `json:"filters,omitempty"`
 	Sorts      []Sort      `json:"sorts,omitempty"`
 	Projection *Projection `json:"projection,omitempty"`
@@ -332,6 +335,9 @@ func (d DataSource) Validate() error {
 		return errors.New("a data source reads either a table or view, or a query")
 	case d.Mode != ModeLive && d.Mode != ModeArchive:
 		return fmt.Errorf("mode is live or archive, not %q", d.Mode)
+	}
+	if err := CheckTimezone(d.Timezone); err != nil {
+		return err
 	}
 	for _, f := range d.Filters {
 		if err := f.check(); err != nil {

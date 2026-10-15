@@ -38,7 +38,7 @@ describe("dates", () => {
     const b = (aggregate: string) => ({ type: "string", aggregate });
     expect(formatLabel("2026-03", b("month"))).toBe("Mar 2026");
     expect(formatLabel("2026-Q1", b("quarter"))).toBe("Q1 2026");
-    expect(formatLabel("2026-W09", b("week"))).toBe("W09 2026");
+    expect(formatLabel("2026-09-13", b("week"))).toBe("Week of Sep 13, 2026");
     expect(formatLabel("2026-03-01 14", b("hour"))).toBe("Mar 1, 14:00");
     expect(formatLabel("03", b("month_x"))).toBe("Mar");
     expect(formatLabel("0", b("weekday_x"))).toBe("Sun");

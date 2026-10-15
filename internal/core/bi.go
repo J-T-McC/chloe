@@ -18,6 +18,8 @@ import (
 
 	"chloe/internal/bi"
 	"chloe/internal/driver"
+	// Archives are SQLite; the driver registers chloe_tz for data source time zones.
+	_ "chloe/internal/driver/sqlite"
 	"chloe/internal/model"
 )
 
@@ -50,8 +52,29 @@ func (m *Manager) biLive(ctx context.Context, src bi.DataSource, fn func(context
 	ctx, cancel := context.WithTimeout(ctx, BITimeout)
 	defer cancel()
 	return m.WithSession(ctx, src.ConnID, src.Database, src.Schema, func(ds driver.Session, d driver.Dialect) error {
-		return driver.ReadOnly(ctx, ds, d, func() error { return fn(ctx, ds, d) })
+		return driver.ReadOnly(ctx, ds, d, func() error {
+			if err := checkZone(ctx, ds, d, src.Timezone); err != nil {
+				return err
+			}
+			return fn(ctx, ds, d)
+		})
 	})
+}
+
+// checkZone makes sure the server knows a data source's time zone: MySQL's
+// CONVERT_TZ quietly returns NULL when its time zone tables aren't loaded.
+func checkZone(ctx context.Context, ds driver.Session, d driver.Dialect, tz string) error {
+	if tz == "" || d.Name != "mysql" {
+		return nil
+	}
+	_, rows, _, err := readStmt(ctx, ds, bi.Stmt{SQL: "SELECT CONVERT_TZ('2000-01-01 00:00:00', '+00:00', ?)", Args: []any{tz}}, 1)
+	if err != nil {
+		return err
+	}
+	if len(rows) == 0 || rows[0][0] == nil {
+		return fmt.Errorf("MySQL doesn't know the time zone %q: load its time zone tables (mysql_tzinfo_to_sql /usr/share/zoneinfo | mysql -u root mysql), or clear the data source's time zone", tz)
+	}
+	return nil
 }
 
 // readStmt reads at most limit rows of a statement; truncated reports more.
@@ -552,6 +575,9 @@ func (m *Manager) BISaveSource(ctx context.Context, path string, src bi.DataSour
 	if src.Fields, err = m.BIFields(ctx, src); err != nil {
 		return src, err
 	}
+	if src.Timezone, err = canonicalZone(src.Timezone); err != nil {
+		return src, err
+	}
 	put := func() error {
 		_, err := lib.Update(path, func(w *bi.Workspace) error {
 			saved, err := w.PutSource(src)
@@ -614,4 +640,10 @@ func (m *Manager) BIRefreshSource(ctx context.Context, path, id string) (bi.Data
 		return nil
 	})
 	return fresh, err
+}
+
+// canonicalZone trims a time zone name and checks it.
+func canonicalZone(tz string) (string, error) {
+	tz = strings.TrimSpace(tz)
+	return tz, bi.CheckTimezone(tz)
 }

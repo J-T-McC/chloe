@@ -150,7 +150,7 @@ func ProbeQuery(from string, limit int) Stmt {
 // PreviewQuery reads the data source as its preview grid shows it: projected,
 // filtered and sorted.
 func PreviewQuery(d driver.Dialect, from string, src DataSource, limit int) (Stmt, error) {
-	b := qb{d: d}
+	b := qb{d: d, tz: src.Timezone}
 	cols := "*"
 	if src.Projection != nil && len(src.Projection.Fields) > 0 {
 		vis := src.Visible()
@@ -193,7 +193,7 @@ func ChartQuery(d driver.Dialect, from string, src DataSource, c Chart, limit in
 	if _, err := c.Check(src, d.Name); err != nil {
 		return Stmt{}, nil, err
 	}
-	b := qb{d: d}
+	b := qb{d: d, tz: src.Timezone}
 	var sel, group []string
 	var cols []Column
 	add := func(role string, cf ChartField, grouped bool) {
@@ -259,6 +259,7 @@ func ChartQuery(d driver.Dialect, from string, src DataSource, c Chart, limit in
 // qb renders expressions for one statement, collecting bind arguments.
 type qb struct {
 	d    driver.Dialect
+	tz   string // the data source's time zone
 	args []any
 }
 
@@ -299,7 +300,7 @@ func (b *qb) where(fields []Field, filters []Filter) (string, error) {
 		if !ok {
 			return "", fmt.Errorf("no field %q to filter on", f.Field)
 		}
-		col := b.d.QuoteIdent(f.Field)
+		col := b.col(fd)
 		like := "LIKE"
 		if b.d.Name == "postgres" {
 			like = "ILIKE" // contains / begins with match case-insensitively, as MySQL and SQLite do
@@ -330,7 +331,7 @@ func (b *qb) where(fields []Field, filters []Filter) (string, error) {
 		case "in_last":
 			k, _ := strconv.Atoi(f.Values[0])
 			// A date as text compares correctly with dates, timestamps and SQLite's date text.
-			b.args = append(b.args, Since(now(), k, f.Values[1]).Format("2006-01-02"))
+			b.args = append(b.args, Since(now().In(location(b.tz)), k, f.Values[1]).Format("2006-01-02"))
 			e = col + " >= " + b.d.Placeholder(len(b.args))
 		case "is_null":
 			e = col + " IS NULL"
@@ -367,7 +368,7 @@ func (b *qb) where(fields []Field, filters []Filter) (string, error) {
 }
 
 func (b *qb) aggregate(f Field, agg string) string {
-	col := b.d.QuoteIdent(f.Name)
+	col := b.col(f)
 	num := col
 	if b.d.Name == "postgres" {
 		num = "CAST(" + col + " AS numeric)"
@@ -392,10 +393,10 @@ func (b *qb) aggregate(f Field, agg string) string {
 }
 
 // bucket groups a date/time by period, as text that sorts in time order
-// ("2026-03", "2026-Q1", "2026-W09"…). Weeks start on Sunday and number like
-// strftime's %U, as Navicat's do.
+// ("2026-03", "2026-Q1"…). A week is the date of its Sunday ("2026-09-13"), as
+// Navicat's weeks start on Sunday; week_x numbers weeks like strftime's %U.
 func (b *qb) bucket(f Field, bucket string) string {
-	col := b.d.QuoteIdent(f.Name)
+	col := b.col(f)
 	if bucket == "" {
 		return col
 	}
@@ -405,7 +406,7 @@ func (b *qb) bucket(f Field, bucket string) string {
 		week := "lpad((((extract(doy from " + x + ")::int - 1) + 7 - extract(dow from " + x + ")::int) / 7)::text, 2, '0')"
 		f := func(p string) string { return "to_char(" + x + ", '" + p + "')" }
 		return map[string]string{
-			"year": f("YYYY"), "quarter": f(`YYYY-"Q"Q`), "month": f("YYYY-MM"), "week": f("YYYY") + " || '-W' || " + week,
+			"year": f("YYYY"), "quarter": f(`YYYY-"Q"Q`), "month": f("YYYY-MM"), "week": "to_char(CAST(" + x + " AS date) - extract(dow from " + x + ")::int, 'YYYY-MM-DD')",
 			"day": f("YYYY-MM-DD"), "hour": f("YYYY-MM-DD HH24"), "minute": f("YYYY-MM-DD HH24:MI"), "second": f("YYYY-MM-DD HH24:MI:SS"),
 			"quarter_x": f(`"Q"Q`), "month_x": f("MM"), "week_x": "'W' || " + week, "day_x": f("DD"),
 			"weekday_x": "(extract(dow from " + x + ")::int)::text", "hour_x": f("HH24"), "minute_x": f("MI"), "second_x": f("SS"),
@@ -413,7 +414,8 @@ func (b *qb) bucket(f Field, bucket string) string {
 	case "mysql":
 		f := func(p string) string { return "DATE_FORMAT(" + col + ", '" + p + "')" }
 		return map[string]string{
-			"year": f("%Y"), "quarter": "CONCAT(YEAR(" + col + "), '-Q', QUARTER(" + col + "))", "month": f("%Y-%m"), "week": f("%Y-W%U"),
+			"year": f("%Y"), "quarter": "CONCAT(YEAR(" + col + "), '-Q', QUARTER(" + col + "))", "month": f("%Y-%m"),
+			"week": "DATE_FORMAT(DATE_SUB(" + col + ", INTERVAL DAYOFWEEK(" + col + ") - 1 DAY), '%Y-%m-%d')",
 			"day": f("%Y-%m-%d"), "hour": f("%Y-%m-%d %H"), "minute": f("%Y-%m-%d %H:%i"), "second": f("%Y-%m-%d %H:%i:%s"),
 			"quarter_x": "CONCAT('Q', QUARTER(" + col + "))", "month_x": f("%m"), "week_x": f("W%U"), "day_x": f("%d"),
 			"weekday_x": "CAST(DAYOFWEEK(" + col + ") - 1 AS CHAR)", "hour_x": f("%H"), "minute_x": f("%i"), "second_x": f("%s"),
@@ -422,7 +424,7 @@ func (b *qb) bucket(f Field, bucket string) string {
 		f := func(p string) string { return "strftime('" + p + "', " + col + ")" }
 		q := "((CAST(strftime('%m', " + col + ") AS INTEGER) + 2) / 3)"
 		return map[string]string{
-			"year": f("%Y"), "quarter": f("%Y") + " || '-Q' || " + q, "month": f("%Y-%m"), "week": f("%Y-W%U"),
+			"year": f("%Y"), "quarter": f("%Y") + " || '-Q' || " + q, "month": f("%Y-%m"), "week": "date(" + col + ", '-' || strftime('%w', " + col + ") || ' days')",
 			"day": f("%Y-%m-%d"), "hour": f("%Y-%m-%d %H"), "minute": f("%Y-%m-%d %H:%M"), "second": f("%Y-%m-%d %H:%M:%S"),
 			"quarter_x": "'Q' || " + q, "month_x": f("%m"), "week_x": f("W%U"), "day_x": f("%d"),
 			"weekday_x": f("%w"), "hour_x": f("%H"), "minute_x": f("%M"), "second_x": f("%S"),
