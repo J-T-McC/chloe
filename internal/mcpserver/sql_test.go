@@ -80,6 +80,31 @@ func TestBuildStatements(t *testing.T) {
 	}
 }
 
+func TestBindArrays(t *testing.T) {
+	td := model.TableDetail{ObjectRef: model.ObjectRef{Schema: "shop", Name: "products"}, Columns: []model.Column{
+		{Name: "id", PrimaryKey: true}, {Name: "tags", Type: "text[]", DataType: "_text"}, {Name: "grid", Type: "integer[]", DataType: "_int4"},
+		{Name: "attrs", Type: "jsonb", DataType: "jsonb"}}}
+	b := newBuilder(pgD, td)
+	ins, err := b.insert(map[string]any{"tags": []any{"usb", `say "hi"`, `back\slash`, nil}, "grid": []any{[]any{1.0, 2.0}, []any{3.0, 4.0}},
+		"attrs": []any{"a", 1.0}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Args follow the sorted column names: attrs, grid, tags.
+	if ins.Args[0] != `["a",1]` || ins.Args[1] != `{{"1","2"},{"3","4"}}` || ins.Args[2] != `{"usb","say \"hi\"","back\\slash",NULL}` {
+		t.Fatalf("args: %q", ins.Args)
+	}
+	up, err := b.update(map[string]any{"tags": []any{}}, []Condition{{Column: "tags", Op: "=", Value: []any{"usb"}}})
+	if err != nil || up.Args[0] != "{}" || up.Args[1] != `{"usb"}` {
+		t.Fatalf("update: %v %q", err, up.Args)
+	}
+	// MySQL has no arrays: a list stays JSON.
+	m := newBuilder(mysqlD, td)
+	if mi, err := m.insert(map[string]any{"tags": []any{"usb"}}); err != nil || mi.Args[0] != `["usb"]` {
+		t.Fatalf("mysql: %v %q", err, mi.Args)
+	}
+}
+
 func TestCheckReadOnly(t *testing.T) {
 	for _, c := range []struct {
 		d    driver.Dialect

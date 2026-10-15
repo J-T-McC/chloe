@@ -488,7 +488,7 @@ const time = (iso: string) => {
   return isNaN(+d) ? iso : d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 };
 
-const OUTCOMES: Record<string, string> = { ok: "OK", error: "Error", approved: "Approved", denied: "Denied", unasked: "Ran without asking" };
+const OUTCOMES: Record<string, string> = { ok: "OK", error: "Error", approved: "Approved", denied: "Denied", timeout: "No answer", unasked: "Ran without asking" };
 
 function ActivityLog() {
   const activity = useMCP((s) => s.activity);

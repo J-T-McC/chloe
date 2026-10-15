@@ -15,7 +15,7 @@ export interface Activity {
     "rows": number;
 
     /**
-     * Outcome is ok, error, approved, denied or unasked (danger mode).
+     * Outcome is ok, error, approved, denied, timeout (no answer) or unasked (danger mode).
      */
     "outcome": string;
     "error"?: string;

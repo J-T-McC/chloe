@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -34,13 +35,19 @@ type approver struct {
 	mu       sync.Mutex
 	answer   bool
 	password string
+	silent   bool // never answer, like a user who's away
 	asked    []mcpserver.ApprovalRequest
 }
 
-func (a *approver) Approve(_ context.Context, r mcpserver.ApprovalRequest) mcpserver.Answer {
+func (a *approver) Approve(ctx context.Context, r mcpserver.ApprovalRequest) mcpserver.Answer {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	a.asked = append(a.asked, r)
+	silent := a.silent
+	a.mu.Unlock()
+	if silent {
+		<-ctx.Done()
+		return mcpserver.Answer{}
+	}
 	return mcpserver.Answer{OK: a.answer, Password: a.password}
 }
 
@@ -262,6 +269,16 @@ func TestWritesNeedApproval(t *testing.T) {
 		t.Fatalf("activity: %+v", acts[1])
 	}
 
+	// No answer before the timeout isn't reported as a refusal.
+	defer func(d time.Duration) { mcpserver.ApprovalTimeout = d }(mcpserver.ApprovalTimeout)
+	mcpserver.ApprovalTimeout = 50 * time.Millisecond
+	f.appr.silent = true
+	f.call(t, "delete_rows", map[string]any{"connection": "shop", "table": "customers", "where": where(1)}, "nobody answered")
+	if acts := f.srv.Activity(); acts[0].Outcome != "timeout" {
+		t.Fatalf("activity: %+v", acts[0])
+	}
+	f.appr.silent = false
+
 	// Danger mode skips the dialog.
 	st := f.srv.Settings()
 	st.Endpoints[0].Danger = true
@@ -428,6 +445,15 @@ func TestCreateConnection(t *testing.T) {
 	}
 	f.call(t, "create_connection", map[string]any{"path": "relative.db"}, "absolute path")
 	f.call(t, "create_connection", map[string]any{"engine": "redis", "host": "x"}, "engine must be")
+	// A missing file is only reported after approval, so the agent can't probe the disk.
+	missing := filepath.Join(t.TempDir(), "missing.db")
+	f.appr.answer = false
+	f.call(t, "create_connection", map[string]any{"path": missing}, "declined")
+	f.appr.answer = true
+	f.call(t, "create_connection", map[string]any{"path": missing}, "no SQLite file")
+	if _, err := os.Stat(missing); err == nil {
+		t.Fatal("the missing file was created")
+	}
 
 	f.appr.answer = false
 	f.call(t, "create_connection", map[string]any{"engine": "sqlite", "path": other}, "declined")

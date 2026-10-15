@@ -62,9 +62,13 @@ func (b *builder) column(name string) (string, error) {
 	return b.d.QuoteIdent(name), nil
 }
 
-// bind converts a JSON value from the agent into a bind argument. Values are
-// passed as text, like grid edits, and the server converts them to the column type.
-func (b *builder) bind(v any) (any, error) {
+// bind converts a JSON value from the agent into a bind argument for column.
+// Values are passed as text, like grid edits, and the server converts them to
+// the column type.
+func (b *builder) bind(column string, v any) (any, error) {
+	if list, ok := v.([]any); ok && b.isArray(column) {
+		return b.pgArray(list)
+	}
 	switch x := v.(type) {
 	case nil:
 		return nil, nil
@@ -93,10 +97,43 @@ func (b *builder) bind(v any) (any, error) {
 	return nil, fmt.Errorf("unsupported value %v (%T)", v, v)
 }
 
+// isArray reports whether column is a PostgreSQL array (text[], int4[]…).
+func (b *builder) isArray(column string) bool {
+	c := b.cols[column]
+	return b.d.Name == "postgres" && (strings.HasSuffix(c.Type, "]") || strings.HasPrefix(c.DataType, "_"))
+}
+
+// pgArray renders a JSON list as a PostgreSQL array literal such as
+// {"a","b\"c",NULL}; nested lists become nested arrays.
+func (b *builder) pgArray(list []any) (string, error) {
+	parts := make([]string, len(list))
+	for i, v := range list {
+		if v == nil {
+			parts[i] = "NULL"
+			continue
+		}
+		if sub, ok := v.([]any); ok {
+			p, err := b.pgArray(sub)
+			if err != nil {
+				return "", err
+			}
+			parts[i] = p
+			continue
+		}
+		a, err := b.bind("", v)
+		if err != nil {
+			return "", err
+		}
+		e := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(a.(string))
+		parts[i] = `"` + e + `"`
+	}
+	return "{" + strings.Join(parts, ",") + "}", nil
+}
+
 func (b *builder) where(conds []Condition, args *[]any) (string, error) {
 	var parts []string
-	add := func(v any) (string, error) {
-		a, err := b.bind(v)
+	add := func(column string, v any) (string, error) {
+		a, err := b.bind(column, v)
 		if err != nil {
 			return "", err
 		}
@@ -121,7 +158,7 @@ func (b *builder) where(conds []Condition, args *[]any) (string, error) {
 			}
 			ph := make([]string, len(list))
 			for i, v := range list {
-				if ph[i], err = add(v); err != nil {
+				if ph[i], err = add(c.Column, v); err != nil {
 					return "", err
 				}
 			}
@@ -135,11 +172,11 @@ func (b *builder) where(conds []Condition, args *[]any) (string, error) {
 			if !ok || len(list) != 2 {
 				return "", fmt.Errorf("between on %s needs two values", c.Column)
 			}
-			lo, err := add(list[0])
+			lo, err := add(c.Column, list[0])
 			if err != nil {
 				return "", err
 			}
-			hi, err := add(list[1])
+			hi, err := add(c.Column, list[1])
 			if err != nil {
 				return "", err
 			}
@@ -152,7 +189,7 @@ func (b *builder) where(conds []Condition, args *[]any) (string, error) {
 			if c.Value == nil {
 				return "", fmt.Errorf("%s on %s needs a value (use is_null to match NULL)", c.Op, c.Column)
 			}
-			ph, err := add(c.Value)
+			ph, err := add(c.Column, c.Value)
 			if err != nil {
 				return "", err
 			}
@@ -243,7 +280,7 @@ func (b *builder) insert(row map[string]any) (stmt, error) {
 			if err != nil {
 				return stmt{}, err
 			}
-			a, err := b.bind(row[n])
+			a, err := b.bind(n, row[n])
 			if err != nil {
 				return stmt{}, err
 			}
@@ -276,7 +313,7 @@ func (b *builder) update(set map[string]any, conds []Condition) (stmt, error) {
 		if err != nil {
 			return stmt{}, err
 		}
-		a, err := b.bind(set[n])
+		a, err := b.bind(n, set[n])
 		if err != nil {
 			return stmt{}, err
 		}

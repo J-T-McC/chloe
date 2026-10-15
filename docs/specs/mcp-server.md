@@ -30,7 +30,8 @@ An endpoint is a named access profile (e.g. "Claude Code – dev"):
 Without danger mode, every write shows a dialog in Chloe: endpoint, connection/database, the exact SQL (with values),
 and the number of rows it affects, with **Deny** and **Approve**. For update/delete Chloe counts the matching rows
 first; on Approve it runs the statement in a transaction and rolls back if the affected count differs from what was
-approved. No answer within 2 minutes counts as Deny. The agent gets "declined by the user".
+approved. Deny gives the agent "declined by the user in Chloe". With no answer within 2 minutes the dialog closes,
+nothing runs, and the agent is told nobody answered (so it doesn't take silence for a refusal).
 Creating a connection always asks, even in danger mode, and the password can be typed into the dialog instead of
 coming from the agent.
 
@@ -63,6 +64,9 @@ parameters. A connection the endpoint can use is opened on demand (it needs a sa
   `pg_terminate_backend`) are limited only by the connection's database user, so share connections with a
   least-privileged user.
 - `update_rows` and `delete_rows` need a non-empty `where`. Each write call is one transaction.
+- Values are bound as text and the database converts them to the column type. A JSON list for a PostgreSQL array
+  column becomes an array literal (nested lists for multi-dimensional arrays); elsewhere lists and objects are sent
+  as JSON text.
 - Endpoints with no Read-write access anywhere aren't offered the write tools; calling one is an unknown-tool error.
   The list follows the settings on the next request, so a client sees the change when it reconnects.
 - No DDL, no raw write SQL in v1.
@@ -78,7 +82,8 @@ parameters. A connection the endpoint can use is opened on demand (it needs a sa
 ### Create connections (capability)
 `create_connection` (a URL, or engine, host, port, user, database, sslmode; or an existing SQLite file) always asks,
 even in danger mode. The dialog shows the settings and has a password field, so the password needn't pass through
-the agent; a SQLite file gets a warning naming the file. Chloe tests the connection and saves it only if it opens.
+the agent; a SQLite file gets a warning naming the file. The file is only checked after approval, so the agent
+can't use the tool to learn which paths exist. Chloe tests the connection and saves it only if it opens.
 No SSH tunnels, client certificates or socket files. New connections go into the endpoint's group for new
 connections ("Created by AI" by default, created when needed) and get that group's access, for every endpoint.
 There's no separate `test_connection` tool: it would let an agent probe hosts and ports without asking.
@@ -92,7 +97,7 @@ A tab like the History Log:
 - Toolbar: **Server on/off**, port, URL, and **Copy Config** (Claude Code / Claude Desktop / JSON).
 - Left: endpoints list (**New Endpoint**, **Delete**). Right: the selected endpoint's name, enabled, token
   (Copy, Regenerate), danger mode, capabilities and the connection access tree. The split is draggable and remembered.
-- **Activity** tab: time, endpoint, tool, connection/database, SQL, rows, outcome (ok, error, approved, denied).
+- **Activity** tab: time, endpoint, tool, connection/database, SQL, rows, outcome (ok, error, approved, denied, no answer, ran without asking).
   The last 1000 calls are kept in memory only.
 
 ## Delivery
