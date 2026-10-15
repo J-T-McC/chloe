@@ -77,6 +77,9 @@ type DataSource struct {
 	Filters    []Filter    `json:"filters,omitempty"`
 	Sorts      []Sort      `json:"sorts,omitempty"`
 	Projection *Projection `json:"projection,omitempty"`
+	// CustomFields are computed from the source's fields, in order (each may use
+	// those before it).
+	CustomFields []CustomField `json:"customFields,omitempty"`
 	// Fields are the result's columns as last read (before projection).
 	Fields []Field `json:"fields,omitempty"`
 	// RefreshedAt is when the archive snapshot was taken.
@@ -391,21 +394,20 @@ func (d DataSource) Validate() error {
 			return err
 		}
 	}
-	return nil
+	return d.checkCustom()
 }
 
-// Visible lists the fields charts may use: the source's fields after projection.
+// allFields are the fields a source's rows have: its columns and custom fields.
+func (d DataSource) allFields() []Field {
+	custom, _ := d.customFields()
+	return append(slices.Clone(d.Fields), custom...)
+}
+
+// Visible lists the fields charts may use: the source's fields after
+// projection, then its custom fields.
 func (d DataSource) Visible() []Field {
-	if d.Projection == nil || len(d.Projection.Fields) == 0 {
-		return d.Fields
-	}
-	var out []Field
-	for _, f := range d.Fields {
-		if slices.Contains(d.Projection.Fields, f.Name) != d.Projection.Exclude {
-			out = append(out, f)
-		}
-	}
-	return out
+	custom, _ := d.customFields()
+	return append(slices.Clone(d.baseFields()), custom...)
 }
 
 // Field finds a visible field by name.

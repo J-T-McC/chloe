@@ -15,7 +15,7 @@ import { openMenu } from "../ContextMenu";
 import { alert, confirm, prompt } from "../Dialogs";
 import { createdByLabel } from "../model/ModelsList";
 import { Split } from "../Split";
-import { biChanged, openObject } from "./actions";
+import { biChanged, openObject, sourceFields } from "./actions";
 import { ChartInteraction, ChartView } from "./ChartView";
 import { ChartTypeIcon } from "./icons";
 import { Markdown } from "./Markdown";
@@ -386,12 +386,12 @@ export function PageCanvas({ page, charts, path, theme, tick, editable, selected
     return () => window.removeEventListener("keydown", onKey);
   }, [picks.length]);
   const mode = interaction || "filter";
-  const fieldsOf = (id: string) => arr(sources?.find((s) => s.id === id)?.fields).map((f) => f.name);
+  const fieldsOf = (id: string) => sourceFields(sources?.find((s) => s.id === id)).map((f) => f.name);
   const controls = arr(page.items).flatMap((it) => {
     const c = charts.find((x) => x.id === it.chart);
     const field = c?.type === "control" ? arr(c.dimension)[0]?.field : undefined;
     if (!c || !field) return [];
-    const type = arr(sources?.find((s) => s.id === c.dataSource)?.fields).find((f) => f.name === field)?.type;
+    const type = sourceFields(sources?.find((s) => s.id === c.dataSource)).find((f) => f.name === field)?.type;
     return [{ item: it.id, field, targets: arr(it.targets), filter: controlFilter(field, controlStyle(c, type), controlValues[it.id] ?? null) }];
   });
   const pick = (it: B.Item, c: B.Chart) => (key: unknown, label: string) => {

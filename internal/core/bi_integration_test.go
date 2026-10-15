@@ -42,6 +42,26 @@ func TestBIChartsAcrossEngines(t *testing.T) {
 		{"value", bi.Chart{Type: "value", Value: []bi.ChartField{{Field: "region", Aggregate: "count_distinct"}},
 			Filters: []bi.Filter{{Field: "total", Op: "between", Values: []string{"50", "200"}}}},
 			[][]any{{2.0}}},
+
+		// Custom fields (defined on the source below).
+		{"calculated", bi.Chart{Type: "bar", Dimension: []bi.ChartField{{Field: "size"}}, Value: []bi.ChartField{{Field: "net", Aggregate: "sum"}}},
+			[][]any{{"big", 567.0}, {"small", 180.45}}},
+		{"mapped", bi.Chart{Type: "bar", Dimension: []bi.ChartField{{Field: "zone"}}, Value: []bi.ChartField{{Field: "total", Aggregate: "sum"}}},
+			[][]any{{"Top", 375.5}, {"Side", 315.0}, {"Bottom", 140.0}}},
+		{"sorted and concatenated", bi.Chart{Type: "bar", Dimension: []bi.ChartField{{Field: "ordered"}}, Value: []bi.ChartField{{Field: "label", Aggregate: "count_distinct"}}},
+			[][]any{{"West", 1.0}, {"North", 3.0}, {"East", 1.0}, {"South", 2.0}}},
+		{"type changed and division by zero", bi.Chart{Type: "value", Value: []bi.ChartField{{Field: "nothing", Aggregate: "max"}},
+			Filters: []bi.Filter{{Field: "total_text", Op: "begins_with", Values: []string{"30"}}}},
+			[][]any{{nil}}},
+	}
+	custom := []bi.CustomField{
+		{Name: "net", Kind: bi.CustomCalculated, Expression: "ROUND([total] * 0.9, 2)"},
+		{Name: "size", Kind: bi.CustomCalculated, Expression: "IF(total >= 100, 'big', 'small')"},
+		{Name: "zone", Kind: bi.CustomMapped, Field: "region", Rules: []bi.MapRule{{From: "north", To: "Top"}, {From: "SOUTH", To: "Bottom"}}, Unmapped: "other", Other: "Side"},
+		{Name: "label", Kind: bi.CustomConcat, Fields: []string{"region", "total"}, Separator: " / "},
+		{Name: "ordered", Kind: bi.CustomSorted, Field: "region", Order: []string{"West", "North"}},
+		{Name: "total_text", Kind: bi.CustomTypeChanged, Field: "total", To: bi.TypeString},
+		{Name: "nothing", Kind: bi.CustomCalculated, Expression: "total / (total - total)"},
 	}
 	for _, e := range engines() {
 		t.Run(string(e.conn.Type), func(t *testing.T) {
@@ -71,7 +91,7 @@ func TestBIChartsAcrossEngines(t *testing.T) {
 				}
 			}
 			for _, mode := range []string{bi.ModeLive, bi.ModeArchive} {
-				src, err := m.BISaveSource(ctx, p, bi.DataSource{Meta: bi.Meta{Name: "Orders " + mode}, ConnID: id, Database: e.database, Schema: e.schema, SQL: sql(ts), Mode: mode})
+				src, err := m.BISaveSource(ctx, p, bi.DataSource{Meta: bi.Meta{Name: "Orders " + mode}, ConnID: id, Database: e.database, Schema: e.schema, SQL: sql(ts), Mode: mode, CustomFields: custom})
 				if err != nil {
 					t.Fatal(err)
 				}

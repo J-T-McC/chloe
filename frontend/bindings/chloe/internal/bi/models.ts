@@ -126,6 +126,60 @@ export interface Column {
      * Aggregate names the bucket.
      */
     "type": string;
+
+    /**
+     * Order is a custom-sorted field's order of values.
+     */
+    "order"?: string[] | null;
+}
+
+/**
+ * CustomField is a field a data source computes from its own fields.
+ */
+export interface CustomField {
+    "name": string;
+    "kind": string;
+
+    /**
+     * Field is the field it's made from (type_changed, mapped, sorted).
+     */
+    "field"?: string;
+
+    /**
+     * To is a type_changed field's type: string, number or datetime.
+     */
+    "to"?: string;
+
+    /**
+     * Fields and Separator make a concatenated field.
+     */
+    "fields"?: string[] | null;
+    "separator"?: string;
+
+    /**
+     * Rules map values (mapped); CaseSensitive compares them exactly. Unmapped
+     * values stay as they are ("" or keep), become NULL (null) or Other (other).
+     */
+    "rules"?: MapRule[] | null;
+    "caseSensitive"?: boolean;
+    "unmapped"?: string;
+    "other"?: string;
+
+    /**
+     * Order is a sorted field's order of values; others follow, in their own order.
+     */
+    "order"?: string[] | null;
+
+    /**
+     * Expression is a calculated field's formula (see expr.go).
+     */
+    "expression"?: string;
+
+    /**
+     * Type is the field's type as last worked out (string, number, datetime);
+     * set when the source is saved, for the designer.
+     */
+    "type"?: string;
 }
 
 /**
@@ -224,6 +278,12 @@ export interface DataSource {
     "filters"?: Filter[] | null;
     "sorts"?: Sort[] | null;
     "projection"?: Projection | null;
+
+    /**
+     * CustomFields are computed from the source's fields, in order (each may use
+     * those before it).
+     */
+    "customFields"?: CustomField[] | null;
 
     /**
      * Fields are the result's columns as last read (before projection).
@@ -328,6 +388,14 @@ export interface Item {
      * the page that has its field.
      */
     "targets"?: string[] | null;
+}
+
+/**
+ * MapRule maps one value to another.
+ */
+export interface MapRule {
+    "from": string;
+    "to": string;
 }
 
 export interface NumberFormat {

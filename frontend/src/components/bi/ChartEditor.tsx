@@ -11,7 +11,7 @@ import { DBType } from "../../api";
 import { MenuItem, openMenu } from "../ContextMenu";
 import { prompt } from "../Dialogs";
 import { Split } from "../Split";
-import { biChanged, loadCatalog, openObject } from "./actions";
+import { biChanged, loadCatalog, openObject, sourceFields } from "./actions";
 import { ChartView } from "./ChartView";
 import { FilterList, cleanFilters } from "./FilterList";
 import { ChartTypeIcon } from "./icons";
@@ -125,12 +125,7 @@ export function ChartEditor({ tab }: { tab: Tab }) {
   }, [w]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const src = arr(w?.dataSources).find((s) => s.id === draft?.dataSource) ?? null;
-  const fields = useMemo(() => {
-    const all = arr(src?.fields);
-    const p = src?.projection;
-    if (!p || !arr(p.fields).length) return all;
-    return all.filter((f) => arr(p.fields).includes(f.name) !== !!p.exclude);
-  }, [src]);
+  const fields = useMemo(() => sourceFields(src), [src]);
   const dialect = src?.mode === "archive" ? "sqlite" : connById(src?.connId)?.type === DBType.PostgreSQL ? "postgres" : "mysql";
   const type = cat?.types?.[draft?.type ?? "bar"];
   const theme = w?.theme === "dark" ? "dark" : "light";
@@ -378,7 +373,7 @@ export function ChartEditor({ tab }: { tab: Tab }) {
                 </div>
               </div>
             }
-            second={<PropsPane draft={draft} props={props} setProps={setProps} update={update} fields={arr(src?.fields)} />}
+            second={<PropsPane draft={draft} props={props} setProps={setProps} update={update} fields={fields} />}
           />
         }
       />

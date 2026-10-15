@@ -1,7 +1,7 @@
 // Data source designer: a table or view, or a query, on one connection; Live or
 // Archive mode; Filter, Sort and Projection panes; and the preview grid
 // ("Apply and Refresh Data"), like Navicat's data source tab.
-import { ArrowUpDown, Columns3, Database, Filter, Play, Plus, RefreshCw, Save, X } from "lucide-react";
+import { ArrowUpDown, Calculator, Columns3, Database, Filter, Play, Plus, RefreshCw, Save, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { B, BI, BIPreview, DBType, Explorer, ObjectKind, Query, SavedQuery, arr, errorText } from "../../api";
 import { connDialect, editorLanguage } from "../../dialect";
@@ -11,6 +11,7 @@ import { tabSavers } from "../../queries";
 import { Tab, connById, useApp } from "../../store";
 import { Split } from "../Split";
 import { biChanged, openObject } from "./actions";
+import { CustomFieldsPane } from "./CustomFields";
 import { FilterList, cleanFilters } from "./FilterList";
 import { useWorkspace } from "./WorkspaceView";
 
@@ -43,7 +44,7 @@ export function SourceEditor({ tab }: { tab: Tab }) {
   const [preview, setPreview] = useState<BIPreview | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
-  const [panes, setPanes] = useState({ filter: false, sort: false, projection: false });
+  const [panes, setPanes] = useState({ filter: false, sort: false, projection: false, custom: false });
 
   // Load the source (or start one) once the workspace is read; reload it when it
   // changes elsewhere and isn't being edited here.
@@ -244,6 +245,9 @@ export function SourceEditor({ tab }: { tab: Tab }) {
         <button className={panes.projection || projection.fields?.length ? "on" : ""} onClick={() => setPanes((p) => ({ ...p, projection: !p.projection }))}>
           <Columns3 size={14} /> Projection
         </button>
+        <button className={panes.custom || arr(draft.customFields).length ? "on" : ""} onClick={() => setPanes((p) => ({ ...p, custom: !p.custom }))}>
+          <Calculator size={14} /> Custom Fields
+        </button>
         <span className="spacer" />
         {saved?.id && (
           <button onClick={() => openObject(path, "chart", "", "")} title="A new chart on this data source">
@@ -378,10 +382,16 @@ export function SourceEditor({ tab }: { tab: Tab }) {
                 onRun={() => refreshRef.current()}
               />
             )}
+            {panes.custom && (
+              <section className="bi-pane">
+                <div className="bi-pane-title">Custom Fields</div>
+                <CustomFieldsPane fields={allFields} custom={arr(draft.customFields)} onChange={(customFields) => update({ customFields })} />
+              </section>
+            )}
             {panes.filter && (
               <section className="bi-pane">
                 <div className="bi-pane-title">Filter</div>
-                <FilterList fields={allFields} filters={arr(draft.filters)} onChange={(filters) => update({ filters })} />
+                <FilterList fields={[...allFields, ...arr(draft.customFields).map((c) => ({ name: c.name, type: c.type || "string" }) as B.Field)]} filters={arr(draft.filters)} onChange={(filters) => update({ filters })} />
               </section>
             )}
             {panes.sort && (
