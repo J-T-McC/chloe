@@ -448,8 +448,8 @@ type Session struct {
 	database string
 }
 
-func (s *Session) Query(ctx context.Context, stmt string) (driver.Rows, error) {
-	return sqlcommon.Run(ctx, s.conn, stmt, formatValue)
+func (s *Session) Query(ctx context.Context, stmt string, args ...any) (driver.Rows, error) {
+	return sqlcommon.Run(ctx, s.conn, stmt, formatValue, args...)
 }
 
 func (s *Session) Cancel(ctx context.Context) error {

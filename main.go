@@ -10,6 +10,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 
 	"chloe/internal/core"
+	"chloe/internal/mcpserver"
 	_ "chloe/internal/driver/mysql"
 	_ "chloe/internal/driver/postgres"
 	_ "chloe/internal/driver/sqlite"
@@ -52,6 +53,9 @@ func main() {
 	}
 	mgr := core.NewManager(st, services.Emitter{}, core.DefaultSettings)
 	defer mgr.Close()
+	approver := &services.MCPApprover{}
+	mcpSrv := mcpserver.New(mgr, approver, services.MCPEvents{})
+	defer mcpSrv.Close()
 
 	app := application.New(application.Options{
 		Name:        "Chloe",
@@ -69,6 +73,7 @@ func main() {
 			application.NewService(&services.RedisService{M: mgr}),
 			application.NewService(&services.MongoService{M: mgr}),
 			application.NewService(&services.UserService{M: mgr}),
+			application.NewService(&services.MCPService{S: mcpSrv, Approver: approver}),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -84,6 +89,10 @@ func main() {
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		app.SetIcon(icon)
 	})
+	// The MCP server starts with the app when it's switched on.
+	if err := mcpSrv.Load(); err != nil {
+		log.Printf("MCP server: %v", err)
+	}
 
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:     "Chloe",
@@ -122,6 +131,8 @@ func appMenu() *application.Menu {
 	tools.Add("Data Synchronization…").OnClick(func(*application.Context) { application.Get().Event.Emit("menu:data-sync") })
 	tools.AddSeparator()
 	tools.Add("History Log").OnClick(func(*application.Context) { application.Get().Event.Emit("menu:history-log") })
+	tools.AddSeparator()
+	tools.Add("MCP Server…").OnClick(func(*application.Context) { application.Get().Event.Emit("menu:mcp") })
 	menu.AddRole(application.WindowMenu)
 	return menu
 }

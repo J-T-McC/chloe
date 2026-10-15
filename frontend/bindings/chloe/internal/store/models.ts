@@ -54,6 +54,69 @@ export interface HistoryEntry {
 }
 
 /**
+ * MCPCapabilities are the opt-in tool groups beyond data access.
+ */
+export interface MCPCapabilities {
+    "createConnections": boolean;
+    "savedQueries": boolean;
+    "monitor": boolean;
+    "models": boolean;
+}
+
+/**
+ * MCPConnAccess is an endpoint's access to one connection. Databases overrides
+ * Level for single databases (PostgreSQL databases, MySQL databases, SQLite files).
+ */
+export interface MCPConnAccess {
+    "level": MCPLevel;
+    "databases"?: { [_ in string]?: MCPLevel } | null;
+}
+
+/**
+ * MCPEndpoint is a named access profile with its own token.
+ */
+export interface MCPEndpoint {
+    "id": string;
+    "name": string;
+    "enabled": boolean;
+    "token": string;
+
+    /**
+     * Danger runs writes without asking the user first.
+     */
+    "danger": boolean;
+    "capabilities": MCPCapabilities;
+
+    /**
+     * by connection ID
+     */
+    "access": { [_ in string]?: MCPConnAccess } | null;
+}
+
+/**
+ * MCPLevel is how much an MCP endpoint may do with a connection or database.
+ */
+export enum MCPLevel {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    MCPOff = "",
+    MCPRead = "read",
+    MCPWrite = "write",
+};
+
+/**
+ * MCPSettings is the MCP server configuration, kept in mcp.json.
+ */
+export interface MCPSettings {
+    "enabled": boolean;
+    "port": number;
+    "endpoints": MCPEndpoint[] | null;
+}
+
+/**
  * SavedQuery is a named query kept under a connection's database (and schema),
  * shown in its Queries folder.
  */

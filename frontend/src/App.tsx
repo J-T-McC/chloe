@@ -1,4 +1,4 @@
-import { Activity, Database, FilePlus2, History, Monitor, Moon, Network, PencilRuler, Plug, Shapes, Sun, Table2, TerminalSquare, UserRound, UsersRound, X } from "lucide-react";
+import { Activity, Bot, Database, FilePlus2, History, Monitor, Moon, Network, PencilRuler, Plug, Shapes, Sun, Table2, TerminalSquare, UserRound, UsersRound, X } from "lucide-react";
 import { ThemePref, onThemeChange, setThemePref, themePref } from "./theme";
 import { useEffect, useRef, useState } from "react";
 import { Events, ObjectKind } from "./api";
@@ -41,6 +41,8 @@ import { DBType, Models, arr } from "./api";
 import { DDLView, ObjectsPane } from "./components/ObjectsPane";
 import { QueryEditor } from "./components/QueryEditor";
 import { HistoryLog, openHistoryLog } from "./components/HistoryLog";
+import { MCPButton, MCPServer, openMCPServer } from "./components/mcp/MCPServer";
+import { ApprovalHost } from "./components/mcp/ApprovalHost";
 import { requestCloseTabs, saveQueryTab } from "./queries";
 import { Sidebar, newQuery, openMonitor, selectAllSQL, useInitialLoad } from "./components/Sidebar";
 import { TableViewer } from "./components/TableViewer";
@@ -60,6 +62,7 @@ export default function App() {
   seen.current.add(active);
   // Tools > History Log in the native menu.
   useEffect(() => Events.On("menu:history-log", () => openHistoryLog()), []);
+  useEffect(() => Events.On("menu:mcp", () => openMCPServer()), []);
   useEffect(() => Events.On("menu:data-transfer", () => openDataTransfer(useApp.getState().selection)), []);
   useEffect(() => Events.On("menu:structure-sync", () => openStructureSync(useApp.getState().selection)), []);
   useEffect(() => Events.On("menu:data-sync", () => openDataSync(useApp.getState().selection)), []);
@@ -163,6 +166,7 @@ export default function App() {
         </div>
         <div className="titlebar-right">
           <ThemeButton />
+          <MCPButton />
           <JobsButton />
         </div>
       </header>
@@ -205,6 +209,7 @@ export default function App() {
       <DocEditorHost />
       <MongoTransferHost />
       <DialogHost />
+      <ApprovalHost />
       <ContextMenuHost />
     </div>
   );
@@ -214,6 +219,8 @@ function TabContent({ tab, active }: { tab: Tab; active: boolean }) {
   switch (tab.kind) {
     case "history":
       return <HistoryLog active={active} />;
+    case "mcp":
+      return <MCPServer />;
     case "objects":
       return <ObjectsPane />;
     case "query":
@@ -252,7 +259,7 @@ function TabContent({ tab, active }: { tab: Tab; active: boolean }) {
 }
 
 function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
-  const icon = tab.kind === "users" || tab.kind === "mongousers" ? <UsersRound size={13} /> : tab.kind === "user" ? <UserRound size={13} /> : tab.kind === "redisconsole" || tab.kind === "mongoshell" ? <TerminalSquare size={13} /> : tab.kind === "mongoquery" ? <FilePlus2 size={13} /> : tab.kind === "mongodesign" ? <PencilRuler size={13} /> : tab.kind === "model" ? <Shapes size={13} /> : tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" || tab.kind === "viewdesign" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.kind === "history" ? <History size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
+  const icon = tab.kind === "users" || tab.kind === "mongousers" ? <UsersRound size={13} /> : tab.kind === "user" ? <UserRound size={13} /> : tab.kind === "redisconsole" || tab.kind === "mongoshell" ? <TerminalSquare size={13} /> : tab.kind === "mongoquery" ? <FilePlus2 size={13} /> : tab.kind === "mongodesign" ? <PencilRuler size={13} /> : tab.kind === "model" ? <Shapes size={13} /> : tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" || tab.kind === "viewdesign" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.kind === "history" ? <History size={13} /> : tab.kind === "mcp" ? <Bot size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
   return (
     <div
       className={"tab" + (active ? " active" : "")}

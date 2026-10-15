@@ -703,11 +703,11 @@ func (s *Session) sync(ctx context.Context) error {
 	})
 }
 
-func (s *Session) Query(ctx context.Context, stmt string) (driver.Rows, error) {
+func (s *Session) Query(ctx context.Context, stmt string, args ...any) (driver.Rows, error) {
 	if err := s.sync(ctx); err != nil {
 		return nil, err
 	}
-	return sqlcommon.Run(s.run(ctx), s.conn, stmt, FormatValue)
+	return sqlcommon.Run(s.run(ctx), s.conn, stmt, FormatValue, args...)
 }
 
 func (s *Session) Exec(ctx context.Context, stmt string, args ...any) (int64, error) {
