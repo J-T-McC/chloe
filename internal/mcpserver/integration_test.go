@@ -78,6 +78,23 @@ func TestIntegrationEngines(t *testing.T) {
 			if r := rows(out); r[0][0] != "23" {
 				t.Fatalf("sum: %v", out)
 			}
+			// A write hidden inside a SELECT, through a function, is stopped by the
+			// read-only transaction rather than the statement check.
+			if e.conn.Type == model.PostgreSQL {
+				f.exec(t, e.seedDB, "", "CREATE FUNCTION chloe_mcp_it.bump() RETURNS int AS $$ UPDATE chloe_mcp_it.mcp_it SET qty = qty + 1; SELECT 1 $$ LANGUAGE sql")
+				q["sql"] = "SELECT chloe_mcp_it.bump()"
+				f.call(t, "run_query", q, "read-only transaction")
+				q["sql"] = "SELECT nextval('chloe_mcp_it.mcp_it_id_seq')"
+				f.call(t, "run_query", q, "read-only transaction")
+			} else {
+				f.exec(t, e.database, "", "DELIMITER $$\nCREATE FUNCTION bump() RETURNS INT DETERMINISTIC MODIFIES SQL DATA BEGIN UPDATE mcp_it SET qty = qty + 1; RETURN 1; END$$")
+				q["sql"] = "SELECT bump()"
+				f.call(t, "run_query", q, "READ ONLY transaction")
+			}
+			q["sql"] = "SELECT sum(qty) AS total FROM mcp_it"
+			if r := rows(f.call(t, "run_query", q, "")); r[0][0] != "23" {
+				t.Fatalf("a read changed data: sum %v", r)
+			}
 			if e.conn.Type == model.PostgreSQL {
 				// JSON lists become arrays.
 				f.call(t, "update_rows", at(map[string]any{"where": []any{map[string]any{"column": "name", "op": "=", "value": "c"}},

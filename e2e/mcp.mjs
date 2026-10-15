@@ -138,7 +138,7 @@ await step("danger mode skips the dialog", async () => {
   await page.getByRole("button", { name: "Turn On" }).click();
   await page.locator(".mcp-button.danger-mode", { hasText: "Danger mode" }).waitFor();
   const r = await tool("delete_rows", { connection: "big", table: "n", where: where(3) });
-  if (r.isError || r.structuredContent.rows !== 1) throw new Error(text(r));
+  if (r.isError || r.structuredContent.rows !== 1 || !r.structuredContent.approval.includes("danger mode")) throw new Error(text(r));
   if (await page.getByRole("dialog", { name: "Approve AI change" }).count()) throw new Error("asked anyway");
   await page.getByLabel("Danger mode").uncheck();
   await page.locator(".mcp-button.running").waitFor();
@@ -161,7 +161,7 @@ await step("redis connection in the access tree", async () => {
 
 await step("redis tools over MCP", async () => {
   const names = (await rpc("tools/list", {})).result.tools.map((t) => t.name);
-  for (const n of ["redis_databases", "redis_scan", "redis_get", "redis_command", "redis_set", "redis_edit", "redis_delete", "redis_expire"])
+  for (const n of ["redis_databases", "redis_overview", "redis_scan", "redis_get", "redis_command", "redis_set", "redis_edit", "redis_delete", "redis_expire"])
     if (!names.includes(n)) throw new Error("missing " + n);
   const dbs = (await tool("redis_databases", { connection: "cache" })).structuredContent.databases;
   if (dbs.some((d) => d.db === 1) || !dbs.some((d) => d.db === 0 && d.keys > 0)) throw new Error(JSON.stringify(dbs));
@@ -188,6 +188,50 @@ await step("redis write waits for approval", async () => {
   if (v.items.length !== 2 || !v.items.some((i) => i.field === "visits" && i.value === "13")) throw new Error(JSON.stringify(v));
   // Later steps check which tools a read-only endpoint gets.
   await page.getByLabel("Access to cache", { exact: true }).selectOption("off");
+});
+
+await step("mongodb connection in the access tree", async () => {
+  await page.getByRole("button", { name: "Connection" }).first().click();
+  await page.locator(".type-card").filter({ has: page.locator(`span:text-is("MongoDB")`) }).click();
+  await field("Connection Name").fill("docs");
+  await field("Host").fill("127.0.0.1");
+  await field("Port").fill("37017");
+  await field("User Name").fill("root");
+  await field("Password").fill("chloe");
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.getByLabel("Access to docs", { exact: true }).selectOption("write");
+  await page.getByLabel("Databases of docs").click();
+  await page.getByLabel("Access to docs analytics", { exact: true }).selectOption("off");
+  await page.waitForTimeout(200);
+});
+
+await step("mongodb tools over MCP", async () => {
+  const names = (await rpc("tools/list", {})).result.tools.map((t) => t.name);
+  for (const n of ["mongo_databases", "mongo_collections", "mongo_describe", "mongo_find", "mongo_aggregate", "mongo_insert", "mongo_update", "mongo_delete"])
+    if (!names.includes(n)) throw new Error("missing " + n);
+  const dbs = (await tool("mongo_databases", { connection: "docs" })).structuredContent.databases.map((d) => d.name);
+  if (!dbs.includes("shop") || dbs.includes("analytics")) throw new Error(dbs.join(", "));
+  const r = await tool("mongo_find", { connection: "docs", database: "shop", collection: "customers", filter: { "address.country": "UK" }, sort: [{ field: "full_name", desc: true }], projection: { full_name: 1, _id: 0 } });
+  const got = r.structuredContent.documents.map((d) => d.full_name).join(", ");
+  if (got !== "Alan Turing, Ada Lovelace") throw new Error(text(r));
+  const agg = await tool("mongo_aggregate", { connection: "docs", database: "shop", collection: "customers", pipeline: [{ $group: { _id: "$address.country", n: { $sum: 1 } } }, { $sort: { n: -1, _id: 1 } }] });
+  if (agg.structuredContent.documents[0]._id !== "UK") throw new Error(text(agg));
+  const out = await tool("mongo_aggregate", { connection: "docs", database: "shop", collection: "customers", pipeline: [{ $out: "copy" }] });
+  if (!out.isError || !text(out).includes("writes to a collection")) throw new Error(text(out));
+  const hidden = await tool("mongo_find", { connection: "docs", database: "analytics", collection: "pageviews" });
+  if (!hidden.isError || !text(hidden).includes("isn't shared")) throw new Error(text(hidden));
+});
+
+await step("mongodb update waits for approval", async () => {
+  const pending = tool("mongo_update", { connection: "docs", database: "shop", collection: "customers", filter: { tags: "vip" }, update: { $addToSet: { tags: "gold" } }, many: true });
+  await page.getByRole("dialog", { name: "Approve AI change" }).waitFor();
+  const body = await page.locator(".mcp-approval").innerText();
+  if (!body.includes("update 2 documents in customers") || !body.includes("db.customers.updateMany(") || !body.includes("// _id: [1, 3]")) throw new Error(body);
+  await shot("mcp-mongo-approval");
+  await page.getByRole("button", { name: "Approve" }).click();
+  const r = await pending;
+  if (r.isError || r.structuredContent.modified !== 2 || r.structuredContent.approval !== "approved by the user in Chloe") throw new Error(text(r));
+  await page.getByLabel("Access to docs", { exact: true }).selectOption("off");
 });
 
 await step("read-only access refuses writes", async () => {

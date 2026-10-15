@@ -400,13 +400,11 @@ func (s *Server) serverFor(id string) *mcp.Server {
 			ep = e
 		}
 	}
-	// The Redis tools come and go with the endpoint's Redis connections, which
-	// change without the settings changing, so they're part of the cache key.
-	redisTools := s.seesRedis(ep)
-	key := id
-	if redisTools {
-		key += "+redis"
-	}
+	// The Redis and MongoDB tools come and go with the endpoint's connections of
+	// those engines, which change without the settings changing, so they're part
+	// of the cache key.
+	redisTools, mongoTools := s.sees(ep, model.Redis), s.sees(ep, model.MongoDB)
+	key := fmt.Sprintf("%s+%t+%t", id, redisTools, mongoTools)
 	if srv, ok := s.servers[key]; ok {
 		return srv
 	}
@@ -418,6 +416,9 @@ func (s *Server) serverFor(id string) *mcp.Server {
 	s.addTools(srv, id, writes)
 	if redisTools {
 		s.addRedisTools(srv, id, writes)
+	}
+	if mongoTools {
+		s.addMongoTools(srv, id, writes)
 	}
 	if ep.Capabilities.CreateConnections {
 		s.addConnectionTools(srv, id)
@@ -439,10 +440,10 @@ func (s *Server) serverFor(id string) *mcp.Server {
 	return srv
 }
 
-// seesRedis reports whether an endpoint can see any Redis connection.
-func (s *Server) seesRedis(ep store.MCPEndpoint) bool {
+// sees reports whether an endpoint can see any connection of an engine.
+func (s *Server) sees(ep store.MCPEndpoint, typ model.DBType) bool {
 	for _, conn := range s.m.Store.List() {
-		if conn.Type == model.Redis && accessTo(ep, conn).visible() {
+		if conn.Type == typ && accessTo(ep, conn).visible() {
 			return true
 		}
 	}

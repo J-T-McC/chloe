@@ -132,3 +132,11 @@ func TestRedisText(t *testing.T) {
 		t.Error(got)
 	}
 }
+
+func TestKeyPrefix(t *testing.T) {
+	for k, want := range map[string]string{"user:1": "user:*", "bulk:item:42": "bulk:item:*", "greeting": "greeting", "a/b/c": "a/b/*", ":x": ":x", "trailing:": "trailing:"} {
+		if got := keyPrefix(k); got != want {
+			t.Errorf("%s: %s", k, got)
+		}
+	}
+}

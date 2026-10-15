@@ -569,6 +569,9 @@ func (c *Client) SampleFields(ctx context.Context, db, coll string, n int) ([]Fi
 
 // writeError turns a driver write exception into its server message; a validation
 // failure also names the properties it was about.
+// WriteError is writeError for callers outside the package.
+func WriteError(err error) error { return writeError(err) }
+
 func writeError(err error) error {
 	if err == nil {
 		return nil

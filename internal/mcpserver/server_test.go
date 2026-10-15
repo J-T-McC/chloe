@@ -194,8 +194,14 @@ func (f *fixture) exec(t *testing.T, database, schema, sql string) {
 		return
 	}
 	defer f.m.CloseSession(sid)
-	if _, err := f.m.Execute(context.Background(), sid, sql, core.ExecOptions{}); err != nil {
+	res, err := f.m.Execute(context.Background(), sid, sql, core.ExecOptions{})
+	if err != nil {
 		t.Error(err)
+	}
+	for _, r := range res {
+		if r.Error != "" {
+			t.Errorf("%s: %s", r.SQL, r.Error)
+		}
 	}
 }
 

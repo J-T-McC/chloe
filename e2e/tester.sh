@@ -3,7 +3,8 @@
 # an MCP endpoint (Reports on) and a browser kept open so exports render.
 #   make server && e2e/tester.sh        # then: node e2e/mcp-call.mjs <tool> '<json>'
 # TESTER_REDIS=1 also shares the Docker Redis (reseeded) read-write as "cache", with Monitor on;
-# writes are approved automatically and each approval dialog's text goes to e2e/.tester/approvals.log.
+# TESTER_MONGO=1 does the same for the Docker MongoDB (reseeded) as "docs".
+# Writes are approved automatically and each approval dialog's text goes to e2e/.tester/approvals.log.
 # Stop it with: pkill -f Chloe-server; pkill -f tester-setup
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -29,8 +30,11 @@ SQL
 if [ -n "$TESTER_REDIS" ]; then
   docker exec -i chloe-redis redis-cli -a chloe --no-auth-warning < testdata/seed_redis.txt >/dev/null
 fi
+if [ -n "$TESTER_MONGO" ]; then
+  docker exec -i chloe-mongo mongosh -u root -p chloe --quiet < testdata/seed_mongo.js >/dev/null
+fi
 CHLOE_CONFIG_DIR="$out/config" CHLOE_SECRETS=memory CHLOE_REPORTS_DIR="$out/reports" ./bin/Chloe-server > "$out/server.log" 2>&1 &
 sleep 1.5
-cd e2e && TESTER_REDIS="$TESTER_REDIS" nohup node tester-setup.mjs "$out" > "$out/setup.log" 2>&1 &
+cd e2e && TESTER_REDIS="$TESTER_REDIS" TESTER_MONGO="$TESTER_MONGO" nohup node tester-setup.mjs "$out" > "$out/setup.log" 2>&1 &
 for i in $(seq 1 60); do [ -f "$out/endpoint.json" ] && break; sleep 0.5; done
 cat "$out/endpoint.json" 2>/dev/null || (cat "$out/setup.log"; exit 1)
