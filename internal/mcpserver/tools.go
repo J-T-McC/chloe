@@ -209,6 +209,18 @@ func (c *call) connection(name string) (model.Connection, access, error) {
 // resolve finds the connection and database and checks the endpoint may use
 // them at the needed level. It opens the connection if necessary.
 func (c *call) resolve(ctx context.Context, connection, database, schema string, need store.MCPLevel) (target, error) {
+	t, err := c.lookup(connection, database, schema, need)
+	if err != nil {
+		return t, err
+	}
+	if err := c.s.m.Ensure(ctx, t.connID); err != nil {
+		return t, fmt.Errorf("couldn't open %s: %w", t.conn, err)
+	}
+	return t, nil
+}
+
+// lookup is resolve without opening the connection.
+func (c *call) lookup(connection, database, schema string, need store.MCPLevel) (target, error) {
 	conn, a, err := c.connection(connection)
 	if err != nil {
 		return target{}, err
@@ -238,9 +250,6 @@ func (c *call) resolve(ctx context.Context, connection, database, schema string,
 	}
 	if !atLeast(have, need) {
 		return t, fmt.Errorf("this endpoint can only read %s/%s; ask the user to allow writes in Chloe's MCP Server settings", conn.Name, t.database)
-	}
-	if err := c.s.m.Ensure(ctx, conn.ID); err != nil {
-		return t, fmt.Errorf("couldn't open %s: %w", conn.Name, err)
 	}
 	return t, nil
 }

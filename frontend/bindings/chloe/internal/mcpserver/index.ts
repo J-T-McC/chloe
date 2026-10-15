@@ -4,5 +4,6 @@
 export type {
     Activity,
     ApprovalRequest,
+    QueryTab,
     Status
 } from "./models.js";

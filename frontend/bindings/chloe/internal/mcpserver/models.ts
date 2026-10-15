@@ -59,6 +59,19 @@ export interface ApprovalRequest {
 }
 
 /**
+ * QueryTab asks the UI to open a query tab. With QueryName it opens that saved
+ * query; otherwise a new, unsaved tab holding SQL.
+ */
+export interface QueryTab {
+    "connId": string;
+    "database": string;
+    "schema"?: string;
+    "title": string;
+    "sql"?: string;
+    "queryName"?: string;
+}
+
+/**
  * Status describes the HTTP listener.
  */
 export interface Status {

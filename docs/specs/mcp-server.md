@@ -73,11 +73,34 @@ parameters. A connection the endpoint can use is opened on demand (it needs a sa
 - MySQL, PostgreSQL and SQLite in v1; MongoDB and Redis later.
 
 ### Monitor (capability)
-`list_sessions`, `server_status`, `server_variables` (read-only); `kill_session` (asks unless danger mode).
+| Tool | Access | Arguments |
+|---|---|---|
+| `list_sessions` | Read | `connection` |
+| `server_status` | Read | `connection, filter?` |
+| `server_variables` | Read | `connection, filter?` |
+| `kill_session` | Read-write | `connection, id, query_only?` |
+
+- MySQL/MariaDB and PostgreSQL. Sessions and status span the whole server, so the endpoint needs the level on every
+  database of the connection; one hidden or read-only database makes the tools refuse.
+- `filter` keeps names containing the text (case-insensitive). Session queries are cut like result cells.
+- `kill_session` asks unless danger mode is on, showing the session's user, host, database, state, time and query.
+  `query_only` cancels the running query and keeps the session. Chloe's own sessions can't be killed. It's offered
+  only to endpoints with Read-write somewhere, like the row tools.
 
 ### Saved queries (capability)
-`list_saved_queries`, `get_saved_query`, `save_query` (into the database's Queries folder), `open_query_tab`
-(opens a query tab with the agent's SQL for the user to review and run; it never runs it).
+| Tool | Access | Arguments |
+|---|---|---|
+| `list_saved_queries` | Read | `connection, database, schema?` |
+| `get_saved_query` | Read | `connection, database, schema?, name` |
+| `save_query` | Read | `connection, database, schema?, name, sql` |
+| `open_query_tab` | Read | `connection, database, schema?, sql?` or `name` |
+
+- `save_query` adds a query to the database's Queries folder; it never replaces one (a taken name is an error), so
+  an agent can't change SQL the user already trusts. It never runs the SQL.
+- `open_query_tab` opens a new, unsaved tab with the agent's SQL (titled "Query from <endpoint>" unless `name`
+  gives a title), or the saved query `name` when there's no `sql`. Chloe comes to the front. Nothing runs and the
+  agent never sees results: this is how an agent hands over DDL or bulk changes, which the row tools don't do.
+- These touch no data, so they need only Read access to the database, and don't ask.
 
 ### Create connections (capability)
 `create_connection` (a URL, or engine, host, port, user, database, sslmode; or an existing SQLite file) always asks,
@@ -102,5 +125,5 @@ A tab like the History Log:
 
 ## Delivery
 1. Server, endpoints, data tools, approval, danger mode, activity, window.
-2. Monitor, saved queries / query tabs, create connections.
+2. Monitor, saved queries / query tabs, create connections. ✅
 3. ER models.

@@ -14,7 +14,7 @@ export type { SavedQuery, HistoryEntry, Draft } from "../bindings/chloe/internal
 export * as Users from "../bindings/chloe/services/userservice";
 export * as MCP from "../bindings/chloe/services/mcpservice";
 export { MCPLevel, type MCPSettings, type MCPEndpoint } from "../bindings/chloe/internal/store/models";
-export type { Activity as MCPActivity, Status as MCPStatus, ApprovalRequest as MCPApproval } from "../bindings/chloe/internal/mcpserver/models";
+export type { Activity as MCPActivity, Status as MCPStatus, ApprovalRequest as MCPApproval, QueryTab as MCPQueryTab } from "../bindings/chloe/internal/mcpserver/models";
 export type * as P from "../bindings/chloe/internal/privs/models";
 export type * as R from "../bindings/chloe/internal/rdb/models";
 export type * as DM from "../bindings/chloe/internal/datamodel/models";

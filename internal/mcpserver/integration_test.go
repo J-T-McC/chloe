@@ -3,9 +3,14 @@ package mcpserver_test
 // Run with CHLOE_IT=1 against the Docker databases (see docker-compose.yml).
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"testing"
+
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/jackc/pgx/v5/stdlib"
 
 	_ "chloe/internal/driver/mysql"
 	_ "chloe/internal/driver/postgres"
@@ -99,6 +104,8 @@ func TestIntegrationEngines(t *testing.T) {
 				t.Fatal("no tables")
 			}
 
+			testMonitor(t, f, e.conn)
+
 			// The agent leaves the password out; the user types it in the dialog.
 			st := f.srv.Settings()
 			st.Endpoints[0].Capabilities.CreateConnections = true
@@ -119,5 +126,67 @@ func TestIntegrationEngines(t *testing.T) {
 			}
 			f.call(t, "list_databases", map[string]any{"connection": "made"}, "")
 		})
+	}
+}
+
+// testMonitor kills a session opened outside Chloe, after a denied attempt.
+func testMonitor(t *testing.T, f *fixture, conn model.Connection) {
+	f.enable(t, func(c *store.MCPCapabilities) { c.Monitor = true })
+	driverName, dsn, idSQL := "mysql", fmt.Sprintf("root:chloe@tcp(127.0.0.1:%d)/", conn.Port), "SELECT CONNECTION_ID()"
+	if conn.Type == model.PostgreSQL {
+		driverName, dsn, idSQL = "pgx", fmt.Sprintf("postgres://postgres:chloe@127.0.0.1:%d/postgres", conn.Port), "SELECT pg_backend_pid()"
+	}
+	db, err := sql.Open(driverName, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	ctx := context.Background()
+	victim, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer victim.Close()
+	var id string
+	if err := victim.QueryRowContext(ctx, idSQL).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+
+	sessions := f.call(t, "list_sessions", map[string]any{"connection": conn.Name}, "")["sessions"].([]any)
+	var found bool
+	var own string
+	for _, x := range sessions {
+		s := x.(map[string]any)
+		found = found || s["id"] == id
+		if s["chloe"] == true {
+			own = s["id"].(string)
+		}
+	}
+	if !found || own == "" {
+		t.Fatalf("sessions (want %s and one of Chloe's): %v", id, sessions)
+	}
+	vars := f.call(t, "server_variables", map[string]any{"connection": conn.Name, "filter": "MAX_CONNECTIONS"}, "")["values"].([]any)
+	if len(vars) == 0 || vars[0].(map[string]any)["name"] != "max_connections" {
+		t.Fatalf("variables: %v", vars)
+	}
+	if st := f.call(t, "server_status", map[string]any{"connection": conn.Name}, "")["values"].([]any); len(st) == 0 {
+		t.Fatal("no status")
+	}
+
+	f.call(t, "kill_session", map[string]any{"connection": conn.Name, "id": own}, "Chloe's own")
+	f.appr.answer = false
+	f.call(t, "kill_session", map[string]any{"connection": conn.Name, "id": id}, "declined")
+	if err := victim.PingContext(ctx); err != nil {
+		t.Fatalf("denied kill ran: %v", err)
+	}
+	f.appr.answer = true
+	if out := f.call(t, "kill_session", map[string]any{"connection": conn.Name, "id": id}, ""); out["killed"] != "session "+id {
+		t.Fatalf("kill: %v", out)
+	}
+	if req := f.appr.asked[len(f.appr.asked)-1]; req.Summary != "Kill session "+id+" on "+conn.Name || req.Kind != "write" {
+		t.Fatalf("approval: %+v", req)
+	}
+	if err := victim.QueryRowContext(ctx, "SELECT 1").Scan(new(int)); err == nil {
+		t.Fatal("the killed session still works")
 	}
 }
