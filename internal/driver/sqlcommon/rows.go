@@ -169,7 +169,7 @@ func FormatTime(t time.Time, typeName string) string {
 }
 
 // EnumValues extracts the values of a MySQL enum('a','b') or set(...) column
-// type; other types return nil. Quotes inside values are doubled ('it''s').
+// type; other types return nil. Quotes inside values are doubled ('it”s').
 func EnumValues(colType string) []string {
 	lower := strings.ToLower(colType)
 	var rest string

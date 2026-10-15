@@ -177,3 +177,60 @@ INSERT INTO orders VALUES (1, 1, 10, '2026-01-05'), (2, 1, 15, '2026-02-01'), (3
 		t.Fatalf("list: %v", ls)
 	}
 }
+
+func TestReportParameters(t *testing.T) {
+	f := setup(t, store.MCPConnAccess{Level: store.MCPRead})
+	f.enable(t, func(c *store.MCPCapabilities) { c.Reports = true })
+	f.exec(t, "main", "", `CREATE TABLE orders (id INTEGER PRIMARY KEY, total REAL, region TEXT);
+INSERT INTO orders VALUES (1, 10, 'N'), (2, 15, 'S'), (3, 5, 'N'), (4, 30, 'S');`)
+	f.call(t, "create_workspace", map[string]any{"name": "P"}, "")
+	// A query that uses a parameter needs it to exist first.
+	f.call(t, "create_data_source", map[string]any{"workspace": "P", "name": "Big", "connection": "shop", "sql": "SELECT * FROM orders WHERE total >= [$min]"}, "no parameter $min")
+	f.call(t, "create_parameter", map[string]any{"workspace": "P", "name": "min", "type": "number", "value": "abc"}, "is a number")
+	p := f.call(t, "create_parameter", map[string]any{"workspace": "P", "name": "min", "type": "number", "allowed": "range", "min": "0", "max": "100", "value": "10"}, "")
+	if p["editable"] != true || p["value"] != "10" {
+		t.Fatalf("parameter: %v", p)
+	}
+	f.call(t, "create_parameter", map[string]any{"workspace": "P", "name": "region", "allowed": "list", "list": []any{map[string]any{"value": "N"}, map[string]any{"value": "S"}}, "value": "S"}, "")
+	f.call(t, "create_data_source", map[string]any{"workspace": "P", "name": "Big", "connection": "shop", "sql": "SELECT * FROM orders WHERE total >= [$min]",
+		"filters": []any{map[string]any{"field": "region", "op": "=", "value": "[$region]"}}}, "")
+	f.call(t, "create_chart", map[string]any{"workspace": "P", "name": "Sum", "data_source": "Big", "type": "value", "value": []any{map[string]any{"field": "total"}},
+		"properties": map[string]any{"title": "Over [$min] in [$region]"}}, "")
+	sum := func(params map[string]any) any {
+		args := map[string]any{"workspace": "P", "chart": "Sum", "include_sql": true}
+		if params != nil {
+			args["parameters"] = params
+		}
+		return f.call(t, "get_chart_data", args, "")["rows"].([]any)[0].([]any)[0]
+	}
+	// S orders of at least 10: 15 + 30.
+	if v := sum(nil); v != 45.0 {
+		t.Fatalf("default values: %v", v)
+	}
+	if v := sum(map[string]any{"min": "20", "region": "S"}); v != 30.0 {
+		t.Fatalf("overrides: %v", v)
+	}
+	f.call(t, "get_chart_data", map[string]any{"workspace": "P", "chart": "Sum", "parameters": map[string]any{"region": "W"}}, `is one of "N", "S"`)
+	f.call(t, "get_chart_data", map[string]any{"workspace": "P", "chart": "Sum", "parameters": map[string]any{"min": "500"}}, "between 0 and 100")
+	// The value is bound, never pasted into the SQL.
+	if sql := f.call(t, "get_chart_data", map[string]any{"workspace": "P", "chart": "Sum"}, "")["sql"]; sql != nil && strings.Contains(fmt.Sprint(sql), "10") {
+		t.Fatalf("value in the SQL: %v", sql)
+	}
+	f.call(t, "edit_parameter", map[string]any{"workspace": "P", "parameter": "min", "value": "1"}, "")
+	if v := sum(nil); v != 45.0 { // 15 + 30 (S)
+		t.Fatalf("after edit: %v", v)
+	}
+	ws := f.call(t, "get_workspace", map[string]any{"workspace": "P"}, "")
+	if ps := ws["parameters"].([]any); len(ps) != 2 || ps[0].(map[string]any)["value"] != "1" {
+		t.Fatalf("workspace parameters: %v", ws["parameters"])
+	}
+	// The user's own parameters are read-only to agents.
+	path := ws["path"].(string)
+	if _, err := f.m.Store.BI().Update(path, func(w *bi.Workspace) error {
+		_, err := w.PutParameter(bi.Parameter{Meta: bi.Meta{Name: "mine"}, Type: bi.TypeString, Value: "x"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f.call(t, "edit_parameter", map[string]any{"workspace": "P", "parameter": "mine", "value": "y"}, "belongs to the user")
+}

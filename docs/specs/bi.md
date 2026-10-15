@@ -376,7 +376,7 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 2. **Dashboards and reports** ✅: pages, charts, Markdown text, refresh and auto refresh, Present, Export (PDF, PNG),
    and the MCP dashboard, notes and export tools. Snapshots were dropped; SVG/HTML export and print are not planned
    unless asked for.
-3. **The rest of Navicat's BI**: Waterfall, Tornado, Treemap, Scatter, Heatmap, Trend, KPI, Gauge, Pivot Table ✅; dynamic date filters ✅;
+3. **The rest of Navicat's BI**: Waterfall, Tornado, Treemap, Scatter, Heatmap, Trend, KPI, Gauge, Pivot Table ✅; dynamic date filters ✅; parameters ✅;
    Control; interaction (cross-filter, highlight, controls); parameters; custom fields; joined tables; shapes, groups,
    lock, alignment guides; dynamic date filters.
 4. MongoDB data sources (collection, or aggregation pipeline), with charts over them.
@@ -424,4 +424,22 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 - Weeks start on Sunday, quarters in January, April, July and October. Ranges are bound as dates (`>= from AND <
   to`), and a date axis is filled across the whole period.
 - Figures (Value, KPI) show "—" when the filter matches no rows.
+
+## Implementation notes (phase 3, parameters)
+- A parameter has a name (letters, digits, `_`), a type (text, number, date), allowed values (any, a list with
+  optional descriptions, or a number range with min, max and step) and a current value. **New Parameter** in the
+  workspace toolbar opens its dialog; parameters are listed with the other objects (filter: Parameter), and their
+  Used By lists the sources, charts and dashboards that refer to them. Navicat's "where it may be used" flags aren't
+  kept: a parameter can be used anywhere.
+- `[$name]` is replaced:
+  - in a data source query, by a **bound placeholder** (numbered before the chart query's own values), never by its
+    text. A reference inside quotes is refused with a hint; references in comments are ignored. The query is checked
+    and its fields read with the current values.
+  - in a filter value (source or chart) that is exactly `[$name]`, by the value, checked when the chart is read.
+  - in chart titles and dashboard text, by the value (unknown names stay as written).
+- Reads take overrides for that read only: a dashboard's **parameter bar** (the parameters its charts, sources and
+  text use: a list, a slider for a range, a box otherwise) changes values for the session, in the designer, Present
+  and exports, without saving them. Values are checked against the type and allowed values.
+- MCP: `create_parameter` and `edit_parameter` (agent-made only); `get_workspace` lists parameters;
+  `get_chart_data` and `refresh_dashboard` take `parameters` (by name) for one read.
 

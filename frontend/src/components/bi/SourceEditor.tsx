@@ -134,7 +134,7 @@ export function SourceEditor({ tab }: { tab: Tab }) {
     setBusy("Reading…");
     setError("");
     try {
-      const f = arr(await BI.Fields(runnable(draft)));
+      const f = arr(await BI.Fields(path, runnable(draft)));
       setFields(f);
       setPreview(await BI.Preview(path, { ...runnable(draft), fields: f }, 200));
     } catch (e) {

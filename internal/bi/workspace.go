@@ -46,6 +46,7 @@ type Workspace struct {
 	DataSources []DataSource `json:"dataSources"`
 	Charts      []Chart      `json:"charts"`
 	Dashboards  []Dashboard  `json:"dashboards"`
+	Parameters  []Parameter  `json:"parameters,omitempty"`
 }
 
 // Meta is what every workspace object has.
@@ -81,6 +82,9 @@ type DataSource struct {
 	// RefreshedAt is when the archive snapshot was taken.
 	RefreshedAt string `json:"refreshedAt,omitempty"`
 	ArchiveRows int64  `json:"archiveRows,omitempty"`
+	// params are the parameter values one read binds (see Workspace.Resolve).
+	params     Values
+	paramTypes map[string]string
 }
 
 type Field struct {
@@ -326,11 +330,12 @@ func (w *Workspace) PutChart(c Chart) (Chart, error) {
 // Delete removes an object. Charts built on a deleted data source stay and show
 // that their source is gone; a deleted chart's tiles leave its dashboards.
 func (w *Workspace) Delete(id string) error {
-	n := len(w.DataSources) + len(w.Charts) + len(w.Dashboards)
+	n := len(w.DataSources) + len(w.Charts) + len(w.Dashboards) + len(w.Parameters)
 	w.DataSources = slices.DeleteFunc(w.DataSources, func(d DataSource) bool { return d.ID == id })
 	w.Charts = slices.DeleteFunc(w.Charts, func(c Chart) bool { return c.ID == id })
 	w.Dashboards = slices.DeleteFunc(w.Dashboards, func(d Dashboard) bool { return d.ID == id })
-	if len(w.DataSources)+len(w.Charts)+len(w.Dashboards) == n {
+	w.Parameters = slices.DeleteFunc(w.Parameters, func(p Parameter) bool { return p.ID == id })
+	if len(w.DataSources)+len(w.Charts)+len(w.Dashboards)+len(w.Parameters) == n {
 		return fmt.Errorf("no object %q in the workspace", id)
 	}
 	for i := range w.Dashboards {

@@ -138,9 +138,14 @@ func (s *BIService) SetTheme(path, theme string) error {
 	return err
 }
 
-// Fields reads a draft data source's columns.
-func (s *BIService) Fields(ctx context.Context, src bi.DataSource) ([]bi.Field, error) {
-	return s.M.BIFields(ctx, src)
+// Fields reads a draft data source's columns; its query's parameters take the
+// workspace's values.
+func (s *BIService) Fields(ctx context.Context, path string, src bi.DataSource) ([]bi.Field, error) {
+	w, err := s.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	return s.M.BIFields(ctx, w, src)
 }
 
 // Preview reads the first rows of a draft data source.
@@ -209,12 +214,23 @@ func (s *BIService) DeleteObject(path, id string) error {
 }
 
 // ChartData reads what a (draft) chart of a workspace draws.
-func (s *BIService) ChartData(ctx context.Context, path string, c bi.Chart) (bi.Data, error) {
+func (s *BIService) ChartData(ctx context.Context, path string, c bi.Chart, params map[string]string) (bi.Data, error) {
 	w, err := s.Open(path)
 	if err != nil {
 		return bi.Data{}, err
 	}
-	return s.M.BIChartData(ctx, w, c)
+	return s.M.BIChartData(ctx, w, c, params)
+}
+
+// SaveParameter adds or replaces a parameter of a workspace.
+func (s *BIService) SaveParameter(path string, p bi.Parameter) (bi.Parameter, error) {
+	var out bi.Parameter
+	_, err := s.update(path, func(w *bi.Workspace) error {
+		var err error
+		out, err = w.PutParameter(p)
+		return err
+	})
+	return out, err
 }
 
 // NewChart is a data source and an empty chart made from a table or query

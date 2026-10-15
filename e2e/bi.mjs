@@ -402,6 +402,57 @@ await step("dynamic date filters", async () => {
   await shot("bi-dynamic-dates");
 });
 
+await step("parameters in a filter, a title and dashboard text", async () => {
+  await page.locator(".tab", { hasText: "Sales (BI)" }).click();
+  const ws = page.locator(".bi-workspace:visible");
+  await ws.getByRole("button", { name: "New Parameter" }).click();
+  const dlg = page.getByRole("dialog", { name: "New Parameter" });
+  await dlg.getByLabel("Parameter name").fill("min_total");
+  await dlg.getByLabel("Parameter type").selectOption("number");
+  await dlg.getByLabel("Allowed values").selectOption("range");
+  await dlg.getByLabel("Parameter minimum").fill("0");
+  await dlg.getByLabel("Parameter maximum").fill("300");
+  await dlg.getByLabel("Parameter step").fill("10");
+  await dlg.getByLabel("Parameter value").fill("100");
+  await dlg.getByRole("button", { name: "Save" }).click();
+  await dlg.waitFor({ state: "detached" });
+  await ws.locator("tr", { hasText: "min_total" }).waitFor();
+  // A chart filtered by it, titled with it.
+  await newChart("Value");
+  await drag("total", "value");
+  await editor().getByLabel("Chart title").fill("Orders over [$min_total]");
+  const flt = editor().locator(".bi-filters");
+  await flt.getByRole("button", { name: "Add Condition" }).click();
+  await flt.getByLabel("Filter field").selectOption("total");
+  await flt.getByLabel("Filter operator").selectOption(">=");
+  await flt.getByLabel("Filter value").fill("[$min_total]");
+  await page.waitForTimeout(900);
+  // North: 120 and 210 are at least 100.
+  check((await editor().getByTestId("bi-value").innerText()) === "330", "filtered by parameter: " + (await editor().getByTestId("bi-value").innerText()));
+  check((await editor().locator(".bi-chart-title").innerText()) === "Orders over 100", "title: " + (await editor().locator(".bi-chart-title").innerText()));
+  await editor().getByLabel("Chart name").fill("Big orders");
+  await editor().getByRole("button", { name: "Save" }).click();
+  await page.locator(".tab.active", { hasText: "Big orders" }).waitFor();
+  // On a dashboard the parameter gets a slider; moving it re-reads the chart.
+  await page.locator(".tab", { hasText: "Sales (BI)" }).click();
+  await ws.getByRole("button", { name: "New Dashboard" }).click();
+  await dash().waitFor();
+  await dash().getByRole("button", { name: "Add Chart" }).click();
+  await page.locator(".menu-item", { hasText: "Big orders" }).click();
+  await dash().getByRole("button", { name: "Add Text" }).click();
+  await dash().getByLabel("Text").fill("Orders of at least **[$min_total]**");
+  const bar = dash().getByTestId("bi-param-bar");
+  await bar.waitFor();
+  await dash().getByTestId("bi-value").waitFor();
+  check((await dash().getByTestId("bi-value").innerText()) === "330", "dashboard value");
+  await bar.getByLabel("Parameter min_total").fill("200");
+  await page.waitForTimeout(900);
+  check((await dash().getByTestId("bi-value").innerText()) === "210", "after the slider: " + (await dash().getByTestId("bi-value").innerText()));
+  check((await dash().getByTestId("bi-text").innerText()).includes("Orders of at least 200"), "text: " + (await dash().getByTestId("bi-text").innerText()));
+  check((await dash().locator(".bi-chart-title").innerText()) === "Orders over 200", "tile title");
+  await shot("bi-parameters");
+});
+
 await step("dark theme", async () => {
   await page.locator(".tab", { hasText: "Sales (BI)" }).click();
   await page.locator(".bi-workspace:visible").getByLabel("Theme").selectOption("dark");

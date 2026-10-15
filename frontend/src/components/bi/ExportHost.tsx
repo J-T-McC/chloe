@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 import { B, BI, Events, arr, errorText } from "../../api";
 import { PAGE_WIDTH, PageCanvas } from "./DashboardEditor";
+import { ParamValues, paramValues } from "./Parameters";
 import { ChartTheme } from "./theme";
 
 interface Job {
@@ -16,13 +17,16 @@ interface Job {
   theme: ChartTheme;
   pages: number[];
   scale: number;
+  overrides: ParamValues;
+  values: ParamValues;
   done(pngs: string[] | null, error?: string): void;
 }
 
 const useJobs = create<{ queue: Job[] }>(() => ({ queue: [] }));
 
-/** Render pages (0-based) of a dashboard: the saved one by id, or a draft. */
-export async function renderPages(path: string, dashboard: B.Dashboard | string, pages: number[], scale: number): Promise<string[]> {
+/** Render pages (0-based) of a dashboard: the saved one by id, or a draft, with
+ *  parameter values changed for this session if any. */
+export async function renderPages(path: string, dashboard: B.Dashboard | string, pages: number[], scale: number, overrides: ParamValues = {}): Promise<string[]> {
   const w = await BI.Open(path);
   const d = typeof dashboard === "string" ? arr(w.dashboards).find((x) => x.id === dashboard) : dashboard;
   if (!d) throw new Error("the dashboard is no longer in the workspace");
@@ -34,6 +38,8 @@ export async function renderPages(path: string, dashboard: B.Dashboard | string,
       theme: w.theme === "dark" ? "dark" : "light",
       pages,
       scale,
+      overrides,
+      values: paramValues(w.parameters, overrides),
       done: (pngs, error) => (pngs ? resolve(pngs) : reject(new Error(error ?? "rendering failed"))),
     };
     useJobs.setState((s) => ({ queue: [...s.queue, job] }));
@@ -108,7 +114,7 @@ export function ExportHost() {
   }
   return (
     <div className="bi-export-stage" ref={stage} style={{ width: PAGE_WIDTH }} aria-hidden>
-      <PageCanvas key={`${job.dashboard.id}/${index}`} page={page} charts={job.charts} path={job.path} theme={job.theme} tick={0} still />
+      <PageCanvas key={`${job.dashboard.id}/${index}`} page={page} charts={job.charts} path={job.path} theme={job.theme} tick={0} still overrides={job.overrides} values={job.values} />
     </div>
   );
 }

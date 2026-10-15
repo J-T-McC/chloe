@@ -22,6 +22,7 @@ import { Markdown } from "./Markdown";
 import { ChartTheme, TOKENS } from "./theme";
 import { useWorkspace } from "./WorkspaceView";
 import { renderPages } from "./ExportHost";
+import { ParamBar, ParamValues, dashboardParams, expandParams, paramValues } from "./Parameters";
 
 const COLS = 12;
 const SLIDE_ROWS = 24;
@@ -42,6 +43,11 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
   const [tick, setTick] = useState(0);
   const [present, setPresent] = useState(false);
   const [error, setError] = useState("");
+  // Parameter values changed on this dashboard, for this session only.
+  const [overrides, setOverrides] = useState<ParamValues>({});
+  const usedParams = useMemo(() => dashboardParams(w, draft), [w, draft]);
+  const values = useMemo(() => paramValues(w?.parameters, overrides), [w?.parameters, overrides]);
+  const setParam = (name: string, v: string) => setOverrides((o) => ({ ...o, [name]: v }));
 
   const dirty = !!draft && comparable(draft) !== comparable(saved);
   useEffect(() => {
@@ -188,7 +194,7 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
             const run = async (format: "png" | "pdf") => {
               setError("");
               try {
-                const pngs = await renderPages(path, draft, format === "png" ? [Math.min(pageIdx, pages.length - 1)] : pages.map((_, i) => i), 2);
+                const pngs = await renderPages(path, draft, format === "png" ? [Math.min(pageIdx, pages.length - 1)] : pages.map((_, i) => i), 2, overrides);
                 await BI.SaveExport(format === "png" ? `${draft.name} – ${page.name || `Page ${pageIdx + 1}`}` : draft.name, format, pngs);
               } catch (err) {
                 setError(errorText(err));
@@ -212,6 +218,7 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
         </label>
       </div>
       {error && <div className="error-banner">{error}</div>}
+      <ParamBar params={usedParams} values={values} onChange={setParam} />
       <Split
         id="bi-dash-pages"
         className="objects-split"
@@ -270,6 +277,8 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
                   path={path}
                   theme={theme}
                   tick={tick}
+                  overrides={overrides}
+                  values={values}
                   editable
                   selected={selected}
                   onSelect={setSelected}
@@ -304,7 +313,11 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
           />
         }
       />
-      {present && <PresentDashboard pages={pages} start={pageIdx} charts={charts} path={path} theme={theme} tick={tick} onClose={() => setPresent(false)} />}
+      {present && (
+        <PresentDashboard pages={pages} start={pageIdx} charts={charts} path={path} theme={theme} tick={tick} onClose={() => setPresent(false)} overrides={overrides} values={values}>
+          {() => <ParamBar params={usedParams} values={values} onChange={setParam} />}
+        </PresentDashboard>
+      )}
     </div>
   );
 }
@@ -323,6 +336,10 @@ interface CanvasProps {
   maxHeight?: number;
   /** Draw without animation, for capture. */
   still?: boolean;
+  /** Parameter values changed for this session (sent with chart reads). */
+  overrides?: ParamValues;
+  /** Every parameter's value, for [$name] in text. */
+  values?: ParamValues;
 }
 
 /** The width of an element, kept current; 0 until it has been laid out (a hidden
@@ -350,7 +367,7 @@ const REPORT_ROW = 18;
 const SLIDE_ROW = (SLIDE_HEIGHT - 2 * MARGIN - (SLIDE_ROWS - 1) * MARGIN) / SLIDE_ROWS;
 
 /** A page's tiles on the grid, scaled to fit: a slide within the space given. */
-export function PageCanvas({ page, charts, path, theme, tick, editable, selected, onSelect, onLayout, maxHeight, still }: CanvasProps) {
+export function PageCanvas({ page, charts, path, theme, tick, editable, selected, onSelect, onLayout, maxHeight, still, overrides, values }: CanvasProps) {
   const outer = useSize();
   const inner = useSize();
   const slide = page.size === "16:9";
@@ -385,7 +402,7 @@ export function PageCanvas({ page, charts, path, theme, tick, editable, selected
                       <GripVertical size={13} />
                     </div>
                   )}
-                  {it.kind === "chart" ? <ChartTile chartId={it.chart ?? ""} charts={charts} path={path} theme={theme} tick={tick} still={still} /> : <TextTile item={it} theme={theme} />}
+                  {it.kind === "chart" ? <ChartTile chartId={it.chart ?? ""} charts={charts} path={path} theme={theme} tick={tick} still={still} overrides={overrides} /> : <TextTile item={it} theme={theme} values={values} />}
                 </div>
               ))}
             </ReactGridLayout>
@@ -397,17 +414,17 @@ export function PageCanvas({ page, charts, path, theme, tick, editable, selected
   );
 }
 
-function ChartTile({ chartId, charts, path, theme, tick, still }: { chartId: string; charts: B.Chart[]; path: string; theme: ChartTheme; tick: number; still?: boolean }) {
+function ChartTile({ chartId, charts, path, theme, tick, still, overrides }: { chartId: string; charts: B.Chart[]; path: string; theme: ChartTheme; tick: number; still?: boolean; overrides?: ParamValues }) {
   const chart = charts.find((c) => c.id === chartId);
   const [data, setData] = useState<B.Data | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const key = chart ? JSON.stringify({ ...chart, props: undefined, name: undefined, modified: undefined }) : "";
+  const key = chart ? JSON.stringify({ ...chart, props: undefined, name: undefined, modified: undefined, overrides }) : "";
   useEffect(() => {
     if (!chart) return;
     let live = true;
     setLoading(true);
-    BI.ChartData(path, chart)
+    BI.ChartData(path, chart, overrides && Object.keys(overrides).length ? overrides : null)
       .then((d) => live && (setData(d), setError("")))
       .catch((e) => live && setError(errorText(e)))
       .finally(() => live && setLoading(false));
@@ -423,7 +440,7 @@ function ChartTile({ chartId, charts, path, theme, tick, still }: { chartId: str
   );
 }
 
-function TextTile({ item, theme }: { item: B.Item; theme: ChartTheme }) {
+function TextTile({ item, theme, values }: { item: B.Item; theme: ChartTheme; values?: ParamValues }) {
   const t = TOKENS[theme];
   const by = createdByLabel(item.createdBy);
   return (
@@ -435,10 +452,10 @@ function TextTile({ item, theme }: { item: B.Item; theme: ChartTheme }) {
             Notes from {by.replace(/^AI \((.*)\)$/, "$1")}
             {item.updated ? ` · ${new Date(item.updated).toLocaleString()}` : ""}
           </div>
-          <Markdown text={item.text ?? ""} />
+          <Markdown text={expandParams(item.text ?? "", values)} />
         </div>
       ) : (
-        <Markdown text={item.text ?? ""} />
+        <Markdown text={expandParams(item.text ?? "", values)} />
       )}
     </div>
   );
@@ -535,7 +552,30 @@ function DashProps(p: {
   );
 }
 
-function PresentDashboard({ pages, start, charts, path, theme, tick, onClose }: { pages: B.Page[]; start: number; charts: B.Chart[]; path: string; theme: ChartTheme; tick: number; onClose(): void }) {
+function PresentDashboard({
+  pages,
+  start,
+  charts,
+  path,
+  theme,
+  tick,
+  onClose,
+  overrides,
+  values,
+  children,
+}: {
+  pages: B.Page[];
+  start: number;
+  charts: B.Chart[];
+  path: string;
+  theme: ChartTheme;
+  tick: number;
+  onClose(): void;
+  overrides?: ParamValues;
+  values?: ParamValues;
+  /** Parameter controls, shown above the page. */
+  children?: (o?: ParamValues) => React.ReactNode;
+}) {
   const [i, setI] = useState(start);
   const [h, setH] = useState(window.innerHeight);
   useEffect(() => {
@@ -552,7 +592,8 @@ function PresentDashboard({ pages, start, charts, path, theme, tick, onClose }: 
   const page = pages[i];
   return (
     <div className={"bi-present dash theme-" + theme} data-testid="bi-present">
-      <PageCanvas page={page} charts={charts} path={path} theme={theme} tick={tick} maxHeight={h - 70} />
+      {children?.(overrides)}
+      <PageCanvas page={page} charts={charts} path={path} theme={theme} tick={tick} maxHeight={h - 70 - (children ? 48 : 0)} overrides={overrides} values={values} />
       <div className="bi-present-hint">
         Page {i + 1} of {pages.length} · ← → to change page · Esc to exit
       </div>

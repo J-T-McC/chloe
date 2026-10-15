@@ -107,9 +107,13 @@ func readStmt(ctx context.Context, ds driver.Session, q bi.Stmt, limit int) ([]m
 
 // BIFields reads a data source's columns and their types. Columns the database
 // doesn't type are typed from sample values.
-func (m *Manager) BIFields(ctx context.Context, src bi.DataSource) ([]bi.Field, error) {
+func (m *Manager) BIFields(ctx context.Context, w bi.Workspace, src bi.DataSource) ([]bi.Field, error) {
 	var fields []bi.Field
-	err := m.biLive(ctx, src, func(ctx context.Context, ds driver.Session, d driver.Dialect) error {
+	src, err := w.ResolveSource(src, nil)
+	if err != nil {
+		return nil, err
+	}
+	err = m.biLive(ctx, src, func(ctx context.Context, ds driver.Session, d driver.Dialect) error {
 		from, err := bi.From(d, src)
 		if err != nil {
 			return err
@@ -149,6 +153,10 @@ func probeFields(cols []model.ResultColumn, rows [][]*string) []bi.Field {
 // BIPreview reads the first rows of a data source, projected, filtered and sorted.
 func (m *Manager) BIPreview(ctx context.Context, w bi.Workspace, src bi.DataSource, limit int) (BIPreview, error) {
 	var out BIPreview
+	src, err := w.ResolveSource(src, nil)
+	if err != nil {
+		return out, err
+	}
 	run := func(ctx context.Context, q bi.Stmt, read func(bi.Stmt) ([]model.ResultColumn, [][]*string, error)) error {
 		out.SQL = q.SQL
 		cols, rows, err := read(q)
@@ -156,7 +164,7 @@ func (m *Manager) BIPreview(ctx context.Context, w bi.Workspace, src bi.DataSour
 		return err
 	}
 	if src.Mode == bi.ModeArchive {
-		q, err := bi.PreviewQuery(bi.SQLite, bi.SQLite.QuoteIdent(bi.ArchiveTable), src, limit)
+		q, err := bi.PreviewQuery(bi.SQLite, bi.Table(bi.SQLite.QuoteIdent(bi.ArchiveTable)), src, limit)
 		if err != nil {
 			return out, err
 		}
@@ -165,7 +173,7 @@ func (m *Manager) BIPreview(ctx context.Context, w bi.Workspace, src bi.DataSour
 			return cols, rows, err
 		})
 	}
-	err := m.biLive(ctx, src, func(ctx context.Context, ds driver.Session, d driver.Dialect) error {
+	err = m.biLive(ctx, src, func(ctx context.Context, ds driver.Session, d driver.Dialect) error {
 		from, err := bi.From(d, src)
 		if err != nil {
 			return err
@@ -184,14 +192,23 @@ func (m *Manager) BIPreview(ctx context.Context, w bi.Workspace, src bi.DataSour
 
 // BIChartData reads what a chart draws. A chart whose shelves aren't filled yet
 // comes back with Complete false and no rows.
-func (m *Manager) BIChartData(ctx context.Context, w bi.Workspace, c bi.Chart) (bi.Data, error) {
+//
+// params override parameter values for this read (by name); the values used come
+// back in Data.Params for titles and text.
+func (m *Manager) BIChartData(ctx context.Context, w bi.Workspace, c bi.Chart, params map[string]string) (bi.Data, error) {
 	out := bi.Data{Rows: [][]any{}, Columns: []bi.Column{}}
-	src := w.Source(c.DataSource)
-	if src == nil {
+	stored := w.Source(c.DataSource)
+	if stored == nil {
 		return out, errors.New("the chart's data source is no longer in the workspace")
 	}
+	resolved, c, err := w.Resolve(*stored, c, params)
+	if err != nil {
+		return out, err
+	}
+	src := &resolved
 	out.Mode = src.Mode
-	read := func(d driver.Dialect, from string, query func(bi.Stmt) ([]model.ResultColumn, [][]*string, bool, error)) error {
+	out.Params, _ = w.Values(params)
+	read := func(d driver.Dialect, from bi.Source, query func(bi.Stmt) ([]model.ResultColumn, [][]*string, bool, error)) error {
 		complete, err := c.Check(*src, d.Name)
 		if err != nil || !complete {
 			return err
@@ -211,7 +228,7 @@ func (m *Manager) BIChartData(ctx context.Context, w bi.Workspace, c bi.Chart) (
 		return nil
 	}
 	if src.Mode == bi.ModeArchive {
-		err := read(bi.SQLite, bi.SQLite.QuoteIdent(bi.ArchiveTable), func(q bi.Stmt) ([]model.ResultColumn, [][]*string, bool, error) {
+		err := read(bi.SQLite, bi.Table(bi.SQLite.QuoteIdent(bi.ArchiveTable)), func(q bi.Stmt) ([]model.ResultColumn, [][]*string, bool, error) {
 			return m.biArchiveQuery(ctx, w, *src, q, bi.MaxChartRows)
 		})
 		if out.Complete {
@@ -220,13 +237,13 @@ func (m *Manager) BIChartData(ctx context.Context, w bi.Workspace, c bi.Chart) (
 		return out, err
 	}
 	if len(src.Fields) == 0 {
-		fields, err := m.BIFields(ctx, *src)
+		fields, err := m.BIFields(ctx, w, *src)
 		if err != nil {
 			return out, err
 		}
 		src.Fields = fields
 	}
-	err := m.biLive(ctx, *src, func(ctx context.Context, ds driver.Session, d driver.Dialect) error {
+	err = m.biLive(ctx, *src, func(ctx context.Context, ds driver.Session, d driver.Dialect) error {
 		from, err := bi.From(d, *src)
 		if err != nil {
 			return err
@@ -245,7 +262,12 @@ func archivePurpose(sourceID string) string { return "chloe-bi-archive/" + sourc
 // BIArchive reads a data source's rows into its archive snapshot and returns the
 // source with its fields, row count and snapshot time updated.
 func (m *Manager) BIArchive(ctx context.Context, w bi.Workspace, src bi.DataSource) (bi.DataSource, error) {
-	fields, err := m.BIFields(ctx, src)
+	fields, err := m.BIFields(ctx, w, src)
+	if err != nil {
+		return src, err
+	}
+	stored := src
+	src, err = w.ResolveSource(src, nil)
 	if err != nil {
 		return src, err
 	}
@@ -281,7 +303,7 @@ func (m *Manager) BIArchive(ctx context.Context, w bi.Workspace, src bi.DataSour
 		if err != nil {
 			return err
 		}
-		rows, err := ds.Query(ctx, "SELECT * FROM "+from+" AS s")
+		rows, err := ds.Query(ctx, "SELECT * FROM "+from.SQL+" AS s", from.Args...)
 		if err != nil {
 			return err
 		}
@@ -343,8 +365,9 @@ func (m *Manager) BIArchive(ctx context.Context, w bi.Workspace, src bi.DataSour
 		return src, err
 	}
 	archives.drop(p)
-	src.Fields, src.ArchiveRows, src.RefreshedAt = fields, n, time.Now().UTC().Format(time.RFC3339)
-	return src, nil
+	// The stored definition comes back, not the copy with parameter values filled in.
+	stored.Fields, stored.ArchiveRows, stored.RefreshedAt = fields, n, time.Now().UTC().Format(time.RFC3339)
+	return stored, nil
 }
 
 // biArchiveQuery runs a query on a data source's archive snapshot.
@@ -572,7 +595,7 @@ func (m *Manager) BISaveSource(ctx context.Context, path string, src bi.DataSour
 	if err := src.Validate(); err != nil {
 		return src, err
 	}
-	if src.Fields, err = m.BIFields(ctx, src); err != nil {
+	if src.Fields, err = m.BIFields(ctx, w, src); err != nil {
 		return src, err
 	}
 	if src.Timezone, err = canonicalZone(src.Timezone); err != nil {

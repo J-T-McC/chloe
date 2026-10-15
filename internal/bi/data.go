@@ -25,6 +25,8 @@ type Data struct {
 	// Mode is live or archive; RanAt is when the rows were read.
 	Mode  string `json:"mode"`
 	RanAt string `json:"ranAt"`
+	// Params are the parameter values the read used, for titles and text.
+	Params Values `json:"params,omitempty"`
 }
 
 // Shape turns raw query cells into chart data: numbers parsed, then the chart's

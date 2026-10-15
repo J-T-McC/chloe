@@ -9,13 +9,14 @@ import { useEffect, useMemo, useRef } from "react";
 import type { B } from "../../api";
 import { formatLabel, formatNumber, oneYear } from "./format";
 import { buildOption, pivot } from "./options";
+import { expandParams } from "./Parameters";
 import { ChartTheme, METER, STATUS, TOKENS } from "./theme";
 
 echarts.use([BarChart, LineChart, PieChart, TreemapChart, ScatterChart, HeatmapChart, GaugeChart, CustomChart, GridComponent, LegendComponent, TooltipComponent, VisualMapComponent, SVGRenderer]);
 
 export function ChartView({ chart, data, theme, error, loading, hint, still }: { chart: B.Chart; data: B.Data | null; theme: ChartTheme; error?: string; loading?: boolean; hint?: string; still?: boolean }) {
   const t = TOKENS[theme];
-  const title = chart.props?.hideTitle ? "" : chart.props?.title || chart.name;
+  const title = chart.props?.hideTitle ? "" : expandParams(chart.props?.title || chart.name, data?.params);
   let body: React.ReactNode;
   if (error) body = <div className="bi-chart-msg error">{error}</div>;
   else if (!data || !data.complete) body = <div className="bi-chart-msg">{loading ? "Loading…" : (hint ?? "Drag fields onto the shelves to build the chart.")}</div>;

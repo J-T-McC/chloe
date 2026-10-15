@@ -129,6 +129,8 @@ func (f Filter) check() error {
 		return fmt.Errorf("%s on %s needs a list of values", f.Op, f.Field)
 	case n >= 0 && len(f.Values) != n:
 		return fmt.Errorf("%s on %s takes %d value(s), got %d", f.Op, f.Field, n, len(f.Values))
+	case slices.ContainsFunc(f.Values, isRef):
+		// A parameter's value is checked when the filter is read.
 	case f.Op == "in_last":
 		f.Values[1] = unit(f.Values[1]) // days, Weeks…
 		if k, err := strconv.Atoi(f.Values[0]); err != nil || k < 1 {
@@ -182,21 +184,36 @@ func CheckSQL(d driver.Dialect, sql string) (string, error) {
 	return s, nil
 }
 
-// From is the FROM target of a data source: its table, or its query in parentheses.
-func From(d driver.Dialect, src DataSource) (string, error) {
+// Source is a FROM target: a table, or a query in parentheses with the values
+// its parameters bind (they come first in every statement built on it).
+type Source struct {
+	SQL  string
+	Args []any
+}
+
+// From is the FROM target of a data source: its table, or its query in
+// parentheses with its [$name] parameters bound.
+func From(d driver.Dialect, src DataSource) (Source, error) {
 	if src.Table != "" {
 		ref := model.ObjectRef{Database: src.Database, Schema: src.Schema, Name: src.Table}
 		if d.HasSchemas && ref.Schema == "" {
 			ref.Schema = d.DefaultSchema
 		}
-		return d.Qualified(ref), nil
+		return Source{SQL: d.Qualified(ref)}, nil
 	}
 	s, err := CheckSQL(d, src.SQL)
 	if err != nil {
-		return "", err
+		return Source{}, err
 	}
-	return "(" + s + ")", nil
+	s, args, err := bindParams(d, s, src.params, func(name string) string { return src.paramTypes[strings.ToLower(name)] })
+	if err != nil {
+		return Source{}, err
+	}
+	return Source{SQL: "(" + s + ")", Args: args}, nil
 }
+
+// Table is a plain FROM target (an archive snapshot's table).
+func Table(sql string) Source { return Source{SQL: sql} }
 
 // ArchiveTable is the table an archive snapshot keeps its rows in.
 const ArchiveTable = "data"
@@ -206,14 +223,14 @@ var SQLite = driver.Dialect{Name: "sqlite", IdentQuote: `"`, Split: sqlsplit.SQL
 
 // ProbeQuery reads a few rows of the source, for its columns and to guess the
 // types of columns the database doesn't type.
-func ProbeQuery(from string, limit int) Stmt {
-	return Stmt{SQL: fmt.Sprintf("SELECT * FROM %s AS s LIMIT %d", from, limit)}
+func ProbeQuery(from Source, limit int) Stmt {
+	return Stmt{SQL: fmt.Sprintf("SELECT * FROM %s AS s LIMIT %d", from.SQL, limit), Args: from.Args}
 }
 
 // PreviewQuery reads the data source as its preview grid shows it: projected,
 // filtered and sorted.
-func PreviewQuery(d driver.Dialect, from string, src DataSource, limit int) (Stmt, error) {
-	b := qb{d: d, tz: src.Timezone}
+func PreviewQuery(d driver.Dialect, from Source, src DataSource, limit int) (Stmt, error) {
+	b := qb{d: d, tz: src.Timezone, args: slices.Clone(from.Args)}
 	cols := "*"
 	if src.Projection != nil && len(src.Projection.Fields) > 0 {
 		vis := src.Visible()
@@ -226,7 +243,7 @@ func PreviewQuery(d driver.Dialect, from string, src DataSource, limit int) (Stm
 		}
 		cols = strings.Join(q, ", ")
 	}
-	sql := "SELECT " + cols + " FROM " + from + " AS s"
+	sql := "SELECT " + cols + " FROM " + from.SQL + " AS s"
 	w, err := b.where(src.Fields, src.Filters)
 	if err != nil {
 		return Stmt{}, err
@@ -252,11 +269,11 @@ func PreviewQuery(d driver.Dialect, from string, src DataSource, limit int) (Stm
 // ChartQuery builds the query for a chart: dimensions and series grouped (date
 // fields by their bucket), values aggregated, the source's and the chart's
 // filters applied. Every field name is checked against the data source.
-func ChartQuery(d driver.Dialect, from string, src DataSource, c Chart, limit int) (Stmt, []Column, error) {
+func ChartQuery(d driver.Dialect, from Source, src DataSource, c Chart, limit int) (Stmt, []Column, error) {
 	if _, err := c.Check(src, d.Name); err != nil {
 		return Stmt{}, nil, err
 	}
-	b := qb{d: d, tz: src.Timezone}
+	b := qb{d: d, tz: src.Timezone, args: slices.Clone(from.Args)}
 	var sel, group []string
 	var cols []Column
 	add := func(role string, cf ChartField, grouped bool) {
@@ -305,7 +322,7 @@ func ChartQuery(d driver.Dialect, from string, src DataSource, c Chart, limit in
 	if len(sel) == 0 {
 		return Stmt{}, nil, errors.New("the chart has no fields yet")
 	}
-	sql := "SELECT " + strings.Join(sel, ", ") + " FROM " + from + " AS s"
+	sql := "SELECT " + strings.Join(sel, ", ") + " FROM " + from.SQL + " AS s"
 	w, err := b.where(src.Fields, append(slices.Clone(src.Filters), c.Filters...))
 	if err != nil {
 		return Stmt{}, nil, err
