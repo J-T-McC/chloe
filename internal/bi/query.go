@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"chloe/internal/driver"
 	"chloe/internal/driver/sqlcommon"
@@ -19,6 +20,9 @@ type Stmt struct {
 	SQL  string
 	Args []any
 }
+
+// now is the clock relative filters use; tests replace it.
+var now = time.Now
 
 // Column describes a column of a chart's data.
 type Column struct {
@@ -39,6 +43,25 @@ var FilterOps = map[string]int{
 	"contains": 1, "not_contains": 1, "begins_with": 1, "not_begins_with": 1, "ends_with": 1, "not_ends_with": 1,
 	"is_null": 0, "is_not_null": 0, "is_empty": 0, "is_not_empty": 0,
 	"between": 2, "not_between": 2, "in": -1, "not_in": -1,
+	// in_last: [n, unit] — the last n days, weeks, months or years, the current one included.
+	"in_last": 2,
+}
+
+// LastUnits are the units of in_last.
+var LastUnits = []string{"day", "week", "month", "year"}
+
+// Since is where the last n units start, counting the current one; weeks start on Sunday.
+func Since(now time.Time, n int, unit string) time.Time {
+	d := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	switch unit {
+	case "week":
+		return d.AddDate(0, 0, -int(d.Weekday())-7*(n-1))
+	case "month":
+		return time.Date(d.Year(), d.Month()-time.Month(n-1), 1, 0, 0, 0, 0, d.Location())
+	case "year":
+		return time.Date(d.Year()-(n-1), 1, 1, 0, 0, 0, 0, d.Location())
+	}
+	return d.AddDate(0, 0, -(n - 1))
 }
 
 func (f Filter) check() error {
@@ -57,6 +80,13 @@ func (f Filter) check() error {
 		return fmt.Errorf("%s on %s needs a list of values", f.Op, f.Field)
 	case n >= 0 && len(f.Values) != n:
 		return fmt.Errorf("%s on %s takes %d value(s), got %d", f.Op, f.Field, n, len(f.Values))
+	case f.Op == "in_last":
+		if k, err := strconv.Atoi(f.Values[0]); err != nil || k < 1 {
+			return fmt.Errorf("in_last on %s needs a count of 1 or more, not %q", f.Field, f.Values[0])
+		}
+		if !slices.Contains(LastUnits, f.Values[1]) {
+			return fmt.Errorf("in_last on %s counts %s, not %q", f.Field, strings.Join(LastUnits, ", "), f.Values[1])
+		}
 	}
 	return nil
 }
@@ -173,7 +203,11 @@ func ChartQuery(d driver.Dialect, from string, src DataSource, c Chart, limit in
 		if grouped {
 			expr = b.bucket(f, cf.Aggregate)
 			if cf.Aggregate != "" {
+				// Periods are dates (as sortable text); extracted parts aren't.
 				col.Type = TypeString
+				if !strings.HasSuffix(cf.Aggregate, "_x") {
+					col.Type = TypeDateTime
+				}
 			}
 			group = append(group, strconv.Itoa(len(cols)+1))
 		} else {
@@ -293,6 +327,11 @@ func (b *qb) where(fields []Field, filters []Filter) (string, error) {
 			if strings.HasPrefix(f.Op, "not_") {
 				e = "NOT (" + e + ")"
 			}
+		case "in_last":
+			k, _ := strconv.Atoi(f.Values[0])
+			// A date as text compares correctly with dates, timestamps and SQLite's date text.
+			b.args = append(b.args, Since(now(), k, f.Values[1]).Format("2006-01-02"))
+			e = col + " >= " + b.d.Placeholder(len(b.args))
 		case "is_null":
 			e = col + " IS NULL"
 		case "is_not_null":

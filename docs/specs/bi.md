@@ -286,6 +286,17 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
   labels them (`Mar 2026`, `Q1 2026`, `Sun`). Weeks start on Sunday and number like strftime's `%U` on every engine.
 - Sort, Top N with Others and value operations run on the aggregated rows, so they work the same live and archived.
   Without a sort, date and number dimensions keep their order and categories go largest first.
+- Names are unique per kind: a chart may share its data source's name.
+- Legends, tooltips and table headers show fields readably ("Sum of Total", "Placed At (Month)", "Customer ID"); an
+  alias is shown as typed. Shelves keep the field names.
+- A date axis bucketed by year, quarter, month, week, day or hour gets its empty periods back (sums and counts 0,
+  other aggregates empty), unless the chart uses Top N or sorts by value.
+- A sort by value can name the value it sorts by (`sort.field`); tables sort by their first aggregated column
+  otherwise, and by their first column when sorting "by dimension".
+- `in_last` filters (`[n, unit]`, unit day, week, month or year) keep charts current: the last n units including the
+  current one, from the machine's local date.
+- Over MCP, `edit_chart` accepts the chart shape `get_workspace` returns (`aggregate`, `op`, `values`, `props`), and
+  `get_chart_data` returns its SQL only with `include_sql`. Values are unformatted; number formats are display only.
 - Over MCP, data sources on connections the endpoint can't read show only their name, and their charts only name and
   type; creating or editing charts on them is refused.
 

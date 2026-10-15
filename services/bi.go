@@ -227,26 +227,21 @@ func (s *BIService) CreateChart(ctx context.Context, path, newWorkspace string, 
 	if err != nil {
 		return NewChart{}, err
 	}
-	src.Name = freeName(&w, src.Name)
+	src.Name = freeName(sourceNames(&w), src.Name)
 	saved, err := s.SaveSource(ctx, path, src)
 	if err != nil {
 		return NewChart{Path: path}, err
 	}
 	w, _ = s.Open(path)
-	c, err := s.SaveChart(path, bi.Chart{Meta: bi.Meta{Name: freeName(&w, "Chart of "+saved.Name)}, DataSource: saved.ID, Type: "bar"})
+	c, err := s.SaveChart(path, bi.Chart{Meta: bi.Meta{Name: freeName(chartNames(&w), "Chart of "+saved.Name)}, DataSource: saved.ID, Type: "bar"})
 	return NewChart{Path: path, SourceID: saved.ID, ChartID: c.ID}, err
 }
 
-// freeName numbers name until no object of the workspace has it.
-func freeName(w *bi.Workspace, name string) string {
+// freeName numbers name until no object of the same kind has it.
+func freeName(names []string, name string) string {
 	taken := func(n string) bool {
-		for _, d := range w.DataSources {
-			if strings.EqualFold(d.Name, n) {
-				return true
-			}
-		}
-		for _, c := range w.Charts {
-			if strings.EqualFold(c.Name, n) {
+		for _, x := range names {
+			if strings.EqualFold(x, n) {
 				return true
 			}
 		}
@@ -255,6 +250,20 @@ func freeName(w *bi.Workspace, name string) string {
 	out := name
 	for i := 2; taken(out); i++ {
 		out = name + " " + strconv.Itoa(i)
+	}
+	return out
+}
+
+func sourceNames(w *bi.Workspace) (out []string) {
+	for _, d := range w.DataSources {
+		out = append(out, d.Name)
+	}
+	return out
+}
+
+func chartNames(w *bi.Workspace) (out []string) {
+	for _, c := range w.Charts {
+		out = append(out, c.Name)
 	}
 	return out
 }

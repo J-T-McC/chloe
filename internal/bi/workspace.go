@@ -138,8 +138,11 @@ type ChartField struct {
 
 // ChartSort orders a chart by its dimension or by its first value.
 type ChartSort struct {
-	By   string `json:"by"` // dimension or value
-	Desc bool   `json:"desc,omitempty"`
+	By string `json:"by"` // dimension or value
+	// Field picks the value (by field name or label) when a chart has several; a
+	// table sorts by its first aggregated column otherwise.
+	Field string `json:"field,omitempty"`
+	Desc  bool   `json:"desc,omitempty"`
 }
 
 // Props are display settings; anything left empty comes from the theme.
@@ -226,7 +229,7 @@ func (w *Workspace) ChartsUsing(sourceID string) []Chart {
 	return out
 }
 
-func now() string { return time.Now().UTC().Format(time.RFC3339) }
+func stamp() string { return time.Now().UTC().Format(time.RFC3339) }
 
 // PutSource adds a data source (no ID yet) or replaces the one with its ID, and
 // returns it as stored.
@@ -238,10 +241,10 @@ func (w *Workspace) PutSource(d DataSource) (DataSource, error) {
 	if err := d.Validate(); err != nil {
 		return d, err
 	}
-	if err := w.uniqueName(d.ID, d.Name); err != nil {
+	if err := w.uniqueSourceName(d.ID, d.Name); err != nil {
 		return d, err
 	}
-	d.Modified = now()
+	d.Modified = stamp()
 	if old := w.Source(d.ID); d.ID != "" && old != nil {
 		d.Created, d.CreatedBy = old.Created, old.CreatedBy
 		*old = d
@@ -267,10 +270,10 @@ func (w *Workspace) PutChart(c Chart) (Chart, error) {
 	if _, ok := ChartTypes[c.Type]; !ok {
 		return c, fmt.Errorf("unknown chart type %q (types: %s)", c.Type, strings.Join(TypeNames(), ", "))
 	}
-	if err := w.uniqueName(c.ID, c.Name); err != nil {
+	if err := w.uniqueChartName(c.ID, c.Name); err != nil {
 		return c, err
 	}
-	c.Modified = now()
+	c.Modified = stamp()
 	if old := w.Chart(c.ID); c.ID != "" && old != nil {
 		c.Created, c.CreatedBy = old.Created, old.CreatedBy
 		*old = c
@@ -296,14 +299,19 @@ func (w *Workspace) Delete(id string) error {
 	return nil
 }
 
-// uniqueName refuses a name another object of the workspace already has, so
-// agents and users can refer to objects by name.
-func (w *Workspace) uniqueName(id, name string) error {
+// uniqueSourceName and uniqueChartName refuse a name another object of the same
+// kind already has, so agents and users can refer to objects by kind and name.
+// A chart may share its data source's name.
+func (w *Workspace) uniqueSourceName(id, name string) error {
 	for _, d := range w.DataSources {
 		if d.ID != id && strings.EqualFold(d.Name, name) {
 			return fmt.Errorf("the workspace already has a data source named %q", name)
 		}
 	}
+	return nil
+}
+
+func (w *Workspace) uniqueChartName(id, name string) error {
 	for _, c := range w.Charts {
 		if c.ID != id && strings.EqualFold(c.Name, name) {
 			return fmt.Errorf("the workspace already has a chart named %q", name)

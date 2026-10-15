@@ -32,7 +32,7 @@ func TestBIChartsAcrossEngines(t *testing.T) {
 			[][]any{{"2026-01", 200.0}, {"2026-02", 345.5}, {"2026-03", 270.0}, {"2026-04", 15.0}}},
 		{"quarter and week", bi.Chart{Type: "bar", Dimension: []bi.ChartField{{Field: "placed_at", Aggregate: "week"}}, Value: []bi.ChartField{{Field: "region", Aggregate: "count"}},
 			Filters: []bi.Filter{{Field: "placed_at", Op: "<", Values: []string{"2026-02-01"}}}},
-			[][]any{{"2026-W01", 1.0}, {"2026-W03", 1.0}}},
+			[][]any{{"2026-W01", 1.0}, {"2026-W02", 0.0}, {"2026-W03", 1.0}}}, // the empty week filled
 		{"extracts", bi.Chart{Type: "bar", Dimension: []bi.ChartField{{Field: "placed_at", Aggregate: "weekday_x"}}, Value: []bi.ChartField{{Field: "total", Aggregate: "max"}}},
 			[][]any{{"0", 120.0}, {"1", 210.0}, {"2", 80.0}, {"4", 15.0}, {"6", 300.0}}},
 		{"series and filters", bi.Chart{Type: "stacked_bar", Dimension: []bi.ChartField{{Field: "placed_at", Aggregate: "quarter"}}, Series: []bi.ChartField{{Field: "region"}},
