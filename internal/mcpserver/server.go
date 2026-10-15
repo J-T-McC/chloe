@@ -106,6 +106,10 @@ type Events interface {
 	ModelChanged(path string)
 	// OpenModel asks the UI to open a model file.
 	OpenModel(path string)
+	// BIChanged reports that an agent changed a BI workspace.
+	BIChanged(path string)
+	// OpenBI asks the UI to open an object (a chart) of a BI workspace.
+	OpenBI(path, id string)
 }
 
 // ApprovalTimeout is how long a write waits for the user.
@@ -409,6 +413,9 @@ func (s *Server) serverFor(id string) *mcp.Server {
 	}
 	if ep.Capabilities.Models {
 		s.addModelTools(srv, id)
+	}
+	if ep.Capabilities.Reports {
+		s.addBITools(srv, id)
 	}
 	s.servers[id] = srv
 	return srv

@@ -3,8 +3,8 @@
 Order reflects dependencies: later features build on the earlier ones. Specs for each area live in `docs/specs/`.
 
 ## Next up
-1. **BI: charts, dashboards and agent reports** (spec: `docs/specs/bi.md`), phases 1–2 first, with the
-   MCP Reports tools so agents can build, refresh and annotate reports
+1. **BI: dashboards and agent reports** (spec: `docs/specs/bi.md`, phase 2): pages, Markdown notes, export, snapshots
+   and history, and the MCP dashboard tools; charts and their MCP tools are done
 2. **Explain / visual explain** for MySQL and PostgreSQL, with MongoDB's explain
 3. Transfer and sync follow-ups: Data Transfer file target and per-table Advanced mode (rename, fields,
    filters); functions/procedures/events in transfer and structure sync; profiles for the sync tools;
@@ -74,7 +74,8 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 - [x] Monitor (sessions, status, variables, kill with approval) and saved queries / query tabs (capabilities)
 - [x] ER model tools (capability): list, read, create from a database or a copy, edit agent-created models, generate CREATE or sync SQL, open in Chloe
 - [x] Stdio bridge (`Chloe mcp`) over a user-only Unix socket, so clients need no network port; HTTP can be switched off
-- [ ] Reports tools (BI workspaces, charts, dashboards, snapshots, notes, export; `docs/specs/bi.md`)
+- [x] Reports tools, phase 1: BI workspaces, read-only data sources, charts and their data (`docs/specs/bi.md`)
+- [ ] Reports tools, phase 2: dashboards, snapshots and history, notes, export
 - [ ] MongoDB and Redis tools
 
 Access stays per group, connection and database: no table or column permissions. Without a Chloe-managed
@@ -110,7 +111,8 @@ statistics catalogs get around name checks), so share connections that log in as
 - Form view, hex/image cell editors, FK value picker
 
 ## 9. BI (spec: `docs/specs/bi.md`)
-- [ ] Charts and MCP core: BI library, data sources (table/view/query, live/archive), chart designer, Create Chart from the grid
+- [x] Charts and MCP core: BI library, data sources (table/view/query, live/archive), chart designer, Create Chart from
+  the grid and from query results, Present; MCP Reports tools for workspaces, data sources, charts and their data
 - [ ] Dashboards and reports: pages, Markdown text, present, print/export (PDF, PNG, SVG, HTML), snapshots and history
 - [ ] The rest of Navicat's BI: remaining chart types, interaction and controls, parameters, custom fields, joins, shapes
 - [ ] MongoDB data sources

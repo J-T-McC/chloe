@@ -311,19 +311,6 @@ func readRows(ctx context.Context, ds driver.Session, q stmt, limit int) (RowsOu
 	return out, err
 }
 
-// readOnly runs fn inside a read-only transaction (SQLite: query_only).
-func readOnly(ctx context.Context, ds driver.Session, d driver.Dialect, fn func() error) error {
-	begin := map[string]string{"mysql": "START TRANSACTION READ ONLY", "postgres": "BEGIN READ ONLY", "sqlite": "PRAGMA query_only = ON"}[d.Name]
-	if _, err := ds.Exec(ctx, begin); err != nil {
-		return err
-	}
-	err := fn()
-	if d.Name != "sqlite" {
-		_, _ = ds.Exec(context.Background(), "ROLLBACK")
-	}
-	return err
-}
-
 func scalar(ctx context.Context, ds driver.Session, q stmt) (string, error) {
 	rows, err := ds.Query(ctx, q.SQL, q.Args...)
 	if err != nil {
@@ -613,7 +600,7 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 					return err
 				}
 				c.act.SQL = display(d, q)
-				return readOnly(ctx, ds, d, func() error {
+				return driver.ReadOnly(ctx, ds, d, func() error {
 					out, err = readRows(ctx, ds, q, limit)
 					return err
 				})
@@ -647,7 +634,7 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 				if err != nil {
 					return err
 				}
-				return readOnly(ctx, ds, d, func() error {
+				return driver.ReadOnly(ctx, ds, d, func() error {
 					out, err = readRows(ctx, ds, stmt{SQL: sql}, limit)
 					return err
 				})

@@ -31,7 +31,8 @@ A chart uses exactly one data source. When a chart changes, every dashboard that
     columns: Name, Type, Chart Type, Data Source, Created, Modified, Data Refresh Time) or Icon view (thumbnails).
   - Properties pane (General, Using, Used By). View > Show Properties toggles it.
   - Opening an object opens it in its own Chloe tab, titled `<object> — <workspace>`.
-- Open External / Save to Chloe / Save As External File work as they do for models (`docs/specs/models.md`).
+- **Open External…** copies a `.chloebi` file into the library (its archive sources read again on refresh);
+  **Save As External File…** writes the definitions (no rows) to a file you pick.
 - Agent-created objects show Created By "AI (endpoint)". A workspace an agent created is agent-owned as a whole.
 
 ## Data sources
@@ -94,7 +95,7 @@ A chart uses exactly one data source. When a chart changes, every dashboard that
 |---|---|
 | Bar (vertical, vertical stacked, horizontal, horizontal stacked) | Dimension, Series, Value |
 | Line, Area, Stacked Area | Dimension, Series, Value (one or more) |
-| Bar and Line, Stacked Bar and Line | Dimension, Series, Value, Secondary Value |
+| Bar and Line, Stacked Bar and Line | Dimension, Series, Value (bars), Secondary Value (lines), on one value axis |
 | Waterfall | Dimension, Value |
 | Tornado | Dimension, Series (exactly two values), Value |
 | Pie, Donut, Treemap | Dimension, Value |
@@ -111,7 +112,8 @@ A chart uses exactly one data source. When a chart changes, every dashboard that
 - Each field on a shelf has a menu:
   - **Set Alias**.
   - **Aggregate**:
-    - Number: Sum, Average, Count, Count (Distinct), Min, Max, Median.
+    - Number: Sum, Average, Count, Count (Distinct), Min, Max, Median (PostgreSQL live sources only: MySQL and
+      SQLite have no median aggregate).
     - Date/Time: Count, Count (Distinct), Year, Quarter, Month, Week, Day, Hour, Minute, Second, and Quarter / Month /
       Week / Day / Hour / Minute / Second (Extract).
     - Text: First, Last, Count, Count (Distinct).
@@ -225,6 +227,7 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 | `set_notes` | — | `workspace, dashboard, page?, markdown` |
 | `export_dashboard` | Read on its sources | `workspace, dashboard, format` (pdf / png / html) |
 | `open_dashboard` | — | `workspace, dashboard` (Chloe comes to the front) |
+| `open_chart` | — | `workspace, chart` (Chloe comes to the front) |
 
 - **Ownership**, as with models:
   - An agent creates objects in any workspace, but edits only objects it created (`createdBy: "mcp:<endpoint>"`).
@@ -273,20 +276,34 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 - Later (with Automation on the roadmap): Chloe refreshes and snapshots dashboards on its own schedule, so an agent
   can read the history without refreshing.
 
+## Implementation notes (phase 1)
+- `internal/bi` holds the workspace format, the chart type catalog and the query builder; `core/bi.go` runs live
+  sources (read-only sessions, 30 s) and archive snapshots (an in-memory SQLite database, serialized, gzipped and
+  sealed with the keychain key in `bi/data/<workspace id>/<source id>.archive`, cached in memory while in use).
+- Columns are typed from the database's type names; untyped columns, and text columns whose sampled values are all
+  dates (SQLite stores dates as text), are typed from up to 200 sample rows.
+- Date buckets come back as sortable text (`2026-03`, `2026-Q1`, `2026-W09`, weekday `0` = Sunday) and the chart
+  labels them (`Mar 2026`, `Q1 2026`, `Sun`). Weeks start on Sunday and number like strftime's `%U` on every engine.
+- Sort, Top N with Others and value operations run on the aggregated rows, so they work the same live and archived.
+  Without a sort, date and number dimensions keep their order and categories go largest first.
+- Over MCP, data sources on connections the endpoint can't read show only their name, and their charts only name and
+  type; creating or editing charts on them is refused.
+
 ## Out of scope
 - File/ODBC data sources, cross-connection joins, Navicat Cloud/On-Prem sync.
 - Reading or writing Navicat's `.nbi` files (the sample was read only to learn the object model).
 - Redis: Navicat doesn't chart it either.
 
 ## Delivery
-1. **Charts and MCP core**:
+1. **Charts and MCP core** ✅:
    - BI library and workspace tab.
    - Data sources: table, view or query on MySQL, PostgreSQL and SQLite; live and archive; filter, sort and
      projection.
    - Chart designer with Bar, Line/Area, Bar and Line, Pie/Donut, Value, Table, and theme defaults.
    - **Create Chart** in the data grid toolbar (as Navicat has), which makes a data source from the grid's table or
      query in a workspace you pick.
-   - MCP tools: workspaces, data sources, charts, `get_chart_data`, `open_dashboard` (opens a chart).
+   - MCP tools: `list_workspaces`, `get_workspace`, `create_workspace`, `create_data_source`, `create_chart`,
+     `edit_chart`, `get_chart_data`, `open_chart`. ✅
 2. **Dashboards and reports**: pages, charts, Markdown text, images, tile layers, refresh and auto refresh, Present,
    Print and Export (PDF, PNG, SVG, HTML), snapshots and history, and the MCP dashboard, notes, history and export
    tools.

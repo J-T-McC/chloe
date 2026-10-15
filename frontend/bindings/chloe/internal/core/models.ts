@@ -35,6 +35,15 @@ export interface ApplyResult {
 }
 
 /**
+ * BIPreview is a data source's rows as its preview grid shows them.
+ */
+export interface BIPreview {
+    "columns": model$0.ResultColumn[] | null;
+    "rows": ((string | null)[] | null)[] | null;
+    "sql": string;
+}
+
+/**
  * BrowseRequest describes one page of a table's data, as the table viewer requests it.
  */
 export interface BrowseRequest {

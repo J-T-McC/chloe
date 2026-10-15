@@ -30,6 +30,8 @@ type MCPCapabilities struct {
 	SavedQueries      bool `json:"savedQueries"`
 	Monitor           bool `json:"monitor"`
 	Models            bool `json:"models"`
+	// Reports: BI workspaces, data sources and charts.
+	Reports bool `json:"reports"`
 }
 
 // MCPEndpoint is a named access profile with its own token.

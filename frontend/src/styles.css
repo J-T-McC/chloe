@@ -4161,3 +4161,602 @@ table.mapping select {
   color: var(--text-3);
   cursor: pointer;
 }
+
+/* ---- BI ---------------------------------------------------------------------- */
+
+.icon-btn {
+  border: none;
+  background: none;
+  padding: 2px;
+  color: var(--text-3);
+}
+
+.toolbar .tb-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+}
+
+.object-list th.sortable {
+  cursor: default;
+}
+
+.object-list th.sortable:hover {
+  color: var(--text);
+}
+
+.bi-icons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
+  gap: 12px;
+  padding: 14px;
+}
+
+.bi-icon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 8px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+}
+
+.bi-icon.selected {
+  background: var(--sel);
+  border-color: var(--sel-strong);
+}
+
+.bi-icon-art {
+  width: 72px;
+  height: 56px;
+  border-radius: 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+}
+
+.bi-icon-name {
+  text-align: center;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.seg-tabs.compact {
+  padding: 0;
+  margin: -4px 0 10px;
+}
+
+.bi-deps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.bi-deps li {
+  padding: 3px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Chart card: the workspace theme's surface, not Chloe's. */
+.bi-chart {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  border: 1px solid;
+  border-radius: 10px;
+  padding: 14px 16px 12px;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  user-select: text;
+}
+
+.bi-chart-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  flex: none;
+}
+
+.bi-chart-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+}
+
+.bi-echart {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.bi-chart-msg {
+  margin: auto;
+  color: #898781;
+  text-align: center;
+  padding: 20px;
+  max-width: 460px;
+}
+
+.bi-chart-msg.error {
+  color: #d03b3b;
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.bi-chart-note {
+  font-size: 11.5px;
+  color: #898781;
+  padding-top: 6px;
+}
+
+.bi-value {
+  margin: auto;
+  text-align: center;
+}
+
+.bi-value-figure {
+  font-size: 56px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.bi-value-label {
+  margin-top: 6px;
+  font-size: 13px;
+  opacity: 0.65;
+}
+
+.bi-table-wrap {
+  flex: 1;
+  overflow: auto;
+}
+
+.bi-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.bi-table th {
+  text-align: left;
+  font-weight: 600;
+  padding: 6px 10px;
+  position: sticky;
+  top: 0;
+  background: inherit;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.35);
+}
+
+.bi-chart .bi-table th {
+  background: var(--chart-surface, transparent);
+}
+
+.bi-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.15);
+  white-space: nowrap;
+}
+
+.bi-table td.num,
+.bi-table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.bi-table td.null {
+  opacity: 0.45;
+}
+
+.bi-table tfoot td {
+  font-weight: 600;
+  border-bottom: none;
+  border-top: 1px solid rgba(128, 128, 128, 0.35);
+}
+
+/* Data source designer */
+.bi-source,
+.bi-chart-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  outline: none;
+}
+
+.bi-source-design {
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.bi-source-form {
+  padding: 4px 16px 0;
+  max-width: 900px;
+}
+
+.bi-source-form .field {
+  grid-template-columns: 90px 1fr;
+  margin: 6px 0;
+}
+
+.bi-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.form .field-input.bi-row select {
+  width: auto;
+  min-width: 160px;
+}
+
+.bi-sql {
+  flex: 1;
+  min-height: 140px;
+  margin: 6px 16px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.bi-pane {
+  margin: 4px 16px 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-2);
+}
+
+.bi-pane-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bi-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  align-items: flex-start;
+}
+
+.bi-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.bi-filter.off > :not(input[type="checkbox"]) {
+  opacity: 0.5;
+}
+
+.bi-filter select {
+  max-width: 180px;
+}
+
+.bi-filter-value {
+  width: 160px;
+}
+
+.bi-filter-value.short {
+  width: 90px;
+}
+
+.bi-projection {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.bi-usedby {
+  padding: 0 16px 10px;
+  font-size: 12px;
+}
+
+.bi-preview {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.bi-preview > table {
+  display: block;
+  flex: 1;
+  overflow: auto;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  border-top: 1px solid var(--border);
+}
+
+.bi-preview th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-2);
+  text-align: left;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.bi-preview td {
+  padding: 2px 10px;
+  border-right: 1px solid var(--border);
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: text;
+}
+
+.bi-preview tr:nth-child(even) td {
+  background: var(--row-alt);
+}
+
+.bi-preview td.null {
+  color: var(--null);
+}
+
+.bi-type {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.bi-type.number {
+  color: var(--v-number);
+}
+
+.bi-type.datetime {
+  color: var(--v-id);
+}
+
+.bi-type.string {
+  color: var(--v-string);
+}
+
+/* Chart designer */
+.bi-asof {
+  font-size: 12px;
+}
+
+.bi-fields {
+  height: 100%;
+  overflow: auto;
+  padding: 8px;
+  background: var(--bg-2);
+  border-right: 1px solid var(--border);
+}
+
+.bi-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  cursor: grab;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bi-field:hover {
+  background: var(--bg-3);
+}
+
+.center-hint.small {
+  padding: 16px 4px;
+  font-size: 12px;
+}
+
+.bi-chart-center {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.bi-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 12px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bi-types button {
+  padding: 4px 6px;
+  border-color: transparent;
+  background: none;
+  color: var(--text-2);
+}
+
+.bi-types button.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.bi-shelves {
+  padding: 6px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bi-shelf {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 2px 6px;
+  border: 1px dashed transparent;
+  border-radius: 6px;
+}
+
+.bi-shelf.over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.bi-shelf-label {
+  width: 120px;
+  flex: none;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.bi-need {
+  color: var(--warn);
+  font-size: 11px;
+}
+
+.bi-shelf-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+
+.bi-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 9px;
+  border-radius: 12px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.bi-pill.dim {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.bi-pill.val {
+  background: var(--new);
+  color: var(--ok);
+}
+
+.bi-pill-x {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  color: inherit;
+  opacity: 0.7;
+}
+
+.bi-drop {
+  color: var(--text-3);
+  font-size: 12px;
+  padding: 3px 9px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 12px;
+}
+
+.bi-preview-area {
+  flex: 1;
+  min-height: 0;
+  padding: 14px;
+  background: var(--bg-2);
+}
+
+.bi-present {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+}
+
+.bi-present.theme-light {
+  background: #f9f9f7;
+}
+
+.bi-present.theme-dark {
+  background: #0d0d0d;
+}
+
+.bi-present .bi-chart {
+  flex: 1;
+}
+
+.bi-present .bi-chart-title {
+  font-size: 22px;
+}
+
+.bi-present-hint {
+  position: absolute;
+  bottom: 8px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 11px;
+  color: #898781;
+}
+
+.bi-props-pane {
+  height: 100%;
+  overflow: auto;
+  padding: 8px 12px;
+  background: var(--bg-2);
+  border-left: 1px solid var(--border);
+}
+
+.bi-prop-section {
+  padding: 6px 0 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bi-prop-title {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.bi-prop {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--text-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.bi-prop input,
+.bi-prop select {
+  width: 100%;
+}
+
+.bi-prop-row {
+  display: flex;
+  gap: 8px;
+}

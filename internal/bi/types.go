@@ -1,0 +1,215 @@
+package bi
+
+import (
+	"fmt"
+	"slices"
+	"sort"
+	"strings"
+)
+
+// Shelf limits of a chart type: Min..Max fields, Max 0 meaning the shelf isn't offered.
+type Shelf struct {
+	Min int `json:"min"`
+	Max int `json:"max"`
+	// Label is the shelf's name in the designer when it isn't the default.
+	Label string `json:"label,omitempty"`
+}
+
+type ChartType struct {
+	Name      string `json:"name"`
+	Group     string `json:"group"`
+	Dimension Shelf  `json:"dimension"`
+	Series    Shelf  `json:"series"`
+	Value     Shelf  `json:"value"`
+	Secondary Shelf  `json:"secondary"`
+	// Raw lets value fields go without an aggregate (table columns).
+	Raw bool `json:"raw,omitempty"`
+}
+
+const many = 8
+
+// ChartTypes are the chart types and their shelves (Navicat's, from its sample workspace).
+var ChartTypes = map[string]ChartType{
+	"bar":              {Name: "Bar", Group: "Bar", Dimension: Shelf{1, 1, "X-Axis"}, Series: Shelf{0, 1, ""}, Value: Shelf{1, many, "Y-Axis"}},
+	"stacked_bar":      {Name: "Stacked Bar", Group: "Bar", Dimension: Shelf{1, 1, "X-Axis"}, Series: Shelf{0, 1, ""}, Value: Shelf{1, many, "Y-Axis"}},
+	"hbar":             {Name: "Horizontal Bar", Group: "Bar", Dimension: Shelf{1, 1, "Y-Axis"}, Series: Shelf{0, 1, ""}, Value: Shelf{1, many, "X-Axis"}},
+	"stacked_hbar":     {Name: "Horizontal Stacked Bar", Group: "Bar", Dimension: Shelf{1, 1, "Y-Axis"}, Series: Shelf{0, 1, ""}, Value: Shelf{1, many, "X-Axis"}},
+	"line":             {Name: "Line", Group: "Line / Area", Dimension: Shelf{1, 1, "X-Axis"}, Series: Shelf{0, 1, ""}, Value: Shelf{1, many, "Y-Axis"}},
+	"area":             {Name: "Area", Group: "Line / Area", Dimension: Shelf{1, 1, "X-Axis"}, Series: Shelf{0, 1, ""}, Value: Shelf{1, many, "Y-Axis"}},
+	"stacked_area":     {Name: "Stacked Area", Group: "Line / Area", Dimension: Shelf{1, 1, "X-Axis"}, Series: Shelf{0, 1, ""}, Value: Shelf{1, many, "Y-Axis"}},
+	"bar_line":         {Name: "Bar and Line", Group: "Bar and Line", Dimension: Shelf{1, 1, "X-Axis"}, Series: Shelf{0, 1, ""}, Value: Shelf{1, many, "Bar Values"}, Secondary: Shelf{1, many, "Line Values"}},
+	"stacked_bar_line": {Name: "Stacked Bar and Line", Group: "Bar and Line", Dimension: Shelf{1, 1, "X-Axis"}, Series: Shelf{0, 1, ""}, Value: Shelf{1, many, "Bar Values"}, Secondary: Shelf{1, many, "Line Values"}},
+	"pie":              {Name: "Pie", Group: "Pie / Donut", Dimension: Shelf{1, 1, "Category"}, Value: Shelf{1, 1, ""}},
+	"donut":            {Name: "Donut", Group: "Pie / Donut", Dimension: Shelf{1, 1, "Category"}, Value: Shelf{1, 1, ""}},
+	"value":            {Name: "Value", Group: "Value", Value: Shelf{1, 1, ""}},
+	"table":            {Name: "Table", Group: "Table", Value: Shelf{1, 32, "Columns"}, Raw: true},
+}
+
+// TypeNames lists the chart type keys, sorted.
+func TypeNames() []string {
+	out := make([]string, 0, len(ChartTypes))
+	for k := range ChartTypes {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Aggregates of value fields by field type.
+var ValueAggregates = map[string][]string{
+	TypeNumber:   {"sum", "avg", "count", "count_distinct", "min", "max", "median"},
+	TypeDateTime: {"count", "count_distinct", "min", "max"},
+	TypeString:   {"count", "count_distinct", "min", "max"},
+}
+
+// DateBuckets group a date/time dimension: whole periods, and the _x forms that
+// extract one part (all Marches together).
+var DateBuckets = []string{"year", "quarter", "month", "week", "day", "hour", "minute", "second",
+	"quarter_x", "month_x", "week_x", "day_x", "weekday_x", "hour_x", "minute_x", "second_x"}
+
+// DefaultAggregate is what a field gets when dropped on a shelf.
+func DefaultAggregate(shelf string, f Field, raw bool) string {
+	if shelf == "dimension" || shelf == "series" {
+		if f.Type == TypeDateTime {
+			return "month"
+		}
+		return ""
+	}
+	if raw {
+		return ""
+	}
+	if f.Type == TypeNumber {
+		return "sum"
+	}
+	return "count"
+}
+
+// AllowedAggregates lists what a field on a shelf may use.
+func AllowedAggregates(shelf string, f Field, raw bool, dialect string) []string {
+	if shelf == "dimension" || shelf == "series" {
+		if f.Type == TypeDateTime {
+			return append([]string{""}, DateBuckets...)
+		}
+		return []string{""}
+	}
+	out := slices.Clone(ValueAggregates[f.Type])
+	if dialect != "postgres" {
+		out = slices.DeleteFunc(out, func(a string) bool { return a == "median" })
+	}
+	if raw {
+		out = append([]string{""}, out...)
+	}
+	return out
+}
+
+var aggregateNames = map[string]string{
+	"sum": "Sum", "avg": "Average", "count": "Count", "count_distinct": "Count (Distinct)", "min": "Min", "max": "Max", "median": "Median",
+	"year": "Year", "quarter": "Quarter", "month": "Month", "week": "Week", "day": "Day", "hour": "Hour", "minute": "Minute", "second": "Second",
+	"quarter_x": "Quarter (Extract)", "month_x": "Month (Extract)", "week_x": "Week (Extract)", "day_x": "Day (Extract)",
+	"weekday_x": "Weekday (Extract)", "hour_x": "Hour (Extract)", "minute_x": "Minute (Extract)", "second_x": "Second (Extract)",
+}
+
+// Label is how a chart field is titled: its alias, or e.g. "Sum of total".
+func (f ChartField) Label() string {
+	if f.Alias != "" {
+		return f.Alias
+	}
+	switch {
+	case f.Aggregate == "":
+		return f.Field
+	case slices.Contains(DateBuckets, f.Aggregate):
+		return fmt.Sprintf("%s (%s)", f.Field, aggregateNames[f.Aggregate])
+	}
+	return aggregateNames[f.Aggregate] + " of " + f.Field
+}
+
+// shelves returns a chart's shelves by name, in query order.
+func (c Chart) shelves() []struct {
+	name   string
+	fields []ChartField
+	limits Shelf
+} {
+	t := ChartTypes[c.Type]
+	return []struct {
+		name   string
+		fields []ChartField
+		limits Shelf
+	}{{"dimension", c.Dimension, t.Dimension}, {"series", c.Series, t.Series}, {"value", c.Value, t.Value}, {"secondary", c.Secondary, t.Secondary}}
+}
+
+// Check validates a chart against its data source's fields. Incomplete charts
+// (a shelf below its minimum) aren't errors in the designer, so complete reports
+// them separately.
+func (c Chart) Check(src DataSource, dialect string) (complete bool, err error) {
+	t, ok := ChartTypes[c.Type]
+	if !ok {
+		return false, fmt.Errorf("unknown chart type %q (types: %s)", c.Type, strings.Join(TypeNames(), ", "))
+	}
+	complete = true
+	for _, sh := range c.shelves() {
+		if len(sh.fields) > sh.limits.Max {
+			if sh.limits.Max == 0 {
+				return false, fmt.Errorf("a %s chart has no %s shelf", t.Name, sh.name)
+			}
+			return false, fmt.Errorf("a %s chart takes at most %d %s field(s)", t.Name, sh.limits.Max, sh.name)
+		}
+		if len(sh.fields) < sh.limits.Min {
+			complete = false
+		}
+		for _, cf := range sh.fields {
+			f, ok := src.Field(cf.Field)
+			if !ok {
+				return false, fmt.Errorf("data source %q has no field %q (fields: %s)", src.Name, cf.Field, strings.Join(fieldNames(src.Visible()), ", "))
+			}
+			allowed := AllowedAggregates(sh.name, f, t.Raw, dialect)
+			if !slices.Contains(allowed, cf.Aggregate) {
+				return false, fmt.Errorf("%s on the %s shelf can't use aggregate %q (allowed: %s)", cf.Field, sh.name, cf.Aggregate, strings.Join(quoteAll(allowed), ", "))
+			}
+			if cf.Op != "" && cf.Op != "cumulative" && cf.Op != "subtract" {
+				return false, fmt.Errorf("value operation is cumulative or subtract, not %q", cf.Op)
+			}
+		}
+	}
+	if len(c.Series) > 0 && len(c.Value) > 1 {
+		return false, fmt.Errorf("a chart split by series takes one value field")
+	}
+	if c.Sort != nil && c.Sort.By != "dimension" && c.Sort.By != "value" {
+		return false, fmt.Errorf("sort by is dimension or value, not %q", c.Sort.By)
+	}
+	if c.Top < 0 {
+		return false, fmt.Errorf("top can't be negative")
+	}
+	for _, f := range c.Filters {
+		if err := f.check(); err != nil {
+			return false, err
+		}
+		if _, ok := fieldIn(src.Fields, f.Field); !ok {
+			return false, fmt.Errorf("data source %q has no field %q", src.Name, f.Field)
+		}
+	}
+	return complete, nil
+}
+
+func fieldNames(fs []Field) []string {
+	out := make([]string, len(fs))
+	for i, f := range fs {
+		out[i] = f.Name
+	}
+	return out
+}
+
+func fieldIn(fs []Field, name string) (Field, bool) {
+	i := slices.IndexFunc(fs, func(f Field) bool { return f.Name == name })
+	if i < 0 {
+		return Field{}, false
+	}
+	return fs[i], true
+}
+
+func quoteAll(xs []string) []string {
+	out := make([]string, len(xs))
+	for i, x := range xs {
+		out[i] = fmt.Sprintf("%q", x)
+	}
+	return out
+}

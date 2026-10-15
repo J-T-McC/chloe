@@ -1,4 +1,4 @@
-import { PanelBottom, Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Filter, Minus, PencilRuler, Plus, RefreshCw, Upload, X } from "lucide-react";
+import { ChartColumn, PanelBottom, Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Filter, Minus, PencilRuler, Plus, RefreshCw, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChangeKind, Explorer, ObjectKind, Query, RowChange, StatementResult, TableDetail, arr, errorText } from "../api";
 import type { Tab } from "../store";
@@ -9,6 +9,7 @@ import { ValuePanel } from "./ValuePanel";
 import { readFlag, writeFlag } from "../prefs";
 import { designTable } from "../tableActions";
 import { openExport, openImport } from "./transfer/state";
+import { createChartFrom } from "./bi/actions";
 
 const PAGE_SIZES = [100, 500, 1000, 5000, 10000];
 
@@ -215,6 +216,9 @@ export function TableViewer({ tab }: { tab: Tab }) {
         </button>
         <button title="Export Wizard (uses the current filter)" onClick={() => openExport({ connId, database: ref.database, schema: ref.schema, tables: [ref] })}>
           <Upload size={14} /> Export
+        </button>
+        <button title="Create a chart on this table in a BI workspace" onClick={() => createChartFrom({ connId, database: ref.database, schema: ref.schema, table: ref.name, name: ref.name })}>
+          <ChartColumn size={14} /> Create Chart
         </button>
         <span className="spacer" />
         <button title="Show the active cell's full value (Text, JSON, Hex, Image)" className={panel ? "on" : ""} onClick={() => togglePanel(!panel)}>

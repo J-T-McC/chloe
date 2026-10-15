@@ -22,6 +22,7 @@ const (
 	EventMCPOpenQuery    = "mcp:open-query"
 	EventMCPModelChanged = "mcp:model-changed"
 	EventMCPOpenModel    = "mcp:open-model"
+	EventMCPOpenBI       = "mcp:open-bi"
 )
 
 func init() {
@@ -35,6 +36,7 @@ func init() {
 	application.RegisterEvent[mcpserver.QueryTab](EventMCPOpenQuery)
 	application.RegisterEvent[string](EventMCPModelChanged)
 	application.RegisterEvent[string](EventMCPOpenModel)
+	application.RegisterEvent[BIObject](EventMCPOpenBI)
 }
 
 // MCPApprover shows approval requests in the app and waits for the answer.
@@ -146,6 +148,23 @@ func (MCPEvents) OpenModel(path string) {
 		return
 	}
 	app.Event.Emit(EventMCPOpenModel, path)
+	focusMain(app)
+}
+
+func (MCPEvents) BIChanged(path string) { biChanged(path) }
+
+// BIObject names an object of a BI workspace.
+type BIObject struct {
+	Path string `json:"path"`
+	ID   string `json:"id"`
+}
+
+func (MCPEvents) OpenBI(path, id string) {
+	app := application.Get()
+	if app == nil {
+		return
+	}
+	app.Event.Emit(EventMCPOpenBI, BIObject{Path: path, ID: id})
 	focusMain(app)
 }
 

@@ -5,6 +5,7 @@ import { RedisBrowser } from "./redis/RedisBrowser";
 import { RedisDatabases } from "./redis/RedisDatabases";
 import { MongoCollections } from "./mongo/MongoCollections";
 import { ModelsList } from "./model/ModelsList";
+import { BIList } from "./bi/BIList";
 import { designTable, newTable, runTableAction } from "../tableActions";
 import { newView, viewDesign } from "./designer/ViewDesigner";
 import { objectsAreaMenu, openERD, tableChildMenu, tableMenu, viewMenu } from "../menus";
@@ -21,8 +22,10 @@ import { deleteSavedQueries } from "../queries";
 export function ObjectsPane() {
   const sel = useApp((s) => s.selection);
   const showingModels = useApp((s) => s.showingModels);
+  const showingBI = useApp((s) => s.showingBI);
   const connected = useApp((s) => !!(sel?.connId && s.open[sel.connId]));
   if (showingModels) return <ModelsList />;
+  if (showingBI) return <BIList />;
   if (sel?.connId && connById(sel.connId)?.type === DBType.Redis) {
     if (!connected) return <div className="center-hint">Open the connection to browse its keys.</div>;
     return sel.database !== undefined ? <RedisBrowser key={`${sel.connId}/${sel.database}`} connId={sel.connId} db={Number(sel.database)} /> : <RedisDatabases connId={sel.connId} />;

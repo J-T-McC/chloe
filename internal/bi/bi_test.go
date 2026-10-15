@@ -1,0 +1,257 @@
+package bi
+
+import (
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+
+	"chloe/internal/driver"
+	"chloe/internal/sqlsplit"
+)
+
+var (
+	pg    = driver.Dialect{Name: "postgres", IdentQuote: `"`, HasSchemas: true, DefaultSchema: "public", Split: sqlsplit.Postgres}
+	mysql = driver.Dialect{Name: "mysql", IdentQuote: "`", Split: sqlsplit.MySQL}
+)
+
+func ordersSource() DataSource {
+	return DataSource{Meta: Meta{ID: "s1", Name: "Orders"}, ConnID: "c", Database: "shop", Table: "orders", Mode: ModeLive,
+		Fields: []Field{{Name: "placed_at", Type: TypeDateTime}, {Name: "total", Type: TypeNumber}, {Name: "status", Type: TypeString}, {Name: "customer", Type: TypeString}}}
+}
+
+func TestChartQueryPerDialect(t *testing.T) {
+	src := ordersSource()
+	src.Filters = []Filter{{Field: "status", Op: "!=", Values: []string{"new"}}}
+	c := Chart{Meta: Meta{Name: "Revenue"}, DataSource: "s1", Type: "bar",
+		Dimension: []ChartField{{Field: "placed_at", Aggregate: "month"}},
+		Value:     []ChartField{{Field: "total", Aggregate: "sum"}},
+		Filters:   []Filter{{Field: "customer", Op: "contains", Values: []string{"50%_off!"}}}}
+	cases := map[string]struct {
+		d    driver.Dialect
+		sql  string
+		args []any
+	}{
+		"postgres": {pg, `SELECT to_char(CAST("placed_at" AS timestamp), 'YYYY-MM') AS "c0", SUM(CAST("total" AS numeric)) AS "c1" FROM "public"."orders" AS s` +
+			` WHERE "status" <> $1 AND CAST("customer" AS TEXT) ILIKE $2 ESCAPE '!' GROUP BY 1 ORDER BY 1 LIMIT 100`, []any{"new", "%50!%!_off!!%"}},
+		"mysql": {mysql, "SELECT DATE_FORMAT(`placed_at`, '%Y-%m') AS `c0`, SUM(`total`) AS `c1` FROM `shop`.`orders` AS s" +
+			" WHERE `status` <> ? AND CAST(`customer` AS CHAR) LIKE ? ESCAPE '!' GROUP BY 1 ORDER BY 1 LIMIT 100", []any{"new", "%50!%!_off!!%"}},
+		"sqlite": {SQLite, `SELECT strftime('%Y-%m', "placed_at") AS "c0", SUM("total") AS "c1" FROM "shop"."orders" AS s` +
+			` WHERE "status" <> ? AND CAST("customer" AS TEXT) LIKE ? ESCAPE '!' GROUP BY 1 ORDER BY 1 LIMIT 100`, []any{"new", "%50!%!_off!!%"}},
+	}
+	for name, tc := range cases {
+		from, err := From(tc.d, src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		q, cols, err := ChartQuery(tc.d, from, src, c, 100)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if q.SQL != tc.sql {
+			t.Errorf("%s:\n got %s\nwant %s", name, q.SQL, tc.sql)
+		}
+		if !reflect.DeepEqual(q.Args, tc.args) {
+			t.Errorf("%s: args %v", name, q.Args)
+		}
+		if len(cols) != 2 || cols[0].Role != "dimension" || cols[0].Label != "placed_at (Month)" || cols[1].Label != "Sum of total" || cols[1].Type != TypeNumber {
+			t.Errorf("%s: columns %+v", name, cols)
+		}
+	}
+}
+
+func TestChartQueryChecksFields(t *testing.T) {
+	src := ordersSource()
+	src.Projection = &Projection{Exclude: true, Fields: []string{"customer"}}
+	for _, tc := range []struct {
+		c    Chart
+		want string
+	}{
+		{Chart{Type: "bar", Dimension: []ChartField{{Field: "customer"}}, Value: []ChartField{{Field: "total", Aggregate: "sum"}}}, `no field "customer"`},
+		{Chart{Type: "bar", Dimension: []ChartField{{Field: "status"}}, Value: []ChartField{{Field: "total"}}}, `can't use aggregate ""`},
+		{Chart{Type: "bar", Dimension: []ChartField{{Field: "status"}}, Value: []ChartField{{Field: "status", Aggregate: "sum"}}}, `can't use aggregate "sum"`},
+		{Chart{Type: "pie", Dimension: []ChartField{{Field: "status"}}, Value: []ChartField{{Field: "total", Aggregate: "sum"}, {Field: "total", Aggregate: "avg"}}}, "at most 1 value"},
+		{Chart{Type: "value", Dimension: []ChartField{{Field: "status"}}}, "no dimension shelf"},
+		{Chart{Type: "bar", Dimension: []ChartField{{Field: "status"}}, Value: []ChartField{{Field: "total", Aggregate: "median"}}}, `can't use aggregate "median"`},
+		{Chart{Type: "pyramid"}, "unknown chart type"},
+	} {
+		_, _, err := ChartQuery(mysql, "`t`", src, tc.c, 10)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%+v: got %v, want %q", tc.c, err, tc.want)
+		}
+	}
+	// Median is PostgreSQL's.
+	c := Chart{Type: "bar", Dimension: []ChartField{{Field: "status"}}, Value: []ChartField{{Field: "total", Aggregate: "median"}}}
+	if q, _, err := ChartQuery(pg, `"t"`, src, c, 10); err != nil || !strings.Contains(q.SQL, "percentile_cont(0.5) WITHIN GROUP (ORDER BY CAST(\"total\" AS numeric))") {
+		t.Errorf("median: %v %s", err, q.SQL)
+	}
+}
+
+func TestIncompleteChart(t *testing.T) {
+	c := Chart{Type: "bar", Value: []ChartField{{Field: "total", Aggregate: "sum"}}}
+	complete, err := c.Check(ordersSource(), "mysql")
+	if err != nil || complete {
+		t.Fatalf("complete=%v err=%v", complete, err)
+	}
+}
+
+func TestTableChart(t *testing.T) {
+	src := ordersSource()
+	raw := Chart{Type: "table", Value: []ChartField{{Field: "status"}, {Field: "total"}}}
+	q, _, err := ChartQuery(SQLite, `"data"`, src, raw, 50)
+	if err != nil || q.SQL != `SELECT "status" AS "c0", "total" AS "c1" FROM "data" AS s ORDER BY 1, 2 LIMIT 50` {
+		t.Errorf("raw table: %v %s", err, q.SQL)
+	}
+	grouped := Chart{Type: "table", Value: []ChartField{{Field: "status"}, {Field: "total", Aggregate: "sum"}}}
+	q, _, err = ChartQuery(SQLite, `"data"`, src, grouped, 50)
+	if err != nil || q.SQL != `SELECT "status" AS "c0", SUM("total") AS "c1" FROM "data" AS s GROUP BY 1 ORDER BY 1 LIMIT 50` {
+		t.Errorf("grouped table: %v %s", err, q.SQL)
+	}
+}
+
+func TestFilters(t *testing.T) {
+	src := ordersSource()
+	src.Filters = []Filter{
+		{Field: "total", Op: "between", Values: []string{"10", "20.5"}},
+		{Field: "status", Op: "in", Values: []string{"paid", "shipped"}, Negate: true},
+		{Field: "customer", Op: "is_empty"},
+		{Field: "customer", Op: "is_null", Disabled: true},
+		{Field: "customer", Op: "not_begins_with", Values: []string{"x"}},
+	}
+	q, err := PreviewQuery(SQLite, `"data"`, src, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `SELECT * FROM "data" AS s WHERE "total" BETWEEN ? AND ? AND NOT ("status" IN (?, ?)) AND CAST("customer" AS TEXT) = '' AND NOT (CAST("customer" AS TEXT) LIKE ? ESCAPE '!') LIMIT 10`
+	if q.SQL != want {
+		t.Errorf("got  %s\nwant %s", q.SQL, want)
+	}
+	// SQLite gets numbers as numbers.
+	if !reflect.DeepEqual(q.Args, []any{int64(10), 20.5, "paid", "shipped", "x%"}) {
+		t.Errorf("args %#v", q.Args)
+	}
+	for _, f := range []Filter{{Field: "total", Op: "between", Values: []string{"1"}}, {Field: "total", Op: "~"}, {Field: "nope", Op: "is_null"}} {
+		src.Filters = []Filter{f}
+		if _, err := PreviewQuery(SQLite, `"data"`, src, 10); err == nil {
+			t.Errorf("%+v: no error", f)
+		}
+	}
+}
+
+func TestCheckSQL(t *testing.T) {
+	for _, ok := range []string{"SELECT 1;", " with x as (select 1) select * from x", "(SELECT 1)"} {
+		if _, err := CheckSQL(mysql, ok); err != nil {
+			t.Errorf("%q: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"UPDATE t SET a = 1", "SELECT 1; SELECT 2", "SELECT * FROM t INTO OUTFILE '/tmp/x'", "SHOW TABLES", "EXPLAIN SELECT 1", ""} {
+		if _, err := CheckSQL(mysql, bad); err == nil {
+			t.Errorf("%q: accepted", bad)
+		}
+	}
+	src := ordersSource()
+	src.Table, src.SQL = "", "SELECT * FROM orders;"
+	if from, err := From(pg, src); err != nil || from != "(SELECT * FROM orders)" {
+		t.Errorf("from: %q %v", from, err)
+	}
+}
+
+func TestShape(t *testing.T) {
+	s := func(v string) *string { return &v }
+	cols := []Column{{Role: "dimension", Type: TypeString}, {Role: "value", Type: TypeNumber}}
+	raw := [][]*string{{s("a"), s("1")}, {s("b"), s("5")}, {s("c"), s("3")}, {s("d"), nil}, {nil, s("2")}}
+	c := Chart{Type: "bar", Value: []ChartField{{Field: "x"}}}
+	got := Shape(c, cols, raw)
+	// Categories: biggest first.
+	if want := [][]any{{"b", 5.0}, {"c", 3.0}, {nil, 2.0}, {"a", 1.0}, {"d", nil}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("default sort: %v", got)
+	}
+	c.Top, c.Others = 2, true
+	if got, want := Shape(c, cols, raw), [][]any{{"b", 5.0}, {"c", 3.0}, {"Others", 3.0}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("top 2 + others: %v", got)
+	}
+	c = Chart{Type: "line", Value: []ChartField{{Field: "x", Op: "cumulative"}}}
+	months := [][]*string{{s("2026-02"), s("2")}, {s("2026-01"), s("1")}, {s("2026-03"), s("4")}}
+	dcols := []Column{{Role: "dimension", Type: TypeString, Aggregate: "month"}, {Role: "value", Type: TypeNumber}}
+	if got, want := Shape(c, dcols, months), [][]any{{"2026-01", 1.0}, {"2026-02", 3.0}, {"2026-03", 7.0}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("cumulative: %v", got)
+	}
+	c.Value[0].Op = "subtract"
+	if got, want := Shape(c, dcols, months), [][]any{{"2026-01", nil}, {"2026-02", 1.0}, {"2026-03", 2.0}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("subtract: %v", got)
+	}
+}
+
+func TestTypes(t *testing.T) {
+	for db, want := range map[string]string{"INT": TypeNumber, "numeric(10,2)": TypeNumber, "timestamptz": TypeDateTime, "DATE": TypeDateTime,
+		"VARCHAR": TypeString, "interval": TypeString, "bool": TypeString, "YEAR": TypeNumber, "": ""} {
+		if got := FieldType(db); got != want {
+			t.Errorf("%q: %q, want %q", db, got, want)
+		}
+	}
+	if GuessType([]string{"1", "2.5"}) != TypeNumber || GuessType([]string{"2024-03-01", "2024-03-02 10:00"}) != TypeDateTime || GuessType([]string{"1", "x"}) != TypeString {
+		t.Error("guess")
+	}
+	for in, want := range map[string]string{"2024-03-01 10:30:00+00": "2024-03-01 10:30:00", "2024-03-01T10:30:00.5Z": "2024-03-01 10:30:00.5", "2024-03-01": "2024-03-01", "x": "x"} {
+		if got := NormalizeDate(in); got != want {
+			t.Errorf("%q: %q", in, got)
+		}
+	}
+}
+
+func TestLibrary(t *testing.T) {
+	l := Library{Dir: t.TempDir()}
+	p, err := l.Create(New("Sales"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := l.Update(p, func(w *Workspace) error {
+		src, err := w.PutSource(ordersSource())
+		if err != nil {
+			return err
+		}
+		_, err = w.PutChart(Chart{Meta: Meta{Name: "By month"}, DataSource: src.ID, Type: "bar"})
+		return err
+	})
+	if err != nil || len(w.DataSources) != 1 || len(w.Charts) != 1 || w.Charts[0].Created == "" {
+		t.Fatalf("update: %v %+v", err, w)
+	}
+	if _, err := l.Update(p, func(w *Workspace) error {
+		_, err := w.PutChart(Chart{Meta: Meta{Name: "orders"}, DataSource: "s1", Type: "bar"})
+		return err
+	}); err == nil || !strings.Contains(err.Error(), "already has a data source") {
+		t.Errorf("duplicate name: %v", err)
+	}
+	if err := os.MkdirAll(l.DataDir(w.ID), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(l.ArchivePath(w.ID, "s1"), []byte("rows"), 0o600)
+	dup, err := l.Duplicate(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dw, _ := Read(dup)
+	if dw.Name != "Sales copy" || dw.ID == w.ID {
+		t.Errorf("duplicate: %+v", dw)
+	}
+	if data, _ := os.ReadFile(l.ArchivePath(dw.ID, "s1")); string(data) != "rows" {
+		t.Error("duplicate didn't copy the archive")
+	}
+	np, err := l.Rename(p, "Revenue")
+	if err != nil || filepath.Base(np) != "Revenue.chloebi" {
+		t.Fatalf("rename: %v %s", err, np)
+	}
+	if got, err := l.Find("revenue"); err != nil || got != np {
+		t.Errorf("find: %v %s", err, got)
+	}
+	if err := l.Delete(np); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(l.DataDir(w.ID)); !os.IsNotExist(err) {
+		t.Error("delete left the archive folder")
+	}
+	if len(l.List()) != 1 {
+		t.Errorf("list: %+v", l.List())
+	}
+}

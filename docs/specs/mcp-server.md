@@ -166,4 +166,4 @@ A tab like the History Log:
 1. Server, endpoints, data tools, approval, danger mode, activity, window.
 2. Monitor, saved queries / query tabs, create connections. ✅
 3. ER models. ✅
-4. Reports (`docs/specs/bi.md`).
+4. Reports (`docs/specs/bi.md`): workspaces, data sources and charts ✅; dashboards next.

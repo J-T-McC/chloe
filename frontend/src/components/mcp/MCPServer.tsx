@@ -123,7 +123,7 @@ function Endpoints({ settings, url }: { settings: MCPSettings; url: string }) {
     let name = "New Endpoint";
     for (let i = 2; taken.has(name); i++) name = `New Endpoint ${i}`;
     const before = new Set(endpoints.map((e) => e.id));
-    const next = await MCP.Save({ ...settings, endpoints: [...endpoints, { id: "", name, enabled: true, token: "", danger: false, capabilities: { createConnections: false, savedQueries: false, monitor: false, models: false }, access: {} }] }).catch((e) => {
+    const next = await MCP.Save({ ...settings, endpoints: [...endpoints, { id: "", name, enabled: true, token: "", danger: false, capabilities: { createConnections: false, savedQueries: false, monitor: false, models: false, reports: false }, access: {} }] }).catch((e) => {
       alert("Couldn't add the endpoint", errorText(e));
       return null;
     });
@@ -323,6 +323,16 @@ function EndpointDetail({ ep, url, update }: { ep: MCPEndpoint; url: string; upd
           ER models
         </label>
         <p className="hint">Read the models in Chloe’s library, build models from databases and generate SQL. Agents edit only models they created; nothing is applied to a database.</p>
+        <label className="check">
+          <input
+            type="checkbox"
+            aria-label="Reports"
+            checked={ep.capabilities.reports}
+            onChange={(e) => update({ ...ep, capabilities: { ...ep.capabilities, reports: e.target.checked } })}
+          />
+          Reports
+        </label>
+        <p className="hint">Build BI workspaces: data sources on shared databases (always read-only), charts, and the data they show. Agents edit only charts they created.</p>
       </div>
     </div>
   );

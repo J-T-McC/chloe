@@ -11,6 +11,7 @@ export {
 
 export type {
     ApplyResult,
+    BIPreview,
     BrowseRequest,
     ChangeResult,
     DataSyncComparison,
