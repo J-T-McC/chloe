@@ -124,6 +124,8 @@ type Chart struct {
 	Series    []ChartField `json:"series,omitempty"`
 	Value     []ChartField `json:"value,omitempty"`
 	Secondary []ChartField `json:"secondary,omitempty"`
+	// Target is a KPI's target, a gauge's maximum or a scatter's Y axis.
+	Target []ChartField `json:"target,omitempty"`
 	// Filters filter the source rows for this chart only (Navicat's Data Filter).
 	Filters []Filter   `json:"filters,omitempty"`
 	Sort    *ChartSort `json:"sort,omitempty"`
@@ -175,7 +177,14 @@ type Props struct {
 	// LabelCase is how category and series values are shown: "" makes enum-like
 	// values readable (ended_early → Ended Early), raw shows them as stored.
 	LabelCase string `json:"labelCase,omitempty"`
-	YTitle  string   `json:"yTitle,omitempty"`
+	YTitle    string `json:"yTitle,omitempty"`
+	// Goal is a KPI's target and Min/Max a gauge's range, when no Target field
+	// gives them.
+	Goal *float64 `json:"goal,omitempty"`
+	Min  *float64 `json:"min,omitempty"`
+	Max  *float64 `json:"max,omitempty"`
+	// LowerIsBetter colours a Trend's or KPI's change: a fall is good.
+	LowerIsBetter bool `json:"lowerIsBetter,omitempty"`
 }
 
 type NumberFormat struct {

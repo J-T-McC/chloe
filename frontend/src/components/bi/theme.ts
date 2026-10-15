@@ -46,3 +46,39 @@ export function seriesColors(theme: ChartTheme, palette?: string, own?: string[]
 export const OTHERS_COLOR: Record<ChartTheme, string> = { light: "#b5b3ab", dark: "#5c5b56" };
 
 export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+
+/** Polarity (waterfall rises and falls): the diverging pair's poles, and a
+ *  neutral for totals. */
+export const POLARITY: Record<ChartTheme, { up: string; down: string; total: string }> = {
+  light: { up: "#2a78d6", down: "#e34948", total: "#898781" },
+  dark: { up: "#3987e5", down: "#e66767", total: "#898781" },
+};
+
+/** Magnitude (heatmap cells): one hue, near the surface for small values. */
+export const SEQUENTIAL: Record<ChartTheme, string[]> = {
+  light: ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#104281"],
+  dark: ["#0d366b", "#184f95", "#256abf", "#3987e5", "#6da7ec", "#b7d3f6"],
+};
+
+/** A meter's fill and its track: a lighter step of the same ramp. */
+export const METER: Record<ChartTheme, { fill: string; track: string }> = {
+  light: { fill: "#2a78d6", track: "#cde2fb" },
+  dark: { fill: "#3987e5", track: "#184f95" },
+};
+
+/** Status colours are reserved for good and bad, and always come with an arrow
+ *  or icon and a sign, never colour alone. */
+export const STATUS = { good: "#0ca30c", critical: "#d03b3b" };
+
+/** Text that reads on a fill: dark ink on light fills, white on dark ones. */
+export function inkOn(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return "#ffffff";
+  const n = parseInt(m[1], 16);
+  const lum = (c: number) => {
+    const x = c / 255;
+    return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+  };
+  const l = 0.2126 * lum((n >> 16) & 255) + 0.7152 * lum((n >> 8) & 255) + 0.0722 * lum(n & 255);
+  return l > 0.4 ? "#0b0b0b" : "#ffffff";
+}

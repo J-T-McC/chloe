@@ -1,4 +1,26 @@
-import { ChartArea, ChartBar, ChartBarStacked, ChartColumn, ChartColumnStacked, ChartLine, ChartNoAxesCombined, ChartPie, Donut, Hash, LucideProps, Table2 } from "lucide-react";
+import {
+  ChartArea,
+  ChartBar,
+  ChartBarDecreasing,
+  ChartBarStacked,
+  ChartColumn,
+  ChartColumnIncreasing,
+  ChartColumnStacked,
+  ChartLine,
+  ChartNoAxesCombined,
+  ChartPie,
+  ChartScatter,
+  Donut,
+  Gauge,
+  Grid3x3,
+  Hash,
+  LayoutGrid,
+  LucideProps,
+  Table2,
+  TableProperties,
+  Target,
+  TrendingUp,
+} from "lucide-react";
 
 const ICONS: Record<string, React.ComponentType<LucideProps>> = {
   bar: ChartColumn,
@@ -14,6 +36,15 @@ const ICONS: Record<string, React.ComponentType<LucideProps>> = {
   donut: Donut,
   value: Hash,
   table: Table2,
+  waterfall: ChartColumnIncreasing,
+  tornado: ChartBarDecreasing,
+  treemap: LayoutGrid,
+  scatter: ChartScatter,
+  heatmap: Grid3x3,
+  trend: TrendingUp,
+  kpi: Target,
+  gauge: Gauge,
+  pivot: TableProperties,
 };
 
 export function ChartTypeIcon({ type, ...p }: { type: string } & LucideProps) {

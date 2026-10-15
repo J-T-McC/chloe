@@ -27,6 +27,11 @@ export interface Chart {
     "secondary"?: ChartField[] | null;
 
     /**
+     * Target is a KPI's target, a gauge's maximum or a scatter's Y axis.
+     */
+    "target"?: ChartField[] | null;
+
+    /**
      * Filters filter the source rows for this chart only (Navicat's Data Filter).
      */
     "filters"?: Filter[] | null;
@@ -83,11 +88,23 @@ export interface ChartType {
     "series": Shelf;
     "value": Shelf;
     "secondary": Shelf;
+    "target": Shelf;
 
     /**
      * Raw lets value fields go without an aggregate (table columns).
      */
     "raw"?: boolean;
+
+    /**
+     * DateDimension requires the dimension to be a date/time field (Trend).
+     */
+    "dateDimension"?: boolean;
+
+    /**
+     * NoFill keeps rows as read: no empty periods or series are added (points of
+     * a scatter, slices of a treemap).
+     */
+    "noFill"?: boolean;
 }
 
 /**
@@ -98,7 +115,7 @@ export interface Column {
     "label": string;
 
     /**
-     * Role is dimension, series, value, secondary or column (table charts).
+     * Role is dimension, series, value, secondary, target or column (table charts).
      */
     "role": string;
     "field": string;
@@ -379,6 +396,19 @@ export interface Props {
      */
     "labelCase"?: string;
     "yTitle"?: string;
+
+    /**
+     * Goal is a KPI's target and Min/Max a gauge's range, when no Target field
+     * gives them.
+     */
+    "goal"?: number | null;
+    "min"?: number | null;
+    "max"?: number | null;
+
+    /**
+     * LowerIsBetter colours a Trend's or KPI's change: a fall is good.
+     */
+    "lowerIsBetter"?: boolean;
 }
 
 /**

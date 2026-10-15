@@ -4,7 +4,7 @@ Navicat's BI turns tables and queries into charts and multi-page dashboards that
 This spec takes its structure and workflow from what Navicat Premium 18.0.3 ships: the bundled help
 (`en.lproj/Navicat Help/bi*.html`), the sample workspace (`Resources/charts/Sample.nbidemo`, a tar of gzipped JSON
 objects plus SQLite snapshots and images) and strings from the `Charts*` nibs and binary. Agent reporting over MCP,
-snapshots and Markdown notes are Chloe's own additions, from a discussion with the user (2026-10-14). Chloe aims to
+and Markdown notes are Chloe's own additions, from a discussion with the user (2026-10-14). Chloe aims to
 look better than Navicat: a modern palette and type scale instead of fixed Arial, tiles that snap to a grid by default,
 and a polished HTML export.
 
@@ -194,17 +194,11 @@ A chart uses exactly one data source. When a chart changes, every dashboard that
 - Chloe's themes set the palette (colour-blind safe, 8 categorical colours plus sequential and diverging scales),
   fonts, title sizes, gridline weight and tile corner radius. A chart's own properties override the theme.
 
-## Snapshots (Chloe addition)
-- Every refresh can keep a **snapshot**: the aggregated rows of each chart (not the source rows), with the time,
-  the parameter values and who refreshed it (the user, auto refresh, or an MCP endpoint).
-  - Kept when an agent refreshes over MCP, when **Save Snapshot** is chosen in the dashboard toolbar, and optionally
-    on every auto refresh (a dashboard setting).
-  - The last 100 per chart are kept.
-- **History** on a chart shows its snapshots as a list. Selecting one draws the chart as it was. **Compare** shows the
-  change between two snapshots (per dimension value: before, after, difference, % change).
-- Snapshots, archive data and images are stored next to the workspace in `bi/<name>.data/`. Snapshots and archive data
-  hold rows, so they are encrypted with the keychain key like `history.json`. The `.chloebi` definition stays plain
-  JSON, so it can be shared and checked into git. Save As External File asks whether to include the data.
+## Comparisons (no snapshots)
+Snapshots were planned and dropped (2026-10-15): an agent compares periods in one live report (this month beside
+last month, a Trend chart's change), so nothing static is kept. For data that's overwritten rather than logged
+(stock levels, current statuses), an agent can append the values to a table on a schedule, and reports chart that
+table like any other.
 
 ## MCP (capability "Reports")
 This is the main reason for the feature. An agent can build a report from what it finds in a database, save it in
@@ -219,11 +213,10 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 | `create_data_source` | Read | `workspace, name, connection, database, schema?` and `table` or `sql`; `mode?` (live / archive) |
 | `create_chart` | — | `workspace, name, data_source, type, shelves, filters?, sort?, top?, properties?` |
 | `edit_chart` | — | `workspace, chart, …` the same fields, replaced if given |
-| `get_chart_data` | Read on its sources | `workspace, chart, parameters?, snapshot?` → the chart's aggregated rows |
+| `get_chart_data` | Read on its sources | `workspace, chart, parameters?` → the chart's aggregated rows |
 | `create_dashboard` | — | `workspace, name, pages` |
 | `edit_dashboard` | — | `workspace, dashboard, pages?, rename?` |
-| `refresh_dashboard` | Read on its sources | `workspace, dashboard, parameters?` → each chart's rows, plus the change since the last snapshot |
-| `get_history` | Read on its sources | `workspace, chart, since?, limit?` |
+| `refresh_dashboard` | Read on its sources | `workspace, dashboard, parameters?` → each chart's rows and the page text |
 | `set_notes` | — | `workspace, dashboard, page?, markdown` |
 | `export_dashboard` | Read on its sources | `workspace, dashboard, format` (pdf / png / html) |
 | `open_dashboard` | — | `workspace, dashboard` (Chloe comes to the front) |
@@ -257,13 +250,9 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
   - Chloe turns that into positions on the page's grid. Pages the user has laid out by hand keep their positions;
     an agent can only add rows below.
 - **Notes**: `set_notes` writes the Markdown label on a page that the endpoint owns, titled "Notes from <endpoint>"
-  with the time, and creates it at the top of the page if needed. Calling it again replaces that label, and the
-  previous text is kept in the snapshot history. This is where an agent writes "revenue fell 12 % week on week,
+  with the time, and creates it at the top of the page if needed. Calling it again replaces that label. This is where an agent writes "revenue fell 12 % week on week,
   driven by…".
 - **Results** use `run_query`'s shape (`columns, rows, row_count, truncated`, display strings).
-  - `refresh_dashboard` also returns, per chart, `previous_snapshot_at` and per-row deltas, so a scheduled agent can
-    tell what changed without keeping its own state.
-  - Each MCP refresh saves a snapshot (`refreshed_by: "mcp:<endpoint>"`).
 - **Exports** go to the Reports folder (Preferences; default `~/Documents/Chloe Reports/<workspace>/`), named after
   the dashboard and time. The tool returns the path. Agents never choose the path.
 - **Activity log** rows show the workspace and object, and for data tools the SQL Chloe generated.
@@ -273,12 +262,10 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
   claude.ai routines) can't reach it. That's by design (`docs/specs/mcp-server.md`).
 - Schedule the agent on the same machine: Claude Code `/loop`, a launchd or cron job running `claude -p "…"` with
   Chloe's bridge in its MCP config, or Claude Desktop's scheduled tasks.
-- A typical check-in prompt: "Refresh the *Weekly sales* dashboard in Chloe, compare with the last snapshot, update
+- A typical check-in prompt: "Refresh the *Weekly sales* dashboard in Chloe, compare this week with last week, update
   the notes with anything unusual, and export a PDF."
 - The BI library shows when each dashboard was last refreshed, by whom, and whether its notes changed since the user
   last opened it (a dot on the row, like unread mail).
-- Later (with Automation on the roadmap): Chloe refreshes and snapshots dashboards on its own schedule, so an agent
-  can read the history without refreshing.
 
 ## Implementation notes (phase 1)
 - `internal/bi` holds the workspace format, the chart type catalog and the query builder; `core/bi.go` runs live
@@ -347,7 +334,7 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
   dashboard. Present shows one page at a time (← →, Esc).
 - MCP: `create_dashboard` and `edit_dashboard` (rows of tiles across 12 columns; pages default to report),
   `set_notes`, `refresh_dashboard` (every chart's data plus the page's text), `open_dashboard`, `delete_dashboard`.
-- Next (phase 2b): snapshots and history with diffs, HTML export and print, and their MCP tools.
+- Next (phase 2b): export.
 
 ## Implementation notes (phase 2b, export)
 - Chloe's window draws exports: the page is laid out off screen at its 1280px size without animation, captured once
@@ -386,10 +373,10 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
      query in a workspace you pick.
    - MCP tools: `list_workspaces`, `get_workspace`, `create_workspace`, `create_data_source`, `create_chart`,
      `edit_chart`, `get_chart_data`, `open_chart`. ✅
-2. **Dashboards and reports**: pages, charts, Markdown text, images, tile layers, refresh and auto refresh, Present,
-   Print and Export (PDF, PNG, SVG, HTML), snapshots and history, and the MCP dashboard, notes, history and export
-   tools.
-3. **The rest of Navicat's BI**: Waterfall, Tornado, Treemap, Scatter, Heatmap, Trend, KPI, Gauge, Pivot Table,
+2. **Dashboards and reports** ✅: pages, charts, Markdown text, refresh and auto refresh, Present, Export (PDF, PNG),
+   and the MCP dashboard, notes and export tools. Snapshots were dropped; SVG/HTML export and print are not planned
+   unless asked for.
+3. **The rest of Navicat's BI**: Waterfall, Tornado, Treemap, Scatter, Heatmap, Trend, KPI, Gauge, Pivot Table ✅;
    Control; interaction (cross-filter, highlight, controls); parameters; custom fields; joined tables; shapes, groups,
    lock, alignment guides; dynamic date filters.
 4. MongoDB data sources (collection, or aggregation pipeline), with charts over them.
@@ -399,10 +386,31 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
   - The chart query generator per dialect: buckets, aggregates, filters, binding, quoting, Top N and Others.
   - Read-only enforcement of source SQL.
   - Layout rows → positions.
-  - Snapshot diff.
 - Integration (Docker): the same chart definitions against MySQL, PostgreSQL and SQLite seeds give the same
   aggregated rows. Archive snapshots match live.
 - e2e (`make e2e SCRIPT=bi`): build a data source and a chart from the `shop` seed, place it on a dashboard, present
   it, and export PDF and HTML.
 - `SCRIPT=mcp`: an agent creates a workspace, source, chart and dashboard, refreshes twice and reads the deltas, sets
   notes, and is refused when editing a user chart or reading a source on a database it can't see.
+
+## Implementation notes (phase 3, chart types)
+- A **Target** shelf joins the others: a KPI's target, a gauge's maximum, a scatter's Y axis. Its fields are
+  aggregated like values (role `target` in the data).
+- **Waterfall** (dimension, one value): each value is a step from the running total, rises in the diverging pair's
+  blue and falls in its red, ending with a neutral Total bar from zero.
+- **Tornado** (dimension, series with exactly two values, one value): the first series mirrored to the left on one
+  symmetric, rounded scale. Other counts show a hint to filter the series to two.
+- **Treemap** (dimension, one value): tiles sized by value, labelled, in palette order; past eight categories tiles
+  share the neutral (use Top N with Others). Rows aren't filled with empty periods or series.
+- **Scatter** (point dimension, optional series, value = X, target = Y, optional secondary = size by area, 8–32px):
+  points stay as read (no filled series, no Others point); Top N still applies.
+- **Heatmap** (dimension = X, series = Y, value = intensity): every cell filled; a one-hue sequential ramp per theme,
+  near the surface for small values, with the range shown under the grid.
+- **Trend** (date dimension grouped by period, one value): the latest period's value, its change from the one
+  before (arrow, sign, %, status colour) and a 12-period sparkline. Extracted parts are refused.
+- **KPI** (value, optional target field or `goal` property): the value, a meter towards the target (its track a
+  lighter step of the fill), the share and the difference. **Gauge** (value, optional target as maximum; `min`/`max`
+  properties): a meter arc with the value. `lowerIsBetter` turns a fall into the good direction.
+- **Pivot Table** (rows = dimension, columns = series or value fields, values): totals per column, and per row when
+  split by series, for sums and counts.
+- MCP: `create_chart`/`edit_chart` take `target`, and the properties `goal`, `min`, `max`, `lowerIsBetter`.

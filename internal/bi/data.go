@@ -161,10 +161,11 @@ func shape(c Chart, cols []Column, raw [][]*string, win *Window) [][]any {
 		}
 		rows[i] = row
 	}
-	switch c.Type {
-	case "value":
+	t := ChartTypes[c.Type]
+	switch {
+	case t.Single():
 		return rows
-	case "table":
+	case c.Type == "table":
 		return shapeTable(c, cols, rows)
 	}
 	dim := slices.IndexFunc(cols, func(c Column) bool { return c.Role == "dimension" })
@@ -172,10 +173,12 @@ func shape(c Chart, cols []Column, raw [][]*string, win *Window) [][]any {
 	if dim < 0 || val < 0 {
 		return rows
 	}
-	if c.Top == 0 && (c.Sort == nil || c.Sort.By == "dimension") && c.Type != "pie" && c.Type != "donut" {
+	if c.Top == 0 && (c.Sort == nil || c.Sort.By == "dimension") && c.Type != "pie" && c.Type != "donut" && !t.NoFill {
 		rows = fillPeriods(c, cols, rows, dim, win)
 	}
-	rows = fillSeries(c, cols, rows, dim)
+	if !t.NoFill {
+		rows = fillSeries(c, cols, rows, dim)
+	}
 	// Totals per dimension value (over series) decide value order and Top N.
 	totals := map[string]float64{}
 	var order []string
@@ -209,6 +212,8 @@ func shape(c Chart, cols []Column, raw [][]*string, win *Window) [][]any {
 			slices.Reverse(order)
 		}
 	}
+	// A scatter's points don't add up into an Others point.
+	withOthers := c.Others && c.Type != "scatter"
 	if c.Top > 0 && len(order) > c.Top {
 		kept := order[:c.Top]
 		keep := map[string]bool{}
@@ -223,7 +228,7 @@ func shape(c Chart, cols []Column, raw [][]*string, win *Window) [][]any {
 				out = append(out, r)
 				continue
 			}
-			if !c.Others {
+			if !withOthers {
 				continue
 			}
 			sk := ""
@@ -235,7 +240,7 @@ func shape(c Chart, cols []Column, raw [][]*string, win *Window) [][]any {
 				o = slices.Clone(r)
 				o[dim] = "Others"
 				for j, col := range cols {
-					if col.Role == "value" || col.Role == "secondary" {
+					if isMeasure(col.Role) {
 						o[j] = 0.0
 					}
 				}
@@ -243,7 +248,7 @@ func shape(c Chart, cols []Column, raw [][]*string, win *Window) [][]any {
 				otherKeys = append(otherKeys, sk)
 			}
 			for j, col := range cols {
-				if col.Role == "value" || col.Role == "secondary" {
+				if isMeasure(col.Role) {
 					x, _ := r[j].(float64)
 					o[j] = o[j].(float64) + x
 				}
@@ -253,7 +258,10 @@ func shape(c Chart, cols []Column, raw [][]*string, win *Window) [][]any {
 			out = append(out, others[sk])
 		}
 		rows = out
-		order = append(slices.Clone(kept), "Others")
+		order = slices.Clone(kept)
+		if withOthers {
+			order = append(order, "Others")
+		}
 	}
 	pos := map[string]int{}
 	for i, k := range order {
@@ -549,10 +557,13 @@ func fillPeriods(c Chart, cols []Column, rows [][]any, dim int, win *Window) [][
 	return rows
 }
 
+// isMeasure reports whether a column holds aggregated values.
+func isMeasure(role string) bool { return role == "value" || role == "secondary" || role == "target" }
+
 // emptyRow is a group with no source rows: sums and counts are 0, other
 // aggregates empty.
 func emptyRow(c Chart, cols []Column, dim, ser int, dimValue, serValue any) []any {
-	fields := append(slices.Clone(c.Value), c.Secondary...)
+	fields := append(append(slices.Clone(c.Value), c.Secondary...), c.Target...)
 	row := make([]any, len(cols))
 	row[dim] = dimValue
 	if ser >= 0 {
@@ -560,7 +571,7 @@ func emptyRow(c Chart, cols []Column, dim, ser int, dimValue, serValue any) []an
 	}
 	vi := 0
 	for j, col := range cols {
-		if col.Role != "value" && col.Role != "secondary" {
+		if !isMeasure(col.Role) {
 			continue
 		}
 		if vi < len(fields) && slices.Contains([]string{"sum", "count", "count_distinct"}, fields[vi].Aggregate) {

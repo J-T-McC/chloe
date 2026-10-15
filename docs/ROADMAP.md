@@ -3,8 +3,8 @@
 Order reflects dependencies: later features build on the earlier ones. Specs for each area live in `docs/specs/`.
 
 ## Next up
-1. **BI reports** (spec: `docs/specs/bi.md`, phase 2b): snapshots and history with diffs, SVG and HTML export;
-   charts, dashboards and PNG/PDF export with their MCP tools are done
+1. **BI, phase 3** (spec: `docs/specs/bi.md`): the remaining chart types ✅, then dynamic dates, parameters,
+   interaction and Control charts, custom fields, joined tables
 2. **Explain / visual explain** for MySQL and PostgreSQL, with MongoDB's explain
 3. Transfer and sync follow-ups: Data Transfer file target and per-table Advanced mode (rename, fields,
    filters); functions/procedures/events in transfer and structure sync; profiles for the sync tools;
@@ -77,7 +77,7 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 - [x] Reports tools, phase 1: BI workspaces, read-only data sources, charts and their data (`docs/specs/bi.md`)
 - [x] Reports tools, phase 2: dashboards and notes
 - [x] export_dashboard: PNGs returned to the agent and saved, or a PDF
-- [ ] Reports tools: snapshots and history
+- [x] Reports tools: snapshots dropped (agents compare periods in live reports)
 - [x] Redis tools (scan, get, read-only commands; set, edit, delete, expire with approval; Monitor)
 - [x] MongoDB tools (find, aggregate, describe; insert, update, delete limited to approved `_id`s; Monitor)
 
@@ -120,6 +120,7 @@ statistics catalogs get around name checks), so share connections that log in as
 - [x] Dashboards: pages (16:9 slides or scrolling reports) of charts and Markdown on a 12-column grid, auto refresh,
   present; MCP tools to build them, refresh them and write notes on them
 - [x] Export: PNG per page and PDF of every page, in the designer and over MCP (agents get the images to check pages)
-- [ ] Reports: snapshots and history with diffs, HTML export and print
-- [ ] The rest of Navicat's BI: remaining chart types, interaction and controls, parameters, custom fields, joins, shapes
+- [x] Reports: PNG/PDF export (snapshots dropped; HTML export and print only if asked for)
+- [x] Chart types: Waterfall, Tornado, Treemap, Scatter, Heatmap, Trend, KPI, Gauge, Pivot Table
+- [ ] The rest of Navicat's BI: interaction and controls, parameters, custom fields, joins, dynamic dates, shapes
 - [ ] MongoDB data sources
