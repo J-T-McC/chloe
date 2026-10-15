@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -18,6 +19,9 @@ type Dashboard struct {
 	Pages []Page `json:"pages"`
 	// Refresh reloads every chart on the open page this often (minutes; 0 = off).
 	Refresh int `json:"refresh,omitempty"`
+	// Interaction is what clicking a point does to the page's other charts on the
+	// same data source: filter ("" too), highlight or none.
+	Interaction string `json:"interaction,omitempty"`
 }
 
 // Page sizes: a fixed 16:9 slide of PageRows rows, or a report that grows downward.
@@ -62,6 +66,9 @@ type Item struct {
 	CreatedBy string `json:"createdBy,omitempty"`
 	// Updated is when an agent last wrote its notes.
 	Updated string `json:"updated,omitempty"`
+	// Targets are the charts a Control chart filters; empty means every chart on
+	// the page that has its field.
+	Targets []string `json:"targets,omitempty"`
 }
 
 func (w *Workspace) Dashboard(id string) *Dashboard {
@@ -94,6 +101,9 @@ func (w *Workspace) PutDashboard(d Dashboard) (Dashboard, error) {
 		if o.ID != d.ID && strings.EqualFold(o.Name, d.Name) {
 			return d, fmt.Errorf("the workspace already has a dashboard named %q", d.Name)
 		}
+	}
+	if !slices.Contains([]string{"", "filter", "highlight", "none"}, d.Interaction) {
+		return d, fmt.Errorf("interaction is filter, highlight or none, not %q", d.Interaction)
 	}
 	if err := d.normalize(w); err != nil {
 		return d, err
@@ -399,7 +409,7 @@ func (p *Page) FitText() bool {
 			}
 		}
 	}
-	if slices.Equal(items, p.Items) {
+	if slices.EqualFunc(items, p.Items, func(a, b Item) bool { return reflect.DeepEqual(a, b) }) {
 		return false
 	}
 	p.Items = items

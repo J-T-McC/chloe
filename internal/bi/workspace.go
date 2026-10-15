@@ -189,6 +189,9 @@ type Props struct {
 	Max  *float64 `json:"max,omitempty"`
 	// LowerIsBetter colours a Trend's or KPI's change: a fall is good.
 	LowerIsBetter bool `json:"lowerIsBetter,omitempty"`
+	// Control is how a Control chart picks values: list (several), combo (one)
+	// or range (numbers and dates); "" picks by the field's type.
+	Control string `json:"control,omitempty"`
 }
 
 type NumberFormat struct {

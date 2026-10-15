@@ -8,13 +8,41 @@ import { SVGRenderer } from "echarts/renderers";
 import { useEffect, useMemo, useRef } from "react";
 import type { B } from "../../api";
 import { formatLabel, formatNumber, oneYear } from "./format";
-import { buildOption, pivot } from "./options";
+import { controlStyle } from "./interaction";
+import { buildOption, pickKey, pivot } from "./options";
 import { expandParams } from "./Parameters";
 import { ChartTheme, METER, STATUS, TOKENS } from "./theme";
 
 echarts.use([BarChart, LineChart, PieChart, TreemapChart, ScatterChart, HeatmapChart, GaugeChart, CustomChart, GridComponent, LegendComponent, TooltipComponent, VisualMapComponent, SVGRenderer]);
 
-export function ChartView({ chart, data, theme, error, loading, hint, still }: { chart: B.Chart; data: B.Data | null; theme: ChartTheme; error?: string; loading?: boolean; hint?: string; still?: boolean }) {
+export interface ChartInteraction {
+  /** The dimension value to stand out (the rest are dimmed). */
+  selected?: unknown;
+  /** A click on a point: its dimension value (undefined clears). */
+  onPick?(key: unknown, label: string): void;
+  /** A Control chart's current value and its changes. */
+  control?: { value: string[] | null; onChange(v: string[] | null): void };
+}
+
+export function ChartView({
+  chart,
+  data,
+  theme,
+  error,
+  loading,
+  hint,
+  still,
+  interaction,
+}: {
+  chart: B.Chart;
+  data: B.Data | null;
+  theme: ChartTheme;
+  error?: string;
+  loading?: boolean;
+  hint?: string;
+  still?: boolean;
+  interaction?: ChartInteraction;
+}) {
   const t = TOKENS[theme];
   const title = chart.props?.hideTitle ? "" : expandParams(chart.props?.title || chart.name, data?.params);
   let body: React.ReactNode;
@@ -26,9 +54,10 @@ export function ChartView({ chart, data, theme, error, loading, hint, still }: {
   else if (chart.type === "trend") body = <TrendFigure chart={chart} data={data} theme={theme} />;
   else if (chart.type === "table") body = <TableChart chart={chart} data={data} />;
   else if (chart.type === "pivot") body = <PivotTable chart={chart} data={data} />;
+  else if (chart.type === "control") body = <ControlView chart={chart} data={data} control={interaction?.control} />;
   else if (chart.type === "tornado" && pivot(chart, data).series.length !== 2)
     body = <div className="bi-chart-msg">A Tornado chart compares exactly two series values; this one has {pivot(chart, data).series.length}. Filter the series field to two values.</div>;
-  else body = <EChart chart={chart} data={data} theme={theme} still={still} />;
+  else body = <EChart chart={chart} data={data} theme={theme} still={still} selected={interaction?.selected} onPick={interaction?.onPick} />;
   return (
     <div className={"bi-chart theme-" + theme} style={{ background: t.surface, color: t.ink, borderColor: t.border }} data-testid="bi-chart">
       {title && <div className="bi-chart-title">{title}</div>}
@@ -39,14 +68,23 @@ export function ChartView({ chart, data, theme, error, loading, hint, still }: {
 }
 
 /** still draws without animation (exports capture the finished chart). */
-function EChart({ chart, data, theme, still }: { chart: B.Chart; data: B.Data; theme: ChartTheme; still?: boolean }) {
+function EChart({ chart, data, theme, still, selected, onPick }: { chart: B.Chart; data: B.Data; theme: ChartTheme; still?: boolean; selected?: unknown; onPick?(key: unknown, label: string): void }) {
   const host = useRef<HTMLDivElement>(null);
   const inst = useRef<echarts.ECharts | null>(null);
-  const option = useMemo(() => ({ ...buildOption(chart, data, theme), ...(still ? { animation: false } : {}) }), [chart, data, theme, still]);
+  const option = useMemo(() => ({ ...buildOption(chart, data, theme, selected), ...(still ? { animation: false } : {}) }), [chart, data, theme, still, selected]);
+  // The click handler reads the latest props, so it's registered once.
+  const pick = useRef({ chart, data, onPick });
+  pick.current = { chart, data, onPick };
   useEffect(() => {
     if (!host.current) return;
     const c = echarts.init(host.current, null, { renderer: "svg" });
     inst.current = c;
+    c.on("click", (ev: { dataIndex?: number; value?: unknown; data?: unknown; name?: string }) => {
+      const { chart, data, onPick } = pick.current;
+      if (!onPick) return;
+      const key = pickKey(chart, data, ev);
+      if (key !== undefined) onPick(key, ev.name ?? String(key));
+    });
     const ro = new ResizeObserver(() => c.resize());
     ro.observe(host.current);
     return () => {
@@ -265,6 +303,83 @@ function PivotTable({ chart, data }: { chart: B.Chart; data: B.Data }) {
           </tfoot>
         )}
       </table>
+    </div>
+  );
+}
+
+/** A Control chart: picks values of its field to filter other charts on a
+ *  dashboard. A list (several), a combo box (one) or a range (numbers and dates). */
+function ControlView({ chart, data, control }: { chart: B.Chart; data: B.Data; control?: ChartInteraction["control"] }) {
+  const col = (data.columns ?? [])[0];
+  const values = (data.rows ?? []).map((r) => r?.[0]).filter((v) => v !== null && v !== undefined);
+  const style = controlStyle(chart, col?.type);
+  const value = control?.value ?? null;
+  const set = (v: string[] | null) => control?.onChange(v);
+  const label = (v: unknown) => formatLabel(v, col, chart.props?.dateFormat, { raw: chart.props?.labelCase === "raw" });
+  if (style === "range") {
+    const nums = col?.type === "number";
+    const lo = String(values[0] ?? "");
+    const hi = String(values[values.length - 1] ?? "");
+    const input = (i: 0 | 1) => (
+      <input
+        aria-label={i ? "Control to" : "Control from"}
+        type={nums ? "number" : "date"}
+        value={value?.[i] ?? ""}
+        placeholder={i ? hi : lo}
+        min={nums ? lo : lo.slice(0, 10)}
+        max={nums ? hi : hi.slice(0, 10)}
+        onChange={(e) => {
+          const next: string[] = [value?.[0] ?? "", value?.[1] ?? ""];
+          next[i] = e.target.value;
+          set(next[0] || next[1] ? next : null);
+        }}
+      />
+    );
+    return (
+      <div className="bi-control range" data-testid="bi-control">
+        {input(0)}
+        <span className="muted">to</span>
+        {input(1)}
+        {value && (
+          <button className="small-btn" onClick={() => set(null)}>
+            Clear
+          </button>
+        )}
+      </div>
+    );
+  }
+  if (style === "combo")
+    return (
+      <div className="bi-control" data-testid="bi-control">
+        <select aria-label={`Control ${col?.label ?? ""}`} value={value?.[0] ?? ""} onChange={(e) => set(e.target.value ? [e.target.value] : null)}>
+          <option value="">All</option>
+          {values.map((v) => (
+            <option key={String(v)} value={String(v)}>
+              {label(v)}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  return (
+    <div className="bi-control list" data-testid="bi-control">
+      {values.map((v) => {
+        const k = String(v);
+        const on = !!value?.includes(k);
+        return (
+          <label key={k} className="check">
+            <input
+              type="checkbox"
+              checked={on}
+              onChange={() => {
+                const next = on ? (value ?? []).filter((x) => x !== k) : [...(value ?? []), k];
+                set(next.length ? next : null);
+              }}
+            />
+            {label(v)}
+          </label>
+        );
+      })}
     </div>
   );
 }

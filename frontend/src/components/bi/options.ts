@@ -15,6 +15,8 @@ export interface Series {
 
 export interface Pivot {
   categories: string[];
+  /** The dimension's raw value for each category (what a click selects). */
+  keys: unknown[];
   series: Series[];
 }
 
@@ -29,6 +31,7 @@ export function pivot(chart: B.Chart, data: B.Data): Pivot {
   const dim = cols.findIndex((c) => c.role === "dimension");
   const ser = cols.findIndex((c) => c.role === "series");
   const catKeys: string[] = [];
+  const keys: unknown[] = [];
   const categories: string[] = [];
   const catIndex = new Map<string, number>();
   const raw = chart.props?.labelCase === "raw";
@@ -39,6 +42,7 @@ export function pivot(chart: B.Chart, data: B.Data): Pivot {
     if (!catIndex.has(k)) {
       catIndex.set(k, catKeys.length);
       catKeys.push(k);
+      keys.push(dim >= 0 ? (r?.[dim] ?? null) : null);
       categories.push(dim >= 0 ? formatLabel(r?.[dim], cols[dim], chart.props.dateFormat, dimOpts) : "");
     }
   }
@@ -64,7 +68,30 @@ export function pivot(chart: B.Chart, data: B.Data): Pivot {
       series.push(s);
     });
   }
-  return { categories, series };
+  return { categories, keys, series };
+}
+
+/** The dimension value a click on a chart's mark stands for; undefined when the
+ *  mark isn't one category (a waterfall's Total, a scatter without points). */
+export function pickKey(chart: B.Chart, data: B.Data, ev: { dataIndex?: number; value?: unknown; data?: unknown }): unknown {
+  const p = pivot(chart, data);
+  if (chart.type === "scatter") return (ev.data as { raw?: unknown } | undefined)?.raw;
+  const i = chart.type === "heatmap" && Array.isArray(ev.value) ? Number(ev.value[0]) : ev.dataIndex;
+  if (i === undefined || i < 0 || i >= p.keys.length) return undefined;
+  return p.keys[i];
+}
+
+/** Dim every category but the selected one (Highlight interaction). */
+function dimOthers(option: Record<string, unknown>, p: Pivot, chart: B.Chart, selected: unknown) {
+  const at = p.keys.findIndex((k) => keyOf(k) === keyOf(selected));
+  if (at < 0) return option;
+  const dim = (i: number, v: unknown) => (i === at ? v : { ...(typeof v === "object" && v !== null && !Array.isArray(v) ? v : { value: v }), itemStyle: { ...((v as { itemStyle?: object })?.itemStyle ?? {}), opacity: 0.25 } });
+  const series = (option.series as Record<string, unknown>[] | undefined) ?? [];
+  option.series = series.map((s) => {
+    if (!Array.isArray(s.data) || ["custom", "gauge", "heatmap"].includes(String(s.type)) || chart.type === "scatter") return s;
+    return { ...s, data: (s.data as unknown[]).map((v, i) => dim(i, v)) };
+  });
+  return option;
 }
 
 /** A round maximum a little above x, for a gauge with no range set. */
@@ -83,7 +110,12 @@ export function toPercent(p: Pivot): Pivot {
 
 const STACKED = new Set(["stacked_bar", "stacked_hbar", "stacked_area", "stacked_bar_line"]);
 
-export function buildOption(chart: B.Chart, data: B.Data, theme: ChartTheme): EChartsCoreOption {
+export function buildOption(chart: B.Chart, data: B.Data, theme: ChartTheme, selected?: unknown): EChartsCoreOption {
+  const option = buildBase(chart, data, theme) as Record<string, unknown>;
+  return selected === undefined ? option : dimOthers(option, pivot(chart, data), chart, selected);
+}
+
+function buildBase(chart: B.Chart, data: B.Data, theme: ChartTheme): EChartsCoreOption {
   const t = TOKENS[theme];
   const props = chart.props ?? {};
   const fmt = props.number ?? {};
@@ -305,11 +337,12 @@ export function buildOption(chart: B.Chart, data: B.Data, theme: ChartTheme): EC
     const [dim, ser, xi, yi, si] = [at("dimension"), at("series"), at("value"), at("target"), at("secondary")];
     const sizes = si >= 0 ? rows.map((r) => num(r?.[si]) ?? 0) : [];
     const maxSize = Math.max(1, ...sizes.map(Math.abs));
-    const groups = new Map<string, { name: string; points: { value: [number | null, number | null]; name: string; size: number; sizeValue: number | null }[] }>();
+    const groups = new Map<string, { name: string; points: { raw: unknown; value: [number | null, number | null]; name: string; size: number; sizeValue: number | null }[] }>();
     rows.forEach((r, i) => {
       const g = ser >= 0 ? keyOf(r?.[ser]) : "";
       if (!groups.has(g)) groups.set(g, { name: ser >= 0 ? formatLabel(r?.[ser], cols[ser], props.dateFormat, { raw: props.labelCase === "raw" }) : cols[yi]?.label ?? "", points: [] });
       groups.get(g)!.points.push({
+        raw: dim >= 0 ? (r?.[dim] ?? null) : undefined,
         value: [num(r?.[xi]), num(r?.[yi])],
         name: dim >= 0 ? formatLabel(r?.[dim], cols[dim], props.dateFormat, { raw: props.labelCase === "raw" }) : "",
         // Area follows the size value: 8px for the smallest, 32px for the largest.
@@ -338,7 +371,7 @@ export function buildOption(chart: B.Chart, data: B.Data, theme: ChartTheme): EC
       series: list.map((g) => ({
         type: "scatter",
         name: g.name,
-        data: g.points.map((pt) => ({ value: pt.value, name: pt.name, symbolSize: pt.size })),
+        data: g.points.map((pt) => ({ value: pt.value, name: pt.name, symbolSize: pt.size, raw: pt.raw })),
         itemStyle: { opacity: 0.85, borderColor: t.surface, borderWidth: 2 },
         label: { show: !!props.labels, position: "right", color: t.ink2, fontSize: 11, formatter: (x: { name: string }) => x.name },
         labelLayout: { hideOverlap: true },

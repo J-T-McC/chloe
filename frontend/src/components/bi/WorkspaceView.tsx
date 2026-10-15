@@ -321,6 +321,7 @@ export const CHART_TYPE_NAMES: Record<string, string> = {
   kpi: "KPI",
   gauge: "Gauge",
   pivot: "Pivot Table",
+  control: "Control",
 };
 export const chartTypeName = (t: string) => CHART_TYPE_NAMES[t] ?? t;
 

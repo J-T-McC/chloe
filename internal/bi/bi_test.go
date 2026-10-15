@@ -851,3 +851,20 @@ func TestDynamicDates(t *testing.T) {
 		t.Errorf("filled %d days: %v … %v", len(rows), rows[0], rows[len(rows)-1])
 	}
 }
+
+func TestControlChart(t *testing.T) {
+	src := ordersSource()
+	c := Chart{Type: "control", Dimension: []ChartField{{Field: "status"}}}
+	q, cols, err := ChartQuery(SQLite, Table(`"orders"`), src, c, 100)
+	if err != nil || q.SQL != `SELECT "status" AS "c0" FROM "orders" AS s GROUP BY 1 ORDER BY 1 LIMIT 100` || len(cols) != 1 {
+		t.Fatalf("control: %s %v", q.SQL, err)
+	}
+	s := func(v string) *string { return &v }
+	if got := Shape(c, cols, [][]*string{{s("open")}, {s("paid")}}); !reflect.DeepEqual(got, [][]any{{"open"}, {"paid"}}) {
+		t.Errorf("control rows: %v", got)
+	}
+	w := New("w")
+	if _, err := w.PutDashboard(Dashboard{Meta: Meta{Name: "d"}, Interaction: "explode"}); err == nil {
+		t.Error("bad interaction accepted")
+	}
+}
