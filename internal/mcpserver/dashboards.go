@@ -117,15 +117,24 @@ type NoteOut struct {
 	Y        int    `json:"y" jsonschema:"the grid row the notes start at"`
 	H        int    `json:"h" jsonschema:"their height in grid rows"`
 	Place    string `json:"place" jsonschema:"top or bottom of the page"`
+	Needed   int    `json:"needed" jsonschema:"the rows the text needs; set_notes again resizes the notes to it"`
 	Fits     bool   `json:"fits" jsonschema:"false when the text needs more rows than the notes have (it scrolls)"`
 }
 
+type TextFit struct {
+	Y      int  `json:"y"`
+	H      int  `json:"h" jsonschema:"the tile's height in grid rows"`
+	Needed int  `json:"needed" jsonschema:"the rows its text needs; less than h means empty space, more means it scrolls"`
+	Fits   bool `json:"fits"`
+}
+
 type PageResult struct {
-	Page   int           `json:"page"`
-	Name   string        `json:"name,omitempty"`
-	Charts []ChartResult `json:"charts"`
-	Text   []string      `json:"text,omitempty" jsonschema:"the page's own text tiles (part of its layout)"`
-	Notes  []NoteOut     `json:"notes,omitempty" jsonschema:"notes agents wrote with set_notes"`
+	Page    int           `json:"page"`
+	Name    string        `json:"name,omitempty"`
+	Charts  []ChartResult `json:"charts"`
+	Text    []string      `json:"text,omitempty" jsonschema:"the page's own text tiles (part of its layout)"`
+	TextFit []TextFit     `json:"text_fit,omitempty" jsonschema:"each text tile's height against what its text needs, in the order of text; edit_dashboard re-fits text rows"`
+	Notes   []NoteOut     `json:"notes,omitempty" jsonschema:"notes agents wrote with set_notes"`
 }
 
 type RefreshOut struct {
@@ -304,6 +313,8 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 				}
 			}
 			rows := 0
+			// A chart on several pages is read once, so every copy shows the same rows.
+			read := map[string]ChartResult{}
 			for i, pg := range d.Pages {
 				if only >= 0 && i != only {
 					continue
@@ -316,15 +327,22 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 							if it.Y > 0 && it.Y+it.H >= pg.Bottom() {
 								place = "bottom"
 							}
+							need := bi.TextRowsAt(it.Text, it.W, true)
 							pr.Notes = append(pr.Notes, NoteOut{By: strings.TrimPrefix(it.CreatedBy, "mcp:"), Updated: it.Updated, Markdown: it.Text,
-								Y: it.Y, H: it.H, Place: place, Fits: bi.TextRowsAt(it.Text, it.W, true) <= it.H})
+								Y: it.Y, H: it.H, Place: place, Needed: need, Fits: need <= it.H})
 						} else {
+							need := bi.TextRowsAt(it.Text, it.W, false)
 							pr.Text = append(pr.Text, it.Text)
+							pr.TextFit = append(pr.TextFit, TextFit{Y: it.Y, H: it.H, Needed: need, Fits: need <= it.H})
 						}
 						continue
 					}
 					ch := w.Chart(it.Chart)
 					if ch == nil {
+						continue
+					}
+					if r, ok := read[ch.ID]; ok {
+						pr.Charts = append(pr.Charts, r)
 						continue
 					}
 					r := ChartResult{Chart: ch.Name, ID: ch.ID, Type: ch.Type}
@@ -345,6 +363,7 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 						r.Columns, r.Rows, r.Complete, r.Truncated, r.Mode, r.AsOf = data.Columns, data.Rows, data.Complete, data.Truncated, data.Mode, data.RanAt
 						rows += len(data.Rows)
 					}
+					read[ch.ID] = r
 					pr.Charts = append(pr.Charts, r)
 				}
 				out.Pages = append(out.Pages, pr)

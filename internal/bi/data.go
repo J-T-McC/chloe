@@ -101,6 +101,10 @@ func FilterWindow(src DataSource, c Chart) *Window {
 	if w.From == nil && w.To == nil {
 		return nil
 	}
+	// An open-ended range from a date runs to today (in the source's zone).
+	if today := now().In(location(src.Timezone)); w.To == nil && !w.From.After(today) {
+		w.To = &today
+	}
 	return &w
 }
 
