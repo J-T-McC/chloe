@@ -267,6 +267,7 @@ func (w *Workspace) PutChart(c Chart) (Chart, error) {
 	if w.Source(c.DataSource) == nil {
 		return c, fmt.Errorf("no data source %q in the workspace", c.DataSource)
 	}
+	c.NormalizeSort()
 	if _, ok := ChartTypes[c.Type]; !ok {
 		return c, fmt.Errorf("unknown chart type %q (types: %s)", c.Type, strings.Join(TypeNames(), ", "))
 	}

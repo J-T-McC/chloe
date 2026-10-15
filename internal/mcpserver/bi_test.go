@@ -93,6 +93,14 @@ INSERT INTO orders VALUES (1, 1, 10, '2026-01-05'), (2, 1, 15, '2026-02-01'), (3
 		t.Fatalf("table sorted by total: %v", tbl)
 	}
 	f.call(t, "edit_chart", map[string]any{"workspace": "Sales", "chart": "Scorecard", "sort": map[string]any{"by": "value", "field": "nope"}}, "isn't one of the chart's values")
+	sorted := f.call(t, "edit_chart", map[string]any{"workspace": "Sales", "chart": "Scorecard", "sort": map[string]any{"by": "Count of ID", "desc": true}}, "")
+	if srt := sorted["sort"].(map[string]any); srt["by"] != "value" || srt["field"] != "id" {
+		t.Errorf("sort by a value's label: %v", srt)
+	}
+	if tbl := f.call(t, "get_chart_data", map[string]any{"workspace": "Sales", "chart": "Scorecard"}, "")["rows"].([]any); tbl[0].([]any)[0] != "ada@example.com" {
+		t.Errorf("sorted by count: %v", tbl)
+	}
+	f.call(t, "edit_chart", map[string]any{"workspace": "Sales", "chart": "Scorecard", "sort": map[string]any{"by": "Finished"}}, `one of the chart's values ("Email", "Count of ID", "Sum of Total")`)
 
 	p := ws["path"].(string)
 	lib := f.m.Store.BI()

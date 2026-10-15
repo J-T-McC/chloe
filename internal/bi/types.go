@@ -168,6 +168,25 @@ func Humanize(name string) string {
 	return strings.Join(words, " ")
 }
 
+// NormalizeSort turns a sort by a value's name ({by: "Finished"}) into
+// {by: "value", field: "Finished"}.
+func (c *Chart) NormalizeSort() {
+	if c.Sort == nil || c.Sort.By == "dimension" || c.Sort.By == "value" {
+		return
+	}
+	for _, cf := range append(slices.Clone(c.Value), c.Secondary...) {
+		if strings.EqualFold(cf.Field, c.Sort.By) || strings.EqualFold(cf.Label(), c.Sort.By) || cf.Alias != "" && strings.EqualFold(cf.Alias, c.Sort.By) {
+			s := *c.Sort
+			s.By, s.Field = "value", cf.Field
+			if cf.Alias != "" {
+				s.Field = cf.Alias
+			}
+			c.Sort = &s
+			return
+		}
+	}
+}
+
 // shelves returns a chart's shelves by name, in query order.
 func (c Chart) shelves() []struct {
 	name   string
@@ -218,8 +237,13 @@ func (c Chart) Check(src DataSource, dialect string) (complete bool, err error) 
 	if len(c.Series) > 0 && len(c.Value) > 1 {
 		return false, fmt.Errorf("a chart split by series takes one value field")
 	}
+	c.NormalizeSort()
 	if c.Sort != nil && c.Sort.By != "dimension" && c.Sort.By != "value" {
-		return false, fmt.Errorf("sort by is dimension or value, not %q", c.Sort.By)
+		var labels []string
+		for _, cf := range append(slices.Clone(c.Value), c.Secondary...) {
+			labels = append(labels, fmt.Sprintf("%q", cf.Label()))
+		}
+		return false, fmt.Errorf("sort by is dimension, value, or one of the chart's values (%s), not %q", strings.Join(labels, ", "), c.Sort.By)
 	}
 	if c.Sort != nil && c.Sort.Field != "" {
 		ok := false
