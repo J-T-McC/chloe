@@ -8,11 +8,11 @@ import { Dialect, Table, newTable, normalize, toWire } from "../../designer/mode
 import { ColumnMode, ErdTable, Positions, autoLayout, fromTables, modelKey, tableSize } from "../../erd/model";
 import { Tab, useApp } from "../../store";
 import { MenuItem, openMenu } from "../ContextMenu";
-import { alert, confirm } from "../Dialogs";
+import { alert, confirm, prompt } from "../Dialogs";
 import { CodeBlock } from "../ObjectsPane";
 import { DiagramCanvas } from "../erd/DiagramCanvas";
 import { exportDiagram } from "../erd/export";
-import { openModel, pendingModels } from "./actions";
+import { libraryChanged, pendingModels } from "./actions";
 import { ModelTableDialog } from "./ModelTableDialog";
 import { SyncDialog } from "./SyncDialog";
 
@@ -105,7 +105,7 @@ function ModelEditorInner({ tab }: { tab: Tab }) {
     if (!path) return;
     return Events.On("mcp:model-changed", async (ev) => {
       if (ev.data !== path) return;
-      if (dirtyRef.current) return setNotice("An agent changed this file; Save As keeps your version, reopening shows theirs.");
+      if (dirtyRef.current) return setNotice("An agent changed this model; Save As… keeps your version, reopening shows theirs.");
       try {
         await load((await Models.Open(path)).model, true);
         setNotice("");
@@ -121,14 +121,49 @@ function ModelEditorInner({ tab }: { tab: Tab }) {
     useApp.getState().updateTab(tab.id, { title: `${state.model.name || "Untitled"}${dirty ? " •" : ""} (model)`, modelPath: path || undefined });
   }, [state?.model.name, dirty, path, tab.id, state]);
 
-  const save = async (as = false) => {
+  // The library folder, to tell its models from files kept elsewhere.
+  const [libraryDir, setLibraryDir] = useState("");
+  useEffect(() => {
+    Models.Dir().then(setLibraryDir).catch(() => {});
+  }, []);
+  const external = !!path && !!libraryDir && !path.startsWith(libraryDir + "/");
+
+  /** Save to the model's file; a new model is named and added to Chloe's library. */
+  const save = async () => {
     if (!state) return;
+    if (!path) return saveToChloe();
     const doc = toModel(state, positions.current);
     try {
-      const p = await Models.Save(as ? "" : path, doc);
-      if (!p) return;
+      await Models.Save(path, doc);
+      setSaved(JSON.stringify(doc));
+      libraryChanged();
+    } catch (e) {
+      alert("Save failed", errorText(e));
+    }
+  };
+
+  /** Add the model to Chloe's library (a new model, or a file kept elsewhere). */
+  const saveToChloe = async () => {
+    if (!state) return;
+    const name = await prompt(path ? "Save to Chloe" : "Save Model", { message: "Model name", defaultValue: state.model.name || "Untitled" });
+    if (name === null || !name.trim()) return;
+    const doc = { ...toModel(state, positions.current), name: name.trim() };
+    try {
+      const p = await Models.Create(doc);
+      setModel({ name: doc.name });
       setPath(p);
       setSaved(JSON.stringify(doc));
+      libraryChanged();
+    } catch (e) {
+      alert("Save failed", errorText(e));
+    }
+  };
+
+  /** Write a copy to a file the user picks; the tab stays on its own file. */
+  const saveExternal = async () => {
+    if (!state) return;
+    try {
+      await Models.SaveExternal(toModel(state, positions.current));
     } catch (e) {
       alert("Save failed", errorText(e));
     }
@@ -250,7 +285,8 @@ function ModelEditorInner({ tab }: { tab: Tab }) {
         const typing = (e.target as HTMLElement).closest("input, textarea, select, .modal");
         if ((e.metaKey || e.ctrlKey) && e.key === "s") {
           e.preventDefault();
-          save(e.shiftKey);
+          if (e.shiftKey) saveExternal();
+          else save();
         } else if (!typing && selected && (e.key === "Delete" || e.key === "Backspace")) {
           e.preventDefault();
           deleteTables([selected]);
@@ -264,10 +300,15 @@ function ModelEditorInner({ tab }: { tab: Tab }) {
         <button className={dirty ? "accent" : ""} onClick={() => save()} title="Save (⌘S)">
           <Save size={14} /> Save
         </button>
-        <button onClick={() => save(true)} title="Save As (⇧⌘S)">
-          Save As
+        {external && (
+          <button onClick={saveToChloe} title="Add this file's model to Chloe's model library">
+            Save to Chloe
+          </button>
+        )}
+        <button onClick={saveExternal} title="Save As External File (⇧⌘S)">
+          Save As…
         </button>
-        <button onClick={() => openModel()} title="Open a model file">
+        <button onClick={() => useApp.getState().showModels()} title="Models">
           <FolderOpen size={14} />
         </button>
         <span className="tb-sep" />
@@ -354,7 +395,7 @@ function ModelEditorInner({ tab }: { tab: Tab }) {
         />
       )}
       {sql && <SqlDialog sql={sql} name={state.model.name} onClose={() => setSql(null)} />}
-      {syncing && <SyncDialog model={toModel(state, positions.current)} onClose={() => setSyncing(false)} />}
+      {syncing && <SyncDialog model={toModel(state, positions.current)} onClose={() => setSyncing(false)} onSynced={(link) => setModel({ link })} />}
     </div>
   );
 }

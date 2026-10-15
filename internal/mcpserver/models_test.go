@@ -21,15 +21,15 @@ func TestModels(t *testing.T) {
 	}
 	f.enable(t, func(c *store.MCPCapabilities) { c.Models = true })
 
-	// One of the user's models, in their recent list.
+	// One of the user's models, in the library, and a model file elsewhere.
 	users := datamodel.New("Shop", "postgres")
 	users.Tables = []design.Table{{Schema: "public", Name: "orders", Columns: []design.Column{{Name: "id", Type: "integer"}}, PrimaryKey: &design.PrimaryKey{Columns: []string{"id"}}}}
-	userPath := filepath.Join(t.TempDir(), "Shop.chloemodel")
-	data, _ := users.Marshal()
-	if err := os.WriteFile(userPath, data, 0o644); err != nil {
+	lib := f.m.Store.Models()
+	userPath, err := lib.Create(users)
+	if err != nil {
 		t.Fatal(err)
 	}
-	f.m.Store.RememberModel(userPath)
+	data, _ := os.ReadFile(userPath)
 	secret := filepath.Join(t.TempDir(), "other.chloemodel")
 	_ = os.WriteFile(secret, data, 0o644)
 
@@ -46,7 +46,7 @@ func TestModels(t *testing.T) {
 	// A copy is the agent's to change.
 	cp := f.call(t, "create_model", map[string]any{"name": "Shop v2", "copy_of": userPath}, "")
 	p := cp["path"].(string)
-	if cp["editable"] != true || cp["table_count"] != 1.0 || filepath.Dir(p) != f.m.Store.AgentModelDir() || f.m.Store.RecentModels()[0] != p {
+	if cp["editable"] != true || cp["table_count"] != 1.0 || cp["created_by"] != "mcp:test" || !lib.Contains(p) {
 		t.Fatalf("copy: %v", cp)
 	}
 	customers := map[string]any{"name": "customers", "columns": []any{
@@ -60,7 +60,7 @@ func TestModels(t *testing.T) {
 	f.call(t, "edit_model", map[string]any{"model": p, "set_tables": []any{map[string]any{"name": "t", "columns": []any{}}}}, "at least one column")
 	f.call(t, "edit_model", map[string]any{"model": p, "drop_tables": []any{"nope"}}, "no table")
 	out := f.call(t, "edit_model", map[string]any{"model": p, "set_tables": []any{customers, orders}, "rename": "Shop v3"}, "")
-	if out["table_count"] != 2.0 || out["name"] != "Shop v3" || len(f.events.models) != 1 || f.events.models[0] != p {
+	if out["table_count"] != 2.0 || out["name"] != "Shop v3" || f.events.models[len(f.events.models)-1] != p {
 		t.Fatalf("edit: %v %v", out, f.events.models)
 	}
 	got := f.call(t, "get_model", map[string]any{"model": p, "tables": []any{"orders"}}, "")
@@ -88,7 +88,7 @@ func TestModels(t *testing.T) {
 		t.Fatalf("opened: %v", f.events.opened)
 	}
 	// Names are made safe for a file and kept unique.
-	if a := f.call(t, "create_model", map[string]any{"name": "../../etc/x", "dialect": "mysql"}, ""); filepath.Dir(a["path"].(string)) != f.m.Store.AgentModelDir() {
+	if a := f.call(t, "create_model", map[string]any{"name": "../../etc/x", "dialect": "mysql"}, ""); !lib.Contains(a["path"].(string)) {
 		t.Fatalf("escaped: %v", a)
 	}
 	if c := f.call(t, "create_model", map[string]any{"name": "Shop – copy (2)", "dialect": "mysql"}, "")["path"].(string); filepath.Base(c) != "Shop – copy (2).chloemodel" {

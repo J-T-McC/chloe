@@ -2,7 +2,7 @@ package services
 
 import (
 	"context"
-	"os"
+	"errors"
 	"path/filepath"
 	"strings"
 
@@ -28,63 +28,89 @@ func (s *ModelService) New(name, dialect string) datamodel.Model { return datamo
 // Meta is designer metadata for model tables (no server involved).
 func (s *ModelService) Meta(dialect string) design.Meta { return design.OfflineMeta(dialect) }
 
-// Open reads a model file; with an empty path it asks for one first. A cancelled
-// dialog returns an empty Path.
+// Dir is the folder of the models Chloe manages.
+func (s *ModelService) Dir() string { return s.M.Store.Models().Dir }
+
+// List describes every model in Chloe's library.
+func (s *ModelService) List() []datamodel.Entry { return s.M.Store.Models().List() }
+
+// Open reads a model file; with an empty path it asks for one first (a file
+// outside the library). A cancelled dialog returns an empty Path.
 func (s *ModelService) Open(path string) (ModelFile, error) {
 	if path == "" {
-		p, err := application.Get().Dialog.OpenFile().SetTitle("Open Model").AddFilter("Chloe Model", "*.chloemodel").PromptForSingleSelection()
+		p, err := application.Get().Dialog.OpenFile().SetTitle("Open External Model").AddFilter("Chloe Model", "*"+datamodel.Ext).PromptForSingleSelection()
 		if err != nil || p == "" {
 			return ModelFile{}, err
 		}
 		path = p
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		s.forget(path)
-		return ModelFile{}, err
-	}
-	mdl, err := datamodel.Parse(data)
+	mdl, err := datamodel.Read(path)
 	if err != nil {
 		return ModelFile{}, err
 	}
-	s.remember(path)
 	return ModelFile{Path: path, Model: mdl}, nil
 }
 
-// Save writes the model; with an empty path it asks where first. Returns the path
-// written, or "" when the dialog was cancelled.
-func (s *ModelService) Save(path string, mdl datamodel.Model) (string, error) {
+// Create saves a new model into the library and returns its path.
+func (s *ModelService) Create(mdl datamodel.Model) (string, error) {
+	return s.M.Store.Models().Create(mdl)
+}
+
+// Save writes a model back to its file (in the library or outside it).
+func (s *ModelService) Save(path string, mdl datamodel.Model) error {
 	if path == "" {
-		name := strings.TrimSpace(mdl.Name)
-		if name == "" {
-			name = "Untitled"
-		}
-		p, err := application.Get().Dialog.SaveFile().SetFilename(name+".chloemodel").CanCreateDirectories(true).AddFilter("Chloe Model", "*.chloemodel").PromptForSingleSelection()
-		if err != nil || p == "" {
-			return "", err
-		}
-		if filepath.Ext(p) == "" {
-			p += ".chloemodel"
-		}
-		path = p
+		return errors.New("no file to save to")
 	}
-	data, err := mdl.Marshal()
+	return datamodel.Write(path, mdl)
+}
+
+// SaveExternal writes a copy of the model to a file the user picks. Returns the
+// path written, or "" when the dialog was cancelled.
+func (s *ModelService) SaveExternal(mdl datamodel.Model) (string, error) {
+	name := strings.TrimSpace(mdl.Name)
+	if name == "" {
+		name = "Untitled"
+	}
+	p, err := application.Get().Dialog.SaveFile().SetFilename(name+datamodel.Ext).CanCreateDirectories(true).AddFilter("Chloe Model", "*"+datamodel.Ext).PromptForSingleSelection()
+	if err != nil || p == "" {
+		return "", err
+	}
+	if filepath.Ext(p) == "" {
+		p += datamodel.Ext
+	}
+	return p, datamodel.Write(p, mdl)
+}
+
+// Import copies a model file into the library and returns the copy's path.
+func (s *ModelService) Import(path string) (string, error) { return s.M.Store.Models().Import(path) }
+
+// Rename renames a library model and returns its new path.
+func (s *ModelService) Rename(path, name string) (string, error) {
+	return s.M.Store.Models().Rename(path, name)
+}
+
+// Duplicate copies a library model under a new name and returns the copy's path.
+func (s *ModelService) Duplicate(path string) (string, error) {
+	lib := s.M.Store.Models()
+	if !lib.Contains(path) {
+		return "", errors.New("not a model in Chloe's library")
+	}
+	mdl, err := datamodel.Read(path)
 	if err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return "", err
-	}
-	s.remember(path)
-	return path, nil
+	mdl.Name += " copy"
+	mdl.CreatedBy = ""
+	return lib.Create(mdl)
 }
 
-// Recent lists recently opened or saved model files, newest first.
-func (s *ModelService) Recent() []string { return s.M.Store.RecentModels() }
+// Delete removes a library model.
+func (s *ModelService) Delete(path string) error { return s.M.Store.Models().Delete(path) }
 
-func (s *ModelService) remember(path string) { s.M.Store.RememberModel(path) }
-
-func (s *ModelService) forget(path string) { s.M.Store.ForgetModel(path) }
+// Reveal shows a model file in Finder.
+func (s *ModelService) Reveal(path string) error {
+	return application.Get().Env.OpenFileManager(path, true)
+}
 
 // Reverse builds a model from the tables of a database (and PostgreSQL schema).
 func (s *ModelService) Reverse(ctx context.Context, connID, database, schema string, tables []string) (datamodel.Model, error) {

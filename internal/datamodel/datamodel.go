@@ -41,6 +41,10 @@ type Model struct {
 	Notes     []Note           `json:"notes,omitempty"`
 	// ColumnMode is the diagram's column display: all, keys or none.
 	ColumnMode string `json:"columnMode,omitempty"`
+	// CreatedBy is "mcp:<endpoint>" for models an agent created; agents may edit only those.
+	CreatedBy string `json:"createdBy,omitempty"`
+	// Link is the database the model was built from or last synchronized to.
+	Link *Link `json:"link,omitempty"`
 }
 
 // New returns an empty model.

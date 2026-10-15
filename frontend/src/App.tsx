@@ -35,9 +35,8 @@ import { SetPrivilegesDialog } from "./components/users/SetPrivilegesDialog";
 import { openUsers } from "./components/users/actions";
 import { ERDiagram } from "./components/erd/ERDiagram";
 import { ModelEditor } from "./components/model/ModelEditor";
-import { newModel, openModel } from "./components/model/actions";
 import { MenuItem, openMenu } from "./components/ContextMenu";
-import { DBType, Models, arr } from "./api";
+import { DBType } from "./api";
 import { DDLView, ObjectsPane } from "./components/ObjectsPane";
 import { QueryEditor } from "./components/QueryEditor";
 import { HistoryLog, openHistoryLog } from "./components/HistoryLog";
@@ -146,7 +145,7 @@ export default function App() {
             onClick={() => selection && useApp.getState().select({ ...selection, kind: selMongo ? ObjectKind.KindCollection : ObjectKind.KindTable, object: undefined })}
           />
           <ToolButton icon={<UsersRound size={20} />} label="User" disabled={!selConnected || selRedis || selSQLite} onClick={() => selection && (selMongo ? openMongoUsers(selection.connId, selection.database) : openUsers(selection.connId))} />
-          <ToolButton icon={<Shapes size={20} />} label="Model" onClick={(e) => modelMenu(e)} />
+          <ToolButton icon={<Shapes size={20} />} label="Model" onClick={() => useApp.getState().showModels()} />
           <ToolButton icon={<Activity size={20} />} label="Monitor" disabled={!monitorable.length} onClick={() => openMonitor(selConnected && !selSQLite ? selection!.connId : monitorable[0])} />
           <ToolButton
             icon={<Database size={20} />}
@@ -342,19 +341,6 @@ function revealTarget(tab: Tab): RevealTarget | null {
   // New table/view designers point at their folder.
   if ((tab.kind === "design" || tab.kind === "viewdesign") && r) return { connId: tab.connId, database: r.database, schema: r.schema, kind: r.kind };
   return { connId: tab.connId, database: database || undefined, schema: schema || undefined };
-}
-
-async function modelMenu(e: React.MouseEvent) {
-  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-  const recent = arr(await Models.Recent().catch(() => [] as string[]));
-  openMenu({ clientX: r.left, clientY: r.bottom + 2, preventDefault() {} }, [
-    { label: "New MySQL Model", onClick: () => newModel("mysql") },
-    { label: "New PostgreSQL Model", onClick: () => newModel("postgres") },
-    { label: "Open Model…", onClick: () => openModel() },
-    ...(recent.length
-      ? [{ label: "", separator: true }, ...recent.map((p) => ({ label: p.split("/").pop()!.replace(/\.chloemodel$/, ""), shortcut: p.split("/").slice(-2, -1)[0], onClick: () => openModel(p) }))]
-      : []),
-  ]);
 }
 
 function ToolButton({ icon, label, onClick, disabled }: { icon: React.ReactNode; label: string; onClick(e: React.MouseEvent): void; disabled?: boolean }) {

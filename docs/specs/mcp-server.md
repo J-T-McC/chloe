@@ -121,10 +121,10 @@ There's no separate `test_connection` tool: it would let an agent probe hosts an
 | `generate_sql` | Read (with a connection) | `model, connection?, database?, schema?` |
 | `open_model` | — | `model` |
 
-- Models are `.chloemodel` files. An agent sees the user's recent model files and the models created over MCP, which
-  live in `models/` in Chloe's config folder and join the recent list. `model` is a path from `list_models`; no
-  other file is read.
-- `edit_model` changes only models created over MCP; the user's own are read and copied, never written. Tables in
+- Agents see the models in Chloe's library (`models/` in the config folder; see `docs/specs/models.md`). `model` is a
+  path from `list_models`; files outside the library are never read.
+- `edit_model` changes only models created over MCP (`createdBy: "mcp:<endpoint>"`, shown as "AI (endpoint)" in the
+  Models list); the user's own are read and copied, never written. Tables in
   `set_tables` have `get_model`'s shape (unknown fields are refused) and replace a table of the same name or are
   added; other tables, and their diagram positions, are kept. New tables are laid out when the diagram opens.
 - An open model tab reloads when an agent edits its file, unless it has unsaved changes; then the status bar says

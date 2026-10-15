@@ -25,7 +25,7 @@ MySQL, MariaDB, PostgreSQL, SQLite, MongoDB and Redis. SQL Server and Oracle are
 - **Import / export**: CSV, TSV, JSON, SQL, Excel; dump and execute SQL files
 - **Data Transfer** between MySQL/MariaDB, PostgreSQL and SQLite, converting types, defaults and constraints
 - **Structure and Data Synchronization** with diff views and deployment scripts
-- **ER diagrams**: reverse-engineer, edit, forward-engineer and sync models
+- **ER diagrams**: reverse-engineer, edit, forward-engineer and sync models, kept in a model library
 - **Users and privileges** for MySQL and PostgreSQL
 - **Server monitor**: sessions, kill query, variables, status
 - **MongoDB**: grid/tree/JSON views, document editor, mongosh-style shell with completion, collection designer

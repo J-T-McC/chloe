@@ -5,6 +5,33 @@
 // @ts-ignore: Unused imports
 import * as design$0 from "../design/models.js";
 
+/**
+ * Entry describes one model in the library.
+ */
+export interface Entry {
+    "path": string;
+    "name": string;
+    "dialect"?: string;
+    "tables": number;
+    "modified": string;
+    "createdBy"?: string;
+    "link"?: Link | null;
+
+    /**
+     * the file couldn't be read
+     */
+    "error"?: string;
+}
+
+/**
+ * Link remembers the database a model was built from or last synchronized to.
+ */
+export interface Link {
+    "connId": string;
+    "database": string;
+    "schema"?: string;
+}
+
 export interface Model {
     "format": string;
     "version": number;
@@ -31,6 +58,16 @@ export interface Model {
      * ColumnMode is the diagram's column display: all, keys or none.
      */
     "columnMode"?: string;
+
+    /**
+     * CreatedBy is "mcp:<endpoint>" for models an agent created; agents may edit only those.
+     */
+    "createdBy"?: string;
+
+    /**
+     * Link is the database the model was built from or last synchronized to.
+     */
+    "link"?: Link | null;
 }
 
 export interface Note {

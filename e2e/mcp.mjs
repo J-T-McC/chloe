@@ -261,10 +261,11 @@ await step("agent builds an ER model", async () => {
   await pane().getByText("orders", { exact: true }).waitFor();
   await pane().getByText("2 tables").waitFor();
   await shot("mcp-model");
+  if (!(await pane().locator(".name-input").isVisible())) throw new Error("model name hidden");
   // With unsaved changes here, it says so instead.
   await pane().locator(".name-input").fill("Agent model (mine)");
   await tool("edit_model", { model: path, drop_tables: ["orders"] });
-  await pane().locator(".model-notice", { hasText: "An agent changed this file" }).waitFor();
+  await pane().locator(".model-notice", { hasText: "An agent changed this model" }).waitFor();
   await pane().getByText("orders", { exact: true }).waitFor();
   const user = await tool("edit_model", { model: "/etc/hosts", drop_tables: ["x"] });
   if (!user.isError) throw new Error("edited an unlisted file");

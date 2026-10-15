@@ -33,10 +33,52 @@ export function ApplySync(connID: string, to: datamodel$0.Target, plan: datamode
 }
 
 /**
+ * Create saves a new model into the library and returns its path.
+ */
+export function Create(mdl: datamodel$0.Model): $CancellablePromise<string> {
+    return $Call.ByID(1898307515, mdl);
+}
+
+/**
+ * Delete removes a library model.
+ */
+export function Delete(path: string): $CancellablePromise<void> {
+    return $Call.ByID(4060411864, path);
+}
+
+/**
+ * Dir is the folder of the models Chloe manages.
+ */
+export function Dir(): $CancellablePromise<string> {
+    return $Call.ByID(2742932330);
+}
+
+/**
+ * Duplicate copies a library model under a new name and returns the copy's path.
+ */
+export function Duplicate(path: string): $CancellablePromise<string> {
+    return $Call.ByID(1938198652, path);
+}
+
+/**
  * GenerateSQL renders the whole model as CREATE statements.
  */
 export function GenerateSQL(mdl: datamodel$0.Model, to: datamodel$0.Target): $CancellablePromise<string[] | null> {
     return $Call.ByID(1486459808, mdl, to);
+}
+
+/**
+ * Import copies a model file into the library and returns the copy's path.
+ */
+export function Import(path: string): $CancellablePromise<string> {
+    return $Call.ByID(1626259346, path);
+}
+
+/**
+ * List describes every model in Chloe's library.
+ */
+export function List(): $CancellablePromise<datamodel$0.Entry[] | null> {
+    return $Call.ByID(1752124211);
 }
 
 /**
@@ -51,8 +93,8 @@ export function New(name: string, dialect: string): $CancellablePromise<datamode
 }
 
 /**
- * Open reads a model file; with an empty path it asks for one first. A cancelled
- * dialog returns an empty Path.
+ * Open reads a model file; with an empty path it asks for one first (a file
+ * outside the library). A cancelled dialog returns an empty Path.
  */
 export function Open(path: string): $CancellablePromise<$models.ModelFile> {
     return $Call.ByID(2076755351, path);
@@ -66,10 +108,17 @@ export function PlanSync(connID: string, mdl: datamodel$0.Model, to: datamodel$0
 }
 
 /**
- * Recent lists recently opened or saved model files, newest first.
+ * Rename renames a library model and returns its new path.
  */
-export function Recent(): $CancellablePromise<string[] | null> {
-    return $Call.ByID(261043992);
+export function Rename(path: string, name: string): $CancellablePromise<string> {
+    return $Call.ByID(1881824865, path, name);
+}
+
+/**
+ * Reveal shows a model file in Finder.
+ */
+export function Reveal(path: string): $CancellablePromise<void> {
+    return $Call.ByID(3762809678, path);
 }
 
 /**
@@ -80,11 +129,18 @@ export function Reverse(connID: string, database: string, schema: string, tables
 }
 
 /**
- * Save writes the model; with an empty path it asks where first. Returns the path
- * written, or "" when the dialog was cancelled.
+ * Save writes a model back to its file (in the library or outside it).
  */
-export function Save(path: string, mdl: datamodel$0.Model): $CancellablePromise<string> {
+export function Save(path: string, mdl: datamodel$0.Model): $CancellablePromise<void> {
     return $Call.ByID(2655947334, path, mdl);
+}
+
+/**
+ * SaveExternal writes a copy of the model to a file the user picks. Returns the
+ * path written, or "" when the dialog was cancelled.
+ */
+export function SaveExternal(mdl: datamodel$0.Model): $CancellablePromise<string> {
+    return $Call.ByID(2953895589, mdl);
 }
 
 /**

@@ -309,7 +309,7 @@ function EndpointDetail({ ep, url, update }: { ep: MCPEndpoint; url: string; upd
           />
           ER models
         </label>
-        <p className="hint">Read your recent models, build models from databases and generate SQL. Agents edit only models they created; nothing is applied to a database.</p>
+        <p className="hint">Read the models in Chloe’s library, build models from databases and generate SQL. Agents edit only models they created; nothing is applied to a database.</p>
       </div>
     </div>
   );
