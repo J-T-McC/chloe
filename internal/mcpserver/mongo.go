@@ -198,8 +198,79 @@ func checkUpdate(u bson.D) error {
 			}
 			return fmt.Errorf("update operator %s isn't supported (use %s)", e.Key, strings.Join(mongoUpdateOps, ", "))
 		}
+		fields, ok := e.Value.(bson.D)
+		if !ok {
+			return fmt.Errorf("%s takes a document of fields, e.g. {%q: {\"status\": \"shipped\"}}", e.Key, e.Key)
+		}
+		for _, f := range fields {
+			if err := checkUpdateValue(e.Key, f.Key, f.Value); err != nil {
+				return err
+			}
+		}
 	}
 	return checkMongo(u)
+}
+
+// updateModifiers are the $-keys an operator takes in a field's value.
+var updateModifiers = map[string][]string{
+	"$push":        {"$each", "$slice", "$sort", "$position"},
+	"$addToSet":    {"$each"},
+	"$currentDate": {"$type"},
+}
+
+// checkUpdateValue refuses $-keys in a value, which MongoDB would store as
+// data: {"$set": {"n": {"$add": [1, 2]}}} saves the object, not 3, because
+// operator updates don't evaluate expressions. $pull takes query conditions.
+func checkUpdateValue(op, field string, v any) error {
+	if op == "$pull" {
+		return nil
+	}
+	d, ok := v.(bson.D)
+	if !ok {
+		return checkDataValue(v, op+" "+field)
+	}
+	for _, e := range d {
+		if strings.HasPrefix(e.Key, "$") {
+			if slices.Contains(updateModifiers[op], e.Key) {
+				if err := checkDataValue(e.Value, op+" "+field); err != nil {
+					return err
+				}
+				continue
+			}
+			return exprError(e.Key, op+" "+field)
+		}
+		if err := checkDataValue(e.Value, op+" "+field); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkDataValue refuses $-prefixed field names anywhere in a value meant to be stored.
+func checkDataValue(v any, where string) error {
+	switch x := v.(type) {
+	case bson.D:
+		for _, e := range x {
+			if strings.HasPrefix(e.Key, "$") {
+				return exprError(e.Key, where)
+			}
+			if err := checkDataValue(e.Value, where); err != nil {
+				return err
+			}
+		}
+	case bson.A:
+		for _, e := range x {
+			if err := checkDataValue(e, where); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func exprError(key, where string) error {
+	return fmt.Errorf("%s in %s would be stored as a literal field named %q, not evaluated: updates and inserts don't compute expressions. "+
+		"Read the current value, compute the result, and write it (or use $inc, $mul, $min, $max for arithmetic)", key, where, key)
 }
 
 // --- targets --------------------------------------------------------------------
@@ -447,9 +518,10 @@ type MongoCollectionsOut struct {
 }
 
 type MongoFieldOut struct {
-	Path   string `json:"path"`
-	Type   string `json:"type" jsonschema:"BSON type seen most: string, int, long, double, decimal, bool, date, oid, object, array…"`
-	SeenIn int    `json:"seen_in" jsonschema:"sampled documents that have the field"`
+	Path   string         `json:"path"`
+	Type   string         `json:"type" jsonschema:"BSON type seen most: string, int, long, double, decimal, bool, date, oid, object, array…"`
+	SeenIn int            `json:"seen_in" jsonschema:"sampled documents that have the field"`
+	Types  map[string]int `json:"types,omitempty" jsonschema:"when the field has more than one type: how often each was seen"`
 }
 
 type MongoIndexOut struct {
@@ -733,6 +805,9 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 				doc, err := d.bson()
 				if err != nil {
 					return MongoInsertOut{}, fmt.Errorf("document %d: %w", i+1, err)
+				}
+				if err := checkDataValue(doc, fmt.Sprintf("document %d", i+1)); err != nil {
+					return MongoInsertOut{}, err
 				}
 				// Chloe picks missing _ids itself, so it can say which documents were saved.
 				doc, ids[i] = withID(doc)
@@ -1094,7 +1169,11 @@ func sampleFields(ctx context.Context, coll *mongo.Collection, n int) (int, []Mo
 				best, most = t, c
 			}
 		}
-		out = append(out, MongoFieldOut{Path: p, Type: best, SeenIn: f.seen})
+		o := MongoFieldOut{Path: p, Type: best, SeenIn: f.seen}
+		if len(f.types) > 1 {
+			o.Types = f.types
+		}
+		out = append(out, o)
 	}
 	return len(docs), out, nil
 }

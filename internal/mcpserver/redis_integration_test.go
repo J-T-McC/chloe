@@ -130,7 +130,9 @@ func TestIntegrationRedisTools(t *testing.T) {
 	if r["reply"] != "1) \"cy\"\n2) \"bob\"" {
 		t.Fatalf("after edit: %v", r)
 	}
-	f.call(t, "redis_edit", at(map[string]any{"key": "events", "add_entry": map[string]any{"kind": "login"}}), "")
+	if out := f.call(t, "redis_edit", at(map[string]any{"key": "events", "add_entry": map[string]any{"kind": "login"}}), ""); !strings.Contains(fmt.Sprint(out["new_values"]), "entry_id:") {
+		t.Fatalf("stream entry id: %v", out)
+	}
 	f.call(t, "redis_expire", at(map[string]any{"key": "greeting", "ttl": 60}), "")
 	f.appr.mu.Lock()
 	f.appr.answer = false
