@@ -4142,3 +4142,8 @@ table.mapping select {
   color: var(--warn);
   margin: 8px 0 0;
 }
+
+.model-notice {
+  color: var(--warn);
+  margin-right: 12px;
+}

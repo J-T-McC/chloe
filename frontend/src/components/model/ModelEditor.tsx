@@ -3,7 +3,7 @@
 import { ReactFlowProvider, useReactFlow } from "@xyflow/react";
 import { Database, Download, FileCode2, FolderOpen, LayoutGrid, Plus, Save, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { D, DM, Models, arr, errorText, copyText } from "../../api";
+import { D, DM, Events, Models, arr, errorText, copyText } from "../../api";
 import { Dialect, Table, newTable, normalize, toWire } from "../../designer/model";
 import { ColumnMode, ErdTable, Positions, autoLayout, fromTables, modelKey, tableSize } from "../../erd/model";
 import { Tab, useApp } from "../../store";
@@ -60,6 +60,21 @@ function ModelEditorInner({ tab }: { tab: Tab }) {
   const erd = useMemo(() => (state ? fromTables(state.tables, dialect, state.model.schema) : null), [state, dialect]);
   const keyOf = useCallback((t: { schema?: string; name: string }) => modelKey(t, dialect, state?.model.schema), [dialect, state?.model.schema]);
 
+  // Show a model; fromFile marks it saved.
+  const load = async (m: DM.Model, fromFile: boolean) => {
+    const tables = arr(m.tables).map(normalize);
+    positions.current = { ...(m.positions ?? {}) } as Positions;
+    const st = { model: m, tables };
+    // Lay out reverse-engineered models and tables an agent added (no positions yet).
+    if (tables.length && tables.some((t) => !positions.current[modelKey(t, m.dialect, m.schema)])) {
+      const placed = await autoLayout(fromTables(tables, m.dialect, m.schema), (m.columnMode || "all") as ColumnMode);
+      positions.current = { ...placed, ...positions.current };
+    }
+    setState(st);
+    setSaved(fromFile ? JSON.stringify(toModel(st, positions.current)) : "");
+    setLayoutVersion((v) => v + 1);
+  };
+
   // Load the model handed over by whoever opened the tab (or read its file).
   useEffect(() => {
     (async () => {
@@ -68,17 +83,7 @@ function ModelEditorInner({ tab }: { tab: Tab }) {
         pendingModels.delete(tab.id);
         if (!m && tab.modelPath) m = (await Models.Open(tab.modelPath)).model;
         if (!m) throw new Error("model not found");
-        const tables = arr(m.tables).map(normalize);
-        positions.current = { ...(m.positions ?? {}) } as Positions;
-        const st = { model: m, tables };
-        // Lay out reverse-engineered models (no positions yet).
-        if (tables.length && tables.some((t) => !positions.current[modelKey(t, m!.dialect, m!.schema)])) {
-          const placed = await autoLayout(fromTables(tables, m.dialect, m.schema), (m.columnMode || "all") as ColumnMode);
-          positions.current = { ...placed, ...positions.current };
-        }
-        setState(st);
-        setSaved(tab.modelPath ? JSON.stringify(toModel(st, positions.current)) : "");
-        setLayoutVersion((v) => v + 1);
+        await load(m, !!tab.modelPath);
         setMeta(await Models.Meta(m.dialect));
         setTimeout(() => flow.fitView({ padding: 0.1, maxZoom: 1 }), 60);
       } catch (e) {
@@ -91,6 +96,25 @@ function ModelEditorInner({ tab }: { tab: Tab }) {
   // Positions live in a ref (dragging shouldn't re-render); bump this to recheck dirtiness.
   const [moved, setMoved] = useState(0);
   const dirty = useMemo(() => !!state && JSON.stringify(toModel(state, positions.current)) !== saved, [state, saved, moved]);
+
+  // An agent edited this model's file over MCP: reload it, unless that would lose changes made here.
+  const [notice, setNotice] = useState("");
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  useEffect(() => {
+    if (!path) return;
+    return Events.On("mcp:model-changed", async (ev) => {
+      if (ev.data !== path) return;
+      if (dirtyRef.current) return setNotice("An agent changed this file; Save As keeps your version, reopening shows theirs.");
+      try {
+        await load((await Models.Open(path)).model, true);
+        setNotice("");
+      } catch (e) {
+        setNotice(errorText(e));
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path]);
 
   useEffect(() => {
     if (!state) return;
@@ -312,6 +336,7 @@ function ModelEditorInner({ tab }: { tab: Tab }) {
           {state.tables.length} tables · {erd.relations.length} relationships
         </span>
         <span className="spacer" />
+        {notice && <span className="model-notice">{notice}</span>}
         <span className="muted" title={path}>
           {path || "Not saved"}
         </span>

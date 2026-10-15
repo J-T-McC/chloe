@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { create } from "zustand";
 import { DBType, Events, Explorer, MCP, MCPLevel, arr, errorText, type MCPActivity, type MCPEndpoint, type MCPSettings, type MCPStatus, copyText } from "../../api";
 import { openAgentQuery, refreshFolder } from "../../queries";
+import { openModel } from "../model/actions";
 import { useApp } from "../../store";
 import { alert, confirm } from "../Dialogs";
 import { ConnIcon } from "../icons";
@@ -34,6 +35,7 @@ export function listenMCP() {
   Events.On("mcp:connection-added", () => useApp.getState().loadConnections());
   Events.On("mcp:query-saved", (ev) => refreshFolder(ev.data.connId, ev.data.database, ev.data.schema || undefined));
   Events.On("mcp:open-query", (ev) => openAgentQuery(ev.data));
+  Events.On("mcp:open-model", (ev) => openModel(ev.data));
   Events.On("mcp:activity", (ev) => useMCP.setState((s) => ({ activity: [ev.data, ...s.activity].slice(0, 1000) })));
 }
 
@@ -298,6 +300,16 @@ function EndpointDetail({ ep, url, update }: { ep: MCPEndpoint; url: string; upd
           Monitor
         </label>
         <p className="hint">Sessions, status and variables of connections whose databases are all shared. Killing a session needs Read-write and asks unless danger mode is on.</p>
+        <label className="check">
+          <input
+            type="checkbox"
+            aria-label="ER models"
+            checked={ep.capabilities.models}
+            onChange={(e) => update({ ...ep, capabilities: { ...ep.capabilities, models: e.target.checked } })}
+          />
+          ER models
+        </label>
+        <p className="hint">Read your recent models, build models from databases and generate SQL. Agents edit only models they created; nothing is applied to a database.</p>
       </div>
     </div>
   );

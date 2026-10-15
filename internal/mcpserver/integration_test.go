@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -105,6 +106,7 @@ func TestIntegrationEngines(t *testing.T) {
 			}
 
 			testMonitor(t, f, e.conn)
+			testModel(t, f, e.conn.Name, e.database, e.schema)
 
 			// The agent leaves the password out; the user types it in the dialog.
 			st := f.srv.Settings()
@@ -188,5 +190,45 @@ func testMonitor(t *testing.T, f *fixture, conn model.Connection) {
 	}
 	if err := victim.QueryRowContext(ctx, "SELECT 1").Scan(new(int)); err == nil {
 		t.Fatal("the killed session still works")
+	}
+}
+
+// testModel reverse engineers the test table, then diffs an edited copy with the database.
+func testModel(t *testing.T, f *fixture, conn, database, schema string) {
+	f.enable(t, func(c *store.MCPCapabilities) { c.Models = true })
+	at := map[string]any{"connection": conn, "database": database}
+	if schema != "" {
+		at["schema"] = schema
+	}
+	with := func(extra map[string]any) map[string]any {
+		out := map[string]any{}
+		for k, v := range at {
+			out[k] = v
+		}
+		for k, v := range extra {
+			out[k] = v
+		}
+		return out
+	}
+	m := f.call(t, "create_model", with(map[string]any{"name": "it " + conn, "tables": []any{"mcp_it"}}), "")
+	p := m["path"].(string)
+	if m["table_count"] != 1.0 {
+		t.Fatalf("reverse: %v", m)
+	}
+	same := f.call(t, "generate_sql", with(map[string]any{"model": p}), "")
+	if len(same["statements"].([]any)) != 0 || fmt.Sprint(same["unchanged"]) == "[]" {
+		t.Fatalf("unchanged model: %v", same)
+	}
+	table := f.call(t, "get_model", map[string]any{"model": p}, "")["tables"].([]any)[0].(map[string]any)
+	table["columns"] = append(table["columns"].([]any), map[string]any{"name": "note", "type": "text", "nullable": true})
+	f.call(t, "edit_model", map[string]any{"model": p, "set_tables": []any{table}}, "")
+	diff := f.call(t, "generate_sql", with(map[string]any{"model": p}), "")
+	if sql := fmt.Sprint(diff["statements"]); !strings.Contains(sql, "ADD") || !strings.Contains(sql, "note") {
+		t.Fatalf("diff: %v", diff)
+	}
+	// Nothing ran.
+	q := with(map[string]any{"sql": "SELECT * FROM mcp_it LIMIT 1"})
+	if cols := fmt.Sprint(f.call(t, "run_query", q, "")["columns"]); strings.Contains(cols, "note") {
+		t.Fatalf("generate_sql changed the table: %v", cols)
 	}
 }

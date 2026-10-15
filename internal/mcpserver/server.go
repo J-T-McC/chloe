@@ -95,6 +95,10 @@ type Events interface {
 	QuerySaved(connID, database, schema string)
 	// OpenQueryTab asks the UI to open a query tab for the user.
 	OpenQueryTab(tab QueryTab)
+	// ModelChanged reports that an agent edited a model file.
+	ModelChanged(path string)
+	// OpenModel asks the UI to open a model file.
+	OpenModel(path string)
 }
 
 // ApprovalTimeout is how long a write waits for the user.
@@ -361,6 +365,9 @@ func (s *Server) serverFor(id string) *mcp.Server {
 	}
 	if ep.Capabilities.Monitor {
 		s.addMonitorTools(srv, id, writes)
+	}
+	if ep.Capabilities.Models {
+		s.addModelTools(srv, id)
 	}
 	s.servers[id] = srv
 	return srv

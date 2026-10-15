@@ -33,7 +33,7 @@ MySQL, MariaDB, PostgreSQL, SQLite, MongoDB and Redis. SQL Server and Oracle are
 - **MCP server** for AI assistants (Claude Code, Claude Desktop…): per-endpoint tokens and Off/Read/Read-write access by
   group, connection or database; every write is shown in an approval dialog with its SQL and row count (or runs unasked
   in opt-in danger mode); agents can propose new connections, save queries, open query tabs for you to run and watch
-  sessions; activity log
+  sessions, build ER models; activity log
 - **Security**: passwords in the OS keychain; connections, queries and history encrypted with a keychain key
 
 What's next is in [docs/ROADMAP.md](docs/ROADMAP.md).
@@ -51,7 +51,7 @@ claude mcp add --transport http chloe-local-testing http://127.0.0.1:47101/mcp -
 
 Agents get tools to list and describe objects, select rows, run one read-only query, and insert, update or delete rows.
 Optional capabilities let them read and save queries, open query tabs with SQL for you to review and run (how they hand
-over schema changes), and watch sessions and server status.
+over schema changes), watch sessions and server status, and build ER models and the SQL to apply them.
 Chloe builds the write SQL itself from checked column names and bound values, and there's no DDL. Writes wait for your
 approval unless the endpoint is in danger mode; connections an agent proposes always do, and you can type the password
 into the dialog so it never passes through the conversation. Details: [docs/specs/mcp-server.md](docs/specs/mcp-server.md).

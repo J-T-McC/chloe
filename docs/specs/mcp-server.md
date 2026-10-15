@@ -112,8 +112,27 @@ connections ("Created by AI" by default, created when needed) and get that group
 There's no separate `test_connection` tool: it would let an agent probe hosts and ports without asking.
 
 ### ER models (capability)
-`list_models`, `get_model`, `create_model_from_database`, `edit_model`, `generate_sql` (DDL as text, never run).
-Applying a model to a database stays a manual Synchronize to Database.
+| Tool | Access | Arguments |
+|---|---|---|
+| `list_models` | — | — |
+| `get_model` | — | `model, tables?` |
+| `create_model` | Read (when built from a database) | `name` and one of `dialect` (empty), `connection, database, schema?, tables?` (reverse engineered) or `copy_of` |
+| `edit_model` | — | `model, set_tables?, drop_tables?, rename?` |
+| `generate_sql` | Read (with a connection) | `model, connection?, database?, schema?` |
+| `open_model` | — | `model` |
+
+- Models are `.chloemodel` files. An agent sees the user's recent model files and the models created over MCP, which
+  live in `models/` in Chloe's config folder and join the recent list. `model` is a path from `list_models`; no
+  other file is read.
+- `edit_model` changes only models created over MCP; the user's own are read and copied, never written. Tables in
+  `set_tables` have `get_model`'s shape (unknown fields are refused) and replace a table of the same name or are
+  added; other tables, and their diagram positions, are kept. New tables are laid out when the diagram opens.
+- An open model tab reloads when an agent edits its file, unless it has unsaved changes; then the status bar says
+  the file changed and Save As keeps the user's version.
+- `generate_sql` returns CREATE statements, or with a connection the statements that would bring that database in
+  line with the model (as Synchronize to Database plans them, without dropping tables). Nothing is run: applying
+  stays a manual Synchronize to Database or a query tab.
+- MySQL, MariaDB and PostgreSQL; models don't support SQLite.
 
 ## Window (Tools > MCP Server…, and the titlebar MCP button)
 A tab like the History Log:
@@ -126,4 +145,4 @@ A tab like the History Log:
 ## Delivery
 1. Server, endpoints, data tools, approval, danger mode, activity, window.
 2. Monitor, saved queries / query tabs, create connections. ✅
-3. ER models.
+3. ER models. ✅
