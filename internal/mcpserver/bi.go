@@ -126,6 +126,7 @@ type WorkspaceInfo struct {
 	Name        string `json:"name"`
 	DataSources int    `json:"data_source_count"`
 	Charts      int    `json:"chart_count"`
+	Dashboards  int    `json:"dashboard_count"`
 	CreatedBy   string `json:"created_by,omitempty"`
 	Error       string `json:"error,omitempty"`
 }
@@ -147,9 +148,10 @@ type ChartOut struct {
 
 type WorkspaceOut struct {
 	WorkspaceInfo
-	Theme       string      `json:"theme,omitempty"`
-	Sources     []SourceOut `json:"data_sources"`
-	ChartList   []ChartOut  `json:"charts"`
+	Theme     string         `json:"theme,omitempty"`
+	Sources   []SourceOut    `json:"data_sources"`
+	ChartList []ChartOut     `json:"charts"`
+	Boards    []DashboardOut `json:"dashboards"`
 }
 
 type ChartDataOut struct {
@@ -189,11 +191,11 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 	f := false
 	t := true
 	add(s, srv, ep, readOnlyTool("list_workspaces", "List BI workspaces",
-		"Lists the BI workspaces in Chloe's library: data sources and the charts built on them. You can read all of them, and edit the charts created over MCP."),
+		"Lists the BI workspaces in Chloe's library: data sources, the charts built on them, and dashboards (reports) of charts and notes. You can read all of them, and edit what was created over MCP."),
 		func(ctx context.Context, c *call, _ NoArgs) (WorkspacesOut, error) {
 			out := WorkspacesOut{Workspaces: []WorkspaceInfo{}}
 			for _, e := range c.s.m.Store.BI().List() {
-				out.Workspaces = append(out.Workspaces, WorkspaceInfo{Path: e.Path, Name: e.Name, DataSources: e.DataSources, Charts: e.Charts, CreatedBy: e.CreatedBy, Error: e.Error})
+				out.Workspaces = append(out.Workspaces, WorkspaceInfo{Path: e.Path, Name: e.Name, DataSources: e.DataSources, Charts: e.Charts, Dashboards: e.Dashboards, CreatedBy: e.CreatedBy, Error: e.Error})
 			}
 			return out, nil
 		})
@@ -204,7 +206,10 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			if err != nil {
 				return WorkspaceOut{}, err
 			}
-			out := WorkspaceOut{WorkspaceInfo: workspaceInfo(p, w), Theme: w.Theme, Sources: []SourceOut{}, ChartList: []ChartOut{}}
+			out := WorkspaceOut{WorkspaceInfo: workspaceInfo(p, w), Theme: w.Theme, Sources: []SourceOut{}, ChartList: []ChartOut{}, Boards: []DashboardOut{}}
+			for _, d := range w.Dashboards {
+				out.Boards = append(out.Boards, DashboardOut{Dashboard: d, Editable: agentMade(d.CreatedBy)})
+			}
 			hidden := map[string]bool{}
 			for _, d := range w.DataSources {
 				conn, err := c.s.m.Store.Get(d.ConnID)
@@ -505,7 +510,7 @@ func (c *call) workspace(nameOrPath string) (string, bi.Workspace, error) {
 }
 
 func workspaceInfo(p string, w bi.Workspace) WorkspaceInfo {
-	return WorkspaceInfo{Path: p, Name: w.Name, DataSources: len(w.DataSources), Charts: len(w.Charts), CreatedBy: w.CreatedBy}
+	return WorkspaceInfo{Path: p, Name: w.Name, DataSources: len(w.DataSources), Charts: len(w.Charts), Dashboards: len(w.Dashboards), CreatedBy: w.CreatedBy}
 }
 
 func (c *call) biChanged(p string) {

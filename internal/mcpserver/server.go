@@ -416,6 +416,7 @@ func (s *Server) serverFor(id string) *mcp.Server {
 	}
 	if ep.Capabilities.Reports {
 		s.addBITools(srv, id)
+		s.addDashboardTools(srv, id)
 	}
 	s.servers[id] = srv
 	return srv

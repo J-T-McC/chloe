@@ -128,6 +128,7 @@ export function BIList() {
                   <th>Name</th>
                   <th className="num">Data Sources</th>
                   <th className="num">Charts</th>
+                  <th className="num">Dashboards</th>
                   <th>Created By</th>
                   <th>Modified</th>
                 </tr>
@@ -147,6 +148,7 @@ export function BIList() {
                     </td>
                     <td className="num">{m.dataSources}</td>
                     <td className="num">{m.charts}</td>
+                    <td className="num">{m.dashboards}</td>
                     <td className="muted">{createdByLabel(m.createdBy)}</td>
                     <td>{m.modified ? new Date(m.modified).toLocaleString() : ""}</td>
                   </tr>
@@ -169,6 +171,8 @@ export function BIList() {
                 <dd>{sel.dataSources}</dd>
                 <dt>Charts</dt>
                 <dd>{sel.charts}</dd>
+                <dt>Dashboards</dt>
+                <dd>{sel.dashboards}</dd>
                 {sel.createdBy && (
                   <>
                     <dt>Created by</dt>

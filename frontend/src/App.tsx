@@ -1,4 +1,4 @@
-import { Activity, Bot, ChartColumn, Database, FilePlus2, History, Monitor, Moon, Network, PencilRuler, Plug, Shapes, Sun, Table2, TerminalSquare, UserRound, UsersRound, X } from "lucide-react";
+import { Activity, Bot, ChartColumn, LayoutDashboard, Database, FilePlus2, History, Monitor, Moon, Network, PencilRuler, Plug, Shapes, Sun, Table2, TerminalSquare, UserRound, UsersRound, X } from "lucide-react";
 import { ThemePref, onThemeChange, setThemePref, themePref } from "./theme";
 import { useEffect, useRef, useState } from "react";
 import { Events, ObjectKind } from "./api";
@@ -38,6 +38,7 @@ import { ModelEditor } from "./components/model/ModelEditor";
 import { WorkspaceView } from "./components/bi/WorkspaceView";
 import { SourceEditor } from "./components/bi/SourceEditor";
 import { ChartEditor } from "./components/bi/ChartEditor";
+import { DashboardEditor } from "./components/bi/DashboardEditor";
 import { CreateChartDialog } from "./components/bi/CreateChartDialog";
 import { listenBI } from "./components/bi/actions";
 import { ChartTypeIcon } from "./components/bi/icons";
@@ -251,6 +252,8 @@ function TabContent({ tab, active }: { tab: Tab; active: boolean }) {
       return <SourceEditor tab={tab} />;
     case "bichart":
       return <ChartEditor tab={tab} />;
+    case "bidash":
+      return <DashboardEditor tab={tab} />;
     case "viewdesign":
       return <ViewDesigner tab={tab} />;
     case "redisconsole":
@@ -273,7 +276,7 @@ function TabContent({ tab, active }: { tab: Tab; active: boolean }) {
 }
 
 function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
-  const icon = tab.kind === "bi" ? <ChartColumn size={13} /> : tab.kind === "bisource" ? <Database size={13} /> : tab.kind === "bichart" ? <ChartTypeIcon type="bar" size={13} /> : tab.kind === "users" || tab.kind === "mongousers" ? <UsersRound size={13} /> : tab.kind === "user" ? <UserRound size={13} /> : tab.kind === "redisconsole" || tab.kind === "mongoshell" ? <TerminalSquare size={13} /> : tab.kind === "mongoquery" ? <FilePlus2 size={13} /> : tab.kind === "mongodesign" ? <PencilRuler size={13} /> : tab.kind === "model" ? <Shapes size={13} /> : tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" || tab.kind === "viewdesign" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.kind === "history" ? <History size={13} /> : tab.kind === "mcp" ? <Bot size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
+  const icon = tab.kind === "bi" ? <ChartColumn size={13} /> : tab.kind === "bisource" ? <Database size={13} /> : tab.kind === "bichart" ? <ChartTypeIcon type="bar" size={13} /> : tab.kind === "bidash" ? <LayoutDashboard size={13} /> : tab.kind === "users" || tab.kind === "mongousers" ? <UsersRound size={13} /> : tab.kind === "user" ? <UserRound size={13} /> : tab.kind === "redisconsole" || tab.kind === "mongoshell" ? <TerminalSquare size={13} /> : tab.kind === "mongoquery" ? <FilePlus2 size={13} /> : tab.kind === "mongodesign" ? <PencilRuler size={13} /> : tab.kind === "model" ? <Shapes size={13} /> : tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" || tab.kind === "viewdesign" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.kind === "history" ? <History size={13} /> : tab.kind === "mcp" ? <Bot size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
   return (
     <div
       className={"tab" + (active ? " active" : "")}

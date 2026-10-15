@@ -41,6 +41,7 @@ type Workspace struct {
 	CreatedBy   string       `json:"createdBy,omitempty"`
 	DataSources []DataSource `json:"dataSources"`
 	Charts      []Chart      `json:"charts"`
+	Dashboards  []Dashboard  `json:"dashboards"`
 }
 
 // Meta is what every workspace object has.
@@ -182,7 +183,7 @@ type NumberFormat struct {
 
 // New returns an empty workspace.
 func New(name string) Workspace {
-	return Workspace{Format: Format, Version: 1, ID: uuid.NewString(), Name: name, DataSources: []DataSource{}, Charts: []Chart{}}
+	return Workspace{Format: Format, Version: 1, ID: uuid.NewString(), Name: name, DataSources: []DataSource{}, Charts: []Chart{}, Dashboards: []Dashboard{}}
 }
 
 func Parse(data []byte) (Workspace, error) {
@@ -201,6 +202,9 @@ func Parse(data []byte) (Workspace, error) {
 	}
 	if w.Charts == nil {
 		w.Charts = []Chart{}
+	}
+	if w.Dashboards == nil {
+		w.Dashboards = []Dashboard{}
 	}
 	return w, nil
 }
@@ -292,13 +296,20 @@ func (w *Workspace) PutChart(c Chart) (Chart, error) {
 }
 
 // Delete removes an object. Charts built on a deleted data source stay and show
-// that their source is gone.
+// that their source is gone; a deleted chart's tiles leave its dashboards.
 func (w *Workspace) Delete(id string) error {
-	n := len(w.DataSources) + len(w.Charts)
+	n := len(w.DataSources) + len(w.Charts) + len(w.Dashboards)
 	w.DataSources = slices.DeleteFunc(w.DataSources, func(d DataSource) bool { return d.ID == id })
 	w.Charts = slices.DeleteFunc(w.Charts, func(c Chart) bool { return c.ID == id })
-	if len(w.DataSources)+len(w.Charts) == n {
+	w.Dashboards = slices.DeleteFunc(w.Dashboards, func(d Dashboard) bool { return d.ID == id })
+	if len(w.DataSources)+len(w.Charts)+len(w.Dashboards) == n {
 		return fmt.Errorf("no object %q in the workspace", id)
+	}
+	for i := range w.Dashboards {
+		for j := range w.Dashboards[i].Pages {
+			p := &w.Dashboards[i].Pages[j]
+			p.Items = slices.DeleteFunc(p.Items, func(it Item) bool { return it.Kind == ItemChart && it.Chart == id })
+		}
 	}
 	return nil
 }

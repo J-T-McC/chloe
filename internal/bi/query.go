@@ -449,7 +449,7 @@ func (b *qb) bucket(f Field, bucket string) string {
 		return map[string]string{
 			"year": f("%Y"), "quarter": "CONCAT(YEAR(" + col + "), '-Q', QUARTER(" + col + "))", "month": f("%Y-%m"),
 			"week": "DATE_FORMAT(DATE_SUB(" + col + ", INTERVAL DAYOFWEEK(" + col + ") - 1 DAY), '%Y-%m-%d')",
-			"day": f("%Y-%m-%d"), "hour": f("%Y-%m-%d %H"), "minute": f("%Y-%m-%d %H:%i"), "second": f("%Y-%m-%d %H:%i:%s"),
+			"day":  f("%Y-%m-%d"), "hour": f("%Y-%m-%d %H"), "minute": f("%Y-%m-%d %H:%i"), "second": f("%Y-%m-%d %H:%i:%s"),
 			"quarter_x": "CONCAT('Q', QUARTER(" + col + "))", "month_x": f("%m"), "week_x": f("W%U"), "day_x": f("%d"),
 			"weekday_x": "CAST(DAYOFWEEK(" + col + ") - 1 AS CHAR)", "hour_x": f("%H"), "minute_x": f("%i"), "second_x": f("%s"),
 		}[bucket]

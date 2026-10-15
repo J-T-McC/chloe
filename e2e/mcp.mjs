@@ -276,6 +276,45 @@ await step("agent builds an ER model", async () => {
   await mcpTab();
 });
 
+await step("agent builds a report and writes notes", async () => {
+  await page.getByLabel("Reports").check();
+  await page.waitForTimeout(200);
+  const ok = async (name, args) => {
+    const r = await tool(name, args);
+    if (r.isError) throw new Error(`${name}: ${text(r)}`);
+    return r.structuredContent;
+  };
+  await ok("create_workspace", { name: "Agent report" });
+  await ok("create_data_source", { workspace: "Agent report", name: "Rows", connection: "big", table: "n" });
+  await ok("create_chart", { workspace: "Agent report", name: "Row count", data_source: "Rows", type: "value", value: [{ field: "id", aggregate: "count" }] });
+  await ok("create_chart", { workspace: "Agent report", name: "Last rows", data_source: "Rows", type: "table", value: [{ field: "id" }, { field: "v" }], sort: { by: "dimension", desc: true }, top: 5 });
+  await ok("create_dashboard", { workspace: "Agent report", name: "Daily", pages: [{ rows: [
+    { height: "S", tiles: [{ text: "# Daily rows\nWhat the table looks like today." }] },
+    { tiles: [{ chart: "Row count", span: 4 }, { chart: "Last rows" }] },
+  ] }] });
+  const r = await ok("refresh_dashboard", { workspace: "Agent report", dashboard: "Daily" });
+  const n = r.pages[0].charts[0].rows[0][0];
+  if (typeof n !== "number" || n < 200) throw new Error("refresh: " + JSON.stringify(r.pages[0].charts[0]));
+  await ok("set_notes", { workspace: "Agent report", dashboard: "Daily", markdown: `**${n} rows**, unchanged. <script>window.pwned = 1</script>` });
+  await ok("open_dashboard", { workspace: "Agent report", dashboard: "Daily" });
+  const dash = page.locator(".bi-dash-editor:visible");
+  await dash.getByTestId("bi-notes").waitFor();
+  const notes = await dash.getByTestId("bi-notes").innerText();
+  if (!notes.includes("Notes from") || !notes.includes(`${n} rows`)) throw new Error("notes: " + notes);
+  if (await dash.getByTestId("bi-notes").locator("script, strong >> nth=1").count()) throw new Error("unsafe markup rendered");
+  if (await page.evaluate(() => window.pwned)) throw new Error("agent script ran");
+  await dash.getByTestId("bi-value").filter({ hasText: String(n) }).waitFor();
+  await dash.locator(".bi-table tbody tr").first().waitFor();
+  // Tiles fit the page.
+  const fit = await page.evaluate(() => {
+    const pg = document.querySelector(".bi-dash-editor .bi-canvas-page").getBoundingClientRect();
+    return [...document.querySelectorAll(".bi-dash-editor .react-grid-item")].every((el) => el.getBoundingClientRect().right <= pg.right + 1);
+  });
+  if (!fit) throw new Error("tiles run past the page");
+  await shot("mcp-report");
+  await mcpTab();
+});
+
 // A stdio MCP client: one JSON-RPC message per line on the bridge's stdin and stdout.
 function stdioClient(command, args, env) {
   const child = spawn(command, args, { env: { ...process.env, ...env }, stdio: ["pipe", "pipe", "pipe"] });

@@ -214,7 +214,7 @@ export function buildOption(chart: B.Chart, data: B.Data, theme: ChartTheme): EC
     ...base,
     legend,
     tooltip: { ...tooltip, trigger: "axis", axisPointer: isLine ? { type: "line", lineStyle: { color: t.axis } } : { type: "shadow", shadowStyle: { color: theme === "dark" ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)" } } },
-    grid: { left: 8, right: legendShown && legendPos === "right" ? 140 : props.labels && (isLine || horizontal) ? 40 : 16, top: legendShown && legendPos === "top" ? 36 : 12, bottom: (legendShown && legendPos === "bottom" ? 32 : 4) + (props.xTitle && !horizontal ? 24 : 0), containLabel: true },
+    grid: { left: 8, right: legendShown && legendPos === "right" ? 140 : props.labels && (isLine || horizontal) ? 40 : 16, top: legendShown && legendPos === "top" ? 36 : props.labels ? 22 : 12, bottom: (legendShown && legendPos === "bottom" ? 32 : 4) + (props.xTitle && !horizontal ? 24 : 0), containLabel: true },
     xAxis: horizontal ? valueAxis : categoryAxis,
     yAxis: horizontal ? { ...categoryAxis, inverse: true } : valueAxis,
     series,

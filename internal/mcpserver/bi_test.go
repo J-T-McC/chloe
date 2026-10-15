@@ -76,7 +76,7 @@ INSERT INTO orders VALUES (1, 1, 10, '2026-01-05'), (2, 1, 15, '2026-02-01'), (3
 	// A chart read from get_workspace goes back into edit_chart unchanged.
 	f.call(t, "create_chart", map[string]any{"workspace": "Sales", "name": "Scorecard", "data_source": "Orders", "type": "table",
 		"value": []any{map[string]any{"field": "email"}, map[string]any{"field": "id", "aggregate": "count"}, map[string]any{"field": "total", "aggregate": "sum"}},
-		"sort": map[string]any{"by": "value", "field": "total", "desc": true}, "filters": []any{map[string]any{"field": "placed_at", "op": "in_last", "value": []any{100, "year"}}}}, "")
+		"sort":  map[string]any{"by": "value", "field": "total", "desc": true}, "filters": []any{map[string]any{"field": "placed_at", "op": "in_last", "value": []any{100, "year"}}}}, "")
 	var got map[string]any
 	for _, ch := range f.call(t, "get_workspace", map[string]any{"workspace": "Sales"}, "")["charts"].([]any) {
 		if ch.(map[string]any)["name"] == "Scorecard" {

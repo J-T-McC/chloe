@@ -52,7 +52,7 @@ export function Delete(path: string): $CancellablePromise<void> {
 }
 
 /**
- * DeleteObject removes a data source or chart from a workspace.
+ * DeleteObject removes a data source, chart or dashboard from a workspace.
  */
 export function DeleteObject(path: string, id: string): $CancellablePromise<void> {
     return $Call.ByID(3844980337, path, id);
@@ -118,6 +118,13 @@ export function Reveal(path: string): $CancellablePromise<void> {
  */
 export function SaveChart(path: string, c: bi$0.Chart): $CancellablePromise<bi$0.Chart> {
     return $Call.ByID(534271632, path, c);
+}
+
+/**
+ * SaveDashboard stores a dashboard (new when it has no ID).
+ */
+export function SaveDashboard(path: string, d: bi$0.Dashboard): $CancellablePromise<bi$0.Dashboard> {
+    return $Call.ByID(587631868, path, d);
 }
 
 /**

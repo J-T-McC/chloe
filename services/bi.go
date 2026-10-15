@@ -182,7 +182,18 @@ func (s *BIService) SaveChart(path string, c bi.Chart) (bi.Chart, error) {
 	return saved, err
 }
 
-// DeleteObject removes a data source or chart from a workspace.
+// SaveDashboard stores a dashboard (new when it has no ID).
+func (s *BIService) SaveDashboard(path string, d bi.Dashboard) (bi.Dashboard, error) {
+	var saved bi.Dashboard
+	_, err := s.update(path, func(w *bi.Workspace) error {
+		var err error
+		saved, err = w.PutDashboard(d)
+		return err
+	})
+	return saved, err
+}
+
+// DeleteObject removes a data source, chart or dashboard from a workspace.
 func (s *BIService) DeleteObject(path, id string) error {
 	var archived string
 	w, err := s.update(path, func(w *bi.Workspace) error {

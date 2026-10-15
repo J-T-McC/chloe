@@ -4760,3 +4760,282 @@ table.mapping select {
   display: flex;
   gap: 8px;
 }
+
+/* Dashboards */
+.bi-dash-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  outline: none;
+}
+
+.toolbar button.tb-drop {
+  padding: 2px 6px;
+  margin-left: -4px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.bi-pages {
+  height: 100%;
+  overflow: auto;
+  padding: 8px;
+  background: var(--bg-2);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bi-page-thumb {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+
+.bi-page-thumb.selected {
+  background: var(--sel);
+  border-color: var(--sel-strong);
+}
+
+.bi-page-art {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.bi-page-art.slide {
+  aspect-ratio: 16 / 9;
+}
+
+.bi-page-art.report {
+  aspect-ratio: 3 / 4;
+}
+
+.bi-page-name {
+  font-size: 11.5px;
+  color: var(--text-2);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.bi-page-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+}
+
+.bi-dash-canvas-wrap {
+  height: 100%;
+  overflow: auto;
+  /* A report's scrollbar mustn't change the width the grid was measured at. */
+  scrollbar-gutter: stable;
+  padding: 16px;
+  background: var(--bg-3);
+}
+
+.bi-canvas {
+  width: 100%;
+}
+
+.bi-canvas-page {
+  position: relative;
+  margin: 0 auto;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+}
+
+.bi-canvas.report .bi-canvas-page {
+  overflow: visible;
+  padding-bottom: 12px;
+}
+
+.bi-canvas-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #898781;
+  pointer-events: none;
+}
+
+.bi-tile {
+  position: relative;
+  display: flex;
+}
+
+.bi-tile > .bi-chart,
+.bi-tile > .bi-text-tile {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.bi-tile.selected > .bi-chart,
+.bi-tile.selected > .bi-text-tile {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.bi-tile .bi-chart {
+  padding: 10px 12px 8px;
+}
+
+.bi-tile .bi-chart-title {
+  font-size: 13.5px;
+  margin-bottom: 4px;
+}
+
+/* The figure scales with its tile. */
+.bi-tile .bi-chart-body {
+  container-type: size;
+}
+
+.bi-tile .bi-value-figure {
+  font-size: clamp(16px, min(42cqh, 20cqw), 56px);
+}
+
+.bi-tile .bi-value-label {
+  font-size: clamp(10px, 9cqh, 13px);
+  margin-top: 2px;
+}
+
+.bi-tile-grip {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 3;
+  padding: 2px;
+  border-radius: 4px;
+  color: #898781;
+  background: rgba(128, 128, 128, 0.12);
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.bi-tile:hover .bi-tile-grip,
+.bi-tile.selected .bi-tile-grip {
+  opacity: 1;
+}
+
+.bi-text-tile {
+  border: 1px solid;
+  border-radius: 10px;
+  padding: 10px 16px;
+  overflow: auto;
+  user-select: text;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.bi-text-tile.notes {
+  border-left: 3px solid #2a78d6;
+}
+
+.bi-notes-head {
+  font-size: 11.5px;
+  font-weight: 600;
+  opacity: 0.6;
+  margin-bottom: 4px;
+}
+
+.bi-md {
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.bi-md > :first-child {
+  margin-top: 0;
+}
+
+.bi-md > :last-child {
+  margin-bottom: 0;
+}
+
+.bi-md h1 {
+  font-size: 24px;
+  margin: 0 0 6px;
+}
+
+.bi-md h2 {
+  font-size: 18px;
+  margin: 0 0 6px;
+}
+
+.bi-md h3 {
+  font-size: 15px;
+  margin: 8px 0 4px;
+}
+
+.bi-md p,
+.bi-md ul,
+.bi-md ol {
+  margin: 4px 0;
+}
+
+.bi-md a {
+  color: #2a78d6;
+}
+
+.bi-md code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: rgba(128, 128, 128, 0.14);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.bi-md table {
+  border-collapse: collapse;
+  margin: 6px 0;
+}
+
+.bi-md th,
+.bi-md td {
+  border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+  padding: 3px 10px;
+  text-align: left;
+}
+
+.bi-md blockquote {
+  margin: 6px 0;
+  padding-left: 10px;
+  border-left: 3px solid rgba(128, 128, 128, 0.35);
+  opacity: 0.85;
+}
+
+.bi-md-input {
+  font-family: var(--mono);
+  font-size: 12px;
+  resize: vertical;
+}
+
+.bi-present.dash {
+  padding: 24px 32px 40px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  align-items: stretch;
+}
+
+.bi-present.dash .bi-canvas-page {
+  box-shadow: none;
+}
+
+.react-grid-item.react-grid-placeholder {
+  background: var(--accent);
+  opacity: 0.15;
+  border-radius: 10px;
+}

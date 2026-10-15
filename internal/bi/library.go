@@ -27,6 +27,7 @@ type Entry struct {
 	Name        string `json:"name"`
 	DataSources int    `json:"dataSources"`
 	Charts      int    `json:"charts"`
+	Dashboards  int    `json:"dashboards"`
 	CreatedBy   string `json:"createdBy,omitempty"`
 	Modified    string `json:"modified"`
 	Error       string `json:"error,omitempty"` // the file couldn't be read
@@ -59,7 +60,7 @@ func (l Library) List() []Entry {
 		if w, err := Read(p); err != nil {
 			e.Error = err.Error()
 		} else {
-			e.Name, e.DataSources, e.Charts, e.CreatedBy = w.Name, len(w.DataSources), len(w.Charts), w.CreatedBy
+			e.Name, e.DataSources, e.Charts, e.Dashboards, e.CreatedBy = w.Name, len(w.DataSources), len(w.Charts), len(w.Dashboards), w.CreatedBy
 		}
 		out = append(out, e)
 	}
@@ -238,6 +239,9 @@ func Write(p string, w Workspace) error {
 	}
 	if w.Charts == nil {
 		w.Charts = []Chart{}
+	}
+	if w.Dashboards == nil {
+		w.Dashboards = []Dashboard{}
 	}
 	data, err := w.Marshal()
 	if err != nil {

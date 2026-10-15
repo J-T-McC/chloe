@@ -24,7 +24,7 @@ let catalog: Promise<BICatalog> | null = null;
 export const loadCatalog = () => (catalog ??= BI.Catalog());
 
 /** Workspace objects by tab kind. */
-export type ObjectKind = "source" | "chart";
+export type ObjectKind = "source" | "chart" | "dashboard";
 
 export function workspaceTitle(name: string) {
   return `${name} (BI)`;
@@ -39,8 +39,11 @@ export async function openWorkspace(path: string) {
   }
 }
 
+const TAB_KIND = { source: "bisource", chart: "bichart", dashboard: "bidash" } as const;
+const NEW_TITLE = { source: "New Data Source", chart: "New Chart", dashboard: "New Dashboard" };
+
 export function openObject(path: string, kind: ObjectKind, id: string, name: string) {
-  useApp.getState().openTab({ kind: kind === "source" ? "bisource" : "bichart", title: name || (kind === "source" ? "New Data Source" : "New Chart"), biPath: path, biId: id });
+  useApp.getState().openTab({ kind: TAB_KIND[kind], title: name || NEW_TITLE[kind], biPath: path, biId: id });
 }
 
 async function openObjectById(path: string, id: string) {
@@ -48,7 +51,9 @@ async function openObjectById(path: string, id: string) {
     const w = await BI.Open(path);
     const c = arr(w.charts).find((x) => x.id === id);
     const s = arr(w.dataSources).find((x) => x.id === id);
-    if (c) openObject(path, "chart", c.id, c.name);
+    const d = arr(w.dashboards).find((x) => x.id === id);
+    if (d) openObject(path, "dashboard", d.id, d.name);
+    else if (c) openObject(path, "chart", c.id, c.name);
     else if (s) openObject(path, "source", s.id, s.name);
   } catch (e) {
     alert("Could not open the chart", errorText(e));
