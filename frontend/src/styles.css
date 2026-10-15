@@ -4946,6 +4946,14 @@ table.mapping select {
 
 .bi-text-tile.notes {
   border-left: 3px solid #2a78d6;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Auto margins centre the notes when there's room and fall back to the top
+   (scrollable) when there isn't. */
+.bi-notes-body {
+  margin: auto 0;
 }
 
 /* A caption beside the first line, so a one-line note fits one row. */

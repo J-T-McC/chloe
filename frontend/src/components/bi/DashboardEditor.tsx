@@ -428,13 +428,18 @@ function TextTile({ item, theme }: { item: B.Item; theme: ChartTheme }) {
   const by = createdByLabel(item.createdBy);
   return (
     <div className={"bi-text-tile theme-" + theme + (by ? " notes" : "")} style={{ background: t.surface, color: t.ink, borderColor: t.border }} data-testid={by ? "bi-notes" : "bi-text"}>
-      {by && (
-        <div className="bi-notes-head">
-          Notes from {by.replace(/^AI \((.*)\)$/, "$1")}
-          {item.updated ? ` · ${new Date(item.updated).toLocaleString()}` : ""}
+      {by ? (
+        // Notes sit centred in their tile, so the grid's leftover space splits above and below.
+        <div className="bi-notes-body">
+          <div className="bi-notes-head">
+            Notes from {by.replace(/^AI \((.*)\)$/, "$1")}
+            {item.updated ? ` · ${new Date(item.updated).toLocaleString()}` : ""}
+          </div>
+          <Markdown text={item.text ?? ""} />
         </div>
+      ) : (
+        <Markdown text={item.text ?? ""} />
       )}
-      <Markdown text={item.text ?? ""} />
     </div>
   );
 }
