@@ -702,3 +702,17 @@ func TestTiesAlphabetical(t *testing.T) {
 		t.Errorf("plural unit: %v", err)
 	}
 }
+
+func TestOpenEndedWindow(t *testing.T) {
+	defer func(f func() time.Time) { now = f }(now)
+	now = func() time.Time { return time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC) }
+	s := func(v string) *string { return &v }
+	src := ordersSource()
+	c := Chart{Type: "bar", Dimension: []ChartField{{Field: "placed_at", Aggregate: "day"}}, Value: []ChartField{{Field: "id", Aggregate: "count"}},
+		Filters: []Filter{{Field: "placed_at", Op: ">=", Values: []string{"2026-10-12"}}}}
+	cols := []Column{{Role: "dimension", Aggregate: "day", Type: TypeDateTime}, {Role: "value", Type: TypeNumber}}
+	rows := ShapeRange(c, cols, [][]*string{{s("2026-10-13"), s("2")}}, FilterWindow(src, c))
+	if len(rows) != 4 || rows[0][0] != "2026-10-12" || rows[3][0] != "2026-10-15" {
+		t.Errorf(">= fills to today: %v", rows)
+	}
+}

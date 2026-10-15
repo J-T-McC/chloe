@@ -336,6 +336,11 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
   `set_notes` on the page with the same number. `refresh_dashboard` returns a page's own `text` apart from agents'
   `notes` (with who wrote them and when).
 - Within each dimension value, series always come back in the same order (by name), filled rows included.
+- A `>=`/`>` filter on the date dimension with no end fills to today (in the source's zone), so charts side by side
+  end on the same day.
+- `refresh_dashboard` reads a chart that's on several pages once (one result, one `as_of`) and reports each text
+  tile's and note's height against the rows its text needs (`text_fit`, `needed`).
+- Value axes leave about 8% above the tallest value.
 - Deleting a chart takes its tiles off every dashboard. Auto refresh (off, 1, 5, 15, 30, 60 min) reloads the open
   dashboard. Present shows one page at a time (← →, Esc).
 - MCP: `create_dashboard` and `edit_dashboard` (rows of tiles across 12 columns; pages default to report),

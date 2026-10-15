@@ -69,6 +69,9 @@ func TestDashboardTools(t *testing.T) {
 	f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "page": "3", "markdown": "x"}, "has 1 page")
 	r = f.call(t, "refresh_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly"}, "")
 	page = r["pages"].([]any)[0].(map[string]any)
+	if tf := page["text_fit"].([]any)[0].(map[string]any); tf["needed"] != 2.0 || tf["h"] != 2.0 || tf["fits"] != true {
+		t.Errorf("text fit: %v", tf)
+	}
 	if nt := page["notes"].([]any)[0].(map[string]any); nt["by"] != "test" || nt["markdown"] != "Updated." || len(page["text"].([]any)) != 1 {
 		t.Errorf("text and notes apart: %v", page)
 	}
@@ -193,8 +196,13 @@ func TestDashboardTools(t *testing.T) {
 	if a, b := pgs[0].(map[string]any)["items"].([]any), pgs[1].(map[string]any)["items"].([]any); len(a) != 1 || len(b) != 2 || b[0].(map[string]any)["text"] != "On top." || b[0].(map[string]any)["y"] != 0.0 {
 		t.Fatalf("notes follow their page: %v", pgs)
 	}
+	// A chart on two pages is read once; text tiles report their fit.
+	dup := f.call(t, "refresh_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Moves"}, "")["pages"].([]any)
+	if a, b := dup[0].(map[string]any)["charts"].([]any)[0].(map[string]any), dup[1].(map[string]any)["charts"].([]any)[0].(map[string]any); a["as_of"] != b["as_of"] {
+		t.Errorf("shared chart read twice: %v %v", a["as_of"], b["as_of"])
+	}
 	rf := f.call(t, "refresh_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Moves", "page": "Overview"}, "")
-	if nt := rf["pages"].([]any)[0].(map[string]any)["notes"].([]any)[0].(map[string]any); nt["place"] != "top" || nt["fits"] != true || nt["h"] != 1.0 {
+	if nt := rf["pages"].([]any)[0].(map[string]any)["notes"].([]any)[0].(map[string]any); nt["place"] != "top" || nt["fits"] != true || nt["h"] != 1.0 || nt["needed"] != 1.0 {
 		t.Errorf("notes in refresh: %v", nt)
 	}
 
