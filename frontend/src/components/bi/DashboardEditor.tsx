@@ -2,7 +2,7 @@
 // (Navicat's dashboard tab, with tiles that snap to the grid). Pages are 16:9
 // slides or reports that grow downward. Tiles are dragged by their grip and
 // resized from the corner; Present shows the pages full screen.
-import { Copy, Download, FileText, GripVertical, Plus, Presentation, RefreshCw, Save, Trash2 } from "lucide-react";
+import { Copy, Download, FileText, GripVertical, Lock, Plus, Presentation, RefreshCw, Save, Shapes, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ReactGridLayout, { verticalCompactor } from "react-grid-layout";
 import { createScaledStrategy } from "react-grid-layout/core";
@@ -18,6 +18,7 @@ import { Split } from "../Split";
 import { biChanged, openObject, sourceFields } from "./actions";
 import { ChartInteraction, ChartView } from "./ChartView";
 import { ChartTypeIcon } from "./icons";
+import { SHAPES, ShapeTile } from "./ShapeTile";
 import { Markdown } from "./Markdown";
 import { ChartTheme, TOKENS } from "./theme";
 import { useWorkspace } from "./WorkspaceView";
@@ -177,6 +178,20 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
         </button>
         <button onClick={() => addTile({ kind: "text", text: "## Title\n\nWrite a summary here." }, 12, 4)}>
           <FileText size={14} /> Add Text
+        </button>
+        <button
+          onClick={(e) =>
+            openMenu(
+              e,
+              SHAPES.map(([shape, label]) => {
+                // Lines run across one row; outlines start roughly square; icons a little taller than wide.
+                const [w, h] = shape === "line" || shape === "arrow" ? [4, 1] : ["database", "cloud", "server", "desktop", "mobile", "person"].includes(shape) ? [2, 5] : [3, 6];
+                return { label, onClick: () => addTile({ kind: "shape", shape, lineWidth: 2 } as never, w, h) };
+              }),
+            )
+          }
+        >
+          <Shapes size={14} /> Add Shape
         </button>
         <span className="tb-sep" />
         <button onClick={() => setTick((x) => x + 1)} onContextMenu={refreshMenu} title="Refresh Data (⌘R); right-click for auto refresh">
@@ -410,7 +425,10 @@ export function PageCanvas({ page, charts, path, theme, tick, editable, selected
   const slide = page.size === "16:9";
   const scale = outer.width ? (slide && maxHeight ? Math.min(outer.width / PAGE_WIDTH, maxHeight / SLIDE_HEIGHT) : outer.width / PAGE_WIDTH) : 0;
   const strategy = useMemo(() => createScaledStrategy(scale || 1), [scale]);
-  const layout = useMemo(() => arr(page.items).map((it) => ({ i: it.id, x: it.x, y: it.y, w: it.w, h: it.h, minW: 2, minH: it.kind === "text" ? 2 : 4 })), [page.items]);
+  const layout = useMemo(
+    () => arr(page.items).map((it) => ({ i: it.id, x: it.x, y: it.y, w: it.w, h: it.h, minW: it.kind === "shape" ? 1 : 2, minH: it.kind === "chart" ? 4 : it.kind === "shape" ? 1 : 2, static: !!it.locked })),
+    [page.items],
+  );
   const t = TOKENS[theme];
   const logicalHeight = slide ? SLIDE_HEIGHT : inner.height;
   return (
@@ -434,9 +452,14 @@ export function PageCanvas({ page, charts, path, theme, tick, editable, selected
             >
               {arr(page.items).map((it) => (
                 <div key={it.id} className={"bi-tile" + (it.id === selected ? " selected" : "")} onPointerDown={() => onSelect?.(it.id)} data-kind={it.kind}>
-                  {editable && (
+                  {editable && !it.locked && (
                     <div className="bi-tile-grip" title="Drag to move">
                       <GripVertical size={13} />
+                    </div>
+                  )}
+                  {editable && it.locked && (
+                    <div className="bi-tile-lock" title="Locked: unlock it in its properties to move or resize it">
+                      <Lock size={11} />
                     </div>
                   )}
                   {it.kind === "chart" ? (
@@ -465,6 +488,8 @@ export function PageCanvas({ page, charts, path, theme, tick, editable, selected
                         />
                       );
                     })()
+                  ) : it.kind === "shape" ? (
+                    <ShapeTile item={it} theme={theme} />
                   ) : (
                     <TextTile item={it} theme={theme} values={values} />
                   )}
@@ -575,8 +600,37 @@ function DashProps(p: {
     const chart = p.charts.find((c) => c.id === item.chart);
     return (
       <div className="bi-props-pane">
-        <div className="pane-title">{item.kind === "chart" ? "Chart" : "Text"}</div>
-        {item.kind === "chart" ? (
+        <div className="pane-title">{item.kind === "chart" ? "Chart" : item.kind === "shape" ? "Shape" : "Text"}</div>
+        {item.kind === "shape" ? (
+          <section className="bi-prop-section">
+            <label className="bi-prop">
+              Shape
+              <select aria-label="Shape" value={item.shape} onChange={(e) => p.setItem(item.id, { shape: e.target.value })}>
+                {SHAPES.map(([s, l]) => (
+                  <option key={s} value={s}>
+                    {l}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="bi-prop-row">
+              <label className="bi-prop">
+                Colour
+                <input aria-label="Shape colour" type="color" value={item.color || "#52514e"} onChange={(e) => p.setItem(item.id, { color: e.target.value })} />
+              </label>
+              <label className="bi-prop">
+                Line width
+                <input aria-label="Line width" type="number" min={1} max={12} value={item.lineWidth || 2} onChange={(e) => p.setItem(item.id, { lineWidth: Math.max(1, Number(e.target.value) || 1) })} />
+              </label>
+            </div>
+            <label className="check">
+              <input type="checkbox" checked={!!item.filled} onChange={(e) => p.setItem(item.id, { filled: e.target.checked })} /> Filled
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={!!item.dashed} onChange={(e) => p.setItem(item.id, { dashed: e.target.checked })} /> Dashed
+            </label>
+          </section>
+        ) : item.kind === "chart" ? (
           <section className="bi-prop-section">
             <label className="bi-prop">
               Chart
@@ -628,6 +682,9 @@ function DashProps(p: {
           <div className="muted">
             Column {item.x + 1}, row {item.y + 1} · {item.w}×{item.h}
           </div>
+          <label className="check">
+            <input type="checkbox" aria-label="Lock tile" checked={!!item.locked} onChange={(e) => p.setItem(item.id, { locked: e.target.checked })} /> Lock position and size
+          </label>
           <button onClick={p.remove}>
             <Trash2 size={13} /> Remove from Page
           </button>

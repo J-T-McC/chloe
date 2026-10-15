@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -47,9 +48,16 @@ type Page struct {
 const (
 	ItemChart = "chart"
 	ItemText  = "text"
+	ItemShape = "shape"
 )
 
-// Item is a tile on a page: a chart of the workspace, or Markdown text.
+var colorRe = regexp.MustCompile(`^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$`)
+
+// Shapes a shape tile draws (Navicat's line, arrow, rectangle, ellipse, triangle
+// and icons).
+var Shapes = []string{"line", "arrow", "rectangle", "ellipse", "triangle", "right_triangle", "right_arrow", "database", "cloud", "server", "desktop", "mobile", "person"}
+
+// Item is a tile on a page: a chart of the workspace, Markdown text or a shape.
 type Item struct {
 	ID   string `json:"id"`
 	Kind string `json:"kind"`
@@ -69,6 +77,15 @@ type Item struct {
 	// Targets are the charts a Control chart filters; empty means every chart on
 	// the page that has its field.
 	Targets []string `json:"targets,omitempty"`
+	// Shape is what a shape tile draws (see Shapes), in Color (default the
+	// theme's ink), filled or outlined LineWidth px wide, dashed or not.
+	Shape     string `json:"shape,omitempty"`
+	Color     string `json:"color,omitempty"`
+	Filled    bool   `json:"filled,omitempty"`
+	LineWidth int    `json:"lineWidth,omitempty"`
+	Dashed    bool   `json:"dashed,omitempty"`
+	// Locked tiles can't be moved or resized.
+	Locked bool `json:"locked,omitempty"`
 }
 
 func (w *Workspace) Dashboard(id string) *Dashboard {
@@ -158,8 +175,15 @@ func (d *Dashboard) normalize(w *Workspace) error {
 					return fmt.Errorf("page %d: no chart %q in the workspace", i+1, it.Chart)
 				}
 			case ItemText:
+			case ItemShape:
+				if !slices.Contains(Shapes, it.Shape) {
+					return fmt.Errorf("page %d: a shape is one of %s, not %q", i+1, strings.Join(Shapes, ", "), it.Shape)
+				}
+				if it.Color != "" && !colorRe.MatchString(it.Color) {
+					return fmt.Errorf("page %d: a shape's color is a hex color like #2a78d6, not %q", i+1, it.Color)
+				}
 			default:
-				return fmt.Errorf("page %d: a tile is a chart or text, not %q", i+1, it.Kind)
+				return fmt.Errorf("page %d: a tile is a chart, text or shape, not %q", i+1, it.Kind)
 			}
 			if it.W < 1 || it.H < 1 || it.X < 0 || it.Y < 0 || it.X+it.W > PageCols {
 				return fmt.Errorf("page %d: tile at %d,%d (%dx%d) is outside the %d-column grid", i+1, it.X, it.Y, it.W, it.H, PageCols)

@@ -354,7 +354,7 @@ export interface Filter {
 }
 
 /**
- * Item is a tile on a page: a chart of the workspace, or Markdown text.
+ * Item is a tile on a page: a chart of the workspace, Markdown text or a shape.
  */
 export interface Item {
     "id": string;
@@ -393,6 +393,21 @@ export interface Item {
      * the page that has its field.
      */
     "targets"?: string[] | null;
+
+    /**
+     * Shape is what a shape tile draws (see Shapes), in Color (default the
+     * theme's ink), filled or outlined LineWidth px wide, dashed or not.
+     */
+    "shape"?: string;
+    "color"?: string;
+    "filled"?: boolean;
+    "lineWidth"?: number;
+    "dashed"?: boolean;
+
+    /**
+     * Locked tiles can't be moved or resized.
+     */
+    "locked"?: boolean;
 }
 
 /**
