@@ -546,6 +546,31 @@ await step("joined tables and custom fields in a new data source", async () => {
   check((await editor().getByTestId("bi-value").innerText()) === "1,859", "double total: " + (await editor().getByTestId("bi-value").innerText()));
 });
 
+await step("shapes and locked tiles on a dashboard", async () => {
+  await page.locator(".tab", { hasText: "Sales (BI)" }).click();
+  await page.locator(".bi-workspace:visible").getByRole("button", { name: "New Dashboard" }).click();
+  await dash().waitFor();
+  await dash().getByRole("button", { name: "Add Shape" }).click();
+  await page.locator(".menu-item", { hasText: /^\s*Arrow\s*$/ }).click();
+  await dash().locator('[data-testid="bi-shape"][data-shape="arrow"]').waitFor();
+  await dash().getByLabel("Shape", { exact: true }).selectOption("database");
+  await dash().getByRole("button", { name: "Add Shape" }).click();
+  await page.locator(".menu-item", { hasText: /^\s*Server\s*$/ }).click();
+  await dash().locator('[data-testid="bi-shape"][data-shape="server"]').waitFor();
+  await dash().locator('[data-testid="bi-shape"][data-shape="database"]').waitFor();
+  await dash().locator(".bi-tile", { has: page.locator('[data-shape="database"]') }).click();
+  await dash().getByLabel("Lock tile").check();
+  const tile = dash().locator(".bi-tile", { has: page.locator('[data-shape="database"]') });
+  check(!(await tile.locator(".bi-tile-grip").count()) && (await tile.locator(".bi-tile-lock").count()) === 1, "locked tile still movable");
+  await dash().locator(".bi-dash-canvas-wrap").click({ position: { x: 4, y: 4 } });
+  await dash().getByLabel("Dashboard name").fill("Diagram");
+  await dash().getByRole("button", { name: "Save" }).click();
+  await page.locator(".tab.active", { hasText: "Diagram" }).waitFor();
+  await page.waitForTimeout(300);
+  check(!(await dash().locator(".error-banner").count()), "save error");
+  await shot("bi-shapes");
+});
+
 await step("dark theme", async () => {
   await page.locator(".tab", { hasText: "Sales (BI)" }).click();
   await page.locator(".bi-workspace:visible").getByLabel("Theme").selectOption("dark");

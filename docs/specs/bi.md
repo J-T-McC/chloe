@@ -376,7 +376,7 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 2. **Dashboards and reports** ✅: pages, charts, Markdown text, refresh and auto refresh, Present, Export (PDF, PNG),
    and the MCP dashboard, notes and export tools. Snapshots were dropped; SVG/HTML export and print are not planned
    unless asked for.
-3. **The rest of Navicat's BI**: Waterfall, Tornado, Treemap, Scatter, Heatmap, Trend, KPI, Gauge, Pivot Table ✅; dynamic date filters ✅; parameters ✅; interaction and Control ✅; custom fields ✅; joined tables ✅;
+3. **The rest of Navicat's BI**: Waterfall, Tornado, Treemap, Scatter, Heatmap, Trend, KPI, Gauge, Pivot Table ✅; dynamic date filters ✅; parameters ✅; interaction and Control ✅; custom fields ✅; joined tables ✅; shapes and lock ✅;
    Control; interaction (cross-filter, highlight, controls); parameters; custom fields; joined tables; shapes, groups,
    lock, alignment guides; dynamic date filters.
 4. MongoDB data sources (collection, or aggregation pipeline), with charts over them.
@@ -476,4 +476,12 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
   left, right or full (PostgreSQL) join on one or more pairs of matching fields. The first table's columns keep their
   names; joined columns come through as `table.column` and can be matched by later joins. Their columns are read
   when the source is saved, previewed or its fields are read. Cross-connection joins stay out.
+
+## Implementation notes (phase 3, shapes and lock)
+- **Add Shape** puts a shape tile on the grid: line, arrow, rectangle, ellipse, triangle, right triangle, right
+  arrow, and database, cloud, server, desktop, mobile and person icons for diagrams. Each has a colour (default the
+  theme's secondary ink), line width, filled or outlined, and dashed or solid; lines and outlines stretch to the
+  tile with strokes kept at their width, icons keep their proportions. Shapes have no card behind them.
+- Any tile can be **locked** (its properties: Lock position and size): it can't be dragged or resized and shows a
+  small lock in the designer. Navicat's free-canvas groups and alignment guides aren't needed on the grid.
 
