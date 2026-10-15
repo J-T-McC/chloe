@@ -172,18 +172,15 @@ type RowTile struct {
 }
 
 // LayoutRows turns rows of tiles into placed items, starting at row y. Spans
-// left at 0 share what the row has left equally. On a report page (grow) a row
-// with text is made tall enough for it, and a row of only text without a height
-// is exactly as tall as its text.
-func LayoutRows(rows [][]RowTile, heights []string, y int, grow bool, chartID func(string) (string, error)) ([]Item, int, error) {
+// left at 0 share what the row has left equally. A row of only text is exactly
+// as tall as its text (its height label is ignored); a row with a chart takes
+// its label's height, growing if its text needs more.
+func LayoutRows(rows [][]RowTile, heights []string, y int, chartID func(string) (string, error)) ([]Item, int, error) {
 	var items []Item
 	for r, row := range rows {
 		h := RowHeights["M"]
 		explicit := r < len(heights) && heights[r] != ""
 		textOnly := !slices.ContainsFunc(row, func(t RowTile) bool { return t.Chart != "" })
-		if grow && textOnly && !explicit {
-			h = 2 // a row of text is as tall as its text
-		}
 		if explicit {
 			v, ok := RowHeights[strings.ToUpper(heights[r])]
 			if !ok {
@@ -191,9 +188,12 @@ func LayoutRows(rows [][]RowTile, heights []string, y int, grow bool, chartID fu
 			}
 			h = v
 		}
+		if textOnly {
+			h = 2
+		}
 		used, open := 0, 0
 		for _, t := range row {
-			if grow && t.Text != "" {
+			if t.Text != "" {
 				w := t.Span
 				if w <= 0 {
 					w = PageCols / len(row)
@@ -308,7 +308,8 @@ func TextRowsAt(md string, w int, notes bool) int {
 		blocks++
 	}
 	px += float64(max(0, blocks-1) * blockGapPx)
-	// A tile h rows tall is h*48 + (h-1)*12 pixels.
+	// A tile h rows tall is h*48 + (h-1)*12 pixels (a slide's rows are 47px; at
+	// worst a 3px shortfall there, and text tiles scroll rather than clip).
 	h := int(math.Ceil((px + gapPx) / (rowPx + gapPx)))
 	return max(2, min(30, h))
 }
