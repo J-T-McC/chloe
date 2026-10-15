@@ -171,8 +171,9 @@ type RowTile struct {
 }
 
 // LayoutRows turns rows of tiles into placed items, starting at row y. Spans
-// left at 0 share what the row has left equally.
-func LayoutRows(rows [][]RowTile, heights []string, y int, chartID func(string) (string, error)) ([]Item, int, error) {
+// left at 0 share what the row has left equally. On a report page (grow) a row
+// with text is made tall enough for it.
+func LayoutRows(rows [][]RowTile, heights []string, y int, grow bool, chartID func(string) (string, error)) ([]Item, int, error) {
 	var items []Item
 	for r, row := range rows {
 		h := RowHeights["M"]
@@ -185,6 +186,13 @@ func LayoutRows(rows [][]RowTile, heights []string, y int, chartID func(string) 
 		}
 		used, open := 0, 0
 		for _, t := range row {
+			if grow && t.Text != "" {
+				w := t.Span
+				if w <= 0 {
+					w = PageCols / len(row)
+				}
+				h = max(h, TextRowsAt(t.Text, w))
+			}
 			used += max(t.Span, 0)
 			if t.Span <= 0 {
 				open++
@@ -226,13 +234,28 @@ func LayoutRows(rows [][]RowTile, heights []string, y int, chartID func(string) 
 	return items, y, nil
 }
 
-// TextRows estimates the grid rows Markdown needs on a report page.
-func TextRows(md string) int {
-	lines := 0
+// TextRows estimates the grid rows Markdown needs across a whole page.
+func TextRows(md string) int { return TextRowsAt(md, PageCols) }
+
+// TextRowsAt estimates the grid rows Markdown needs in a tile w columns wide
+// (pages are laid out 1280px wide, rows 48px apart plus 12px gaps).
+func TextRowsAt(md string, w int) int {
+	chars := max(12, (w*105-24)/8) // characters per line at 13.5px
+	px := 30                      // padding
 	for _, l := range strings.Split(strings.TrimSpace(md), "\n") {
-		lines += 1 + len(l)/110
+		t := strings.TrimSpace(l)
+		lineH, n := 21, len(t)
+		switch {
+		case strings.HasPrefix(t, "# "):
+			lineH, n = 36, n*2
+		case strings.HasPrefix(t, "## "):
+			lineH, n = 28, n*3/2
+		case strings.HasPrefix(t, "### "):
+			lineH = 24
+		}
+		px += lineH * (1 + n/chars)
 	}
-	return max(2, min(30, (lines*22+40)/52+1))
+	return max(2, min(30, (px+12+59)/60))
 }
 
 // Bottom is the first free row below a page's tiles.

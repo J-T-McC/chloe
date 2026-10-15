@@ -80,11 +80,18 @@ type ChartResult struct {
 	Error     string      `json:"error,omitempty"`
 }
 
+type NoteOut struct {
+	By       string `json:"by" jsonschema:"the endpoint that wrote them"`
+	Updated  string `json:"updated,omitempty"`
+	Markdown string `json:"markdown"`
+}
+
 type PageResult struct {
 	Page   int           `json:"page"`
 	Name   string        `json:"name,omitempty"`
 	Charts []ChartResult `json:"charts"`
-	Notes  []string      `json:"notes,omitempty" jsonschema:"the page's text tiles, yours and the user's"`
+	Text   []string      `json:"text,omitempty" jsonschema:"the page's own text tiles (part of its layout)"`
+	Notes  []NoteOut     `json:"notes,omitempty" jsonschema:"notes agents wrote with set_notes"`
 }
 
 type RefreshOut struct {
@@ -114,6 +121,7 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 		})
 
 	add(s, srv, ep, &mcp.Tool{Name: "edit_dashboard", Description: "Changes a dashboard created over MCP: replaces its pages, renames it, or sets its refresh. " +
+		"Notes written with set_notes are kept on the page with the same number. " +
 		"The user's dashboards can't be changed, but set_notes can add your notes to them.",
 		Annotations: &mcp.ToolAnnotations{Title: "Edit dashboard", DestructiveHint: &t, OpenWorldHint: &f}},
 		func(ctx context.Context, c *call, in EditDashboardArgs) (DashboardOut, error) {
@@ -138,6 +146,24 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 			if in.Pages != nil {
 				if edited.Pages, err = c.layoutPages(&w, in.Pages); err != nil {
 					return DashboardOut{}, err
+				}
+				// Notes written with set_notes stay on the page with the same number.
+				for i := range edited.Pages {
+					if i >= len(d.Pages) {
+						break
+					}
+					for _, it := range d.Pages[i].Items {
+						if it.Kind == bi.ItemText && it.CreatedBy != "" {
+							if err := setNotes(&edited.Pages[i], it.CreatedBy, it.Text); err != nil {
+								return DashboardOut{}, fmt.Errorf("page %d: keeping the notes by %s: %w", i+1, strings.TrimPrefix(it.CreatedBy, "mcp:"), err)
+							}
+							for j := range edited.Pages[i].Items {
+								if edited.Pages[i].Items[j].CreatedBy == it.CreatedBy {
+									edited.Pages[i].Items[j].Updated = it.Updated
+								}
+							}
+						}
+					}
 				}
 			}
 			saved, err := c.putDashboard(p, edited)
@@ -186,7 +212,7 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 		})
 
 	add(s, srv, ep, readOnlyTool("refresh_dashboard", "Refresh dashboard",
-		"Reads every chart on a dashboard (or one page) as the user sees it now, with the page's text and notes. Values are unformatted numbers."),
+		"Reads every chart on a dashboard (or one page) as the user sees it now, with the page's own text and, separately, the notes agents wrote. Values are unformatted numbers."),
 		func(ctx context.Context, c *call, in RefreshArgs) (RefreshOut, error) {
 			_, w, err := c.workspace(in.Workspace)
 			if err != nil {
@@ -211,7 +237,11 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 				pr := PageResult{Page: i + 1, Name: pg.Name, Charts: []ChartResult{}}
 				for _, it := range pg.Items {
 					if it.Kind == bi.ItemText {
-						pr.Notes = append(pr.Notes, it.Text)
+						if it.CreatedBy != "" {
+							pr.Notes = append(pr.Notes, NoteOut{By: strings.TrimPrefix(it.CreatedBy, "mcp:"), Updated: it.Updated, Markdown: it.Text})
+						} else {
+							pr.Text = append(pr.Text, it.Text)
+						}
 						continue
 					}
 					ch := w.Chart(it.Chart)
@@ -351,7 +381,7 @@ func (c *call) layoutPages(w *bi.Workspace, in []PageArg) ([]bi.Page, error) {
 				return nil, fmt.Errorf("page %d row %d has no tiles", i+1, r+1)
 			}
 		}
-		items, _, err := bi.LayoutRows(rows, heights, 0, chartID)
+		items, _, err := bi.LayoutRows(rows, heights, 0, size == bi.SizeReport, chartID)
 		if err != nil {
 			return nil, fmt.Errorf("page %d: %w", i+1, err)
 		}

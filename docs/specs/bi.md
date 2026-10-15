@@ -322,6 +322,12 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 - Tiles are charts of the workspace or Markdown text (sanitized: no HTML; links open in the browser). An agent's notes
   are a text tile it owns, headed "Notes from <endpoint> · <time>"; `set_notes` replaces it, at the top of a report
   page (pushing the rest down) or in the first free rows of a slide.
+- Pages are laid out at one size, 1280px wide (a slide 1280×720), and scaled to fit wherever they're shown, so the
+  designer is a true miniature of Present and of exports.
+- On report pages a row an agent describes grows to fit its text. `edit_dashboard` keeps notes written with
+  `set_notes` on the page with the same number. `refresh_dashboard` returns a page's own `text` apart from agents'
+  `notes` (with who wrote them and when).
+- Within each dimension value, series always come back in the same order (by name), filled rows included.
 - Deleting a chart takes its tiles off every dashboard. Auto refresh (off, 1, 5, 15, 30, 60 min) reloads the open
   dashboard. Present shows one page at a time (← →, Esc).
 - MCP: `create_dashboard` and `edit_dashboard` (rows of tiles across 12 columns; pages default to report),

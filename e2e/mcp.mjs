@@ -311,6 +311,13 @@ await step("agent builds a report and writes notes", async () => {
     return [...document.querySelectorAll(".bi-dash-editor .react-grid-item")].every((el) => el.getBoundingClientRect().right <= pg.right + 1);
   });
   if (!fit) throw new Error("tiles run past the page");
+  // …and are actually visible: the page has height and the notes are on screen.
+  const shown = await page.evaluate(() => {
+    const fr = document.querySelector(".bi-dash-editor .bi-canvas-frame").getBoundingClientRect();
+    const n = document.querySelector(".bi-dash-editor [data-testid=bi-notes]").getBoundingClientRect();
+    return fr.height > 200 && n.bottom <= fr.bottom && n.height > 20;
+  });
+  if (!shown) throw new Error("the page isn't visible");
   await shot("mcp-report");
   await mcpTab();
 });
