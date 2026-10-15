@@ -308,7 +308,7 @@ type RedisExpireArgs struct {
 type RedisChangedOut struct {
 	Approval  string            `json:"approval,omitempty" jsonschema:"how the change was cleared: approved by the user in Chloe, or ran without asking because danger mode is on"`
 	Changed   int64             `json:"changed" jsonschema:"what actually changed: elements written, fields set, values pushed, members added, rescored or removed, entries appended, keys deleted; 0 when nothing matched"`
-	NewValues map[string]string `json:"new_values,omitempty" jsonschema:"after an increment: the new value of the counter (by key), hash field or sorted set member"`
+	NewValues map[string]string `json:"new_values,omitempty" jsonschema:"after an increment: the new value of the counter (by key), hash field or sorted set member; after add_entry: entry_id, the new stream entry's ID"`
 }
 
 // --- read-only commands -------------------------------------------------------------
@@ -1241,6 +1241,8 @@ func incremented(cmd []string, reply redis.Cmder) (string, string, bool) {
 		name = cmd[2]
 	case "ZINCRBY":
 		name = cmd[3]
+	case "XADD":
+		name = "entry_id" // the new entry's ID
 	default:
 		return "", "", false
 	}

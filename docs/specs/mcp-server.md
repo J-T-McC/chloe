@@ -125,7 +125,8 @@ refuse them.
   unless `ttl` is given (a string replaced by a string with `KEEPTTL`, any other replacement with `PEXPIREAT` to the
   same deadline). `redis_edit` changes part of one value, creating it when missing: counters (`INCRBY`), hash
   fields, list values, set and sorted set members (`ZADD CH`, `ZINCRBY`), stream entries. `changed` reports what
-  Redis actually did, so removing a member that isn't there gives 0. `redis_delete` takes at most 1000 exact keys (duplicates are dropped; UNLINK); there's no
+  Redis actually did, so removing a member that isn't there gives 0; `new_values` gives the result of each
+  increment and a new stream entry's `entry_id`. `redis_delete` takes at most 1000 exact keys (duplicates are dropped; UNLINK); there's no
   delete by pattern, and no FLUSHDB.
 - After approval the key is WATCHed and its type checked against what was approved before MULTI/EXEC, so a key
   created, deleted or retyped by someone else while the dialog was open, or written to during the check, aborts the
@@ -232,8 +233,9 @@ Offered to endpoints that can see a MongoDB connection. Access is per database, 
   which sorts keys, so these tools decode the raw arguments themselves (`$sort` stages and inserted field order
   depend on it). `sort` in `mongo_find` is a list of `{field, desc}`.
 - Results are relaxed Extended JSON, default 100 documents, at most 1000 and ~256 KB; strings and binary over 4 KB
-  are cut and the result says `truncated`. `mongo_describe` samples 100 documents for field paths and types and adds
-  indexes, the validator, or a view's pipeline.
+  are cut and the result says `truncated`. `mongo_describe` samples 100 documents for field paths (inside arrays of
+  documents too), the type seen most, how many documents have each field and, for fields of several types, a count
+  per type; it adds indexes, options, the validator, or a view's pipeline.
 - Guards keep Chloe's own settings true and nothing more (see "Who decides what" below). Checked at every depth
   before anything is sent:
   - Reads never write: `$out` and `$merge` are refused anywhere, so also inside `$facet`, `$lookup` and `$unionWith`
@@ -245,6 +247,10 @@ Offered to endpoints that can see a MongoDB connection. Access is per database, 
   - Updates take the operators `$set $unset $inc $mul $rename $min $max $currentDate $push $pull $pullAll $addToSet
     $pop $setOnInsert $bit` only, so the approval shows a plain change; no pipeline-style updates or replacement
     documents.
+  - Values written by updates and inserts can't have `$`-prefixed field names: MongoDB would store
+    `{"$set": {"n": {"$add": [1, 2]}}}` as a literal object, not 3. The error says to compute the value first. The
+    operators' own modifiers are fine (`$each $slice $sort $position` in `$push`, `$each` in `$addToSet`, `$type` in
+    `$currentDate`, and `$pull`'s conditions).
   - Every command runs under a 30 s context deadline, which the driver sends to the server as `maxTimeMS`, so the
     server stops the work rather than only Chloe giving up.
   - Server-side JavaScript (`$where`, `$function`, `$accumulator`), `system.*` collections and the `admin`,

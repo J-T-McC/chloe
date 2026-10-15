@@ -68,8 +68,28 @@ func TestCheckMongo(t *testing.T) {
 }
 
 func TestCheckUpdate(t *testing.T) {
-	if err := checkUpdate(doc(t, `{"$set": {"a": 1}, "$inc": {"n": 2}}`)); err != nil {
-		t.Fatal(err)
+	for _, ok := range []string{
+		`{"$set": {"a": 1, "b": {"c": [1, {"d": 2}]}}, "$inc": {"n": 2}}`,
+		`{"$push": {"tags": {"$each": ["a", "b"], "$slice": -5}}}`,
+		`{"$addToSet": {"tags": {"$each": ["x"]}}}`,
+		`{"$pull": {"scores": {"$lt": 5}}}`,
+		`{"$currentDate": {"seen": {"$type": "date"}}}`,
+		`{"$set": {"when": {"$date": "2026-01-01T00:00:00Z"}}}`,
+	} {
+		if err := checkUpdate(doc(t, ok)); err != nil {
+			t.Errorf("%s: %v", ok, err)
+		}
+	}
+	for s, want := range map[string]string{
+		`{"$set": {"n": {"$add": [1, 2]}}}`:                   "not evaluated",
+		`{"$set": {"a": {"b": [{"$concat": ["x"]}]}}}`:        "not evaluated",
+		`{"$push": {"tags": {"$each": [{"$toUpper": "a"}]}}}`: "not evaluated",
+		`{"$set": 5}`: "takes a document of fields",
+	} {
+		err := checkUpdate(doc(t, s))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v", s, err)
+		}
 	}
 	for s, want := range map[string]string{
 		`{}`:                   "at least one operator",
