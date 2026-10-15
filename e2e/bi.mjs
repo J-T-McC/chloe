@@ -261,6 +261,9 @@ await step("a dashboard of charts and text", async () => {
   await page.waitForTimeout(200);
   check(!(await page.locator(".tab.active .tab-dirty").count()), "dirty after save");
   await shot("bi-dashboard");
+  await dash().getByRole("button", { name: "Export" }).click();
+  await page.locator(".menu-item", { hasText: "All Pages as PDF" }).waitFor();
+  await page.keyboard.press("Escape");
 });
 
 await step("pages, report size and present", async () => {

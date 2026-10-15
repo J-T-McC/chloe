@@ -372,6 +372,12 @@ export interface Props {
     "palette"?: string;
     "colors"?: string[] | null;
     "xTitle"?: string;
+
+    /**
+     * LabelCase is how category and series values are shown: "" makes enum-like
+     * values readable (ended_early → Ended Early), raw shows them as stored.
+     */
+    "labelCase"?: string;
     "yTitle"?: string;
 }
 

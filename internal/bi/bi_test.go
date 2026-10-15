@@ -1,7 +1,10 @@
 package bi
 
 import (
+	"bytes"
 	"fmt"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -544,7 +547,7 @@ func TestDashboards(t *testing.T) {
 	if grown, _, _ := LayoutRows([][]RowTile{{{Text: long, Span: 8}, {Chart: "Revenue"}}}, []string{"S"}, 0, id); grown[0].H <= 3 || grown[1].H != grown[0].H {
 		t.Errorf("text row didn't grow: %+v", grown)
 	}
-	if fit, _, _ := LayoutRows([][]RowTile{{{Text: "One line."}}, {{Text: "One line."}}, {{Text: "One line."}, {Chart: "Revenue"}}}, []string{"", "L", "S"}, 0, id); fit[0].H != 2 || fit[1].H != 2 || fit[2].H != 3 {
+	if fit, _, _ := LayoutRows([][]RowTile{{{Text: "One line."}}, {{Text: "One line."}}, {{Text: "One line."}, {Chart: "Revenue"}}}, []string{"", "L", "S"}, 0, id); fit[0].H != 1 || fit[1].H != 1 || fit[2].H != 3 {
 		t.Errorf("text-only rows fit their text, rows with charts take their label: %+v", fit)
 	}
 	if _, _, err := LayoutRows([][]RowTile{{{Chart: "nope"}}}, nil, 0, id); err == nil || !strings.Contains(err.Error(), `no chart "nope"`) {
@@ -584,15 +587,16 @@ func TestDashboards(t *testing.T) {
 		notes bool
 		want  int
 	}{
-		{"The scorecard counts rooms by outcome.", 12, false, 2},
+		{"The scorecard counts rooms by outcome.", 12, false, 1}, // 42px fits a 48px row
 		{para, 12, false, 2},
 		{para, 4, false, 3}, // measured 4 lines; estimates round up (spare space, never cut off)
 		{"- one item here\n- two item here\n- three item here\n- four item here\n- five item here", 12, false, 3},
 		{"## Notes\n- one\n- two\n- three", 12, false, 3},
 		{"# Weekly report\nWhat changed this week.", 12, false, 2},
-		{"One line of notes.", 12, true, 2},
+		{"One line of notes.", 12, true, 1}, // the header sits beside the line
 		{"- a\n- b\n- c\n- d\n- e", 12, true, 3},
-		{strings.Repeat("line\n", 40), 12, false, 15}, // 832px > 14 rows' 828
+		{strings.Repeat("line\n", 40), 12, false, 15}, // 828px fills 14 rows to the pixel; keep 2px spare
+		{"## Weekly check-in", 12, false, 1},           // a lone heading fits one row
 	} {
 		if got := TextRowsAt(tc.md, tc.w, tc.notes); got != tc.want {
 			t.Errorf("%q at %d: %d rows, want %d", tc.md[:min(20, len(tc.md))], tc.w, got, tc.want)
@@ -648,5 +652,53 @@ func TestFitText(t *testing.T) {
 	full := Page{Size: SizeSlide, Items: []Item{{ID: "a", Kind: ItemChart, Y: 0, W: 12, H: 10}, {ID: "n", Kind: ItemText, Text: strings.Repeat("line\n", 9), Y: 10, W: 12, H: 2}}}
 	if full.FitText() || full.Items[1].H != 2 {
 		t.Errorf("slide overflow: %+v", full.Items)
+	}
+}
+
+func TestPDF(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 40, 20))
+	for i := range img.Pix {
+		img.Pix[i] = 200
+	}
+	var b bytes.Buffer
+	png.Encode(&b, img)
+	pdf, err := PDF([][]byte{b.Bytes(), b.Bytes()}, 40)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(pdf)
+	if !strings.HasPrefix(s, "%PDF-1.4") || !strings.HasSuffix(s, "%%EOF\n") || strings.Count(s, "/Type /Page ") != 2 || !strings.Contains(s, "/MediaBox [0 0 30.00 15.00]") {
+		t.Errorf("pdf: %.300s", s)
+	}
+	// The xref offsets point at the objects.
+	xref := strings.LastIndex(s, "\nxref\n") + 1
+	lines := strings.Split(s[xref:], "\n")
+	for i, l := range lines[3 : 3+8] {
+		var off int
+		fmt.Sscanf(l, "%d", &off)
+		if !strings.HasPrefix(s[off:], fmt.Sprintf("%d 0 obj", i+1)) {
+			t.Errorf("object %d not at %d", i+1, off)
+		}
+	}
+	if _, err := PDF(nil, 1); err == nil {
+		t.Error("empty pdf")
+	}
+}
+
+func TestTiesAlphabetical(t *testing.T) {
+	s := func(v string) *string { return &v }
+	cols := []Column{{Role: "dimension", Type: TypeString}, {Role: "value", Type: TypeNumber}}
+	got := Shape(Chart{Type: "hbar", Value: []ChartField{{Field: "x"}}}, cols, [][]*string{{s("yacht"), s("2")}, {s("cats"), s("2")}, {s("smear"), s("5")}, {s("warriors"), s("2")}})
+	var order []any
+	for _, r := range got {
+		order = append(order, r[0])
+	}
+	if want := []any{"smear", "cats", "warriors", "yacht"}; !reflect.DeepEqual(order, want) {
+		t.Errorf("order: %v", order)
+	}
+	src := ordersSource()
+	src.Filters = []Filter{{Field: "placed_at", Op: "in_last", Values: []string{"7", "Days"}}}
+	if _, err := PreviewQuery(SQLite, `"t"`, src, 5); err != nil {
+		t.Errorf("plural unit: %v", err)
 	}
 }

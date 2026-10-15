@@ -69,6 +69,18 @@ export interface NewChart {
 }
 
 /**
+ * RenderRequest asks the window to draw pages (0-based) of a dashboard at a
+ * pixel ratio.
+ */
+export interface RenderRequest {
+    "id": string;
+    "path": string;
+    "dashboard": string;
+    "pages": number[] | null;
+    "scale": number;
+}
+
+/**
  * ResultProgress is the payload of EventResultProgress.
  */
 export interface ResultProgress {

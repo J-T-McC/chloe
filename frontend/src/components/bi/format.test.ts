@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDate, formatLabel, formatNumber, parseDate } from "./format";
+import { formatDate, formatLabel, formatNumber, oneYear, parseDate, readable } from "./format";
 
 describe("formatNumber", () => {
   it("formats with separators and sensible decimals", () => {
@@ -18,6 +18,28 @@ describe("formatNumber", () => {
   it("shortens on axes", () => {
     expect(formatNumber(2500000, {}, true)).toBe("2.5M");
     expect(formatNumber(950, {}, true)).toBe("950");
+  });
+});
+
+describe("readable", () => {
+  it("makes enum-like values readable", () => {
+    expect(readable("ended_early")).toBe("Ended Early");
+    expect(readable("never started")).toBe("Never Started");
+    expect(readable("frontier")).toBe("Frontier");
+    expect(readable("signedIn")).toBe("Signed In");
+    expect(readable("user_id")).toBe("User ID");
+    expect(readable("stuck-playing")).toBe("Stuck Playing");
+  });
+  it("leaves other text alone", () => {
+    for (const s of ["ada@example.com", "https://x.io/a", "North", "McDonald", "row 250x/1", "2026-03-01", "42", "NULL", "already Mixed Case", "SKU_ABC"]) expect(readable(s)).toBe(s);
+  });
+  it("labels with options", () => {
+    expect(formatLabel("ended_early", { type: "string" })).toBe("Ended Early");
+    expect(formatLabel("ended_early", { type: "string" }, "", { raw: true })).toBe("ended_early");
+    expect(formatLabel("2026-09-16", { type: "datetime", aggregate: "day" }, "", { sameYear: true })).toBe("Sep 16");
+    expect(formatLabel("2026-09-13", { type: "datetime", aggregate: "week" }, "", { sameYear: true })).toBe("Week of Sep 13");
+    expect(oneYear(["2026-01-01", "2026-12-31"], { type: "datetime", aggregate: "day" })).toBe(true);
+    expect(oneYear(["2025-12-31", "2026-01-01"], { type: "datetime", aggregate: "day" })).toBe(false);
   });
 });
 

@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"encoding/json"
 	"context"
 	"errors"
 	"fmt"
@@ -58,6 +59,15 @@ func (c *call) finish(err error) {
 
 // add registers a tool whose handler runs as a logged call of one endpoint.
 func add[In, Out any](s *Server, srv *mcp.Server, epID string, t *mcp.Tool, fn func(context.Context, *call, In) (Out, error)) {
+	addRich(s, srv, epID, t, func(ctx context.Context, c *call, in In) (Out, []mcp.Content, error) {
+		out, err := fn(ctx, c, in)
+		return out, nil, err
+	})
+}
+
+// addRich is add for tools that also return content such as images, after
+// the output as JSON text.
+func addRich[In, Out any](s *Server, srv *mcp.Server, epID string, t *mcp.Tool, fn func(context.Context, *call, In) (Out, []mcp.Content, error)) {
 	mcp.AddTool(srv, t, func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, Out, error) {
 		var zero Out
 		ep, err := s.endpoint(epID)
@@ -66,12 +76,19 @@ func add[In, Out any](s *Server, srv *mcp.Server, epID string, t *mcp.Tool, fn f
 		}
 		c := &call{s: s, ep: ep, start: time.Now(),
 			act: Activity{ID: uuid.NewString(), Time: time.Now().UTC().Format(time.RFC3339), Endpoint: ep.Name, Tool: t.Name}}
-		out, err := fn(ctx, c, in)
+		out, content, err := fn(ctx, c, in)
 		c.finish(err)
 		if err != nil {
 			return nil, zero, err
 		}
-		return nil, out, nil
+		if len(content) == 0 {
+			return nil, out, nil
+		}
+		text, err := json.Marshal(out)
+		if err != nil {
+			return nil, zero, err
+		}
+		return &mcp.CallToolResult{Content: append([]mcp.Content{&mcp.TextContent{Text: string(text)}}, content...)}, out, nil
 	})
 }
 

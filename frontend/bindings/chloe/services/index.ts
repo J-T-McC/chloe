@@ -37,5 +37,6 @@ export type {
     FetchResult,
     ModelFile,
     NewChart,
+    RenderRequest,
     ResultProgress
 } from "./models.js";

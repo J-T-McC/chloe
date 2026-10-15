@@ -109,6 +109,14 @@ export function Rename(path: string, name: string): $CancellablePromise<string> 
     return $Call.ByID(12088771, path, name);
 }
 
+/**
+ * Rendered is the window's answer to a render request: PNG data URLs (or
+ * base64), one per page, or the error it hit.
+ */
+export function Rendered(id: string, pages: string[] | null, errText: string): $CancellablePromise<void> {
+    return $Call.ByID(2137889060, id, pages, errText);
+}
+
 export function Reveal(path: string): $CancellablePromise<void> {
     return $Call.ByID(440250656, path);
 }
@@ -125,6 +133,14 @@ export function SaveChart(path: string, c: bi$0.Chart): $CancellablePromise<bi$0
  */
 export function SaveDashboard(path: string, d: bi$0.Dashboard): $CancellablePromise<bi$0.Dashboard> {
     return $Call.ByID(587631868, path, d);
+}
+
+/**
+ * SaveExport writes rendered pages to a file the user picks: one PNG, or a PDF
+ * of every page. Returns the path, or "" when cancelled.
+ */
+export function SaveExport(name: string, format: string, pages: string[] | null): $CancellablePromise<string> {
+    return $Call.ByID(4135964862, name, format, pages);
 }
 
 /**

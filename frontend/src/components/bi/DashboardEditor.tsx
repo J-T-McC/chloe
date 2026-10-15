@@ -2,7 +2,7 @@
 // (Navicat's dashboard tab, with tiles that snap to the grid). Pages are 16:9
 // slides or reports that grow downward. Tiles are dragged by their grip and
 // resized from the corner; Present shows the pages full screen.
-import { Copy, FileText, GripVertical, Plus, Presentation, RefreshCw, Save, Trash2 } from "lucide-react";
+import { Copy, Download, FileText, GripVertical, Plus, Presentation, RefreshCw, Save, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ReactGridLayout, { verticalCompactor } from "react-grid-layout";
 import { createScaledStrategy } from "react-grid-layout/core";
@@ -21,6 +21,7 @@ import { ChartTypeIcon } from "./icons";
 import { Markdown } from "./Markdown";
 import { ChartTheme, TOKENS } from "./theme";
 import { useWorkspace } from "./WorkspaceView";
+import { renderPages } from "./ExportHost";
 
 const COLS = 12;
 const SLIDE_ROWS = 12;
@@ -106,7 +107,7 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
   const place = (w: number, h: number): { y: number; h: number } | null => {
     const y = bottom(page);
     if (page.size !== "16:9") return { y, h };
-    if (SLIDE_ROWS - y < 2) return null;
+    if (SLIDE_ROWS - y < 1) return null;
     return { y, h: Math.min(h, SLIDE_ROWS - y) };
   };
   const addTile = (tile: Omit<B.Item, "id" | "x" | "y" | "w" | "h">, w: number, h: number) => {
@@ -179,6 +180,27 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
         </button>
         <button onClick={() => setPresent(true)} title="Present (⌘↵)">
           <Presentation size={14} /> Present
+        </button>
+        <button
+          title="Export this page as PNG, or every page as PDF"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            const run = async (format: "png" | "pdf") => {
+              setError("");
+              try {
+                const pngs = await renderPages(path, draft, format === "png" ? [Math.min(pageIdx, pages.length - 1)] : pages.map((_, i) => i), 2);
+                await BI.SaveExport(format === "png" ? `${draft.name} – ${page.name || `Page ${pageIdx + 1}`}` : draft.name, format, pngs);
+              } catch (err) {
+                setError(errorText(err));
+              }
+            };
+            openMenu({ clientX: r.left, clientY: r.bottom + 2, preventDefault() {} }, [
+              { label: "This Page as PNG…", onClick: () => run("png") },
+              { label: "All Pages as PDF…", onClick: () => run("pdf") },
+            ]);
+          }}
+        >
+          <Download size={14} /> Export
         </button>
         <span className="spacer" />
         <label className="tb-label">
@@ -299,6 +321,8 @@ interface CanvasProps {
   onLayout?(layout: readonly { i: string; x: number; y: number; w: number; h: number }[]): void;
   /** Fit a slide inside this height too (Present). */
   maxHeight?: number;
+  /** Draw without animation, for capture. */
+  still?: boolean;
 }
 
 /** The width of an element, kept current; 0 until it has been laid out (a hidden
@@ -325,13 +349,13 @@ const REPORT_ROW = 48;
 const SLIDE_ROW = (SLIDE_HEIGHT - 2 * MARGIN - (SLIDE_ROWS - 1) * MARGIN) / SLIDE_ROWS;
 
 /** A page's tiles on the grid, scaled to fit: a slide within the space given. */
-export function PageCanvas({ page, charts, path, theme, tick, editable, selected, onSelect, onLayout, maxHeight }: CanvasProps) {
+export function PageCanvas({ page, charts, path, theme, tick, editable, selected, onSelect, onLayout, maxHeight, still }: CanvasProps) {
   const outer = useSize();
   const inner = useSize();
   const slide = page.size === "16:9";
   const scale = outer.width ? (slide && maxHeight ? Math.min(outer.width / PAGE_WIDTH, maxHeight / SLIDE_HEIGHT) : outer.width / PAGE_WIDTH) : 0;
   const strategy = useMemo(() => createScaledStrategy(scale || 1), [scale]);
-  const layout = useMemo(() => arr(page.items).map((it) => ({ i: it.id, x: it.x, y: it.y, w: it.w, h: it.h, minW: 2, minH: 2 })), [page.items]);
+  const layout = useMemo(() => arr(page.items).map((it) => ({ i: it.id, x: it.x, y: it.y, w: it.w, h: it.h, minW: 2, minH: it.kind === "text" ? 1 : 2 })), [page.items]);
   const t = TOKENS[theme];
   const logicalHeight = slide ? SLIDE_HEIGHT : inner.height;
   return (
@@ -360,7 +384,7 @@ export function PageCanvas({ page, charts, path, theme, tick, editable, selected
                       <GripVertical size={13} />
                     </div>
                   )}
-                  {it.kind === "chart" ? <ChartTile chartId={it.chart ?? ""} charts={charts} path={path} theme={theme} tick={tick} /> : <TextTile item={it} theme={theme} />}
+                  {it.kind === "chart" ? <ChartTile chartId={it.chart ?? ""} charts={charts} path={path} theme={theme} tick={tick} still={still} /> : <TextTile item={it} theme={theme} />}
                 </div>
               ))}
             </ReactGridLayout>
@@ -372,7 +396,7 @@ export function PageCanvas({ page, charts, path, theme, tick, editable, selected
   );
 }
 
-function ChartTile({ chartId, charts, path, theme, tick }: { chartId: string; charts: B.Chart[]; path: string; theme: ChartTheme; tick: number }) {
+function ChartTile({ chartId, charts, path, theme, tick, still }: { chartId: string; charts: B.Chart[]; path: string; theme: ChartTheme; tick: number; still?: boolean }) {
   const chart = charts.find((c) => c.id === chartId);
   const [data, setData] = useState<B.Data | null>(null);
   const [error, setError] = useState("");
@@ -390,8 +414,12 @@ function ChartTile({ chartId, charts, path, theme, tick }: { chartId: string; ch
       live = false;
     };
   }, [key, path, tick]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!chart) return <div className="bi-chart-msg">The chart was deleted.</div>;
-  return <ChartView chart={chart} data={data} theme={theme} error={error} loading={loading} hint="The chart has no fields yet." />;
+  if (!chart) return <div className="bi-chart-msg" data-state="ready">The chart was deleted.</div>;
+  return (
+    <div className="bi-tile-chart" data-state={loading || (!data && !error) ? "loading" : "ready"}>
+      <ChartView chart={chart} data={data} theme={theme} error={error} loading={loading} hint="The chart has no fields yet." still={still} />
+    </div>
+  );
 }
 
 function TextTile({ item, theme }: { item: B.Item; theme: ChartTheme }) {

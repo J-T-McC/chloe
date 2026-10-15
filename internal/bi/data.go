@@ -188,12 +188,22 @@ func shape(c Chart, cols []Column, raw [][]*string, win *Window) [][]any {
 		sortBy = defaultSort(c, cols[dim])
 	}
 	if sortBy.By == "value" {
-		slices.SortStableFunc(order, func(a, b string) int { return cmp.Compare(totals[a], totals[b]) })
+		// Ties go alphabetically whichever way values run.
+		slices.SortStableFunc(order, func(a, b string) int {
+			r := cmp.Compare(totals[a], totals[b])
+			if sortBy.Desc {
+				r = -r
+			}
+			if r == 0 {
+				return compareLabels(a, b)
+			}
+			return r
+		})
 	} else {
 		slices.SortStableFunc(order, func(a, b string) int { return compareLabels(a, b) })
-	}
-	if sortBy.Desc {
-		slices.Reverse(order)
+		if sortBy.Desc {
+			slices.Reverse(order)
+		}
 	}
 	if c.Top > 0 && len(order) > c.Top {
 		kept := order[:c.Top]

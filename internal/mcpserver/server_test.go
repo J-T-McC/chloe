@@ -1,9 +1,12 @@
 package mcpserver_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -53,12 +56,13 @@ func (a *approver) Approve(ctx context.Context, r mcpserver.ApprovalRequest) mcp
 
 // events records what the server asks the UI to do.
 type events struct {
-	mu     sync.Mutex
-	saved  []string // connID/database/schema
-	tabs   []mcpserver.QueryTab
-	models []string // changed model files
-	opened []string // models (and charts, path#id) opened in the UI
-	bi     []string // changed BI workspaces
+	mu       sync.Mutex
+	saved    []string // connID/database/schema
+	tabs     []mcpserver.QueryTab
+	models   []string // changed model files
+	opened   []string // models (and charts, path#id) opened in the UI
+	bi       []string // changed BI workspaces
+	rendered []string // pages@scale drawn for exports
 }
 
 func (e *events) ModelChanged(p string) { e.mu.Lock(); e.models = append(e.models, p); e.mu.Unlock() }
@@ -69,6 +73,22 @@ func (e *events) OpenBI(p, id string) {
 	e.mu.Lock()
 	e.opened = append(e.opened, p+"#"+id)
 	e.mu.Unlock()
+}
+
+// Render draws each page as a 4x2 PNG; the page number is the first pixel's red.
+func (e *events) Render(_ context.Context, path, id string, pages []int, scale float64) ([][]byte, error) {
+	e.mu.Lock()
+	e.rendered = append(e.rendered, fmt.Sprintf("%v@%v", pages, scale))
+	e.mu.Unlock()
+	var out [][]byte
+	for _, p := range pages {
+		img := image.NewRGBA(image.Rect(0, 0, 4, 2))
+		img.Pix[0] = uint8(p + 1)
+		var b bytes.Buffer
+		png.Encode(&b, img)
+		out = append(out, b.Bytes())
+	}
+	return out, nil
 }
 
 func (e *events) Activity(mcpserver.Activity) {}

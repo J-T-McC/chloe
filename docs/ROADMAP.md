@@ -76,7 +76,8 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 - [x] Stdio bridge (`Chloe mcp`) over a user-only Unix socket, so clients need no network port; HTTP can be switched off
 - [x] Reports tools, phase 1: BI workspaces, read-only data sources, charts and their data (`docs/specs/bi.md`)
 - [x] Reports tools, phase 2: dashboards and notes
-- [ ] Reports tools, phase 2b: snapshots and history, export
+- [x] export_dashboard: PNGs returned to the agent and saved, or a PDF
+- [ ] Reports tools: snapshots and history
 - [ ] MongoDB and Redis tools
 
 Access stays per group, connection and database: no table or column permissions. Without a Chloe-managed
@@ -117,6 +118,7 @@ statistics catalogs get around name checks), so share connections that log in as
 - [x] Time zone per data source (bucket and filter dates in a named zone)
 - [x] Dashboards: pages (16:9 slides or scrolling reports) of charts and Markdown on a 12-column grid, auto refresh,
   present; MCP tools to build them, refresh them and write notes on them
-- [ ] Reports: snapshots and history with diffs, print/export (PDF, PNG, SVG, HTML) and their MCP tools
+- [x] Export: PNG per page and PDF of every page, in the designer and over MCP (agents get the images to check pages)
+- [ ] Reports: snapshots and history with diffs, HTML export and print
 - [ ] The rest of Navicat's BI: remaining chart types, interaction and controls, parameters, custom fields, joins, shapes
 - [ ] MongoDB data sources

@@ -321,13 +321,23 @@ await step("agent builds a report and writes notes", async () => {
   // Text tiles fit their Markdown: nothing cut off, and less than a row to spare.
   const fits = await page.evaluate(() =>
     [...document.querySelectorAll(".bi-dash-editor .bi-text-tile")].map((el) => {
-      const head = el.querySelector(".bi-notes-head");
-      const need = el.querySelector(".bi-md").offsetHeight + (head ? head.offsetHeight + 4 : 0) + 22;
-      return [need, el.offsetHeight];
+      // The notes caption floats beside the first line; tiles have 18px of padding and border.
+      const need = el.querySelector(".bi-md").offsetHeight + 18;
+      return [need, el.offsetHeight, el.scrollHeight > el.clientHeight];
     }),
   );
-  if (!fits.length || fits.some(([need, have]) => need > have + 1 || have - need >= 60)) throw new Error("text tiles: " + JSON.stringify(fits));
+  if (!fits.length || fits.some(([need, have, scrolls]) => scrolls || need > have || have - need >= 62)) throw new Error("text tiles: " + JSON.stringify(fits));
   await shot("mcp-report");
+  // The agent sees its page: export_dashboard returns a PNG of what Chloe draws.
+  const ex = await tool("export_dashboard", { workspace: "Agent report", dashboard: "Daily" });
+  if (ex.isError) throw new Error(text(ex));
+  const img = ex.content.find((c) => c.type === "image");
+  if (!img || img.mimeType !== "image/png" || img.data.length < 5000) throw new Error("no page image: " + JSON.stringify(ex.content.map((c) => c.type)));
+  writeFileSync(`${out}/mcp-export.png`, Buffer.from(img.data, "base64"));
+  const file = ex.structuredContent.files[0];
+  if (!file.includes("/reports/Agent report/Daily p1 ") || readFileSync(file).length !== Buffer.from(img.data, "base64").length) throw new Error("export file: " + file);
+  const pdf = await tool("export_dashboard", { workspace: "Agent report", dashboard: "Daily", format: "pdf" });
+  if (pdf.isError || !readFileSync(pdf.structuredContent.files[0]).subarray(0, 4).equals(Buffer.from("%PDF"))) throw new Error("pdf: " + text(pdf));
   await mcpTab();
 });
 

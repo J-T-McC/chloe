@@ -6,13 +6,13 @@ import * as echarts from "echarts/core";
 import { SVGRenderer } from "echarts/renderers";
 import { useEffect, useMemo, useRef } from "react";
 import type { B } from "../../api";
-import { formatLabel, formatNumber } from "./format";
+import { formatLabel, formatNumber, oneYear } from "./format";
 import { buildOption } from "./options";
 import { ChartTheme, TOKENS } from "./theme";
 
 echarts.use([BarChart, LineChart, PieChart, GridComponent, LegendComponent, TooltipComponent, SVGRenderer]);
 
-export function ChartView({ chart, data, theme, error, loading, hint }: { chart: B.Chart; data: B.Data | null; theme: ChartTheme; error?: string; loading?: boolean; hint?: string }) {
+export function ChartView({ chart, data, theme, error, loading, hint, still }: { chart: B.Chart; data: B.Data | null; theme: ChartTheme; error?: string; loading?: boolean; hint?: string; still?: boolean }) {
   const t = TOKENS[theme];
   const title = chart.props?.hideTitle ? "" : chart.props?.title || chart.name;
   let body: React.ReactNode;
@@ -21,7 +21,7 @@ export function ChartView({ chart, data, theme, error, loading, hint }: { chart:
   else if (!(data.rows ?? []).length) body = <div className="bi-chart-msg">No data</div>;
   else if (chart.type === "value") body = <ValueFigure chart={chart} data={data} />;
   else if (chart.type === "table") body = <TableChart chart={chart} data={data} />;
-  else body = <EChart chart={chart} data={data} theme={theme} />;
+  else body = <EChart chart={chart} data={data} theme={theme} still={still} />;
   return (
     <div className={"bi-chart theme-" + theme} style={{ background: t.surface, color: t.ink, borderColor: t.border }} data-testid="bi-chart">
       {title && <div className="bi-chart-title">{title}</div>}
@@ -31,10 +31,11 @@ export function ChartView({ chart, data, theme, error, loading, hint }: { chart:
   );
 }
 
-function EChart({ chart, data, theme }: { chart: B.Chart; data: B.Data; theme: ChartTheme }) {
+/** still draws without animation (exports capture the finished chart). */
+function EChart({ chart, data, theme, still }: { chart: B.Chart; data: B.Data; theme: ChartTheme; still?: boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const inst = useRef<echarts.ECharts | null>(null);
-  const option = useMemo(() => buildOption(chart, data, theme), [chart, data, theme]);
+  const option = useMemo(() => ({ ...buildOption(chart, data, theme), ...(still ? { animation: false } : {}) }), [chart, data, theme, still]);
   useEffect(() => {
     if (!host.current) return;
     const c = echarts.init(host.current, null, { renderer: "svg" });
@@ -56,7 +57,7 @@ function EChart({ chart, data, theme }: { chart: B.Chart; data: B.Data; theme: C
 function ValueFigure({ chart, data }: { chart: B.Chart; data: B.Data }) {
   const col = (data.columns ?? [])[0];
   const v = (data.rows ?? [])[0]?.[0];
-  const text = typeof v === "number" ? formatNumber(v, chart.props?.number ?? {}) : formatLabel(v, col, chart.props?.dateFormat);
+  const text = typeof v === "number" ? formatNumber(v, chart.props?.number ?? {}) : formatLabel(v, col, chart.props?.dateFormat, { raw: chart.props?.labelCase === "raw" });
   return (
     <div className="bi-value">
       <div className="bi-value-figure" data-testid="bi-value">
@@ -71,7 +72,8 @@ function TableChart({ chart, data }: { chart: B.Chart; data: B.Data }) {
   const cols = data.columns ?? [];
   const rows = data.rows ?? [];
   const fmt = chart.props?.number ?? {};
-  const cell = (v: unknown, c: B.Column) => (typeof v === "number" ? formatNumber(v, fmt) : formatLabel(v, c, chart.props?.dateFormat));
+  const opts = cols.map((c, j) => ({ raw: chart.props?.labelCase === "raw", sameYear: oneYear(rows.map((r) => r?.[j]), c) }));
+  const cell = (v: unknown, c: B.Column, j: number) => (typeof v === "number" ? formatNumber(v, fmt) : formatLabel(v, c, chart.props?.dateFormat, opts[j]));
   // Totals for aggregated numeric columns.
   const totals = cols.map((c, j) => (c.type === "number" && c.aggregate && c.aggregate !== "min" && c.aggregate !== "max" && c.aggregate !== "avg" && c.aggregate !== "median" ? rows.reduce((t, r) => t + (typeof r?.[j] === "number" ? (r[j] as number) : 0), 0) : null));
   return (
@@ -91,7 +93,7 @@ function TableChart({ chart, data }: { chart: B.Chart; data: B.Data }) {
             <tr key={i}>
               {cols.map((c, j) => (
                 <td key={c.key} className={typeof r?.[j] === "number" ? "num" : r?.[j] === null ? "null" : ""}>
-                  {cell(r?.[j], c)}
+                  {cell(r?.[j], c, j)}
                 </td>
               ))}
             </tr>

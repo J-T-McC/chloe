@@ -340,7 +340,27 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
   dashboard. Present shows one page at a time (← →, Esc).
 - MCP: `create_dashboard` and `edit_dashboard` (rows of tiles across 12 columns; pages default to report),
   `set_notes`, `refresh_dashboard` (every chart's data plus the page's text), `open_dashboard`, `delete_dashboard`.
-- Next (phase 2b): snapshots and history with diffs, export (PDF, PNG, SVG, HTML) and print, and their MCP tools.
+- Next (phase 2b): snapshots and history with diffs, HTML export and print, and their MCP tools.
+
+## Implementation notes (phase 2b, export)
+- Chloe's window draws exports: the page is laid out off screen at its 1280px size without animation, captured once
+  every chart has its data (html-to-image), at twice the size for files. **Export** in the dashboard toolbar saves this
+  page as PNG or every page as a PDF (pages embedded losslessly, 960pt wide).
+- `export_dashboard` (MCP) draws pages at their layout size, returns PNGs as images so the agent can see the page, and
+  saves them (or a PDF) in the Reports folder (`~/Documents/Chloe Reports/<workspace>/`, `CHLOE_REPORTS_DIR` to move
+  it). It needs Read on every source the pages' charts use, and Chloe's window open (the server asks the window to draw
+  and waits up to a minute).
+- Notes headers are a caption beside the first line, so a one-line note or paragraph is one grid row.
+- Notes on a slide are never cut off: set_notes (and an edit_dashboard that would squeeze them) is refused with the
+  rows the notes need and the rows free. Notes follow their page by name when pages move. Slide rows that don't fit
+  are reported first, with each row's height.
+- Charts show enum-like category and series values readably (ended_early → Ended Early; all-lowercase or camelCase
+  values only, so emails, URLs and Mixed Case stay as stored); `labelCase: raw` shows them as stored. Only the
+  display changes: data, filters and MCP results keep the stored values. Day and week labels drop the year when all
+  dates are in one year; value-sort ties go alphabetically.
+- `e2e/tester.sh` starts a sandbox for a tester agent (seeded games data, Reports on, a browser kept open to draw
+  exports); `node e2e/mcp-call.mjs` calls tools and saves returned images. A tester pass runs before builds go to
+  the user's beta tester.
 
 ## Out of scope
 - File/ODBC data sources, cross-connection joins, Navicat Cloud/On-Prem sync.

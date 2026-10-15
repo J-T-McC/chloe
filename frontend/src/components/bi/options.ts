@@ -3,7 +3,7 @@
 // grids, one value axis, a legend only for two or more series.
 import type { EChartsCoreOption } from "echarts/core";
 import type { B } from "../../api";
-import { formatLabel, formatNumber } from "./format";
+import { formatLabel, formatNumber, oneYear } from "./format";
 import { ChartTheme, FONT, OTHERS_COLOR, TOKENS, seriesColors } from "./theme";
 
 export interface Series {
@@ -31,12 +31,15 @@ export function pivot(chart: B.Chart, data: B.Data): Pivot {
   const catKeys: string[] = [];
   const categories: string[] = [];
   const catIndex = new Map<string, number>();
+  const raw = chart.props?.labelCase === "raw";
+  const dimOpts = { raw, sameYear: dim >= 0 && oneYear(rows.map((r) => r?.[dim]), cols[dim]) };
+  const serOpts = { raw, sameYear: ser >= 0 && oneYear(rows.map((r) => r?.[ser]), cols[ser]) };
   for (const r of rows) {
     const k = dim >= 0 ? keyOf(r?.[dim]) : "";
     if (!catIndex.has(k)) {
       catIndex.set(k, catKeys.length);
       catKeys.push(k);
-      categories.push(dim >= 0 ? formatLabel(r?.[dim], cols[dim], chart.props.dateFormat) : "");
+      categories.push(dim >= 0 ? formatLabel(r?.[dim], cols[dim], chart.props.dateFormat, dimOpts) : "");
     }
   }
   const series: Series[] = [];
@@ -47,7 +50,7 @@ export function pivot(chart: B.Chart, data: B.Data): Pivot {
       const sk = keyOf(r?.[ser]);
       let s = names.get(sk);
       if (!s) {
-        s = { name: formatLabel(r?.[ser], cols[ser], chart.props.dateFormat), values: catKeys.map(() => null) };
+        s = { name: formatLabel(r?.[ser], cols[ser], chart.props.dateFormat, serOpts), values: catKeys.map(() => null) };
         names.set(sk, s);
       }
       s.values[catIndex.get(dim >= 0 ? keyOf(r?.[dim]) : "")!] = num(r?.[val]);
@@ -151,8 +154,7 @@ export function buildOption(chart: B.Chart, data: B.Data, theme: ChartTheme): EC
     nameTextStyle: { color: t.ink2 },
     axisLine: { lineStyle: { color: t.axis } },
     axisTick: { show: false },
-    // Lines run edge to edge, so the first and last labels align inward rather than being cut off.
-    axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true, ...(isLine && !horizontal ? { alignMinLabel: "left", alignMaxLabel: "right" } : {}) },
+    axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true },
     boundaryGap: !isLine,
   };
   const valueAxis = {
@@ -214,7 +216,8 @@ export function buildOption(chart: B.Chart, data: B.Data, theme: ChartTheme): EC
     ...base,
     legend,
     tooltip: { ...tooltip, trigger: "axis", axisPointer: isLine ? { type: "line", lineStyle: { color: t.axis } } : { type: "shadow", shadowStyle: { color: theme === "dark" ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)" } } },
-    grid: { left: 8, right: legendShown && legendPos === "right" ? 140 : props.labels && (isLine || horizontal) ? 40 : 16, top: legendShown && legendPos === "top" ? 36 : props.labels ? 22 : 12, bottom: (legendShown && legendPos === "bottom" ? 32 : 4) + (props.xTitle && !horizontal ? 24 : 0), containLabel: true },
+        // Lines run edge to edge, so the grid leaves room for half of the end labels.
+    grid: { left: isLine && !horizontal ? 28 : 8, right: legendShown && legendPos === "right" ? 140 : (isLine && !horizontal) || (props.labels && horizontal) ? 40 : 16, top: legendShown && legendPos === "top" ? 36 : props.labels ? 22 : 12, bottom: (legendShown && legendPos === "bottom" ? 32 : 4) + (props.xTitle && !horizontal ? 24 : 0), containLabel: true },
     xAxis: horizontal ? valueAxis : categoryAxis,
     yAxis: horizontal ? { ...categoryAxis, inverse: true } : valueAxis,
     series,

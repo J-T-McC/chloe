@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -77,6 +80,18 @@ type DashboardOpened struct {
 	Pages     int    `json:"pages"`
 }
 
+type ExportArgs struct {
+	DashboardArgs
+	Page   string `json:"page,omitempty" jsonschema:"a page number (1 = first) or name; default every page"`
+	Format string `json:"format,omitempty" jsonschema:"png (the default: one image per page, also returned to you so you can see the page) or pdf (one file of the pages)"`
+}
+
+type ExportOut struct {
+	Files  []string `json:"files" jsonschema:"where Chloe saved the export"`
+	Pages  []int    `json:"pages"`
+	Format string   `json:"format"`
+}
+
 type DashboardOut struct {
 	bi.Dashboard
 	Editable bool `json:"editable" jsonschema:"created over MCP, so edit_dashboard may change it"`
@@ -99,6 +114,10 @@ type NoteOut struct {
 	By       string `json:"by" jsonschema:"the endpoint that wrote them"`
 	Updated  string `json:"updated,omitempty"`
 	Markdown string `json:"markdown"`
+	Y        int    `json:"y" jsonschema:"the grid row the notes start at"`
+	H        int    `json:"h" jsonschema:"their height in grid rows"`
+	Place    string `json:"place" jsonschema:"top or bottom of the page"`
+	Fits     bool   `json:"fits" jsonschema:"false when the text needs more rows than the notes have (it scrolls)"`
 }
 
 type PageResult struct {
@@ -136,7 +155,7 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 		})
 
 	add(s, srv, ep, &mcp.Tool{Name: "edit_dashboard", Description: "Changes a dashboard created over MCP: replaces its pages, renames it, or sets its refresh. " +
-		"Notes written with set_notes are kept on the page with the same number. " +
+		"Notes written with set_notes stay on their page (matched by name, else by number), at its top or bottom. " +
 		"The user's dashboards can't be changed, but set_notes can add your notes to them.",
 		Annotations: &mcp.ToolAnnotations{Title: "Edit dashboard", DestructiveHint: &t, OpenWorldHint: &f}},
 		func(ctx context.Context, c *call, in EditDashboardArgs) (DashboardOut, error) {
@@ -162,20 +181,35 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 				if edited.Pages, err = c.layoutPages(&w, in.Pages); err != nil {
 					return DashboardOut{}, err
 				}
-				// Notes written with set_notes stay on the page with the same number,
-				// at its top or bottom as they were.
+				// Notes written with set_notes stay on their page (the one with the
+				// same name, else the same number), at its top or bottom as they were.
 				for i := range edited.Pages {
-					if i >= len(d.Pages) {
-						break
+					old := -1
+					for j, op := range d.Pages {
+						if op.Name != "" && strings.EqualFold(op.Name, edited.Pages[i].Name) {
+							old = j
+						}
 					}
-					for _, it := range d.Pages[i].Items {
+					if old < 0 && i < len(d.Pages) && !slices.ContainsFunc(edited.Pages, func(p bi.Page) bool {
+						return d.Pages[i].Name != "" && strings.EqualFold(p.Name, d.Pages[i].Name)
+					}) {
+						old = i
+					}
+					if old < 0 {
+						continue
+					}
+					for _, it := range d.Pages[old].Items {
 						if it.Kind == bi.ItemText && it.CreatedBy != "" {
 							place := "top"
-							if it.Y > 0 && it.Y+it.H >= d.Pages[i].Bottom() {
+							if it.Y > 0 && it.Y+it.H >= d.Pages[old].Bottom() {
 								place = "bottom"
 							}
 							if err := setNotes(&edited.Pages[i], it.CreatedBy, it.Text, place); err != nil {
-								return DashboardOut{}, fmt.Errorf("page %d: keeping the notes by %s: %w", i+1, strings.TrimPrefix(it.CreatedBy, "mcp:"), err)
+								var nr noRoom
+								if errors.As(err, &nr) {
+									err = fmt.Errorf("its notes by %s need %d grid rows at the %s and the slide would have %d free; leave room for them (smaller rows), or make the page a report", strings.TrimPrefix(it.CreatedBy, "mcp:"), nr.need, place, max(0, nr.free))
+								}
+								return DashboardOut{}, fmt.Errorf("page %d: %w", i+1, err)
 							}
 							for j := range edited.Pages[i].Items {
 								if edited.Pages[i].Items[j].CreatedBy == it.CreatedBy {
@@ -224,8 +258,9 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 					return errors.New("the dashboard was deleted")
 				}
 				if err := setNotes(&d.Pages[pi], "mcp:"+c.ep.Name, in.Markdown, in.Place); err != nil {
-					if agentMade(d.CreatedBy) && strings.Contains(err.Error(), "no room") {
-						return errors.New("this page is a full 16:9 slide with no room for notes; it's your dashboard, so make room with edit_dashboard (smaller rows) or switch the page to report")
+					var nr noRoom
+					if agentMade(d.CreatedBy) && errors.As(err, &nr) {
+						return nr.mine()
 					}
 					return err
 				}
@@ -277,7 +312,12 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 				for _, it := range pg.Items {
 					if it.Kind == bi.ItemText {
 						if it.CreatedBy != "" {
-							pr.Notes = append(pr.Notes, NoteOut{By: strings.TrimPrefix(it.CreatedBy, "mcp:"), Updated: it.Updated, Markdown: it.Text})
+							place := "top"
+							if it.Y > 0 && it.Y+it.H >= pg.Bottom() {
+								place = "bottom"
+							}
+							pr.Notes = append(pr.Notes, NoteOut{By: strings.TrimPrefix(it.CreatedBy, "mcp:"), Updated: it.Updated, Markdown: it.Text,
+								Y: it.Y, H: it.H, Place: place, Fits: bi.TextRowsAt(it.Text, it.W, true) <= it.H})
 						} else {
 							pr.Text = append(pr.Text, it.Text)
 						}
@@ -312,6 +352,94 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 			c.act.SQL = d.Name
 			c.act.Rows = int64(rows)
 			return out, nil
+		})
+
+	addRich(s, srv, ep, &mcp.Tool{Name: "export_dashboard", Description: "Draws a dashboard's pages as Chloe shows them and saves them in the user's Chloe Reports folder: PNG images " +
+		"(returned to you too, so you can check how a page looks: text that's cut off, crowded charts, empty space) or a PDF. Needs Chloe's window open.",
+		Annotations: &mcp.ToolAnnotations{Title: "Export dashboard", DestructiveHint: &f, OpenWorldHint: &f}},
+		func(ctx context.Context, c *call, in ExportArgs) (ExportOut, []mcp.Content, error) {
+			p, w, err := c.workspace(in.Workspace)
+			if err != nil {
+				return ExportOut{}, nil, err
+			}
+			d := findDashboard(&w, in.Dashboard)
+			if d == nil {
+				return ExportOut{}, nil, fmt.Errorf("no dashboard %q in the workspace (see get_workspace)", in.Dashboard)
+			}
+			format := strings.ToLower(in.Format)
+			if format == "" {
+				format = "png"
+			}
+			if format != "png" && format != "pdf" {
+				return ExportOut{}, nil, fmt.Errorf("format is png or pdf, not %q", in.Format)
+			}
+			var pages []int
+			if in.Page != "" {
+				pi, err := findPage(*d, in.Page)
+				if err != nil {
+					return ExportOut{}, nil, err
+				}
+				pages = []int{pi}
+			} else {
+				for i := range d.Pages {
+					pages = append(pages, i)
+				}
+			}
+			// Drawing shows the data, so every chart's source must be readable.
+			for _, pi := range pages {
+				for _, it := range d.Pages[pi].Items {
+					if ch := w.Chart(it.Chart); it.Kind == bi.ItemChart && ch != nil {
+						if src := w.Source(ch.DataSource); src != nil {
+							if err := c.canRead(ctx, *src); err != nil {
+								return ExportOut{}, nil, fmt.Errorf("chart %q: %w", ch.Name, err)
+							}
+						}
+					}
+				}
+			}
+			if c.s.events == nil {
+				return ExportOut{}, nil, errors.New("Chloe's window isn't available")
+			}
+			// Agents get pages at their layout size; PDFs are drawn at twice that.
+			scale := 1.0
+			if format == "pdf" {
+				scale = 2
+			}
+			pngs, err := c.s.events.Render(ctx, p, d.ID, pages, scale)
+			if err != nil {
+				return ExportOut{}, nil, err
+			}
+			dir := filepath.Join(bi.ReportsDir(), fileSafe(w.Name))
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return ExportOut{}, nil, err
+			}
+			stamp := time.Now().Format("2006-01-02 150405")
+			out := ExportOut{Files: []string{}, Format: format}
+			var content []mcp.Content
+			for i, pi := range pages {
+				out.Pages = append(out.Pages, pi+1)
+				if format == "png" {
+					f := filepath.Join(dir, fmt.Sprintf("%s p%d %s.png", fileSafe(d.Name), pi+1, stamp))
+					if err := os.WriteFile(f, pngs[i], 0o644); err != nil {
+						return ExportOut{}, nil, err
+					}
+					out.Files = append(out.Files, f)
+					content = append(content, &mcp.ImageContent{Data: pngs[i], MIMEType: "image/png"})
+				}
+			}
+			if format == "pdf" {
+				data, err := bi.PDF(pngs, bi.PageWidth)
+				if err != nil {
+					return ExportOut{}, nil, err
+				}
+				f := filepath.Join(dir, fmt.Sprintf("%s %s.pdf", fileSafe(d.Name), stamp))
+				if err := os.WriteFile(f, data, 0o644); err != nil {
+					return ExportOut{}, nil, err
+				}
+				out.Files = append(out.Files, f)
+			}
+			c.act.SQL = strings.Join(out.Files, ", ")
+			return out, content, nil
 		})
 
 	add(s, srv, ep, &mcp.Tool{Name: "open_dashboard", Description: "Opens a dashboard in Chloe for the user.",
@@ -356,6 +484,38 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 		})
 }
 
+// rowHeights lists the heights of rows laid out by LayoutRows, top to bottom.
+func rowHeights(items []bi.Item) []int {
+	byY := map[int]int{}
+	var ys []int
+	for _, it := range items {
+		if _, ok := byY[it.Y]; !ok {
+			ys = append(ys, it.Y)
+		}
+		byY[it.Y] = max(byY[it.Y], it.H)
+	}
+	slices.Sort(ys)
+	out := make([]int, len(ys))
+	for i, y := range ys {
+		out[i] = byY[y]
+	}
+	return out
+}
+
+// fileSafe makes a name usable as a file name.
+func fileSafe(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if strings.ContainsRune(`/\:*?"<>|`, r) || r < 32 {
+			return '-'
+		}
+		return r
+	}, strings.TrimSpace(s))
+	if s == "" {
+		return "dashboard"
+	}
+	return s
+}
+
 func findDashboard(w *bi.Workspace, ref string) *bi.Dashboard {
 	if d := w.Dashboard(ref); d != nil {
 		return d
@@ -396,7 +556,11 @@ func (c *call) layoutPages(w *bi.Workspace, in []PageArg) ([]bi.Page, error) {
 	chartID := func(ref string) (string, error) {
 		ch := findChart(w, ref)
 		if ch == nil {
-			return "", fmt.Errorf("no chart %q in the workspace", ref)
+			var names []string
+			for _, ch := range w.Charts {
+				names = append(names, ch.Name)
+			}
+			return "", fmt.Errorf("no chart %q in the workspace (charts: %s)", ref, strings.Join(names, ", "))
 		}
 		if src := w.Source(ch.DataSource); src != nil && !c.readable(*src) {
 			return "", fmt.Errorf("chart %q reads a connection that isn't shared with this endpoint", ch.Name)
@@ -420,9 +584,16 @@ func (c *call) layoutPages(w *bi.Workspace, in []PageArg) ([]bi.Page, error) {
 				return nil, fmt.Errorf("page %d row %d has no tiles", i+1, r+1)
 			}
 		}
-		items, _, err := bi.LayoutRows(rows, heights, 0, chartID)
+		items, bottom, err := bi.LayoutRows(rows, heights, 0, chartID)
 		if err != nil {
 			return nil, fmt.Errorf("page %d: %w", i+1, err)
+		}
+		if size == bi.SizeSlide && bottom > bi.PageRows {
+			var parts []string
+			for r, h := range rowHeights(items) {
+				parts = append(parts, fmt.Sprintf("row %d %d", r+1, h))
+			}
+			return nil, fmt.Errorf("page %d: its rows take %d grid rows (%s) but a 16:9 slide has %d; use smaller heights (S 3, M 5, L 8), fewer rows, or size report", i+1, bottom, strings.Join(parts, ", "), bi.PageRows)
 		}
 		pages = append(pages, bi.Page{ID: uuid.NewString(), Name: pa.Name, Size: size, Items: items})
 	}
@@ -467,8 +638,12 @@ func setNotes(pg *bi.Page, by, md, place string) error {
 			return setNotes(pg, by, md, place)
 		}
 		grow := 0
-		if pg.Size == bi.SizeReport && h > it.H {
+		if h > it.H {
 			grow = h - it.H
+			// On a slide notes grow only into free rows at the bottom; they're never cut off.
+			if pg.Size == bi.SizeSlide && (it.Y+it.H != pg.Bottom() || pg.Bottom()+grow > bi.PageRows) {
+				return noRoom{need: h, free: bi.PageRows - pg.Bottom() + it.H}
+			}
 		}
 		it.Text, it.Updated = md, now
 		if grow > 0 {
@@ -496,10 +671,21 @@ func setNotes(pg *bi.Page, by, md, place string) error {
 		return nil
 	}
 	note.Y = pg.Bottom()
-	note.H = min(h, bi.PageRows-note.Y)
-	if note.H < 2 {
-		return errors.New("this page is a full 16:9 slide with no room for notes; add them to a report page, or ask the user to make room")
+	if note.Y+h > bi.PageRows {
+		return noRoom{need: h, free: bi.PageRows - note.Y}
 	}
 	pg.Items = append(pg.Items, note)
 	return nil
+}
+
+// noRoom is notes that don't fit the free rows of a 16:9 slide.
+type noRoom struct{ need, free int }
+
+func (e noRoom) Error() string {
+	return fmt.Sprintf("these notes need %d grid rows but the 16:9 slide has %d free; shorten them, put them on a report page, or ask the user to make room", e.need, max(0, e.free))
+}
+
+// mine says how an agent can make room on its own dashboard.
+func (e noRoom) mine() error {
+	return fmt.Errorf("these notes need %d grid rows but the 16:9 slide has %d free; it's your dashboard, so shorten the notes, make room with edit_dashboard (smaller rows), or switch the page to report", e.need, max(0, e.free))
 }

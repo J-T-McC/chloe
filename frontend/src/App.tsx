@@ -40,6 +40,7 @@ import { SourceEditor } from "./components/bi/SourceEditor";
 import { ChartEditor } from "./components/bi/ChartEditor";
 import { DashboardEditor } from "./components/bi/DashboardEditor";
 import { CreateChartDialog } from "./components/bi/CreateChartDialog";
+import { ExportHost } from "./components/bi/ExportHost";
 import { listenBI } from "./components/bi/actions";
 import { ChartTypeIcon } from "./components/bi/icons";
 import { MenuItem, openMenu } from "./components/ContextMenu";
@@ -219,6 +220,7 @@ export default function App() {
       <DialogHost />
       <ApprovalHost />
       <CreateChartDialog />
+      <ExportHost />
       <ContextMenuHost />
     </div>
   );
