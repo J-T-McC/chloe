@@ -13,6 +13,9 @@ import type * as core$0 from "../../../../../chloe/internal/core/models.js";
 import type * as mcpserver$0 from "../../../../../chloe/internal/mcpserver/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import type * as store$0 from "../../../../../chloe/internal/store/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import type * as services$0 from "../../../../../chloe/services/models.js";
 
 declare module "@wailsio/runtime" {
@@ -23,6 +26,8 @@ declare module "@wailsio/runtime" {
             "mcp:activity": mcpserver$0.Activity;
             "mcp:approval": mcpserver$0.ApprovalRequest;
             "mcp:approval-done": string;
+            "mcp:connection-added": string;
+            "mcp:settings": store$0.MCPSettings;
             "mcp:status": mcpserver$0.Status;
             "result:progress": services$0.ResultProgress;
         }

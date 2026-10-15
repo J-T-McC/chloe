@@ -66,6 +66,7 @@ export interface MCPCapabilities {
 /**
  * MCPConnAccess is an endpoint's access to one connection. Databases overrides
  * Level for single databases (PostgreSQL databases, MySQL databases, SQLite files).
+ * A connection without an entry inherits its group's level.
  */
 export interface MCPConnAccess {
     "level": MCPLevel;
@@ -91,10 +92,20 @@ export interface MCPEndpoint {
      * by connection ID
      */
     "access": { [_ in string]?: MCPConnAccess } | null;
+
+    /**
+     * by group name
+     */
+    "groups"?: { [_ in string]?: MCPLevel } | null;
+
+    /**
+     * ConnectionGroup is where connections this endpoint creates go ("" = DefaultMCPConnectionGroup).
+     */
+    "connectionGroup"?: string;
 }
 
 /**
- * MCPLevel is how much an MCP endpoint may do with a connection or database.
+ * MCPLevel is how much an MCP endpoint may do with a group, connection or database.
  */
 export enum MCPLevel {
     /**
@@ -105,6 +116,11 @@ export enum MCPLevel {
     MCPOff = "",
     MCPRead = "read",
     MCPWrite = "write",
+
+    /**
+     * MCPInherit takes the level of the connection's group (connections only).
+     */
+    MCPInherit = "inherit",
 };
 
 /**

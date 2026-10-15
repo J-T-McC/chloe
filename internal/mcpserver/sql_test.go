@@ -17,7 +17,7 @@ var (
 func table() model.TableDetail {
 	return model.TableDetail{
 		ObjectRef: model.ObjectRef{Database: "shop", Schema: "public", Name: "orders"},
-		Columns: []model.Column{{Name: "id", PrimaryKey: true, AutoIncrement: true}, {Name: "status"}, {Name: "total"}, {Name: "it's"}},
+		Columns:   []model.Column{{Name: "id", PrimaryKey: true, AutoIncrement: true}, {Name: "status"}, {Name: "total"}, {Name: "it's"}},
 	}
 }
 

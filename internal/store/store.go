@@ -40,6 +40,7 @@ type Store struct {
 	key     []byte // file key, once read from the keychain
 	work    *Workspace
 	mcpMu   sync.Mutex // mcp.json
+	mcpHook func(MCPSettings)
 	// locked explains why an encrypted connections.json couldn't be read. The
 	// store is then empty and never writes, so the file is left as it was.
 	locked string
@@ -239,12 +240,22 @@ func (s *Store) AddGroup(name string) error {
 	return s.flushLocked()
 }
 
-// RenameGroup renames a folder and moves its connections with it.
+// RenameGroup renames a folder and moves its connections (and MCP access) with it.
 func (s *Store) RenameGroup(old, name string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return errors.New("group name is required")
 	}
+	if err := s.renameGroup(old, name); err != nil {
+		return err
+	}
+	if name != old {
+		s.renameMCPGroup(old, name)
+	}
+	return nil
+}
+
+func (s *Store) renameGroup(old, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if name != old && slices.Contains(s.groups, name) {
@@ -265,10 +276,10 @@ func (s *Store) RenameGroup(old, name string) error {
 	return s.flushLocked()
 }
 
-// DeleteGroup removes a folder; its connections move to the top level.
+// DeleteGroup removes a folder; its connections move to the top level and
+// MCP endpoints lose the access they had through it.
 func (s *Store) DeleteGroup(name string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.groups = slices.DeleteFunc(s.groups, func(g string) bool { return g == name })
 	for id, c := range s.conns {
 		if c.Group == name {
@@ -276,7 +287,12 @@ func (s *Store) DeleteGroup(name string) error {
 			s.conns[id] = c
 		}
 	}
-	return s.flushLocked()
+	err := s.flushLocked()
+	s.mu.Unlock()
+	if err == nil {
+		s.renameMCPGroup(name, "")
+	}
+	return err
 }
 
 // MoveToGroup moves a connection to the end of a folder ("" = top level).

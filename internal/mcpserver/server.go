@@ -28,7 +28,9 @@ import (
 
 // ApprovalRequest is what the user is asked to approve.
 type ApprovalRequest struct {
-	ID         string `json:"id"`
+	ID string `json:"id"`
+	// Kind is "write" (rows) or "connection" (a new saved connection).
+	Kind       string `json:"kind"`
 	Endpoint   string `json:"endpoint"`
 	Tool       string `json:"tool"`
 	Connection string `json:"connection"`
@@ -36,13 +38,24 @@ type ApprovalRequest struct {
 	Table      string `json:"table,omitempty"`
 	// Summary is one line, e.g. "Update 3 rows in orders".
 	Summary string `json:"summary"`
-	SQL     string `json:"sql"`
+	SQL     string `json:"sql"` // the statement, or a new connection's settings
 	Rows    int64  `json:"rows"`
+	// AskPassword lets the user type the connection's password in the dialog;
+	// HasPassword says the agent sent one (used when the user leaves it empty).
+	AskPassword bool   `json:"askPassword,omitempty"`
+	HasPassword bool   `json:"hasPassword,omitempty"`
+	Warning     string `json:"warning,omitempty"`
 }
 
-// Approver asks the user. It returns false when they decline or ctx ends.
+// Answer is the user's reply to an approval request.
+type Answer struct {
+	OK       bool
+	Password string
+}
+
+// Approver asks the user. It answers not OK when they decline or ctx ends.
 type Approver interface {
-	Approve(ctx context.Context, req ApprovalRequest) bool
+	Approve(ctx context.Context, req ApprovalRequest) Answer
 }
 
 // Activity is one tool call in the activity log.
@@ -74,6 +87,10 @@ type Status struct {
 type Events interface {
 	Activity(a Activity)
 	Status(s Status)
+	// Settings reports settings changed outside the MCP window (a group rename).
+	Settings(st store.MCPSettings)
+	// ConnectionAdded reports a connection an agent created.
+	ConnectionAdded(id string)
 }
 
 // ApprovalTimeout is how long a write waits for the user.
@@ -97,7 +114,15 @@ type Server struct {
 }
 
 func New(m *core.Manager, approver Approver, events Events) *Server {
-	return &Server{m: m, approver: approver, events: events, servers: map[string]*mcp.Server{}}
+	s := &Server{m: m, approver: approver, events: events, servers: map[string]*mcp.Server{}}
+	// Renaming or deleting a group rewrites the endpoints' group access.
+	m.Store.OnMCPChange(func(st store.MCPSettings) {
+		_ = s.apply(st)
+		if events != nil {
+			events.Settings(st)
+		}
+	})
+	return s
 }
 
 // NewToken makes an endpoint token.
@@ -323,6 +348,9 @@ func (s *Server) serverFor(id string) *mcp.Server {
 		}
 	}
 	s.addTools(srv, id, canWrite(ep))
+	if ep.Capabilities.CreateConnections {
+		s.addConnectionTools(srv, id)
+	}
 	s.servers[id] = srv
 	return srv
 }

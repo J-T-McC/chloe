@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -30,16 +31,17 @@ INSERT INTO secrets VALUES (1, 'hunter2');
 
 // approver answers approval requests with a fixed decision and records them.
 type approver struct {
-	mu     sync.Mutex
-	answer bool
-	asked  []mcpserver.ApprovalRequest
+	mu       sync.Mutex
+	answer   bool
+	password string
+	asked    []mcpserver.ApprovalRequest
 }
 
-func (a *approver) Approve(_ context.Context, r mcpserver.ApprovalRequest) bool {
+func (a *approver) Approve(_ context.Context, r mcpserver.ApprovalRequest) mcpserver.Answer {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.asked = append(a.asked, r)
-	return a.answer
+	return mcpserver.Answer{OK: a.answer, Password: a.password}
 }
 
 type fixture struct {
@@ -357,5 +359,103 @@ func TestAuth(t *testing.T) {
 	}
 	if c := post(f.ep.Token, ""); c != http.StatusUnauthorized {
 		t.Fatalf("disabled endpoint: %d", c)
+	}
+}
+
+func TestGroupAccess(t *testing.T) {
+	// The connection inherits from its group unless it sets its own level.
+	f := setup(t, store.MCPConnAccess{Level: store.MCPInherit})
+	if err := f.m.Store.MoveToGroup(f.conn, "Dev"); err != nil {
+		t.Fatal(err)
+	}
+	f.call(t, "select_rows", map[string]any{"connection": "shop", "table": "customers"}, "no connection")
+
+	st := f.srv.Settings()
+	st.Endpoints[0].Groups = map[string]store.MCPLevel{"Dev": store.MCPWrite}
+	if err := f.srv.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	conns := f.call(t, "list_connections", nil, "")["connections"].([]any)
+	if c := conns[0].(map[string]any); c["access"] != "write" || c["group"] != "Dev" {
+		t.Fatalf("inherited: %v", c)
+	}
+	f.call(t, "delete_rows", map[string]any{"connection": "shop", "table": "customers", "where": where(3)}, "")
+
+	// Renaming the group keeps the access; the server picks the change up.
+	if err := f.m.Store.RenameGroup("Dev", "Staging"); err != nil {
+		t.Fatal(err)
+	}
+	if g := f.srv.Settings().Endpoints[0].Groups; g["Staging"] != store.MCPWrite {
+		t.Fatalf("after rename: %v", g)
+	}
+	f.call(t, "select_rows", map[string]any{"connection": "shop", "table": "customers"}, "")
+
+	// The connection's own level wins over the group's.
+	st = f.srv.Settings()
+	st.Endpoints[0].Access[f.conn] = store.MCPConnAccess{Level: store.MCPRead}
+	if err := f.srv.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	f.call(t, "delete_rows", map[string]any{"connection": "shop", "table": "customers", "where": where(2)}, "can only read")
+
+	// Deleting the group takes its access away from connections that inherited it.
+	st.Endpoints[0].Access[f.conn] = store.MCPConnAccess{Level: store.MCPInherit}
+	if err := f.srv.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Store.DeleteGroup("Staging"); err != nil {
+		t.Fatal(err)
+	}
+	f.call(t, "list_tables", map[string]any{"connection": "shop"}, "no connection")
+}
+
+func where(id int) []any { return []any{map[string]any{"column": "id", "op": "=", "value": id}} }
+
+func TestCreateConnection(t *testing.T) {
+	f := setup(t, store.MCPConnAccess{Level: store.MCPRead})
+	if _, err := f.client.CallTool(context.Background(), &mcp.CallToolParams{Name: "create_connection", Arguments: map[string]any{"path": "/x"}}); err == nil {
+		t.Fatal("create_connection without the capability")
+	}
+	st := f.srv.Settings()
+	st.Endpoints[0].Capabilities.CreateConnections = true
+	st.Endpoints[0].Danger = true // never skips this approval
+	if err := f.srv.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(t.TempDir(), "notes.db")
+	if err := os.WriteFile(other, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.call(t, "create_connection", map[string]any{"path": "relative.db"}, "absolute path")
+	f.call(t, "create_connection", map[string]any{"engine": "redis", "host": "x"}, "engine must be")
+
+	f.appr.answer = false
+	f.call(t, "create_connection", map[string]any{"engine": "sqlite", "path": other}, "declined")
+	req := f.appr.asked[len(f.appr.asked)-1]
+	if req.Kind != "connection" || !strings.Contains(req.Warning, other) || !strings.Contains(req.Warning, "no access") || req.AskPassword {
+		t.Fatalf("request: %+v", req)
+	}
+	if len(f.m.Store.List()) != 1 {
+		t.Fatal("declined connection was saved")
+	}
+
+	// With read access on the group, the agent can use what it creates.
+	st = f.srv.Settings()
+	st.Endpoints[0].Groups = map[string]store.MCPLevel{store.DefaultMCPConnectionGroup: store.MCPRead}
+	if err := f.srv.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	f.appr.answer = true
+	out := f.call(t, "create_connection", map[string]any{"engine": "sqlite", "path": other}, "")
+	if out["name"] != "notes" || out["group"] != store.DefaultMCPConnectionGroup || out["access"] != "read" {
+		t.Fatalf("created: %v", out)
+	}
+	if !slices.Contains(f.m.Store.Groups(), store.DefaultMCPConnectionGroup) {
+		t.Fatal("group not created")
+	}
+	f.call(t, "list_tables", map[string]any{"connection": "notes"}, "")
+	// A second one with the same file gets a new name.
+	if out := f.call(t, "create_connection", map[string]any{"engine": "sqlite", "path": other}, ""); out["name"] != "notes 2" {
+		t.Fatalf("second: %v", out)
 	}
 }

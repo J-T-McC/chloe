@@ -16,6 +16,8 @@ const (
 	EventMCPApprovalDone = "mcp:approval-done" // a request was answered elsewhere or timed out
 	EventMCPActivity     = "mcp:activity"
 	EventMCPStatus       = "mcp:status"
+	EventMCPSettings     = "mcp:settings"
+	EventMCPConnection   = "mcp:connection-added"
 )
 
 func init() {
@@ -23,6 +25,8 @@ func init() {
 	application.RegisterEvent[string](EventMCPApprovalDone)
 	application.RegisterEvent[mcpserver.Activity](EventMCPActivity)
 	application.RegisterEvent[mcpserver.Status](EventMCPStatus)
+	application.RegisterEvent[store.MCPSettings](EventMCPSettings)
+	application.RegisterEvent[string](EventMCPConnection)
 }
 
 // MCPApprover shows approval requests in the app and waits for the answer.
@@ -33,11 +37,11 @@ type MCPApprover struct {
 
 type pendingApproval struct {
 	req mcpserver.ApprovalRequest
-	ch  chan bool
+	ch  chan mcpserver.Answer
 }
 
-func (a *MCPApprover) Approve(ctx context.Context, req mcpserver.ApprovalRequest) bool {
-	ch := make(chan bool, 1)
+func (a *MCPApprover) Approve(ctx context.Context, req mcpserver.ApprovalRequest) mcpserver.Answer {
+	ch := make(chan mcpserver.Answer, 1)
 	a.mu.Lock()
 	if a.pending == nil {
 		a.pending = map[string]pendingApproval{}
@@ -51,7 +55,7 @@ func (a *MCPApprover) Approve(ctx context.Context, req mcpserver.ApprovalRequest
 	}()
 	app := application.Get()
 	if app == nil {
-		return false
+		return mcpserver.Answer{}
 	}
 	app.Event.Emit(EventMCPApproval, req)
 	// Bring Chloe forward so the request isn't missed behind the agent's window.
@@ -62,21 +66,21 @@ func (a *MCPApprover) Approve(ctx context.Context, req mcpserver.ApprovalRequest
 		break
 	}
 	select {
-	case ok := <-ch:
-		return ok
+	case ans := <-ch:
+		return ans
 	case <-ctx.Done():
 		app.Event.Emit(EventMCPApprovalDone, req.ID)
-		return false
+		return mcpserver.Answer{}
 	}
 }
 
-func (a *MCPApprover) resolve(id string, ok bool) {
+func (a *MCPApprover) resolve(id string, ans mcpserver.Answer) {
 	a.mu.Lock()
 	p, found := a.pending[id]
 	a.mu.Unlock()
 	if found {
 		select {
-		case p.ch <- ok:
+		case p.ch <- ans:
 		default:
 		}
 	}
@@ -98,6 +102,18 @@ type MCPEvents struct{}
 func (MCPEvents) Activity(a mcpserver.Activity) {
 	if app := application.Get(); app != nil {
 		app.Event.Emit(EventMCPActivity, a)
+	}
+}
+
+func (MCPEvents) Settings(st store.MCPSettings) {
+	if app := application.Get(); app != nil {
+		app.Event.Emit(EventMCPSettings, st)
+	}
+}
+
+func (MCPEvents) ConnectionAdded(id string) {
+	if app := application.Get(); app != nil {
+		app.Event.Emit(EventMCPConnection, id)
 	}
 }
 
@@ -130,5 +146,8 @@ func (s *MCPService) ClearActivity()                 { s.S.ClearActivity() }
 // Pending lists writes waiting for approval (shown again after a reload).
 func (s *MCPService) Pending() []mcpserver.ApprovalRequest { return s.Approver.list() }
 
-// Resolve answers an approval request.
-func (s *MCPService) Resolve(id string, approved bool) { s.Approver.resolve(id, approved) }
+// Resolve answers an approval request. password is what the user typed for a
+// new connection ("" keeps the agent's).
+func (s *MCPService) Resolve(id string, approved bool, password string) {
+	s.Approver.resolve(id, mcpserver.Answer{OK: approved, Password: password})
+}

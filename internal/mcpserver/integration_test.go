@@ -91,6 +91,26 @@ func TestIntegrationEngines(t *testing.T) {
 			if len(tables["tables"].([]any)) == 0 {
 				t.Fatal("no tables")
 			}
+
+			// The agent leaves the password out; the user types it in the dialog.
+			st := f.srv.Settings()
+			st.Endpoints[0].Capabilities.CreateConnections = true
+			st.Endpoints[0].Groups = map[string]store.MCPLevel{"Agents": store.MCPRead}
+			st.Endpoints[0].ConnectionGroup = "Agents"
+			if err := f.srv.Save(st); err != nil {
+				t.Fatal(err)
+			}
+			args = map[string]any{"name": "made", "engine": string(e.conn.Type), "host": "127.0.0.1", "port": e.conn.Port, "user": e.conn.User, "database": e.seedDB}
+			f.appr.password = "wrong"
+			f.call(t, "create_connection", args, "wasn't saved")
+			f.appr.password = "chloe"
+			if out := f.call(t, "create_connection", args, ""); out["access"] != "read" {
+				t.Fatalf("created: %v", out)
+			}
+			if req := f.appr.asked[len(f.appr.asked)-1]; !req.AskPassword || req.HasPassword {
+				t.Fatalf("request: %+v", req)
+			}
+			f.call(t, "list_databases", map[string]any{"connection": "made"}, "")
 		})
 	}
 }

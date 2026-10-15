@@ -76,14 +76,25 @@ func (c *call) approve(ctx context.Context, req ApprovalRequest) error {
 		c.act.Outcome = "unasked"
 		return nil
 	}
+	req.Kind = "write"
+	_, err := c.ask(ctx, req)
+	return err
+}
+
+// ask shows a request to the user, whatever the endpoint's danger mode.
+func (c *call) ask(ctx context.Context, req ApprovalRequest) (Answer, error) {
 	req.ID, req.Endpoint, req.Tool = uuid.NewString(), c.ep.Name, c.act.Tool
 	actx, cancel := context.WithTimeout(ctx, ApprovalTimeout)
 	defer cancel()
-	if c.s.approver == nil || !c.s.approver.Approve(actx, req) {
-		return errDenied
+	var a Answer
+	if c.s.approver != nil {
+		a = c.s.approver.Approve(actx, req)
+	}
+	if !a.OK {
+		return a, errDenied
 	}
 	c.act.Outcome, c.asked = "approved", true
-	return nil
+	return a, nil
 }
 
 // --- access -------------------------------------------------------------------
@@ -98,21 +109,44 @@ func atLeast(have, need store.MCPLevel) bool {
 	return true
 }
 
-// dbLevel is the endpoint's access to one database of a connection.
-func dbLevel(a store.MCPConnAccess, database string) store.MCPLevel {
-	if l, ok := a.Databases[database]; ok {
-		return l
-	}
-	return a.Level
+// access is an endpoint's effective access to one connection: its own level
+// or its group's, plus per-database overrides.
+type access struct {
+	level store.MCPLevel
+	dbs   map[string]store.MCPLevel
 }
 
-// visible reports whether an endpoint can see a connection at all.
-func visible(a store.MCPConnAccess) bool {
-	if a.Level != store.MCPOff {
+func accessTo(e store.MCPEndpoint, conn model.Connection) access {
+	return access{level: e.ConnLevel(conn.ID, conn.Group), dbs: e.Access[conn.ID].Databases}
+}
+
+func (a access) db(database string) store.MCPLevel {
+	if l, ok := a.dbs[database]; ok {
+		return l
+	}
+	return a.level
+}
+
+// visible reports whether the endpoint can see the connection at all.
+func (a access) visible() bool {
+	if a.level != store.MCPOff {
 		return true
 	}
-	for _, l := range a.Databases {
+	for _, l := range a.dbs {
 		if l != store.MCPOff {
+			return true
+		}
+	}
+	return false
+}
+
+// hidesDatabases reports whether some database isn't readable.
+func (a access) hidesDatabases() bool {
+	if !atLeast(a.level, store.MCPRead) {
+		return true
+	}
+	for _, l := range a.dbs {
+		if l == store.MCPOff {
 			return true
 		}
 	}
@@ -125,7 +159,7 @@ var sqlEngines = []model.DBType{model.MySQL, model.MariaDB, model.PostgreSQL, mo
 type target struct {
 	connID, conn string
 	typ          model.DBType
-	access       store.MCPConnAccess
+	access       access
 	database     string
 	schema       string
 }
@@ -134,7 +168,7 @@ func (t target) ref(name string, kind model.ObjectKind) model.ObjectRef {
 	return model.ObjectRef{Database: t.database, Schema: t.schema, Name: name, Kind: kind}
 }
 
-func (c *call) connection(name string) (model.Connection, store.MCPConnAccess, error) {
+func (c *call) connection(name string) (model.Connection, access, error) {
 	var match []model.Connection
 	for _, conn := range c.s.m.Store.List() {
 		if conn.ID == name {
@@ -145,14 +179,14 @@ func (c *call) connection(name string) (model.Connection, store.MCPConnAccess, e
 			match = append(match, conn)
 		}
 	}
-	a, ok := store.MCPConnAccess{}, false
+	var a access
 	if len(match) == 1 {
-		a, ok = c.ep.Access[match[0].ID]
+		a = accessTo(c.ep, match[0])
 	}
 	switch {
 	case len(match) > 1:
 		return model.Connection{}, a, fmt.Errorf("several connections are named %q; pass the id from list_connections", name)
-	case len(match) == 0 || !ok || !visible(a):
+	case len(match) == 0 || !a.visible():
 		return model.Connection{}, a, fmt.Errorf("no connection %q is shared with this endpoint (see list_connections)", name)
 	}
 	if !slices.Contains(sqlEngines, match[0].Type) {
@@ -187,7 +221,7 @@ func (c *call) resolve(ctx context.Context, connection, database, schema string,
 	if conn.Type != model.PostgreSQL {
 		t.schema = ""
 	}
-	have := dbLevel(a, t.database)
+	have := a.db(t.database)
 	if have == store.MCPOff {
 		return t, fmt.Errorf("database %q isn't shared with this endpoint", t.database)
 	}
@@ -312,6 +346,7 @@ type TableArgs struct {
 type ConnectionOut struct {
 	ID        string            `json:"id"`
 	Name      string            `json:"name"`
+	Group     string            `json:"group,omitempty"`
 	Engine    string            `json:"engine"`
 	Access    string            `json:"access" jsonschema:"read or write: the default for the connection's databases"`
 	Databases map[string]string `json:"databases,omitempty" jsonschema:"per-database access that differs from the default (off, read, write)"`
@@ -404,6 +439,11 @@ func writeTool(name, title, desc string, destructive bool) *mcp.Tool {
 // canWrite reports whether an endpoint has write access anywhere; endpoints
 // that don't aren't offered the write tools at all.
 func canWrite(e store.MCPEndpoint) bool {
+	for _, l := range e.Groups {
+		if l == store.MCPWrite {
+			return true
+		}
+	}
 	for _, a := range e.Access {
 		if a.Level == store.MCPWrite {
 			return true
@@ -423,13 +463,13 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 		func(ctx context.Context, c *call, _ NoArgs) (ConnectionsOut, error) {
 			out := ConnectionsOut{Connections: []ConnectionOut{}}
 			for _, conn := range c.s.m.Store.List() {
-				a, ok := c.ep.Access[conn.ID]
-				if !ok || !visible(a) || !slices.Contains(sqlEngines, conn.Type) {
+				a := accessTo(c.ep, conn)
+				if !a.visible() || !slices.Contains(sqlEngines, conn.Type) {
 					continue
 				}
-				o := ConnectionOut{ID: conn.ID, Name: conn.Name, Engine: string(conn.Type), Access: levelName(a.Level), Database: conn.InitialDatabase}
-				for db, l := range a.Databases {
-					if l != a.Level {
+				o := ConnectionOut{ID: conn.ID, Name: conn.Name, Group: conn.Group, Engine: string(conn.Type), Access: levelName(a.level), Database: conn.InitialDatabase}
+				for db, l := range a.dbs {
+					if l != a.level {
 						if o.Databases == nil {
 							o.Databases = map[string]string{}
 						}
@@ -463,7 +503,7 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 			}
 			out := NamesOut{Names: []string{}}
 			for _, db := range dbs {
-				if dbLevel(a, db) != store.MCPOff {
+				if a.db(db) != store.MCPOff {
 					out.Names = append(out.Names, db)
 				}
 			}
@@ -573,11 +613,7 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 			// MySQL and SQLite queries can name any database of the connection, so
 			// raw SQL is only allowed when every database is readable.
 			if t.typ != model.PostgreSQL {
-				hidden := !atLeast(t.access.Level, store.MCPRead)
-				for _, l := range t.access.Databases {
-					hidden = hidden || l == store.MCPOff
-				}
-				if hidden {
+				if t.access.hidesDatabases() {
 					return RowsOut{}, errors.New("run_query isn't available here because some databases of this connection are hidden from this endpoint; use select_rows")
 				}
 			}

@@ -27,6 +27,11 @@ export interface Activity {
  */
 export interface ApprovalRequest {
     "id": string;
+
+    /**
+     * Kind is "write" (rows) or "connection" (a new saved connection).
+     */
+    "kind": string;
     "endpoint": string;
     "tool": string;
     "connection": string;
@@ -37,8 +42,20 @@ export interface ApprovalRequest {
      * Summary is one line, e.g. "Update 3 rows in orders".
      */
     "summary": string;
+
+    /**
+     * the statement, or a new connection's settings
+     */
     "sql": string;
     "rows": number;
+
+    /**
+     * AskPassword lets the user type the connection's password in the dialog;
+     * HasPassword says the agent sent one (used when the user leaves it empty).
+     */
+    "askPassword"?: boolean;
+    "hasPassword"?: boolean;
+    "warning"?: string;
 }
 
 /**
