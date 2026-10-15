@@ -1,6 +1,6 @@
 import { Clipboard, FolderOpen, Info, Link2, Plus, Search, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Connection, Connections, DBType, Preset, SSHAuth, Transfer, arr, errorText } from "../api";
+import { Connection, Connections, DBType, Preset, SSHAuth, Transfer, arr, errorText, copyText } from "../api";
 import { useApp } from "../store";
 import { prompt } from "./Dialogs";
 import { DBIcon, PresetIcon } from "./icons";
@@ -462,7 +462,7 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
             {busy ? "Testing…" : "Test Connection"}
           </button>
           {conn.id && (
-            <button title="Copy connection URL (without password)" onClick={async () => navigator.clipboard.writeText(await Connections.URL(conn.id))}>
+            <button title="Copy connection URL (without password)" onClick={async () => copyText(await Connections.URL(conn.id))}>
               <Clipboard size={13} /> Copy URL
             </button>
           )}

@@ -1,7 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight, Folder, Loader2, Search, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Connection, Connections, DBType, ObjectKind, ObjectRef, Redis, errorText } from "../api";
+import { Connection, Connections, DBType, ObjectKind, ObjectRef, Redis, errorText, copyText } from "../api";
 import { openRedisConsole } from "./redis/actions";
 import { collectionMenu, designCollection, mongoConnMenu, mongoDbMenu, newMongoQuery, openCollection } from "./mongo/actions";
 import { openUsers } from "./users/actions";
@@ -321,7 +321,7 @@ export function openMonitor(connId: string) {
 
 // ---- actions ---------------------------------------------------------------------
 
-const copy = (s: string) => navigator.clipboard.writeText(s);
+const copy = (s: string) => copyText(s);
 
 async function reload() {
   await useApp.getState().loadConnections();

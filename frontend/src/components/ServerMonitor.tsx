@@ -1,6 +1,6 @@
 import { CircleStop, Pin, RefreshCw, Skull } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Monitor, Process, ServerVar, arr, errorText } from "../api";
+import { Monitor, Process, ServerVar, arr, errorText, copyText } from "../api";
 import { Tab, useApp } from "../store";
 import { openMenu } from "./ContextMenu";
 import { confirm } from "./Dialogs";
@@ -203,7 +203,7 @@ export function ServerMonitor({ tab }: { tab: Tab }) {
                           { label: pinned.has(k) ? "Unpin" : "Always On Top", onClick: () => setPinned((s) => toggle(s, k)) },
                           { label: "Cancel All Always On Top", disabled: !pinned.size, onClick: () => setPinned(new Set()) },
                           { separator: true },
-                          { label: "Copy Query", disabled: !r.query, onClick: () => navigator.clipboard.writeText(r.query) },
+                          { label: "Copy Query", disabled: !r.query, onClick: () => copyText(r.query) },
                         ]);
                       }}
                       title={r.self ? "A session opened by Chloe" : undefined}

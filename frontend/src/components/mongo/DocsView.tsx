@@ -3,7 +3,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Mongo, errorText, type MG, type ResultColumn } from "../../api";
+import { Mongo, errorText, type MG, type ResultColumn, copyText } from "../../api";
 import { editorTheme, monaco } from "../../editor/monaco";
 import { registerMongoLanguage } from "../../editor/mongo";
 import { TYPE_LABEL, Val, cellText, editType, field, fields, formatVal, items, summary } from "../../mongo/docs";
@@ -85,7 +85,7 @@ function GridView(p: DocsViewProps) {
         const out: MenuItem[] = [{ separator: true }];
         if (p.onEditDoc) out.push({ label: "Edit Document…", onClick: () => p.onEditDoc!(r) });
         if (editable) out.push({ label: `Delete Field “${name}”`, disabled: !has || name === "_id", onClick: () => p.onSetField!(r, name, null) });
-        out.push({ label: "Copy Document", onClick: () => navigator.clipboard.writeText(formatVal(docs.current[r], "  ", true)) });
+        out.push({ label: "Copy Document", onClick: () => copyText(formatVal(docs.current[r], "  ", true)) });
         return out;
       }}
     />
@@ -164,8 +164,8 @@ function TreeView(p: DocsViewProps) {
       ...(p.onSetField && r.path && r.path !== "_id" ? [{ label: "Delete Field", onClick: () => p.onSetField!(r.doc, r.path, null) }] : []),
       ...(p.onDelete ? [{ label: "Delete Document", onClick: () => p.onDelete!([r.doc]) }] : []),
       { separator: true },
-      { label: "Copy Value", onClick: () => navigator.clipboard.writeText(r.value.t === "object" || r.value.t === "array" ? formatVal(r.value, "  ", true) : cellText(r.value) ?? "null") },
-      { label: "Copy Field Path", disabled: !r.path, onClick: () => navigator.clipboard.writeText(r.path) },
+      { label: "Copy Value", onClick: () => copyText(r.value.t === "object" || r.value.t === "array" ? formatVal(r.value, "  ", true) : cellText(r.value) ?? "null") },
+      { label: "Copy Field Path", disabled: !r.path, onClick: () => copyText(r.path) },
       ...(p.onAdd ? [{ separator: true }, { label: "Add Document…", onClick: () => p.onAdd!() }] : []),
     ]);
   };

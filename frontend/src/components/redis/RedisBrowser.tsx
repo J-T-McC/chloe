@@ -3,7 +3,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight, Folder, KeyRound, ListTree, Plus, RefreshCw, Search, TerminalSquare, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { R, Redis, arr, errorText } from "../../api";
+import { R, Redis, arr, errorText, copyText } from "../../api";
 import { KeyRow, TYPES, TYPE_LABEL, formatTTL, keyId, keyRows, toPattern } from "../../redis/keys";
 import { connById } from "../../store";
 import { openMenu } from "../ContextMenu";
@@ -138,7 +138,7 @@ export function RedisBrowser({ connId, db }: { connId: string; db: number }) {
             { label: expanded.has(r.id) ? "Collapse" : "Expand", onClick: () => toggleFolder(r.id) },
             { label: `Filter to ${r.id}*`, onClick: () => (setSearch(r.id + "*"), setPattern(r.id + "*")) },
           ]
-        : [{ label: "Copy Key Name", onClick: () => navigator.clipboard.writeText(victims.map((k) => k.name.text).join("\n")) }]),
+        : [{ label: "Copy Key Name", onClick: () => copyText(victims.map((k) => k.name.text).join("\n")) }]),
       { label: "New Key…", onClick: () => setCreating(true) },
       { separator: true },
       { label: r.kind === "folder" ? `Delete ${victims.length.toLocaleString()} Loaded Keys…` : victims.length > 1 ? `Delete ${victims.length} Keys` : "Delete Key", onClick: () => deleteKeys(victims) },

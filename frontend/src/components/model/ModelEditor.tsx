@@ -3,7 +3,7 @@
 import { ReactFlowProvider, useReactFlow } from "@xyflow/react";
 import { Database, Download, FileCode2, FolderOpen, LayoutGrid, Plus, Save, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { D, DM, Models, arr, errorText } from "../../api";
+import { D, DM, Models, arr, errorText, copyText } from "../../api";
 import { Dialect, Table, newTable, normalize, toWire } from "../../designer/model";
 import { ColumnMode, ErdTable, Positions, autoLayout, fromTables, modelKey, tableSize } from "../../erd/model";
 import { Tab, useApp } from "../../store";
@@ -355,7 +355,7 @@ function SqlDialog({ sql, name, onClose }: { sql: string[]; name: string; onClos
           <CodeBlock code={text} />
         </div>
         <div className="modal-footer">
-          <button onClick={() => navigator.clipboard.writeText(text)}>Copy</button>
+          <button onClick={() => copyText(text)}>Copy</button>
           <span className="spacer" />
           <button onClick={onClose}>Close</button>
           <button className="primary" onClick={saveFile}>

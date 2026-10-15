@@ -1,5 +1,5 @@
 // MongoDB actions shared by the tree, the objects list and the tabs.
-import { Connection, Connections, Mongo, ObjectKind, errorText } from "../../api";
+import { Connection, Connections, Mongo, ObjectKind, errorText, copyText } from "../../api";
 import { invalidateMongoCatalog } from "../../editor/mongo";
 import { connById, useApp } from "../../store";
 import { TreeNode, useTree } from "../../tree";
@@ -134,7 +134,7 @@ export async function duplicateCollection(connId: string, db: string, name: stri
   }
 }
 
-const copy = (s: string) => navigator.clipboard.writeText(s);
+const copy = (s: string) => copyText(s);
 
 /** Right-click menu of collections or views (several when names has more than one). */
 export function collectionMenu(connId: string, db: string, names: string[], kind?: string): MenuItem[] {

@@ -3,7 +3,7 @@
 import { ArrowLeftRight, ArrowRight, Copy, FilePlus2, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
-import { DBType, Transfer, arr, errorText, type Endpoint, type StructItem } from "../../api";
+import { DBType, Transfer, arr, errorText, type Endpoint, type StructItem, copyText } from "../../api";
 import { connDialect } from "../../dialect";
 import { connById, useApp } from "../../store";
 import { ConnIcon, KindIcon } from "../icons";
@@ -191,7 +191,7 @@ export function StructureSyncWizard() {
           {step === "deploy" && (
             <div className="ss-deploy">
               <div className="toolbar">
-                <button onClick={() => navigator.clipboard.writeText(scriptText)}>
+                <button onClick={() => copyText(scriptText)}>
                   <Copy size={14} /> Copy Script
                 </button>
                 <button

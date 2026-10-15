@@ -78,6 +78,14 @@ await step("new endpoint with read-write access", async () => {
   await shot("mcp-endpoint");
 });
 
+await step("copy config puts the full token on the clipboard", async () => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.getByRole("button", { name: "Copy Config" }).click();
+  await page.getByRole("button", { name: "Copied" }).waitFor();
+  const clip = await page.evaluate(() => navigator.clipboard.readText());
+  if (!clip.includes(`Authorization: Bearer ${token()}`)) throw new Error("clipboard: " + clip.slice(0, 80));
+});
+
 await step("no token is refused", async () => {
   const r = await rpc("tools/list", {}, "nope");
   if (r.status !== 401) throw new Error("status " + r.status);
