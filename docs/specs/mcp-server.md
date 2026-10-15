@@ -19,6 +19,8 @@ default), and serve the same endpoints, tools, approvals and activity log.
   - No network port means no other program can pose as Chloe by taking the port first and collecting the tokens and
     queries clients send. A bridged session ends when its endpoint is disabled or deleted, or the server stops.
   - Errors go to the client's log on stderr: Chloe not running or the server off, an unknown token.
+  - macOS and Linux. Windows (untested) would lack the peer-user check, and file modes don't apply there; it
+    should use a named pipe with a user-only ACL instead.
 - **Streamable HTTP** on `http://127.0.0.1:<port>/mcp` (default port 47101), loopback only, never `0.0.0.0`.
   "HTTP on port" switches it off, leaving only the bridge.
   - **Bearer token per endpoint** (`Authorization: Bearer chloe_…`). The token decides which endpoint applies.
