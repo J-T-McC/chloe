@@ -2,10 +2,8 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -24,8 +22,6 @@ type ModelFile struct {
 	Path  string          `json:"path"`
 	Model datamodel.Model `json:"model"`
 }
-
-const recentModelsKey = "models:recent"
 
 func (s *ModelService) New(name, dialect string) datamodel.Model { return datamodel.New(name, dialect) }
 
@@ -84,28 +80,11 @@ func (s *ModelService) Save(path string, mdl datamodel.Model) (string, error) {
 }
 
 // Recent lists recently opened or saved model files, newest first.
-func (s *ModelService) Recent() []string {
-	doc, _ := s.M.Store.Layouts().Get(recentModelsKey)
-	var paths []string
-	_ = json.Unmarshal([]byte(doc), &paths)
-	return paths
-}
+func (s *ModelService) Recent() []string { return s.M.Store.RecentModels() }
 
-func (s *ModelService) remember(path string) {
-	paths := slices.DeleteFunc(s.Recent(), func(p string) bool { return p == path })
-	paths = append([]string{path}, paths...)
-	if len(paths) > 10 {
-		paths = paths[:10]
-	}
-	data, _ := json.Marshal(paths)
-	_ = s.M.Store.Layouts().Set(recentModelsKey, string(data))
-}
+func (s *ModelService) remember(path string) { s.M.Store.RememberModel(path) }
 
-func (s *ModelService) forget(path string) {
-	paths := slices.DeleteFunc(s.Recent(), func(p string) bool { return p == path })
-	data, _ := json.Marshal(paths)
-	_ = s.M.Store.Layouts().Set(recentModelsKey, string(data))
-}
+func (s *ModelService) forget(path string) { s.M.Store.ForgetModel(path) }
 
 // Reverse builds a model from the tables of a database (and PostgreSQL schema).
 func (s *ModelService) Reverse(ctx context.Context, connID, database, schema string, tables []string) (datamodel.Model, error) {

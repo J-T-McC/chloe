@@ -20,6 +20,8 @@ const (
 	EventMCPConnection   = "mcp:connection-added"
 	EventMCPQuerySaved   = "mcp:query-saved"
 	EventMCPOpenQuery    = "mcp:open-query"
+	EventMCPModelChanged = "mcp:model-changed"
+	EventMCPOpenModel    = "mcp:open-model"
 )
 
 func init() {
@@ -31,6 +33,8 @@ func init() {
 	application.RegisterEvent[string](EventMCPConnection)
 	application.RegisterEvent[mcpserver.QueryTab](EventMCPQuerySaved)
 	application.RegisterEvent[mcpserver.QueryTab](EventMCPOpenQuery)
+	application.RegisterEvent[string](EventMCPModelChanged)
+	application.RegisterEvent[string](EventMCPOpenModel)
 }
 
 // MCPApprover shows approval requests in the app and waits for the answer.
@@ -127,6 +131,21 @@ func (MCPEvents) OpenQueryTab(tab mcpserver.QueryTab) {
 		return
 	}
 	app.Event.Emit(EventMCPOpenQuery, tab)
+	focusMain(app)
+}
+
+func (MCPEvents) ModelChanged(path string) {
+	if app := application.Get(); app != nil {
+		app.Event.Emit(EventMCPModelChanged, path)
+	}
+}
+
+func (MCPEvents) OpenModel(path string) {
+	app := application.Get()
+	if app == nil {
+		return
+	}
+	app.Event.Emit(EventMCPOpenModel, path)
 	focusMain(app)
 }
 

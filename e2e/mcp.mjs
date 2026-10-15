@@ -244,6 +244,33 @@ await step("monitor capability", async () => {
   if (!r.isError || !text(r).includes("no server to monitor")) throw new Error(text(r));
 });
 
+await step("agent builds an ER model", async () => {
+  await page.getByLabel("ER models").check();
+  await page.waitForTimeout(200);
+  const table = (name, cols) => ({ name, columns: cols.map((c) => ({ name: c, type: "integer" })), primaryKey: { columns: [cols[0]] } });
+  const m = await tool("create_model", { name: "Agent model", dialect: "postgres" });
+  if (m.isError) throw new Error(text(m));
+  const path = m.structuredContent.path;
+  const ed = await tool("edit_model", { model: path, set_tables: [table("customers", ["id", "age"])] });
+  if (ed.isError) throw new Error(text(ed));
+  await tool("open_model", { model: path });
+  await page.locator(".tab.active", { hasText: "Agent model" }).waitFor();
+  await pane().getByText("customers", { exact: true }).waitFor();
+  // A clean tab reloads when the agent edits the file.
+  await tool("edit_model", { model: path, set_tables: [table("orders", ["id", "customer_id"])] });
+  await pane().getByText("orders", { exact: true }).waitFor();
+  await pane().getByText("2 tables").waitFor();
+  await shot("mcp-model");
+  // With unsaved changes here, it says so instead.
+  await pane().locator(".name-input").fill("Agent model (mine)");
+  await tool("edit_model", { model: path, drop_tables: ["orders"] });
+  await pane().locator(".model-notice", { hasText: "An agent changed this file" }).waitFor();
+  await pane().getByText("orders", { exact: true }).waitFor();
+  const user = await tool("edit_model", { model: "/etc/hosts", drop_tables: ["x"] });
+  if (!user.isError) throw new Error("edited an unlisted file");
+  await mcpTab();
+});
+
 await step("stop server", async () => {
   await page.getByLabel("Run MCP server").uncheck();
   await page.getByText("Stopped").waitFor();
