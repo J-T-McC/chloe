@@ -88,7 +88,38 @@ parameters. A connection the endpoint can use is opened on demand (it needs a sa
 - Endpoints with no Read-write access anywhere aren't offered the write tools; calling one is an unknown-tool error.
   The list follows the settings on the next request, so a client sees the change when it reconnects.
 - No DDL, no raw write SQL in v1.
-- MySQL, PostgreSQL and SQLite in v1; MongoDB and Redis later.
+- MySQL, PostgreSQL and SQLite; Redis has its own tools (below); MongoDB later.
+
+### Redis (per connection access)
+Offered to endpoints that can see a Redis connection. Access is per logical database, keyed by its number
+(`db0`, `db1`… in the access tree). `list_connections` lists Redis connections with engine `redis`; the SQL tools
+refuse them.
+
+| Tool | Access | Arguments |
+|---|---|---|
+| `redis_databases` | any | `connection` |
+| `redis_scan` | Read | `connection, db?, pattern?, type?, cursor?, count?` |
+| `redis_get` | Read | `connection, db?, key, cursor?, count?` |
+| `redis_command` | Read | `connection, db?, args` |
+| `redis_set` | Read-write | `connection, db?, key, type, value, ttl?, only_if_new?` |
+| `redis_edit` | Read-write | `connection, db?, key, set_fields?, delete_fields?, push?, push_head?, add?, add_scored?, remove?, add_entry?` |
+| `redis_delete` | Read-write | `connection, db?, keys` |
+| `redis_expire` | Read-write | `connection, db?, key, ttl` |
+
+- `db` defaults to 0. Keys that aren't UTF-8 come back as base64 with `key_base64`, which the agent passes back;
+  values that aren't UTF-8 are shown as `0x…` hex. Strings are cut at 64 KB and collection elements at 4 KB.
+- `redis_scan` and `redis_get` page with a cursor (default 100, at most 1000 keys or elements).
+- `redis_command` runs one command from a fixed list of read commands (GET, HGETALL, ZRANGEBYSCORE, XRANGE,
+  PFCOUNT, GEOSEARCH, OBJECT ENCODING, JSON.GET…). Nothing that writes, blocks, switches database or runs a script;
+  KEYS is refused in favour of `redis_scan`. The reply is formatted like redis-cli.
+- Writes are built from fixed commands with the agent's keys and values as arguments, run in MULTI/EXEC, and shown
+  in the approval dialog as redis-cli commands. `redis_set` replaces a whole value (a replaced key keeps its expiry
+  unless `ttl` is given); `redis_edit` changes elements of one collection, creating it when missing, and refuses if
+  the key changed type while waiting for approval. `redis_delete` takes at most 1000 keys (UNLINK); there's no
+  delete by pattern, and no FLUSHDB.
+- Monitor (capability) covers Redis too: `list_sessions` (CLIENT LIST), `server_status` (INFO, with the section as
+  description), `server_variables` (CONFIG GET, with passwords hidden), `kill_session` (CLIENT KILL; no
+  `query_only`).
 
 ### Monitor (capability)
 | Tool | Access | Arguments |
@@ -98,7 +129,7 @@ parameters. A connection the endpoint can use is opened on demand (it needs a sa
 | `server_variables` | Read | `connection, filter?` |
 | `kill_session` | Read-write | `connection, id, query_only?` |
 
-- MySQL/MariaDB and PostgreSQL. Sessions and status span the whole server, so the endpoint needs the level on every
+- MySQL/MariaDB, PostgreSQL and Redis. Sessions and status span the whole server, so the endpoint needs the level on every
   database of the connection; one hidden or read-only database makes the tools refuse.
 - `filter` keeps names containing the text (case-insensitive). Session queries are cut like result cells.
 - `kill_session` asks unless danger mode is on, showing the session's user, host, database, state, time and query.
@@ -166,4 +197,5 @@ A tab like the History Log:
 1. Server, endpoints, data tools, approval, danger mode, activity, window.
 2. Monitor, saved queries / query tabs, create connections. ✅
 3. ER models. ✅
-4. Reports (`docs/specs/bi.md`): workspaces, data sources and charts ✅; dashboards next.
+4. Reports (`docs/specs/bi.md`): workspaces, data sources and charts ✅; dashboards ✅.
+5. Redis ✅; MongoDB next.

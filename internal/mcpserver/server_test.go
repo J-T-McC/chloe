@@ -154,10 +154,15 @@ func setupConn(t *testing.T, conn model.Connection, database, schema, seed strin
 		}
 	}
 	m.CloseSession(sid)
+	return serve(t, m, c.ID, store.MCPEndpoint{Name: "test", Enabled: true, Access: map[string]store.MCPConnAccess{c.ID: access}})
+}
 
+// serve serves one endpoint over HTTP and connects a client to it.
+func serve(t *testing.T, m *core.Manager, connID string, ep store.MCPEndpoint) *fixture {
+	t.Helper()
+	ctx := context.Background()
 	appr, ev := &approver{answer: true}, &events{}
 	srv := mcpserver.New(m, appr, ev)
-	ep := store.MCPEndpoint{Name: "test", Enabled: true, Access: map[string]store.MCPConnAccess{c.ID: access}}
 	// Port 0 never listens (Enabled is false); the test serves the handler itself.
 	if err := srv.Save(store.MCPSettings{Endpoints: []store.MCPEndpoint{ep}}); err != nil {
 		t.Fatal(err)
@@ -166,7 +171,7 @@ func setupConn(t *testing.T, conn model.Connection, database, schema, seed strin
 	hs := httptest.NewServer(srv.Handler())
 	t.Cleanup(hs.Close)
 
-	f := &fixture{m: m, srv: srv, conn: c.ID, ep: ep, appr: appr, events: ev, url: hs.URL + "/mcp"}
+	f := &fixture{m: m, srv: srv, conn: connID, ep: ep, appr: appr, events: ev, url: hs.URL + "/mcp"}
 	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
 	cs, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: f.url, HTTPClient: tokenClient(ep.Token)}, nil)
 	if err != nil {

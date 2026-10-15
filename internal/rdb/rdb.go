@@ -122,6 +122,9 @@ func (c *Client) db(n int) *redis.Client {
 	return cl
 }
 
+// DB returns the pooled client of logical database n.
+func (c *Client) DB(n int) *redis.Client { return c.db(n) }
+
 func (c *Client) ServerVersion() string { return c.version }
 
 // OpenConnections counts pooled connections across databases.

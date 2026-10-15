@@ -9,6 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"chloe/internal/model"
+	"chloe/internal/rdb"
 	"chloe/internal/store"
 )
 
@@ -62,7 +63,7 @@ type KilledOut struct {
 // server finds a connection for the monitor tools. Sessions and server status
 // span every database, so the endpoint needs the level on all of them.
 func (c *call) server(ctx context.Context, name string, need store.MCPLevel) (model.Connection, error) {
-	conn, a, err := c.connection(name)
+	conn, a, err := c.connectionOf(name, mcpEngines)
 	if err != nil {
 		return conn, err
 	}
@@ -87,15 +88,27 @@ func (c *call) server(ctx context.Context, name string, need store.MCPLevel) (mo
 	return conn, nil
 }
 
+// processes lists a server's sessions: SQL sessions, or Redis clients.
+func (c *call) processes(ctx context.Context, conn model.Connection) ([]model.Process, error) {
+	if conn.Type == model.Redis {
+		kv, err := c.s.m.Redis(conn.ID)
+		if err != nil {
+			return nil, err
+		}
+		return redisSessions(ctx, kv)
+	}
+	return c.s.m.Processes(ctx, conn.ID)
+}
+
 func (s *Server) addMonitorTools(srv *mcp.Server, ep string, writes bool) {
 	add(s, srv, ep, readOnlyTool("list_sessions", "List sessions",
-		"Lists the server's sessions (MySQL processlist, PostgreSQL pg_stat_activity) with their state and running query."),
+		"Lists the server's sessions (MySQL processlist, PostgreSQL pg_stat_activity, Redis CLIENT LIST) with their state and running query."),
 		func(ctx context.Context, c *call, in ServerArgs) (SessionsOut, error) {
 			conn, err := c.server(ctx, in.Connection, store.MCPRead)
 			if err != nil {
 				return SessionsOut{}, err
 			}
-			ps, err := c.s.m.Processes(ctx, conn.ID)
+			ps, err := c.processes(ctx, conn)
 			if err != nil {
 				return SessionsOut{}, err
 			}
@@ -112,14 +125,22 @@ func (s *Server) addMonitorTools(srv *mcp.Server, ep string, writes bool) {
 			return out, nil
 		})
 
-	vars := func(name, title, desc string, get func(context.Context, string) ([]model.ServerVar, error)) {
+	vars := func(name, title, desc string, get func(context.Context, string) ([]model.ServerVar, error), redisGet func(context.Context, *rdb.Client) ([]model.ServerVar, error)) {
 		add(s, srv, ep, readOnlyTool(name, title, desc),
 			func(ctx context.Context, c *call, in VarsArgs) (VarsOut, error) {
 				conn, err := c.server(ctx, in.Connection, store.MCPRead)
 				if err != nil {
 					return VarsOut{}, err
 				}
-				vs, err := get(ctx, conn.ID)
+				var vs []model.ServerVar
+				if conn.Type == model.Redis {
+					var kv *rdb.Client
+					if kv, err = c.s.m.Redis(conn.ID); err == nil {
+						vs, err = redisGet(ctx, kv)
+					}
+				} else {
+					vs, err = get(ctx, conn.ID)
+				}
 				if err != nil {
 					return VarsOut{}, err
 				}
@@ -140,8 +161,8 @@ func (s *Server) addMonitorTools(srv *mcp.Server, ep string, writes bool) {
 				return out, nil
 			})
 	}
-	vars("server_status", "Server status", "Returns the server's status counters (MySQL SHOW GLOBAL STATUS; PostgreSQL database and server statistics).", s.m.ServerStatus)
-	vars("server_variables", "Server variables", "Returns the server's configuration variables (MySQL SHOW VARIABLES, PostgreSQL pg_settings).", s.m.Variables)
+	vars("server_status", "Server status", "Returns the server's status counters (MySQL SHOW GLOBAL STATUS; PostgreSQL database and server statistics; Redis INFO, with the section as description).", s.m.ServerStatus, redisStatus)
+	vars("server_variables", "Server variables", "Returns the server's configuration variables (MySQL SHOW VARIABLES, PostgreSQL pg_settings, Redis CONFIG GET; passwords are hidden).", s.m.Variables, redisConfig)
 
 	if !writes {
 		return
@@ -154,7 +175,7 @@ func (s *Server) addMonitorTools(srv *mcp.Server, ep string, writes bool) {
 			if err != nil {
 				return KilledOut{}, err
 			}
-			ps, err := c.s.m.Processes(ctx, conn.ID)
+			ps, err := c.processes(ctx, conn)
 			if err != nil {
 				return KilledOut{}, err
 			}
@@ -177,6 +198,19 @@ func (s *Server) addMonitorTools(srv *mcp.Server, ep string, writes bool) {
 			c.act.SQL = describeSession(*p)
 			if err := c.approve(ctx, ApprovalRequest{Connection: conn.Name, Database: p.Database, Summary: verb + " on " + conn.Name, SQL: c.act.SQL}); err != nil {
 				return KilledOut{}, err
+			}
+			if conn.Type == model.Redis {
+				if in.QueryOnly {
+					return KilledOut{}, errors.New("Redis can't cancel a client's command; kill the session instead")
+				}
+				kv, err := c.s.m.Redis(conn.ID)
+				if err != nil {
+					return KilledOut{}, err
+				}
+				if err := kv.KillClient(ctx, p.ID); err != nil {
+					return KilledOut{}, err
+				}
+				return KilledOut{Killed: done}, nil
 			}
 			if err := c.s.m.KillProcess(ctx, conn.ID, p.ID, in.QueryOnly); err != nil {
 				return KilledOut{}, err
