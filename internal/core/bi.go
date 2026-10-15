@@ -109,6 +109,10 @@ func readStmt(ctx context.Context, ds driver.Session, q bi.Stmt, limit int) ([]m
 // doesn't type are typed from sample values.
 func (m *Manager) BIFields(ctx context.Context, w bi.Workspace, src bi.DataSource) ([]bi.Field, error) {
 	var fields []bi.Field
+	src.Joins = slices.Clone(src.Joins)
+	if err := m.biJoinColumns(ctx, &src); err != nil {
+		return nil, err
+	}
 	src, err := w.ResolveSource(src, nil)
 	if err != nil {
 		return nil, err
@@ -153,6 +157,12 @@ func probeFields(cols []model.ResultColumn, rows [][]*string) []bi.Field {
 // BIPreview reads the first rows of a data source, projected, filtered and sorted.
 func (m *Manager) BIPreview(ctx context.Context, w bi.Workspace, src bi.DataSource, limit int) (BIPreview, error) {
 	var out BIPreview
+	src.Joins = slices.Clone(src.Joins)
+	if src.Mode != bi.ModeArchive {
+		if err := m.biJoinColumns(ctx, &src); err != nil {
+			return out, err
+		}
+	}
 	src, err := w.ResolveSource(src, nil)
 	if err != nil {
 		return out, err
@@ -258,6 +268,31 @@ func (m *Manager) BIChartData(ctx context.Context, w bi.Workspace, c bi.Chart, p
 // --- archive snapshots ---------------------------------------------------------
 
 func archivePurpose(sourceID string) string { return "chloe-bi-archive/" + sourceID }
+
+// biJoinColumns reads the columns of a table source's joined tables.
+func (m *Manager) biJoinColumns(ctx context.Context, src *bi.DataSource) error {
+	if len(src.Joins) == 0 {
+		return nil
+	}
+	if err := m.Ensure(ctx, src.ConnID); err != nil {
+		return err
+	}
+	for i, j := range src.Joins {
+		t, err := m.TableDetail(ctx, src.ConnID, model.ObjectRef{Database: src.Database, Schema: src.Schema, Name: j.Table, Kind: model.KindTable})
+		if err != nil {
+			return fmt.Errorf("join %s: %w", j.Table, err)
+		}
+		if len(t.Columns) == 0 {
+			return fmt.Errorf("no table or view %q to join", j.Table)
+		}
+		cols := make([]string, len(t.Columns))
+		for k, c := range t.Columns {
+			cols[k] = c.Name
+		}
+		src.Joins[i].Columns = cols
+	}
+	return nil
+}
 
 // BIArchive reads a data source's rows into its archive snapshot and returns the
 // source with its fields, row count and snapshot time updated.
@@ -593,6 +628,9 @@ func (m *Manager) BISaveSource(ctx context.Context, path string, src bi.DataSour
 	}
 	src.Name = strings.TrimSpace(src.Name)
 	if err := src.Validate(); err != nil {
+		return src, err
+	}
+	if err := m.biJoinColumns(ctx, &src); err != nil {
 		return src, err
 	}
 	if src.Fields, err = m.BIFields(ctx, w, src); err != nil {

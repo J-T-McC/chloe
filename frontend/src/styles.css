@@ -5277,3 +5277,15 @@ table.mapping select {
   font-family: var(--mono, ui-monospace, monospace);
   font-size: 12px;
 }
+
+.bi-custom-field > .small-btn,
+.bi-joins > .small-btn,
+.bi-custom > .small-btn {
+  align-self: flex-start;
+}
+
+.bi-joins {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

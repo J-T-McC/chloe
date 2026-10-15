@@ -15,6 +15,8 @@ export type {
     Field,
     Filter,
     Item,
+    Join,
+    JoinOn,
     MapRule,
     NumberFormat,
     Page,

@@ -154,3 +154,51 @@ func TestBIArchive(t *testing.T) {
 		t.Errorf("archive preview: %+v %v", prev, err)
 	}
 }
+
+func TestBIJoinedTables(t *testing.T) {
+	m, id := biSetup(t)
+	ctx := context.Background()
+	p, err := m.Store.BI().Create(bi.New("joins"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src, err := m.BISaveSource(ctx, p, bi.DataSource{Meta: bi.Meta{Name: "Orders"}, ConnID: id, Database: "main", Table: "orders", Mode: bi.ModeLive,
+		Joins: []bi.Join{{Table: "customers", Type: "inner", On: []bi.JoinOn{{Left: "customer_id", Right: "id"}}}},
+		// A custom field can use a joined column.
+		CustomFields: []bi.CustomField{{Name: "who", Kind: bi.CustomCalculated, Expression: "COALESCE([customers.name], [customers.email])"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, f := range src.Fields {
+		names[f.Name] = true
+	}
+	if !names["total"] || !names["customers.email"] || !names["customers.id"] || len(src.Joins[0].Columns) != 3 {
+		t.Fatalf("fields: %+v", src.Fields)
+	}
+	w, _ := bi.Read(p)
+	chart := bi.Chart{DataSource: src.ID, Type: "bar", Dimension: []bi.ChartField{{Field: "who"}}, Value: []bi.ChartField{{Field: "total", Aggregate: "sum"}}}
+	data, err := m.BIChartData(ctx, w, chart, nil)
+	if want := [][]any{{"Ada", 132.75}, {"bob@example.com", 55.0}}; err != nil || !reflect.DeepEqual(data.Rows, want) {
+		t.Fatalf("joined: %v %v\n%s", data.Rows, err, data.SQL)
+	}
+	// Archive mode reads the joined rows into its snapshot.
+	src.Mode = bi.ModeArchive
+	if src, err = m.BISaveSource(ctx, p, src); err != nil {
+		t.Fatal(err)
+	}
+	w, _ = bi.Read(p)
+	if data, err = m.BIChartData(ctx, w, chart, nil); err != nil || len(data.Rows) != 2 {
+		t.Fatalf("archived: %v %v", data.Rows, err)
+	}
+	for _, bad := range []bi.Join{
+		{Table: "nope", Type: "left", On: []bi.JoinOn{{Left: "customer_id", Right: "id"}}},
+		{Table: "customers", Type: "cross", On: []bi.JoinOn{{Left: "customer_id", Right: "id"}}},
+		{Table: "customers", Type: "left", On: []bi.JoinOn{{Left: "customer_id", Right: "missing"}}},
+		{Table: "customers", Type: "left"},
+	} {
+		if _, err := m.BISaveSource(ctx, p, bi.DataSource{Meta: bi.Meta{Name: "Bad"}, ConnID: id, Database: "main", Table: "orders", Mode: bi.ModeLive, Joins: []bi.Join{bad}}); err == nil {
+			t.Errorf("accepted %+v", bad)
+		}
+	}
+}

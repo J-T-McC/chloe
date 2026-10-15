@@ -4,7 +4,8 @@ Order reflects dependencies: later features build on the earlier ones. Specs for
 
 ## Next up
 1. **BI, phase 3** (spec: `docs/specs/bi.md`): the remaining chart types ✅, dynamic dates ✅, parameters ✅,
-   interaction and Control charts ✅, then custom fields, joined tables
+   interaction and Control charts ✅, custom fields ✅,
+   joined tables ✅; left: dashboard shapes and tile lock
 2. **Explain / visual explain** for MySQL and PostgreSQL, with MongoDB's explain
 3. Transfer and sync follow-ups: Data Transfer file target and per-table Advanced mode (rename, fields,
    filters); functions/procedures/events in transfer and structure sync; profiles for the sync tools;
@@ -125,5 +126,6 @@ statistics catalogs get around name checks), so share connections that log in as
 - [x] Dynamic date filters (this/last/next period, period to date, last n quarters)
 - [x] Parameters ([$name] in queries as bound values, filters, titles and text; dashboard controls; MCP)
 - [x] Dashboard interaction (click to filter or highlight) and Control charts
-- [ ] The rest of Navicat's BI: custom fields, joins, shapes
+- [x] Custom fields (calculated, mapped, concatenated, type-changed, custom-sorted) and joined tables
+- [ ] The rest of Navicat's BI: dashboard shapes and tile lock
 - [ ] MongoDB data sources
