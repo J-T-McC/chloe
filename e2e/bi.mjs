@@ -382,6 +382,26 @@ await step("pivot table with totals", async () => {
   await shot("bi-pivot");
 });
 
+await step("dynamic date filters", async () => {
+  await newChart("Value");
+  await drag("total", "value");
+  await editor().getByTestId("bi-value").waitFor();
+  const flt = editor().locator(".bi-filters");
+  await flt.getByRole("button", { name: "Add Condition" }).click();
+  await flt.getByLabel("Filter field").selectOption("placed_at");
+  await flt.getByLabel("Filter operator").selectOption("to_date");
+  check((await flt.getByLabel("Filter unit").inputValue()) === "year", "to_date default unit");
+  await page.waitForTimeout(800);
+  // Every North order is in 2026, so the year to date has them all.
+  check((await editor().getByTestId("bi-value").innerText()) === "375.5", "year to date: " + (await editor().getByTestId("bi-value").innerText()));
+  await flt.getByLabel("Filter operator").selectOption("in_period");
+  await flt.getByLabel("Filter period").selectOption("last");
+  await flt.getByLabel("Filter unit").selectOption("year");
+  await page.waitForTimeout(800);
+  check((await editor().getByTestId("bi-value").innerText()) === "—", "nothing last year: " + (await editor().getByTestId("bi-value").innerText()));
+  await shot("bi-dynamic-dates");
+});
+
 await step("dark theme", async () => {
   await page.locator(".tab", { hasText: "Sales (BI)" }).click();
   await page.locator(".bi-workspace:visible").getByLabel("Theme").selectOption("dark");

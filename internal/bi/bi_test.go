@@ -800,3 +800,54 @@ func TestPhase3Types(t *testing.T) {
 		}
 	}
 }
+
+func TestDynamicDates(t *testing.T) {
+	// Thursday 2026-05-14.
+	at := time.Date(2026, 5, 14, 15, 30, 0, 0, time.UTC)
+	defer func(f func() time.Time) { now = f }(now)
+	now = func() time.Time { return at }
+	day := func(tm time.Time) string { return tm.Format("2006-01-02") }
+	for _, c := range []struct {
+		f        Filter
+		from, to string
+	}{
+		{Filter{Op: "in_period", Values: []string{"this", "month"}}, "2026-05-01", "2026-06-01"},
+		{Filter{Op: "in_period", Values: []string{"last", "quarter"}}, "2026-01-01", "2026-04-01"},
+		{Filter{Op: "in_period", Values: []string{"next", "week"}}, "2026-05-17", "2026-05-24"},
+		{Filter{Op: "in_period", Values: []string{"last", "year"}}, "2025-01-01", "2026-01-01"},
+		{Filter{Op: "in_period", Values: []string{"this", "day"}}, "2026-05-14", "2026-05-15"},
+		{Filter{Op: "to_date", Values: []string{"year"}}, "2026-01-01", "2026-05-15"},
+		{Filter{Op: "to_date", Values: []string{"quarter"}}, "2026-04-01", "2026-05-15"},
+	} {
+		from, to, ok := DynamicRange(c.f, at)
+		if !ok || day(from) != c.from || day(to) != c.to {
+			t.Errorf("%v: %s – %s", c.f.Values, day(from), day(to))
+		}
+	}
+	if day(Since(at, 2, "quarter")) != "2026-01-01" {
+		t.Errorf("last 2 quarters: %s", day(Since(at, 2, "quarter")))
+	}
+	// Units are normalized and checked.
+	f := Filter{Field: "placed_at", Op: "in_period", Values: []string{"Last", "Months"}}
+	if err := f.check(); err != nil || f.Values[0] != "last" || f.Values[1] != "month" {
+		t.Errorf("normalize: %v %v", f.Values, err)
+	}
+	for _, bad := range []Filter{{Field: "x", Op: "in_period", Values: []string{"previous", "month"}}, {Field: "x", Op: "to_date", Values: []string{"day"}}} {
+		if bad.check() == nil {
+			t.Errorf("accepted %v", bad)
+		}
+	}
+	// The query binds the range; a chart's date axis fills the whole period.
+	src := ordersSource()
+	c := Chart{Type: "bar", Dimension: []ChartField{{Field: "placed_at", Aggregate: "day"}}, Value: []ChartField{{Field: "total", Aggregate: "sum"}},
+		Filters: []Filter{{Field: "placed_at", Op: "in_period", Values: []string{"last", "month"}}}}
+	q, cols, err := ChartQuery(SQLite, `"orders"`, src, c, 100)
+	if err != nil || !strings.Contains(q.SQL, `"placed_at" >= ? AND "placed_at" < ?`) || !reflect.DeepEqual(q.Args, []any{"2026-04-01", "2026-05-01"}) {
+		t.Fatalf("query: %s %v %v", q.SQL, q.Args, err)
+	}
+	s := func(v string) *string { return &v }
+	rows := ShapeRange(c, cols, [][]*string{{s("2026-04-10"), s("5")}}, FilterWindow(src, c))
+	if len(rows) != 30 || rows[0][0] != "2026-04-01" || rows[29][0] != "2026-04-30" {
+		t.Errorf("filled %d days: %v … %v", len(rows), rows[0], rows[len(rows)-1])
+	}
+}

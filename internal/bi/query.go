@@ -43,26 +43,75 @@ var FilterOps = map[string]int{
 	"contains": 1, "not_contains": 1, "begins_with": 1, "not_begins_with": 1, "ends_with": 1, "not_ends_with": 1,
 	"is_null": 0, "is_not_null": 0, "is_empty": 0, "is_not_empty": 0,
 	"between": 2, "not_between": 2, "in": -1, "not_in": -1,
-	// in_last: [n, unit] — the last n days, weeks, months or years, the current one included.
+	// in_last: [n, unit] — the last n days, weeks, months, quarters or years, the current one included.
 	"in_last": 2,
+	// in_period: [this|last|next, unit] — one whole calendar period, e.g. last month.
+	"in_period": 2,
+	// to_date: [unit] — from the start of the current week, month, quarter or year to today.
+	"to_date": 1,
 }
 
-// LastUnits are the units of in_last.
-var LastUnits = []string{"day", "week", "month", "year"}
+// LastUnits are the units of in_last and in_period.
+var LastUnits = []string{"day", "week", "month", "quarter", "year"}
+
+// PeriodWhich are the periods in_period names.
+var PeriodWhich = []string{"this", "last", "next"}
+
+// ToDateUnits are the units of to_date.
+var ToDateUnits = []string{"week", "month", "quarter", "year"}
+
+// PeriodStart is the start of the unit containing t; weeks start on Sunday.
+func PeriodStart(t time.Time, unit string) time.Time {
+	d := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+	switch unit {
+	case "week":
+		return d.AddDate(0, 0, -int(d.Weekday()))
+	case "month":
+		return time.Date(d.Year(), d.Month(), 1, 0, 0, 0, 0, d.Location())
+	case "quarter":
+		return time.Date(d.Year(), (d.Month()-1)/3*3+1, 1, 0, 0, 0, 0, d.Location())
+	case "year":
+		return time.Date(d.Year(), 1, 1, 0, 0, 0, 0, d.Location())
+	}
+	return d
+}
+
+// AddPeriods moves a period start by n units.
+func AddPeriods(t time.Time, unit string, n int) time.Time {
+	switch unit {
+	case "week":
+		return t.AddDate(0, 0, 7*n)
+	case "month":
+		return t.AddDate(0, n, 0)
+	case "quarter":
+		return t.AddDate(0, 3*n, 0)
+	case "year":
+		return t.AddDate(n, 0, 0)
+	}
+	return t.AddDate(0, 0, n)
+}
 
 // Since is where the last n units start, counting the current one; weeks start on Sunday.
 func Since(now time.Time, n int, unit string) time.Time {
-	d := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	switch unit {
-	case "week":
-		return d.AddDate(0, 0, -int(d.Weekday())-7*(n-1))
-	case "month":
-		return time.Date(d.Year(), d.Month()-time.Month(n-1), 1, 0, 0, 0, 0, d.Location())
-	case "year":
-		return time.Date(d.Year()-(n-1), 1, 1, 0, 0, 0, 0, d.Location())
-	}
-	return d.AddDate(0, 0, -(n - 1))
+	return AddPeriods(PeriodStart(now, unit), unit, -(n - 1))
 }
+
+// DynamicRange is the [from, to) range of an in_period or to_date filter at now.
+func DynamicRange(f Filter, now time.Time) (from, to time.Time, ok bool) {
+	switch f.Op {
+	case "in_period":
+		start := PeriodStart(now, f.Values[1])
+		shift := map[string]int{"this": 0, "last": -1, "next": 1}[f.Values[0]]
+		from = AddPeriods(start, f.Values[1], shift)
+		return from, AddPeriods(from, f.Values[1], 1), true
+	case "to_date":
+		return PeriodStart(now, f.Values[0]), PeriodStart(now, "day").AddDate(0, 0, 1), true
+	}
+	return from, to, false
+}
+
+// unit normalizes a unit as typed: "Days" → "day".
+func unit(s string) string { return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(s)), "s") }
 
 func (f Filter) check() error {
 	n, ok := FilterOps[f.Op]
@@ -81,12 +130,25 @@ func (f Filter) check() error {
 	case n >= 0 && len(f.Values) != n:
 		return fmt.Errorf("%s on %s takes %d value(s), got %d", f.Op, f.Field, n, len(f.Values))
 	case f.Op == "in_last":
-		f.Values[1] = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(f.Values[1])), "s") // days, Weeks…
+		f.Values[1] = unit(f.Values[1]) // days, Weeks…
 		if k, err := strconv.Atoi(f.Values[0]); err != nil || k < 1 {
 			return fmt.Errorf("in_last on %s needs a count of 1 or more, not %q", f.Field, f.Values[0])
 		}
 		if !slices.Contains(LastUnits, f.Values[1]) {
 			return fmt.Errorf("in_last on %s counts %s, not %q", f.Field, strings.Join(LastUnits, ", "), f.Values[1])
+		}
+	case f.Op == "in_period":
+		f.Values[0], f.Values[1] = strings.ToLower(strings.TrimSpace(f.Values[0])), unit(f.Values[1])
+		if !slices.Contains(PeriodWhich, f.Values[0]) {
+			return fmt.Errorf("in_period on %s is this, last or next, not %q", f.Field, f.Values[0])
+		}
+		if !slices.Contains(LastUnits, f.Values[1]) {
+			return fmt.Errorf("in_period on %s takes a %s, not %q", f.Field, strings.Join(LastUnits, ", "), f.Values[1])
+		}
+	case f.Op == "to_date":
+		f.Values[0] = unit(f.Values[0])
+		if !slices.Contains(ToDateUnits, f.Values[0]) {
+			return fmt.Errorf("to_date on %s takes a %s, not %q", f.Field, strings.Join(ToDateUnits, ", "), f.Values[0])
 		}
 	}
 	return nil
@@ -355,6 +417,12 @@ func (b *qb) where(fields []Field, filters []Filter) (string, error) {
 			// A date as text compares correctly with dates, timestamps and SQLite's date text.
 			b.args = append(b.args, Since(now().In(location(b.tz)), k, f.Values[1]).Format("2006-01-02"))
 			e = col + " >= " + b.d.Placeholder(len(b.args))
+		case "in_period", "to_date":
+			from, to, _ := DynamicRange(f, now().In(location(b.tz)))
+			b.args = append(b.args, from.Format("2006-01-02"))
+			e = col + " >= " + b.d.Placeholder(len(b.args))
+			b.args = append(b.args, to.Format("2006-01-02"))
+			e += " AND " + col + " < " + b.d.Placeholder(len(b.args))
 		case "is_null":
 			e = col + " IS NULL"
 		case "is_not_null":

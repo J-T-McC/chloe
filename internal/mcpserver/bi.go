@@ -27,8 +27,8 @@ type CreateWorkspaceArgs struct {
 
 type FilterArg struct {
 	Field string `json:"field"`
-	Op    string `json:"op" jsonschema:"one of = != < <= > >= contains not_contains begins_with not_begins_with ends_with not_ends_with is_null is_not_null is_empty is_not_empty between not_between in not_in in_last"`
-	Value any    `json:"value,omitempty" jsonschema:"the value; two values for between, a list for in, [n, unit] for in_last (unit day week month or year: the last n units including the current one, so charts stay current), nothing for is_null/is_empty"`
+	Op    string `json:"op" jsonschema:"one of = != < <= > >= contains not_contains begins_with not_begins_with ends_with not_ends_with is_null is_not_null is_empty is_not_empty between not_between in not_in in_last in_period to_date"`
+	Value any    `json:"value,omitempty" jsonschema:"the value; two values for between, a list for in, [n, unit] for in_last (unit day week month quarter or year: the last n units including the current one), [this|last|next, unit] for in_period (one whole calendar period, e.g. [last, month]), [unit] for to_date (week month quarter or year to today); nothing for is_null/is_empty. Relative ranges keep charts current"`
 	// Values is how get_workspace returns filters, accepted as well.
 	Values []any `json:"values,omitempty" jsonschema:"the values as a list, as get_workspace returns them (instead of value). Values are kept as text, the way they're bound"`
 }

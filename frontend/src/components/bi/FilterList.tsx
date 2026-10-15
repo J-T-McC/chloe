@@ -25,11 +25,18 @@ export const OPS: [string, string][] = [
   ["in", "is in list"],
   ["not_in", "is not in list"],
   ["in_last", "is in the last"],
+  ["in_period", "is in period"],
+  ["to_date", "is period to date"],
 ];
 
-const UNITS = ["day", "week", "month", "year"];
+const UNITS = ["day", "week", "month", "quarter", "year"];
+const WHICH = ["this", "last", "next"];
+const TO_DATE = ["week", "month", "quarter", "year"];
+/** Operators whose values are picked from lists rather than typed. */
+const DYNAMIC = new Set(["in_last", "in_period", "to_date"]);
+const DEFAULTS: Record<string, string[]> = { in_last: ["30", "day"], in_period: ["this", "month"], to_date: ["year"] };
 
-const arity = (op: string) => (["is_null", "is_not_null", "is_empty", "is_not_empty"].includes(op) ? 0 : op.endsWith("between") || op === "in_last" ? 2 : op === "in" || op === "not_in" ? -1 : 1);
+const arity = (op: string) => (["is_null", "is_not_null", "is_empty", "is_not_empty"].includes(op) ? 0 : op.endsWith("between") || op === "in_last" || op === "in_period" ? 2 : op === "in" || op === "not_in" ? -1 : 1);
 
 export function FilterList({ fields, filters, onChange }: { fields: B.Field[]; filters: B.Filter[]; onChange(f: B.Filter[]): void }) {
   const set = (i: number, patch: Partial<B.Filter>) => onChange(filters.map((f, j) => (j === i ? { ...f, ...patch } : f)));
@@ -59,7 +66,7 @@ export function FilterList({ fields, filters, onChange }: { fields: B.Field[]; f
               onChange={(e) => {
                 const op = e.target.value;
                 const k = arity(op);
-                set(i, { op, values: op === "in_last" ? ["30", "day"] : k === 0 ? [] : k === 2 ? [vals[0] ?? "", vals[1] ?? ""] : k === 1 ? [vals[0] ?? ""] : vals.length ? vals : [""] });
+                set(i, { op, values: DEFAULTS[op] ?? (k === 0 ? [] : k === 2 ? [vals[0] ?? "", vals[1] ?? ""] : k === 1 ? [vals[0] ?? ""] : vals.length ? vals : [""]) });
               }}
             >
               {OPS.map(([k, label]) => (
@@ -68,7 +75,34 @@ export function FilterList({ fields, filters, onChange }: { fields: B.Field[]; f
                 </option>
               ))}
             </select>
-            {n === 1 && <input aria-label="Filter value" className="bi-filter-value" value={vals[0] ?? ""} onChange={(e) => set(i, { values: [e.target.value] })} />}
+            {n === 1 && !DYNAMIC.has(f.op) && <input aria-label="Filter value" className="bi-filter-value" value={vals[0] ?? ""} onChange={(e) => set(i, { values: [e.target.value] })} />}
+            {f.op === "in_period" && (
+              <>
+                <select aria-label="Filter period" value={vals[0] ?? "this"} onChange={(e) => set(i, { values: [e.target.value, vals[1] ?? "month"] })}>
+                  {WHICH.map((w) => (
+                    <option key={w} value={w}>
+                      {w}
+                    </option>
+                  ))}
+                </select>
+                <select aria-label="Filter unit" value={vals[1] ?? "month"} onChange={(e) => set(i, { values: [vals[0] ?? "this", e.target.value] })}>
+                  {UNITS.map((u) => (
+                    <option key={u} value={u}>
+                      {u}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
+            {f.op === "to_date" && (
+              <select aria-label="Filter unit" value={vals[0] ?? "year"} onChange={(e) => set(i, { values: [e.target.value] })}>
+                {TO_DATE.map((u) => (
+                  <option key={u} value={u}>
+                    {u} to date
+                  </option>
+                ))}
+              </select>
+            )}
             {f.op === "in_last" && (
               <>
                 <input aria-label="Filter count" type="number" min={1} className="bi-filter-value short" value={vals[0] ?? ""} onChange={(e) => set(i, { values: [e.target.value, vals[1] ?? "day"] })} />
@@ -81,7 +115,7 @@ export function FilterList({ fields, filters, onChange }: { fields: B.Field[]; f
                 </select>
               </>
             )}
-            {n === 2 && f.op !== "in_last" && (
+            {n === 2 && !DYNAMIC.has(f.op) && (
               <>
                 <input aria-label="Filter value" className="bi-filter-value short" value={vals[0] ?? ""} onChange={(e) => set(i, { values: [e.target.value, vals[1] ?? ""] })} />
                 <span className="muted">and</span>
