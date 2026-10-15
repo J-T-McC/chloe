@@ -317,7 +317,9 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 
 ## Implementation notes (phase 2, dashboards)
 - Pages are a 12-column grid (react-grid-layout): tiles snap to it, move by their grip and resize from the corner. A
-  page is a **16:9 slide** (12 rows that fit the pane) or a **report** that grows downward. Navicat's free canvas,
+  page is a **16:9 slide** (24 rows that fit the pane) or a **report** that grows downward. A grid row is 18px with
+  12px gaps, so tiles grow in 30px steps (workspace format version 2; version 1 files, with rows twice as tall, are
+  converted as they're read by doubling every tile's row and height, which keeps their pixels). Navicat's free canvas,
   shapes, images and tile layers aren't there; the grid replaces tile layers.
 - Tiles are charts of the workspace or Markdown text (sanitized: no HTML; links open in the browser). An agent's notes
   are a text tile it owns, headed "Notes from <endpoint> · <time>"; `set_notes` replaces it, at the top of a report
@@ -325,12 +327,12 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 - Pages are laid out at one size, 1280px wide (a slide 1280×720), and scaled to fit wherever they're shown, so the
   designer is a true miniature of Present and of exports.
 - A row an agent describes that holds only text is exactly as tall as its text (its height label is ignored); a row
-  with a chart takes its label (S 3, M 5, L 8, XL 11 grid rows; a slide holds 12) and grows if its text needs more.
+  with a chart takes its label (S 6, M 10, L 16, XL 22 grid rows; a slide holds 24) and grows if its text needs more.
   `edit_dashboard` keeps notes at the top or bottom of their page, as they were. Whenever an agent edits its
   dashboard or writes notes on it, text rows are fitted again (pages laid out in clean rows only; a slide never grows
-  past 12 rows), so layouts from older builds correct themselves.
-- The MCP server's instructions name the Chloe build (git commit), so testers can tell which build they reach. Heights come from metrics measured in Chloe (13.5px text on 20.25px lines, 22px tile
-  padding, rows 48px plus 12px gaps); an e2e check renders agent notes and asserts they fit with under a row to spare.
+  past 24 rows), so layouts from older builds correct themselves.
+- The MCP server's instructions name the Chloe build (git commit), so testers can tell which build they reach. Heights come from metrics measured in Chloe (13.5px text on 20.25px lines, 18px tile
+  padding, rows 18px plus 12px gaps); an e2e check renders agent notes and asserts they fit with under a row to spare.
 - `set_notes` takes `place` (top or bottom of a report page); without it, existing notes stay where they are. It and
   `open_dashboard` answer briefly (the notes' row and height; the dashboard's name and page count). `edit_dashboard` keeps notes written with
   `set_notes` on the page with the same number. `refresh_dashboard` returns a page's own `text` apart from agents'
@@ -355,7 +357,8 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
   saves them (or a PDF) in the Reports folder (`~/Documents/Chloe Reports/<workspace>/`, `CHLOE_REPORTS_DIR` to move
   it). It needs Read on every source the pages' charts use, and Chloe's window open (the server asks the window to draw
   and waits up to a minute).
-- Notes headers are a caption beside the first line, so a one-line note or paragraph is one grid row.
+- Notes headers are a caption beside the first line. Headings in tiles are tight (# 22px at 1.2, ## 18px at 1.3), so a
+  lone heading fits two grid rows. Notes go on top of slides too (the slide's tiles move down) when there's room.
 - Notes on a slide are never cut off: set_notes (and an edit_dashboard that would squeeze them) is refused with the
   rows the notes need and the rows free. Notes follow their page by name when pages move. Slide rows that don't fit
   are reported first, with each row's height.

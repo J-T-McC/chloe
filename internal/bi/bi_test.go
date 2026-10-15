@@ -539,7 +539,7 @@ func TestDashboards(t *testing.T) {
 	for _, it := range items {
 		got += fmt.Sprintf("%s %d,%d %dx%d; ", it.Kind, it.X, it.Y, it.W, it.H)
 	}
-	if want := "text 0,0 12x2; chart 0,2 4x8; chart 4,2 4x8; text 8,2 4x8; "; got != want || bottom != 10 {
+	if want := "text 0,0 12x2; chart 0,2 4x16; chart 4,2 4x16; text 8,2 4x16; "; got != want || bottom != 18 {
 		t.Errorf("layout: %s (bottom %d)", got, bottom)
 	}
 	// On a report page a row grows to fit its text.
@@ -547,7 +547,7 @@ func TestDashboards(t *testing.T) {
 	if grown, _, _ := LayoutRows([][]RowTile{{{Text: long, Span: 8}, {Chart: "Revenue"}}}, []string{"S"}, 0, id); grown[0].H <= 3 || grown[1].H != grown[0].H {
 		t.Errorf("text row didn't grow: %+v", grown)
 	}
-	if fit, _, _ := LayoutRows([][]RowTile{{{Text: "One line."}}, {{Text: "One line."}}, {{Text: "One line."}, {Chart: "Revenue"}}}, []string{"", "L", "S"}, 0, id); fit[0].H != 1 || fit[1].H != 1 || fit[2].H != 3 {
+	if fit, _, _ := LayoutRows([][]RowTile{{{Text: "One line."}}, {{Text: "One line."}}, {{Text: "One line."}, {Chart: "Revenue"}}}, []string{"", "L", "S"}, 0, id); fit[0].H != 2 || fit[1].H != 2 || fit[2].H != 6 {
 		t.Errorf("text-only rows fit their text, rows with charts take their label: %+v", fit)
 	}
 	if _, _, err := LayoutRows([][]RowTile{{{Chart: "nope"}}}, nil, 0, id); err == nil || !strings.Contains(err.Error(), `no chart "nope"`) {
@@ -557,10 +557,10 @@ func TestDashboards(t *testing.T) {
 		t.Error("over-wide row accepted")
 	}
 	d, err := w.PutDashboard(Dashboard{Meta: Meta{Name: "Weekly"}, Pages: []Page{{Size: SizeSlide, Items: items}}})
-	if err != nil || d.Pages[0].ID == "" || d.Pages[0].Bottom() != 10 {
+	if err != nil || d.Pages[0].ID == "" || d.Pages[0].Bottom() != 18 {
 		t.Fatalf("put: %v %+v", err, d)
 	}
-	d.Pages[0].Items[1].Y = 6 // 6 + 8 > 12 rows
+	d.Pages[0].Items[1].Y = 10 // 10 + 16 > 24 rows
 	if _, err := w.PutDashboard(d); err == nil || !strings.Contains(err.Error(), "past the slide") {
 		t.Errorf("slide overflow: %v", err)
 	}
@@ -578,8 +578,8 @@ func TestDashboards(t *testing.T) {
 	if n := len(w.Dashboards[0].Pages[0].Items); n != 2 {
 		t.Errorf("tiles left: %d", n)
 	}
-	// Heights measured in Chloe (content px; a tile of h rows holds 60h-12):
-	// 5 bullets 123px → 3 rows; a long paragraph across 4 columns 103px → 2; ## + 3 bullets 116px → 3.
+	// Heights measured in Chloe (content px; a tile of h rows holds 30h-12):
+	// 5 bullets 123px → 5 rows (138px); a long paragraph across 4 columns 103px → 5; ## + 3 bullets 116px → 5.
 	para := "A room counts as abandoned when it was never started, or started but never reached an ended state, which covers rooms stuck playing for more than a day and rooms whose players all left before the first round finished."
 	for _, tc := range []struct {
 		md    string
@@ -587,16 +587,16 @@ func TestDashboards(t *testing.T) {
 		notes bool
 		want  int
 	}{
-		{"The scorecard counts rooms by outcome.", 12, false, 1}, // 42px fits a 48px row
-		{para, 12, false, 2},
-		{para, 4, false, 3}, // measured 4 lines; estimates round up (spare space, never cut off)
-		{"- one item here\n- two item here\n- three item here\n- four item here\n- five item here", 12, false, 3},
-		{"## Notes\n- one\n- two\n- three", 12, false, 3},
-		{"# Weekly report\nWhat changed this week.", 12, false, 2},
-		{"One line of notes.", 12, true, 1}, // the header sits beside the line
-		{"- a\n- b\n- c\n- d\n- e", 12, true, 3},
-		{strings.Repeat("line\n", 40), 12, false, 15}, // 828px fills 14 rows to the pixel; keep 2px spare
-		{"## Weekly check-in", 12, false, 1},           // a lone heading fits one row
+		{"The scorecard counts rooms by outcome.", 12, false, 2}, // 38px fits 2 rows (48px)
+		{para, 12, false, 3},
+		{para, 4, false, 5}, // measured 4 lines; estimates round up (spare space, never cut off)
+		{"- one item here\n- two item here\n- three item here\n- four item here\n- five item here", 12, false, 5},
+		{"## Notes\n- one\n- two\n- three", 12, false, 5},
+		{"# Weekly report\nWhat changed this week.", 12, false, 3},
+		{"One line of notes.", 12, true, 2}, // the header sits beside the line
+		{"- a\n- b\n- c\n- d\n- e", 12, true, 5},
+		{strings.Repeat("line\n", 40), 12, false, 29}, // 828px + 2px spare
+		{"## Weekly check-in", 12, false, 2},           // a lone ## heading: 45px in 48
 	} {
 		if got := TextRowsAt(tc.md, tc.w, tc.notes); got != tc.want {
 			t.Errorf("%q at %d: %d rows, want %d", tc.md[:min(20, len(tc.md))], tc.w, got, tc.want)
@@ -622,12 +622,12 @@ func TestSeriesOrderStable(t *testing.T) {
 }
 
 func TestFitText(t *testing.T) {
-	// An old layout: a one-line heading in an S row (3) on a slide, then charts.
+	// An old layout: a one-line heading in an S row (6) on a slide, then charts.
 	p := Page{Size: SizeSlide, Items: []Item{
-		{ID: "h", Kind: ItemText, Text: "# Rooms by game", X: 0, Y: 0, W: 12, H: 3},
-		{ID: "a", Kind: ItemChart, Chart: "c", X: 0, Y: 3, W: 6, H: 5},
-		{ID: "b", Kind: ItemText, Text: "One sentence.", X: 6, Y: 3, W: 6, H: 5},
-		{ID: "n", Kind: ItemText, Text: "- a\n- b\n- c\n- d\n- e\n- f\n- g\n- h", CreatedBy: "mcp:x", X: 0, Y: 8, W: 12, H: 2},
+		{ID: "h", Kind: ItemText, Text: "# Rooms by game", X: 0, Y: 0, W: 12, H: 6},
+		{ID: "a", Kind: ItemChart, Chart: "c", X: 0, Y: 6, W: 6, H: 10},
+		{ID: "b", Kind: ItemText, Text: "One sentence.", X: 6, Y: 6, W: 6, H: 10},
+		{ID: "n", Kind: ItemText, Text: "- a\n- b\n- c\n- d\n- e\n- f\n- g\n- h", CreatedBy: "mcp:x", X: 0, Y: 16, W: 12, H: 4},
 	}}
 	if !p.FitText() {
 		t.Fatal("nothing fitted")
@@ -636,8 +636,8 @@ func TestFitText(t *testing.T) {
 	for _, it := range p.Items {
 		got += fmt.Sprintf("%s %d+%d; ", it.ID, it.Y, it.H)
 	}
-	// The heading shrinks to 2, the chart row keeps 5 (its text fits), the notes grow to fit.
-	if want := "h 0+2; a 2+5; b 2+5; n 7+4; "; got != want {
+	// The heading shrinks to 2 (a lone # heading is 44px), the chart row keeps 10 (its text fits), the notes grow to fit 8 lines.
+	if want := "h 0+2; a 2+10; b 2+10; n 12+7; "; got != want {
 		t.Errorf("fit: %s", got)
 	}
 	if p.FitText() {
@@ -649,8 +649,8 @@ func TestFitText(t *testing.T) {
 		t.Error("free-form page changed")
 	}
 	// A slide never grows past 12 rows.
-	full := Page{Size: SizeSlide, Items: []Item{{ID: "a", Kind: ItemChart, Y: 0, W: 12, H: 10}, {ID: "n", Kind: ItemText, Text: strings.Repeat("line\n", 9), Y: 10, W: 12, H: 2}}}
-	if full.FitText() || full.Items[1].H != 2 {
+	full := Page{Size: SizeSlide, Items: []Item{{ID: "a", Kind: ItemChart, Y: 0, W: 12, H: 20}, {ID: "n", Kind: ItemText, Text: strings.Repeat("line\n", 9), Y: 20, W: 12, H: 4}}}
+	if full.FitText() || full.Items[1].H != 4 {
 		t.Errorf("slide overflow: %+v", full.Items)
 	}
 }
@@ -714,5 +714,25 @@ func TestOpenEndedWindow(t *testing.T) {
 	rows := ShapeRange(c, cols, [][]*string{{s("2026-10-13"), s("2")}}, FilterWindow(src, c))
 	if len(rows) != 4 || rows[0][0] != "2026-10-12" || rows[3][0] != "2026-10-15" {
 		t.Errorf(">= fills to today: %v", rows)
+	}
+}
+
+func TestGridMigration(t *testing.T) {
+	// A version 1 file: 12-row slides. Each tile keeps its pixels at twice the rows.
+	v1 := []byte(`{"format":"chloe-bi","version":1,"id":"w","name":"Old","dataSources":[],"charts":[{"id":"c","name":"C","dataSource":"s","type":"bar","props":{}}],
+	"dashboards":[{"id":"d","name":"D","pages":[{"id":"p","size":"16:9","items":[{"id":"a","kind":"chart","chart":"c","x":0,"y":3,"w":6,"h":5},{"id":"b","kind":"text","text":"x","x":6,"y":0,"w":6,"h":8}]}]}]}`)
+	w, err := Parse(v1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	it := w.Dashboards[0].Pages[0].Items
+	if w.Version != FormatVersion || it[0].Y != 6 || it[0].H != 10 || it[1].H != 16 || it[0].X != 0 || it[0].W != 6 {
+		t.Fatalf("migrated: %+v", it)
+	}
+	// Written back as version 2, it isn't converted again.
+	data, _ := w.Marshal()
+	again, _ := Parse(data)
+	if again.Dashboards[0].Pages[0].Items[0].H != 10 {
+		t.Errorf("converted twice: %+v", again.Dashboards[0].Pages[0].Items)
 	}
 }

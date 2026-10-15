@@ -34,7 +34,7 @@ func TestDashboardTools(t *testing.T) {
 	if d["editable"] != true || len(items) != 3 || d["pages"].([]any)[0].(map[string]any)["size"] != "report" {
 		t.Fatalf("create: %v", d)
 	}
-	if last := items[2].(map[string]any); last["x"] != 4.0 || last["w"] != 8.0 || last["y"] != 2.0 { // the text row fits its text
+	if last := items[2].(map[string]any); last["x"] != 4.0 || last["w"] != 8.0 || last["y"] != 2.0 { // the text row fits its text (a lone # heading: 2 rows)
 		t.Errorf("layout: %v", last)
 	}
 
@@ -47,15 +47,15 @@ func TestDashboardTools(t *testing.T) {
 
 	// Notes: added at the top of a report page, then replaced in place.
 	n := f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "markdown": "Three customers; **Cy** has no name."}, "")
-	if n["y"] != 0.0 || n["h"] != 1.0 || n["updated"] == "" || n["page"] != 1.0 || n["items"] != nil {
+	if n["y"] != 0.0 || n["h"] != 2.0 || n["updated"] == "" || n["page"] != 1.0 || n["items"] != nil {
 		t.Fatalf("notes: %v", n)
 	}
 	its := itemsOf(t, f, "Weekly")
-	if its[0].CreatedBy != "mcp:test" || its[1].Y != 1 {
+	if its[0].CreatedBy != "mcp:test" || its[1].Y != 2 {
 		t.Fatalf("notes on top: %+v", its)
 	}
 	// Moved to the bottom on request; replaced in place otherwise.
-	if n = f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "markdown": "Below.", "place": "bottom"}, ""); n["y"] != 7.0 {
+	if n = f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "markdown": "Below.", "place": "bottom"}, ""); n["y"] != 12.0 {
 		t.Fatalf("bottom: %v", n)
 	}
 	if its = itemsOf(t, f, "Weekly"); its[0].Y != 0 || its[0].Kind != "text" || its[0].CreatedBy != "" {
@@ -83,7 +83,7 @@ func TestDashboardTools(t *testing.T) {
 		map[string]any{"tiles": []any{map[string]any{"chart": "Count", "span": 4}, map[string]any{"chart": "by name"}}}}}}}, "")
 	its = itemsOf(t, f, "Weekly")
 	noOverlap(t, its)
-	if last := its[len(its)-1]; last.CreatedBy != "mcp:test" || last.Y != 7 {
+	if last := its[len(its)-1]; last.CreatedBy != "mcp:test" || last.Y != 12 {
 		t.Fatalf("bottom notes after edit: %+v", its)
 	}
 	f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "markdown": "Updated.", "place": "top"}, "")
@@ -93,7 +93,7 @@ func TestDashboardTools(t *testing.T) {
 	ed := f.call(t, "edit_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "pages": []any{map[string]any{"rows": []any{
 		map[string]any{"tiles": []any{map[string]any{"chart": "Count"}}}}}}}, "")
 	kept := ed["pages"].([]any)[0].(map[string]any)["items"].([]any)
-	if len(kept) != 2 || kept[0].(map[string]any)["text"] != "Updated." || kept[1].(map[string]any)["y"] != 1.0 {
+	if len(kept) != 2 || kept[0].(map[string]any)["text"] != "Updated." || kept[1].(map[string]any)["y"] != 2.0 {
 		t.Errorf("notes after edit_dashboard: %v", kept)
 	}
 
@@ -103,8 +103,8 @@ func TestDashboardTools(t *testing.T) {
 	count := w.Charts[0].ID
 	if _, err := lib.Update(p, func(w *bi.Workspace) error {
 		_, err := w.PutDashboard(bi.Dashboard{Meta: bi.Meta{Name: "Mine"}, Pages: []bi.Page{
-			{Size: bi.SizeSlide, Items: []bi.Item{{Kind: bi.ItemChart, Chart: count, W: 12, H: 8}}},
-			{Size: bi.SizeSlide, Items: []bi.Item{{Kind: bi.ItemChart, Chart: count, W: 12, H: 12}}}}})
+			{Size: bi.SizeSlide, Items: []bi.Item{{Kind: bi.ItemChart, Chart: count, W: 12, H: 16}}},
+			{Size: bi.SizeSlide, Items: []bi.Item{{Kind: bi.ItemChart, Chart: count, W: 12, H: 24}}}}})
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -112,8 +112,11 @@ func TestDashboardTools(t *testing.T) {
 	f.call(t, "edit_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Mine", "rename": "x"}, "user's dashboards")
 	f.call(t, "delete_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Mine"}, "user's dashboards")
 	n = f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Mine", "markdown": "Looks fine."}, "")
-	if n["y"] != 8.0 || n["h"] != 1.0 {
+	if n["y"] != 0.0 || n["h"] != 2.0 { // new notes go on top, on slides too
 		t.Errorf("slide notes: %v", n)
+	}
+	if n := f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Mine", "markdown": "Looks fine.", "place": "bottom"}, ""); n["y"] != 16.0 {
+		t.Errorf("slide notes moved to the bottom: %v", n)
 	}
 	f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Mine", "page": "2", "markdown": "x"}, "has 0 free")
 
@@ -137,7 +140,7 @@ func TestDashboardTools(t *testing.T) {
 		for i := range w.Dashboards {
 			if w.Dashboards[i].Name == "Old" {
 				it := w.Dashboards[i].Pages[0].Items
-				it[0].H, it[1].Y, it[2].Y, it[2].H = 3, 3, 8, 4 // fills the slide
+				it[0].H, it[1].Y, it[2].Y, it[2].H = 6, 6, 16, 8 // fills the slide
 			}
 		}
 		return nil
@@ -146,10 +149,10 @@ func TestDashboardTools(t *testing.T) {
 	}
 	f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Old", "markdown": "x"}, "it's your dashboard, so shorten the notes, make room with edit_dashboard")
 	f.call(t, "edit_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Old", "rename": "Old layout"}, "")
-	if its := itemsOf(t, f, "Old layout"); its[0].H != 2 || its[1].Y != 2 || its[2].Y != 7 || its[2].H != 1 {
+	if its := itemsOf(t, f, "Old layout"); its[0].H != 2 || its[1].Y != 2 || its[2].Y != 12 || its[2].H != 2 {
 		t.Errorf("refit: %+v", its)
 	}
-	if n := f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Old layout", "markdown": "Fits now."}, ""); n["y"] != 8.0 {
+	if n := f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Old layout", "markdown": "Fits now.", "place": "bottom"}, ""); n["y"] != 14.0 {
 		t.Errorf("notes in the freed rows: %v", n)
 	}
 
@@ -180,14 +183,14 @@ func TestDashboardTools(t *testing.T) {
 	// their page by name when pages move.
 	f.call(t, "create_dashboard", map[string]any{"workspace": "Ops", "name": "Tall", "pages": []any{map[string]any{"size": "16:9", "rows": []any{
 		map[string]any{"height": "XL", "tiles": []any{map[string]any{"chart": "Count"}}},
-		map[string]any{"height": "S", "tiles": []any{map[string]any{"chart": "Count"}}}}}}}, "its rows take 14 grid rows (row 1 11, row 2 3)")
+		map[string]any{"height": "S", "tiles": []any{map[string]any{"chart": "Count"}}}}}}}, "its rows take 28 grid rows (row 1 22, row 2 6)")
 	f.call(t, "create_dashboard", map[string]any{"workspace": "Ops", "name": "X", "pages": []any{map[string]any{"rows": []any{
 		map[string]any{"tiles": []any{map[string]any{"chart": "Nope"}}}}}}}, "(charts: ")
 	f.call(t, "create_dashboard", map[string]any{"workspace": "Ops", "name": "Moves", "pages": []any{
 		map[string]any{"name": "Overview", "rows": []any{map[string]any{"tiles": []any{map[string]any{"chart": "Count"}}}}},
 		map[string]any{"name": "Slide", "size": "16:9", "rows": []any{map[string]any{"height": "L", "tiles": []any{map[string]any{"chart": "Count"}}}}}}}, "")
 	long := "Notes:\n- one\n- two\n- three\n- four\n- five\n- six"
-	f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Moves", "page": "Slide", "markdown": long + "\n- seven\n- eight\n- nine\n- ten"}, "need 5 grid rows but the 16:9 slide has 4 free")
+	f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Moves", "page": "Slide", "markdown": long + "\n- seven\n- eight\n- nine\n- ten"}, "need 9 grid rows but the 16:9 slide has 8 free")
 	f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Moves", "page": "Overview", "markdown": "On top.", "place": "top"}, "")
 	sw := f.call(t, "edit_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Moves", "pages": []any{
 		map[string]any{"name": "Slide", "size": "16:9", "rows": []any{map[string]any{"height": "L", "tiles": []any{map[string]any{"chart": "Count"}}}}},
@@ -202,7 +205,7 @@ func TestDashboardTools(t *testing.T) {
 		t.Errorf("shared chart read twice: %v %v", a["as_of"], b["as_of"])
 	}
 	rf := f.call(t, "refresh_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Moves", "page": "Overview"}, "")
-	if nt := rf["pages"].([]any)[0].(map[string]any)["notes"].([]any)[0].(map[string]any); nt["place"] != "top" || nt["fits"] != true || nt["h"] != 1.0 || nt["needed"] != 1.0 {
+	if nt := rf["pages"].([]any)[0].(map[string]any)["notes"].([]any)[0].(map[string]any); nt["place"] != "top" || nt["fits"] != true || nt["h"] != 2.0 || nt["needed"] != 2.0 {
 		t.Errorf("notes in refresh: %v", nt)
 	}
 

@@ -17,6 +17,10 @@ import (
 
 const Format = "chloe-bi"
 
+// FormatVersion 2 halved the dashboard grid's rows (18px rows, 30px steps);
+// version 1 files are converted as they're read.
+const FormatVersion = 2
+
 // Field types of a data source's columns.
 const (
 	TypeString   = "string"
@@ -186,7 +190,7 @@ type NumberFormat struct {
 
 // New returns an empty workspace.
 func New(name string) Workspace {
-	return Workspace{Format: Format, Version: 1, ID: uuid.NewString(), Name: name, DataSources: []DataSource{}, Charts: []Chart{}, Dashboards: []Dashboard{}}
+	return Workspace{Format: Format, Version: FormatVersion, ID: uuid.NewString(), Name: name, DataSources: []DataSource{}, Charts: []Chart{}, Dashboards: []Dashboard{}}
 }
 
 func Parse(data []byte) (Workspace, error) {
@@ -209,6 +213,18 @@ func Parse(data []byte) (Workspace, error) {
 	if w.Dashboards == nil {
 		w.Dashboards = []Dashboard{}
 	}
+	if w.Version < 2 {
+		// Twice the rows at half the height: every tile keeps its pixels.
+		for i := range w.Dashboards {
+			for j := range w.Dashboards[i].Pages {
+				for k := range w.Dashboards[i].Pages[j].Items {
+					it := &w.Dashboards[i].Pages[j].Items[k]
+					it.Y, it.H = it.Y*2, it.H*2
+				}
+			}
+		}
+	}
+	w.Version = FormatVersion
 	return w, nil
 }
 
