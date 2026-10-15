@@ -4386,16 +4386,23 @@ table.mapping select {
 
 .bi-kpi-row {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
-  gap: 8px;
+  column-gap: 8px;
   margin-top: 6px;
   font-size: 12px;
   opacity: 0.8;
   white-space: nowrap;
 }
 
+/* In a narrow tile the target wraps under the share, kept to the right. */
+.bi-kpi-row > :last-child {
+  margin-left: auto;
+}
+
+/* The change and what it's against wrap rather than being cut off. */
 .bi-delta {
-  white-space: nowrap;
+  text-wrap: balance;
   margin-top: 8px;
   font-size: 13px;
   font-weight: 600;
