@@ -14,12 +14,12 @@ func TestCheckRedisRead(t *testing.T) {
 	}
 	for args, want := range map[string]string{
 		"SET k v":         "only runs read commands",
-		"SELECT 1":        "only runs read commands",
+		"SELECT 1":        "as db instead",
 		"EVAL_RO x 0":     "only runs read commands",
 		"KEYS *":          "redis_scan",
 		"OBJECT HELP":     "only with ENCODING",
 		"MEMORY DOCTOR":   "only with USAGE",
-		"CONFIG GET *":    "only runs read commands",
+		"CONFIG GET *":    "server_variables",
 		"FLUSHALL":        "only runs read commands",
 		"BLPOP q 0":       "only runs read commands",
 		"GEORADIUS g 0 0": "only runs read commands",
@@ -71,7 +71,11 @@ func TestEditCommands(t *testing.T) {
 		{"none", RedisEditArgs{Push: []any{"x"}, PushHead: true}, "list", `[[LPUSH k x]]`},
 		{"list", RedisEditArgs{Remove: []any{"x", "y"}}, "list", `[[LREM k 0 x] [LREM k 0 y]]`},
 		{"set", RedisEditArgs{Add: []any{"a"}, Remove: []any{"b"}}, "set", `[[SADD k a] [SREM k b]]`},
-		{"zset", RedisEditArgs{AddScored: map[string]any{"a": 2.0}, Remove: []any{"b"}}, "zset", `[[ZADD k 2 a] [ZREM k b]]`},
+		{"zset", RedisEditArgs{AddScored: map[string]any{"a": 2.0}, Remove: []any{"b"}}, "zset", `[[ZADD k CH 2 a] [ZREM k b]]`},
+		{"zset", RedisEditArgs{IncrScores: map[string]any{"a": 1.0}}, "zset", `[[ZINCRBY k 1 a]]`},
+		{"none", RedisEditArgs{Incr: 5.0}, "string", `[[INCRBY k 5]]`},
+		{"string", RedisEditArgs{Incr: "-0.5"}, "string", `[[INCRBYFLOAT k -0.5]]`},
+		{"hash", RedisEditArgs{IncrFields: map[string]any{"n": 2.0}}, "hash", `[[HINCRBY k n 2]]`},
 		{"none", RedisEditArgs{AddEntry: map[string]any{"f": "v"}}, "stream", `[[XADD k * f v]]`},
 	} {
 		typ, cmds, _, err := editCommands("k", c.old, c.in)
@@ -92,6 +96,9 @@ func TestEditCommands(t *testing.T) {
 		{"hash", RedisEditArgs{Remove: []any{"x"}}, "remove works on"},
 		{"zset", RedisEditArgs{Add: []any{"x"}}, "is a zset, not a set"},
 		{"none", RedisEditArgs{DeleteFields: []string{"a"}}, "no key"},
+		{"stream", RedisEditArgs{AddEntry: map[string]any{}}, "at least one field"},
+		{"string", RedisEditArgs{Incr: "lots"}, "isn't a number"},
+		{"list", RedisEditArgs{Push: []any{map[string]any{}}}, "item 1: values must be strings or numbers, not objects"},
 	} {
 		_, _, _, err := editCommands("k", c.old, c.in)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
@@ -107,7 +114,21 @@ func TestRedisText(t *testing.T) {
 	if got := redisText("abcdef", 3); got != "abc…[3 more bytes]" {
 		t.Error(got)
 	}
-	if got := quoteArgs("SET", "k", "a b"); got != `SET "k" "a b"` {
+	if got := quoteArgs("SET", "k", "a b", "\xff\x00"); got != `SET "k" "a b" "\xff\x00"` {
+		t.Error(got)
+	}
+	if got := showKey("x in db1"); got != `"x in db1"` {
+		t.Error(got)
+	}
+	for secs, want := range map[int64]string{1: "1 second", 90: "90 seconds", 7200: "2 hours", 86400 * 3: "3 days", 99999999999999: "about 3170979 years"} {
+		if got := humanDuration(secs); got != want {
+			t.Errorf("%d: %s", secs, got)
+		}
+	}
+	if !validCursor("list", "3") || validCursor("list", "-1") || validCursor("set", "abc") || !validCursor("stream", "1700000000000-0") || validCursor("stream", "5") {
+		t.Error("validCursor")
+	}
+	if got := clientFlags("bN"); got != "blocked" {
 		t.Error(got)
 	}
 }

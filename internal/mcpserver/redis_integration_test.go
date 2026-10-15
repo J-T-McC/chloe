@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"chloe/internal/core"
 	"chloe/internal/mcpserver"
@@ -162,6 +163,49 @@ func TestIntegrationRedisTools(t *testing.T) {
 	f.appr.mu.Lock()
 	f.appr.during = nil
 	f.appr.mu.Unlock()
+
+	// Tester findings: cursors, counts, TTLs, duplicates, truncation.
+	cl := kv.DB(redisDB)
+	f.call(t, "redis_get", at(map[string]any{"key": "late", "cursor": "-1"}), "isn't one redis_get returned")
+	f.call(t, "redis_scan", at(map[string]any{"cursor": "abc"}), "isn't one redis_scan returned")
+	for i := range 300 {
+		cl.Set(context.Background(), fmt.Sprintf("bulk:%d", i), "v", 0)
+	}
+	if keys := f.call(t, "redis_scan", at(map[string]any{"pattern": "bulk:*", "count": 100}), "")["keys"].([]any); len(keys) > 120 {
+		t.Fatalf("scan page of %d keys for count 100", len(keys))
+	}
+	if out := f.call(t, "redis_edit", at(map[string]any{"key": "scores", "remove": []any{"nope"}}), ""); out["changed"].(float64) != 0 {
+		t.Fatalf("no-op remove: %v", out)
+	}
+	if out := f.call(t, "redis_edit", at(map[string]any{"key": "scores", "add_scored": map[string]any{"bob": 21}}), ""); out["changed"].(float64) != 1 {
+		t.Fatalf("rescore: %v", out)
+	}
+	f.call(t, "redis_edit", at(map[string]any{"key": "hits", "incr": 2}), "")
+	f.call(t, "redis_edit", at(map[string]any{"key": "hits", "incr": 3}), "")
+	if v := cl.Get(context.Background(), "hits").Val(); v != "5" {
+		t.Fatalf("hits %s", v)
+	}
+	f.call(t, "redis_set", at(map[string]any{"key": "x", "type": "string", "value": "1", "ttl": -1}), "can't be negative")
+	cl.Set(context.Background(), "sess", "a", time.Hour)
+	f.call(t, "redis_set", at(map[string]any{"key": "sess", "type": "string", "value": "b"}), "")
+	if a := f.appr.last(); strings.Contains(a.SQL, "DEL") || !strings.Contains(a.SQL, "KEEPTTL") {
+		t.Fatalf("string replace: %s", a.SQL)
+	}
+	f.call(t, "redis_set", at(map[string]any{"key": "sess", "type": "hash", "value": map[string]any{"a": "1"}}), "")
+	if a := f.appr.last(); !strings.Contains(a.SQL, "PEXPIREAT") {
+		t.Fatalf("type replace: %s", a.SQL)
+	}
+	if d := cl.TTL(context.Background(), "sess").Val(); d < 59*time.Minute {
+		t.Fatalf("ttl %v", d)
+	}
+	f.call(t, "redis_delete", at(map[string]any{"keys": []any{"sess", "sess", "gone"}}), "")
+	if a := f.appr.last(); a.Rows != 1 || strings.Count(a.SQL, "sess") != 1 {
+		t.Fatalf("duplicate delete: %+v", a)
+	}
+	cl.Set(context.Background(), "big", strings.Repeat("x", 70000), 0)
+	if v := f.call(t, "redis_get", at(map[string]any{"key": "big"}), ""); v["truncated"] != true {
+		t.Fatal("big string not marked truncated")
+	}
 	f.call(t, "redis_set", map[string]any{"connection": "cache", "db": 8, "key": "x", "type": "string", "value": "1"}, "can only read")
 }
 
@@ -175,9 +219,10 @@ func TestIntegrationRedisMonitor(t *testing.T) {
 	if len(status) != 1 || !strings.HasPrefix(status[0].(map[string]any)["value"].(string), "7.") {
 		t.Fatalf("status: %v", status)
 	}
-	// Server keyspace sections also match on their description.
-	if ks := f.call(t, "server_status", map[string]any{"connection": "cache", "filter": "keyspace"}, "")["values"].([]any); len(ks) == 0 {
-		t.Fatal("keyspace section")
+	// Entries match on their INFO section too, and say which it is.
+	ks := f.call(t, "server_status", map[string]any{"connection": "cache", "filter": "keyspace"}, "")["values"].([]any)
+	if !strings.Contains(fmt.Sprint(ks), "name:db6 section:Keyspace") {
+		t.Fatalf("keyspace section: %v", ks)
 	}
 	sessions := f.call(t, "list_sessions", map[string]any{"connection": "cache"}, "")["sessions"].([]any)
 	self := false

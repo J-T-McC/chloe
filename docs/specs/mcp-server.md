@@ -102,20 +102,24 @@ refuse them.
 | `redis_get` | Read | `connection, db?, key, cursor?, count?` |
 | `redis_command` | Read | `connection, db?, args` |
 | `redis_set` | Read-write | `connection, db?, key, type, value, ttl?, only_if_new?` |
-| `redis_edit` | Read-write | `connection, db?, key, set_fields?, delete_fields?, push?, push_head?, add?, add_scored?, remove?, add_entry?` |
+| `redis_edit` | Read-write | `connection, db?, key, incr?, set_fields?, delete_fields?, incr_fields?, push?, push_head?, add?, add_scored?, incr_scores?, remove?, add_entry?` |
 | `redis_delete` | Read-write | `connection, db?, keys` |
 | `redis_expire` | Read-write | `connection, db?, key, ttl` |
 
 - `db` defaults to 0. Keys that aren't UTF-8 come back as base64 with `key_base64`, which the agent passes back;
-  values that aren't UTF-8 are shown as `0x…` hex. Strings are cut at 64 KB and collection elements at 4 KB.
-- `redis_scan` and `redis_get` page with a cursor (default 100, at most 1000 keys or elements).
+  values that aren't UTF-8 are shown as `0x…` hex. Strings are cut at 64 KB and collection elements at 4 KB, and
+  the result says `truncated` so an agent doesn't write a cut value back. Approvals show binary bytes as `\xNN`.
+- `redis_scan` and `redis_get` page with a cursor (default 100, at most 1000 keys or elements; Redis treats the
+  count as a hint, so small hashes and sets come whole). A cursor that isn't one the tool returned is refused.
 - `redis_command` runs one command from a fixed list of read commands (GET, HGETALL, ZRANGEBYSCORE, XRANGE,
   PFCOUNT, GEOSEARCH, OBJECT ENCODING, JSON.GET…). Nothing that writes, blocks, switches database or runs a script;
   KEYS is refused in favour of `redis_scan`. The reply is formatted like redis-cli.
 - Writes are built from fixed commands with the agent's keys and values as arguments, run in MULTI/EXEC, and shown
-  in the approval dialog as redis-cli commands. `redis_set` replaces a whole value (a replaced key keeps its expiry
-  unless `ttl` is given); `redis_edit` changes elements of one collection, creating it when missing, and refuses if
-  the key changed type while waiting for approval. `redis_delete` takes at most 1000 keys (UNLINK); there's no
+  in the approval dialog as redis-cli commands. `redis_set` replaces a whole value; a replaced key keeps its expiry
+  unless `ttl` is given (a string replaced by a string with `KEEPTTL`, any other replacement with `PEXPIREAT` to the
+  same deadline). `redis_edit` changes part of one value, creating it when missing: counters (`INCRBY`), hash
+  fields, list values, set and sorted set members (`ZADD CH`, `ZINCRBY`), stream entries. `changed` reports what
+  Redis actually did, so removing a member that isn't there gives 0. `redis_delete` takes at most 1000 exact keys (duplicates are dropped; UNLINK); there's no
   delete by pattern, and no FLUSHDB.
 - After approval the key is WATCHed and its type checked against what was approved before MULTI/EXEC, so a key
   created, deleted or retyped by someone else while the dialog was open, or written to during the check, aborts the
@@ -125,9 +129,8 @@ refuse them.
   commands and cut each value at 4 KB; the summary always gives the full count.
 - Reads have only Chloe's 30 s client timeout: Redis has no server-side limit, so `HGETALL` or `SMEMBERS` on a huge
   key can stall a single-threaded server for everyone. This is the same trust as `run_query`.
-- Monitor (capability) covers Redis too: `list_sessions` (CLIENT LIST), `server_status` (INFO, with the section as
-  description), `server_variables` (CONFIG GET, with passwords hidden), `kill_session` (CLIENT KILL; no
-  `query_only`).
+- Monitor (capability) covers Redis too: `list_sessions` (CLIENT LIST), `server_status` (INFO, each entry with its `section`), `server_variables` (CONFIG GET, with passwords hidden), `kill_session` (CLIENT KILL; no
+  `query_only`). Sessions show client flags in words (blocked, pub/sub…) and the last command.
 
 ### Monitor (capability)
 | Tool | Access | Arguments |

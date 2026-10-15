@@ -224,10 +224,13 @@ func (c *Client) ScanKeys(ctx context.Context, db int, cursor, pattern, typ stri
 	for {
 		var batch []string
 		var err error
+		// Ask for what's still missing, so a pattern scan of several rounds
+		// doesn't overshoot count by a whole round.
+		n := int64(max(count-len(names), 10))
 		if typ != "" {
-			batch, cur, err = cl.ScanType(ctx, cur, pattern, int64(count), typ).Result()
+			batch, cur, err = cl.ScanType(ctx, cur, pattern, n, typ).Result()
 		} else {
-			batch, cur, err = cl.Scan(ctx, cur, pattern, int64(count)).Result()
+			batch, cur, err = cl.Scan(ctx, cur, pattern, n).Result()
 		}
 		if err != nil {
 			return ScanResult{}, err

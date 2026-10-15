@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -115,13 +116,19 @@ func keyBytes(k string, b64 bool) (string, error) {
 // redisText shows a value for the agent: UTF-8 as is, anything else as 0x hex
 // (like binary SQL cells), cut at n bytes.
 func redisText(s string, n int) string {
+	t, _ := redisCut(s, n)
+	return t
+}
+
+// redisCut is redisText that also reports whether the text was cut.
+func redisCut(s string, n int) (string, bool) {
 	if !utf8.ValidString(s) {
 		s = "0x" + hex.EncodeToString([]byte(s))
 	}
 	if len(s) > n {
-		return s[:n] + fmt.Sprintf("…[%d more bytes]", len(s)-n)
+		return s[:n] + fmt.Sprintf("…[%d more bytes]", len(s)-n), true
 	}
-	return s
+	return s, false
 }
 
 // redisArg turns a JSON scalar from the agent into a Redis argument.
@@ -137,6 +144,10 @@ func redisArg(v any) (string, error) {
 		return strconv.FormatBool(x), nil
 	case nil:
 		return "", errors.New("values can't be null")
+	case map[string]any:
+		return "", errors.New("values must be strings or numbers, not objects")
+	case []any:
+		return "", errors.New("values must be strings or numbers, not lists")
 	}
 	return "", fmt.Errorf("values must be strings or numbers, not %T", v)
 }
@@ -146,7 +157,7 @@ func redisArgs(vs []any) ([]string, error) {
 	for i, v := range vs {
 		var err error
 		if out[i], err = redisArg(v); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("item %d: %w", i+1, err)
 		}
 	}
 	return out, nil
@@ -227,6 +238,7 @@ type RedisValueOut struct {
 	Items     []RedisItemOut  `json:"items,omitempty" jsonschema:"hash fields, list items (with index), set members or sorted set members (with score)"`
 	Entries   []RedisEntryOut `json:"entries,omitempty" jsonschema:"stream entries"`
 	Cursor    string          `json:"cursor,omitempty" jsonschema:"more elements follow; pass it back to read them"`
+	Truncated bool            `json:"truncated,omitempty" jsonschema:"some text was cut (strings at 64 KB, elements at 4 KB) and ends in …[N more bytes]; never write it back"`
 }
 
 type RedisCommandArgs struct {
@@ -257,6 +269,9 @@ type RedisEditArgs struct {
 	AddScored    map[string]any `json:"add_scored,omitempty" jsonschema:"sorted set: members to add or rescore, {member: score}"`
 	Remove       []any          `json:"remove,omitempty" jsonschema:"set or sorted set: members to remove; list: values to remove (every occurrence)"`
 	AddEntry     map[string]any `json:"add_entry,omitempty" jsonschema:"stream: an entry to append, {field: value}"`
+	Incr         any            `json:"incr,omitempty" jsonschema:"string: add this number to a counter (INCRBY, or INCRBYFLOAT for decimals); negative to subtract"`
+	IncrFields   map[string]any `json:"incr_fields,omitempty" jsonschema:"hash: add numbers to fields, {field: by}"`
+	IncrScores   map[string]any `json:"incr_scores,omitempty" jsonschema:"sorted set: add to members' scores, {member: by}"`
 }
 
 type RedisDeleteArgs struct {
@@ -271,7 +286,7 @@ type RedisExpireArgs struct {
 }
 
 type RedisChangedOut struct {
-	Changed int64 `json:"changed" jsonschema:"elements (or keys) added, changed or removed"`
+	Changed int64 `json:"changed" jsonschema:"what actually changed: elements written, fields set, values pushed, members added, rescored or removed, entries appended, keys deleted; 0 when nothing matched"`
 }
 
 // --- read-only commands -------------------------------------------------------------
@@ -319,8 +334,19 @@ func checkRedisRead(args []string) error {
 		}
 		return fmt.Errorf("redis_command runs %s only with %s", name, strings.Join(subs, ", "))
 	}
-	if name == "KEYS" {
+	switch name {
+	case "KEYS":
 		return errors.New("KEYS blocks the server; use redis_scan")
+	case "SELECT":
+		return errors.New("pass the database number as db instead of SELECT")
+	case "INFO":
+		return errors.New("use server_status (Monitor) for INFO")
+	case "CONFIG":
+		return errors.New("use server_variables (Monitor) for CONFIG GET")
+	case "CLIENT":
+		return errors.New("use list_sessions (Monitor) for CLIENT LIST")
+	case "XREAD", "XREADGROUP":
+		return errors.New("use XRANGE or XREVRANGE to read a stream")
 	}
 	return fmt.Errorf("redis_command only runs read commands (GET, HGETALL, ZRANGE, XRANGE…); use redis_set, redis_edit, redis_delete or redis_expire to change data")
 }
@@ -333,7 +359,7 @@ func quoteArgs(args ...string) string {
 			parts[i] = a
 			continue
 		}
-		parts[i] = strconv.Quote(redisText(a, maxCellBytes))
+		parts[i] = strconv.Quote(cutRaw(a, maxCellBytes))
 	}
 	return strings.Join(parts, " ")
 }
@@ -399,6 +425,9 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 			if in.Type != "" && !slices.Contains([]string{"string", "hash", "list", "set", "zset", "stream"}, in.Type) {
 				return RedisScanOut{}, fmt.Errorf("unknown type %q", in.Type)
 			}
+			if _, err := strconv.ParseUint(cmp(in.Cursor, "0"), 10, 64); err != nil {
+				return RedisScanOut{}, fmt.Errorf("cursor %q isn't one redis_scan returned; leave it out to start over", in.Cursor)
+			}
 			c.act.SQL = quoteArgs("SCAN", cmp(in.Cursor, "0"), "MATCH", cmp(in.Pattern, "*"))
 			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
 			defer cancel()
@@ -418,7 +447,8 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 		})
 
 	add(s, srv, ep, readOnlyTool("redis_get", "Read Redis key",
-		"Reads a key's value with its type and expiry. Hashes, lists, sets, sorted sets and streams come a page at a time: pass back the cursor for more."),
+		"Reads a key's value with its type and expiry. Hashes, lists, sets, sorted sets (lowest score first) and streams come a page at a time: pass back the cursor for more. "+
+			"Strings over 64 KB and elements over 4 KB are cut and the result marked truncated. For the highest scores use redis_command ZRANGE key 0 9 REV WITHSCORES."),
 		func(ctx context.Context, c *call, in RedisGetArgs) (RedisValueOut, error) {
 			t, err := c.redisDB(ctx, in.Connection, in.DB, store.MCPRead)
 			if err != nil {
@@ -431,6 +461,15 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 			c.act.SQL = quoteArgs("GET", k)
 			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
 			defer cancel()
+			if in.Cursor != "" {
+				typ, err := t.cl.Type(ctx, k).Result()
+				if err != nil {
+					return RedisValueOut{}, err
+				}
+				if !validCursor(typ, in.Cursor) {
+					return RedisValueOut{}, fmt.Errorf("cursor %q isn't one redis_get returned for this %s; leave it out to start from the beginning", in.Cursor, typ)
+				}
+			}
 			kv, err := t.kv.GetValue(ctx, t.db, rdb.Enc(k), in.Cursor, clampLimit(in.Count))
 			if errors.Is(err, rdb.ErrNoKey) {
 				return RedisValueOut{}, fmt.Errorf("no key %q in db%d", redisText(k, 200), t.db)
@@ -483,6 +522,9 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 			if err != nil {
 				return RedisChangedOut{}, err
 			}
+			if in.TTL != nil && *in.TTL < 0 {
+				return RedisChangedOut{}, errors.New("ttl can't be negative; 0 means no expiry")
+			}
 			write, n, err := setCommands(k, in.Type, in.Value)
 			if err != nil {
 				return RedisChangedOut{}, err
@@ -497,18 +539,25 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 			if exists && in.OnlyIfNew {
 				return RedisChangedOut{}, fmt.Errorf("key %q already exists (a %s)", redisText(k, 200), old)
 			}
-			ttl := int64(-1)
+			// A replaced key keeps its expiry unless ttl is given: a string replaced
+			// by a string with KEEPTTL, anything else by the same deadline.
+			sameString := old == "string" && in.Type == "string"
+			var expireAt int64
 			if exists && in.TTL == nil {
-				if d, err := t.cl.TTL(ctx, k).Result(); err == nil && d > 0 {
-					ttl = int64(d / time.Second)
+				if d, err := t.cl.PTTL(ctx, k).Result(); err == nil && d > 0 {
+					if sameString {
+						write[0] = append(write[0], "KEEPTTL")
+					} else {
+						expireAt = time.Now().Add(d).UnixMilli()
+					}
 				}
-			} else if in.TTL != nil && *in.TTL > 0 {
-				ttl = *in.TTL
 			}
 			var cmds [][]string
 			summary := fmt.Sprintf("Create %s %s in %s", in.Type, showKey(k), t.dbName())
 			if exists {
-				cmds = append(cmds, []string{"DEL", k})
+				if !sameString {
+					cmds = append(cmds, []string{"DEL", k})
+				}
 				length := redisLength(ctx, t.cl, k, old)
 				summary = fmt.Sprintf("Replace %s %s (%s) with a %s in %s", old, showKey(k), plural(length, "element"), in.Type, t.dbName())
 				if old == "string" {
@@ -516,14 +565,17 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 				}
 			}
 			cmds = append(cmds, write...)
-			if ttl > 0 {
-				cmds = append(cmds, []string{"EXPIRE", k, strconv.FormatInt(ttl, 10)})
+			switch {
+			case in.TTL != nil && *in.TTL > 0:
+				cmds = append(cmds, []string{"EXPIRE", k, strconv.FormatInt(*in.TTL, 10)})
+			case expireAt > 0:
+				cmds = append(cmds, []string{"PEXPIREAT", k, strconv.FormatInt(expireAt, 10)})
 			}
 			c.act.SQL = shownCommands(cmds)
 			if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.dbName(), Table: k, Summary: summary, SQL: c.act.SQL, Rows: n}); err != nil {
 				return RedisChangedOut{}, err
 			}
-			if err := runTx(ctx, t.cl, k, old, cmds); err != nil {
+			if _, err := runTx(ctx, t.cl, k, old, cmds); err != nil {
 				return RedisChangedOut{}, err
 			}
 			c.act.Rows = n
@@ -531,7 +583,7 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 		})
 
 	add(s, srv, ep, writeTool("redis_edit", "Edit Redis collection",
-		"Changes some elements of a hash, list, set, sorted set or stream: set or delete hash fields, push list values, add or remove members, append a stream entry. "+
+		"Changes part of a value: increment a counter, set, delete or increment hash fields, push or remove list values, add, remove or rescore members, append a stream entry. "+
 			"A missing key is created. The user approves it in Chloe unless they've turned on danger mode.", true),
 		func(ctx context.Context, c *call, in RedisEditArgs) (RedisChangedOut, error) {
 			t, err := c.redisDB(ctx, in.Connection, in.DB, store.MCPWrite)
@@ -561,11 +613,12 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 				Summary: fmt.Sprintf("%s %s %s in %s (%s)", verb, typ, showKey(k), t.dbName(), plural(n, "element")), SQL: c.act.SQL, Rows: n}); err != nil {
 				return RedisChangedOut{}, err
 			}
-			if err := runTx(ctx, t.cl, k, old, cmds); err != nil {
+			changed, err := runTx(ctx, t.cl, k, old, cmds)
+			if err != nil {
 				return RedisChangedOut{}, err
 			}
-			c.act.Rows = n
-			return RedisChangedOut{Changed: n}, nil
+			c.act.Rows = changed
+			return RedisChangedOut{Changed: changed}, nil
 		})
 
 	add(s, srv, ep, writeTool("redis_delete", "Delete Redis keys",
@@ -581,10 +634,14 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 			case len(in.Keys) > maxRedisKeys:
 				return RedisChangedOut{}, fmt.Errorf("delete at most %d keys per call", maxRedisKeys)
 			}
-			keys := make([]string, len(in.Keys))
-			for i, k := range in.Keys {
-				if keys[i], err = keyBytes(k, in.KeysBase64); err != nil {
+			var keys []string
+			for _, k := range in.Keys {
+				b, err := keyBytes(k, in.KeysBase64)
+				if err != nil {
 					return RedisChangedOut{}, err
+				}
+				if !slices.Contains(keys, b) {
+					keys = append(keys, b)
 				}
 			}
 			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
@@ -594,7 +651,7 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 				return RedisChangedOut{}, err
 			}
 			if n == 0 {
-				return RedisChangedOut{}, errors.New("none of the keys exist")
+				return RedisChangedOut{}, errors.New("none of the keys exist (keys are exact names; find keys by pattern with redis_scan)")
 			}
 			c.act.SQL = shownCommands([][]string{append([]string{"UNLINK"}, keys...)})
 			if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.dbName(),
@@ -633,18 +690,46 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 			summary := fmt.Sprintf("Remove the expiry of %s in %s", showKey(k), t.dbName())
 			if in.TTL > 0 {
 				cmd = []string{"EXPIRE", k, strconv.FormatInt(in.TTL, 10)}
-				summary = fmt.Sprintf("Expire %s in %s after %ds", showKey(k), t.dbName(), in.TTL)
+				summary = fmt.Sprintf("Expire %s in %s in %s", showKey(k), t.dbName(), humanDuration(in.TTL))
 			}
 			c.act.SQL = quoteArgs(cmd...)
 			if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.dbName(), Table: k, Summary: summary, SQL: c.act.SQL, Rows: 1}); err != nil {
 				return RedisChangedOut{}, err
 			}
-			if err := runTx(ctx, t.cl, k, old, [][]string{cmd}); err != nil {
+			if _, err := runTx(ctx, t.cl, k, old, [][]string{cmd}); err != nil {
 				return RedisChangedOut{}, err
 			}
 			c.act.Rows = 1
 			return RedisChangedOut{Changed: 1}, nil
 		})
+}
+
+var streamID = regexp.MustCompile(`^\d+-\d+$`)
+
+// validCursor checks a redis_get cursor: an element offset, a scan cursor or a stream entry ID.
+func validCursor(typ, cursor string) bool {
+	if typ == "stream" {
+		return streamID.MatchString(cursor)
+	}
+	_, err := strconv.ParseUint(cursor, 10, 64)
+	return err == nil
+}
+
+// humanDuration renders seconds for an approval, e.g. "90 seconds", "2 hours", "about 3 years".
+func humanDuration(secs int64) string {
+	units := []struct {
+		n    int64
+		name string
+	}{{365 * 86400, "year"}, {86400, "day"}, {3600, "hour"}, {60, "minute"}}
+	for _, u := range units {
+		if secs >= 2*u.n {
+			if secs%u.n == 0 {
+				return plural(secs/u.n, u.name)
+			}
+			return "about " + plural((secs+u.n/2)/u.n, u.name)
+		}
+	}
+	return plural(secs, "second")
 }
 
 func cmp(s, def string) string {
@@ -658,7 +743,9 @@ func valueOut(kv rdb.KeyValue) (RedisValueOut, error) {
 	out := RedisValueOut{Key: kv.Name.Text, KeyBase64: kv.Name.Base64, Type: kv.Type, TTL: kv.TTL, Encoding: kv.Encoding, Length: kv.Length, Cursor: kv.Cursor}
 	str := func(v rdb.Value, n int) string {
 		b, _ := v.Bytes()
-		return redisText(b, n)
+		t, cut := redisCut(b, n)
+		out.Truncated = out.Truncated || cut
+		return t
 	}
 	if kv.String != nil {
 		s := str(*kv.String, maxRedisString)
@@ -673,6 +760,16 @@ func valueOut(kv rdb.KeyValue) (RedisValueOut, error) {
 			o.Field = str(*it.Field, maxCellBytes)
 		}
 		out.Items = append(out.Items, o)
+	}
+	switch kv.Type {
+	case "hash", "list", "set", "zset":
+		if out.Items == nil {
+			out.Items = []RedisItemOut{}
+		}
+	case "stream":
+		if kv.Entries == nil {
+			out.Entries = []RedisEntryOut{}
+		}
 	}
 	for _, e := range kv.Entries {
 		o := RedisEntryOut{ID: e.ID, Fields: map[string]string{}}
@@ -775,11 +872,12 @@ func editCommands(k, old string, in RedisEditArgs) (string, [][]string, int64, e
 			want[typ] = true
 		}
 	}
-	note("hash", len(in.SetFields) > 0 || len(in.DeleteFields) > 0)
+	note("string", in.Incr != nil)
+	note("hash", len(in.SetFields) > 0 || len(in.DeleteFields) > 0 || len(in.IncrFields) > 0)
 	note("list", len(in.Push) > 0)
 	note("set", len(in.Add) > 0)
-	note("zset", len(in.AddScored) > 0)
-	note("stream", len(in.AddEntry) > 0)
+	note("zset", len(in.AddScored) > 0 || len(in.IncrScores) > 0)
+	note("stream", in.AddEntry != nil)
 	if len(want) > 1 {
 		return "", nil, 0, fmt.Errorf("one call changes one type of value; got changes for %s", strings.Join(slices.Sorted(maps.Keys(want)), " and "))
 	}
@@ -793,7 +891,7 @@ func editCommands(k, old string, in RedisEditArgs) (string, [][]string, int64, e
 	case len(in.Remove) > 0 && !slices.Contains([]string{"list", "set", "zset"}, typ):
 		return "", nil, 0, fmt.Errorf("remove works on lists, sets and sorted sets; %q is a %s", redisText(k, 200), typ)
 	case typ == "none":
-		return "", nil, 0, errors.New("nothing to change: pass set_fields, delete_fields, push, add, add_scored, remove or add_entry")
+		return "", nil, 0, errors.New("nothing to change: pass incr, set_fields, delete_fields, incr_fields, push, add, add_scored, incr_scores, remove or add_entry")
 	case old != "none" && old != typ:
 		return "", nil, 0, fmt.Errorf("%q is a %s, not a %s", redisText(k, 200), old, typ)
 	}
@@ -803,7 +901,32 @@ func editCommands(k, old string, in RedisEditArgs) (string, [][]string, int64, e
 	var cmds [][]string
 	var n int64
 	switch typ {
+	case "string":
+		if in.Incr == nil {
+			break
+		}
+		by, err := redisArg(in.Incr)
+		if err != nil {
+			return "", nil, 0, fmt.Errorf("incr: %w", err)
+		}
+		name, err := incrName(by, "INCRBY", "INCRBYFLOAT")
+		if err != nil {
+			return "", nil, 0, fmt.Errorf("incr: %w", err)
+		}
+		cmds, n = [][]string{{name, k, by}}, 1
 	case "hash":
+		for _, f := range slices.Sorted(maps.Keys(in.IncrFields)) {
+			by, err := redisArg(in.IncrFields[f])
+			if err != nil {
+				return "", nil, 0, fmt.Errorf("incr_fields %q: %w", f, err)
+			}
+			name, err := incrName(by, "HINCRBY", "HINCRBYFLOAT")
+			if err != nil {
+				return "", nil, 0, fmt.Errorf("incr_fields %q: %w", f, err)
+			}
+			cmds = append(cmds, []string{name, k, f, by})
+			n++
+		}
 		if len(in.SetFields) > 0 {
 			set, _, err := setCommands(k, "hash", in.SetFields)
 			if err != nil {
@@ -851,7 +974,18 @@ func editCommands(k, old string, in RedisEditArgs) (string, [][]string, int64, e
 			if err != nil {
 				return "", nil, 0, err
 			}
-			cmds = append(cmds, zadd(k, zs))
+			// CH counts rescored members too, so the result reports real changes.
+			cmds = append(cmds, append([]string{"ZADD", k, "CH"}, zadd(k, zs)[2:]...))
+			n += int64(len(zs))
+		}
+		if len(in.IncrScores) > 0 {
+			zs, err := scores(in.IncrScores)
+			if err != nil {
+				return "", nil, 0, fmt.Errorf("incr_scores: %w", err)
+			}
+			for _, z := range zs {
+				cmds = append(cmds, []string{"ZINCRBY", k, strconv.FormatFloat(z.Score, 'g', -1, 64), z.Member.(string)})
+			}
 			n += int64(len(zs))
 		}
 		if len(in.Remove) > 0 {
@@ -867,6 +1001,9 @@ func editCommands(k, old string, in RedisEditArgs) (string, [][]string, int64, e
 			n += int64(len(vals))
 		}
 	case "stream":
+		if len(in.AddEntry) == 0 {
+			return "", nil, 0, errors.New("add_entry needs at least one field")
+		}
 		cmd := []string{"XADD", k, "*"}
 		for _, f := range slices.Sorted(maps.Keys(in.AddEntry)) {
 			s, err := redisArg(in.AddEntry[f])
@@ -890,11 +1027,42 @@ func errKeyChanged(k string) error {
 	return fmt.Errorf("key %s changed while waiting for approval, so nothing was done; read it again before retrying", showKey(k))
 }
 
+// incrName picks the integer or decimal form of an increment command.
+func incrName(by, integer, decimal string) (string, error) {
+	if _, err := strconv.ParseInt(by, 10, 64); err == nil {
+		return integer, nil
+	}
+	if _, err := strconv.ParseFloat(by, 64); err != nil {
+		return "", fmt.Errorf("%q isn't a number", by)
+	}
+	return decimal, nil
+}
+
+// effect counts what one command of a write actually did: fields written,
+// values pushed, members added, rescored or removed, entries appended.
+func effect(cmd []string, reply redis.Cmder) int64 {
+	switch cmd[0] {
+	case "HSET":
+		return int64(len(cmd)-2) / 2
+	case "RPUSH", "LPUSH":
+		return int64(len(cmd) - 2)
+	case "XADD", "SET", "INCRBY", "INCRBYFLOAT", "HINCRBY", "HINCRBYFLOAT", "ZINCRBY":
+		return 1
+	case "HDEL", "SADD", "SREM", "ZADD", "ZREM", "LREM":
+		if c, ok := reply.(*redis.Cmd); ok {
+			n, _ := c.Int64()
+			return n
+		}
+	}
+	return 0
+}
+
 // runTx runs commands in MULTI/EXEC, so they apply together or not at all. The
 // key is watched from before its type is checked against old (the type it had
 // when the commands were approved; "none" for a missing key), so a write by
 // anyone else in between aborts the transaction instead of mixing with it.
-func runTx(ctx context.Context, cl *redis.Client, k, old string, cmds [][]string) error {
+func runTx(ctx context.Context, cl *redis.Client, k, old string, cmds [][]string) (int64, error) {
+	var replies []redis.Cmder
 	err := cl.Watch(ctx, func(tx *redis.Tx) error {
 		now, err := tx.Type(ctx, k).Result()
 		if err != nil {
@@ -903,7 +1071,7 @@ func runTx(ctx context.Context, cl *redis.Client, k, old string, cmds [][]string
 		if now != old {
 			return errKeyChanged(k)
 		}
-		_, err = tx.TxPipelined(ctx, func(p redis.Pipeliner) error {
+		replies, err = tx.TxPipelined(ctx, func(p redis.Pipeliner) error {
 			for _, c := range cmds {
 				p.Do(ctx, toAny(c)...)
 			}
@@ -912,13 +1080,27 @@ func runTx(ctx context.Context, cl *redis.Client, k, old string, cmds [][]string
 		return err
 	}, k)
 	if errors.Is(err, redis.TxFailedErr) {
-		return errKeyChanged(k)
+		return 0, errKeyChanged(k)
 	}
-	return err
+	var n int64
+	for i, c := range cmds {
+		if i < len(replies) {
+			n += effect(c, replies[i])
+		}
+	}
+	return n, err
 }
 
 // showKey quotes a key for a summary line, so its text can't read as part of the sentence.
-func showKey(k string) string { return strconv.Quote(redisText(k, 100)) }
+func showKey(k string) string { return strconv.Quote(cutRaw(k, 100)) }
+
+// cutRaw shortens raw bytes for display; strconv.Quote then shows binary as \xNN, like redis-cli.
+func cutRaw(s string, n int) string {
+	if len(s) > n {
+		return s[:n] + fmt.Sprintf("…[%d more bytes]", len(s)-n)
+	}
+	return s
+}
 
 // --- monitor --------------------------------------------------------------------------
 
@@ -933,14 +1115,28 @@ func redisSessions(ctx context.Context, kv *rdb.Client) ([]model.Process, error)
 	out := make([]model.Process, 0, len(cs))
 	for _, ci := range cs {
 		idle, _ := strconv.ParseInt(ci["idle"], 10, 64)
-		p := model.Process{ID: ci["id"], User: ci["user"], Host: ci["addr"], Application: ci["name"], Command: ci["cmd"], State: ci["flags"], TimeSec: idle,
-			Self: ci["name"] == "Chloe"}
+		p := model.Process{ID: ci["id"], User: ci["user"], Host: ci["addr"], Application: ci["name"], Command: ci["cmd"], State: clientFlags(ci["flags"]), TimeSec: idle,
+			Query: ci["cmd"], Self: ci["name"] == "Chloe"}
 		if ci["db"] != "" {
 			p.Database = "db" + ci["db"]
 		}
 		out = append(out, p)
 	}
 	return out, nil
+}
+
+// redisFlags names CLIENT LIST flags.
+var redisFlags = map[rune]string{'b': "blocked", 'M': "primary", 'S': "replica", 'P': "pub/sub", 'x': "in MULTI", 'O': "monitor",
+	'd': "watched keys changed", 'c': "closing", 'A': "closing", 't': "tracking", 'r': "read-only", 'U': "unix socket"}
+
+func clientFlags(f string) string {
+	var out []string
+	for _, ch := range f {
+		if name, ok := redisFlags[ch]; ok && !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	return strings.Join(out, ", ")
 }
 
 func redisStatus(ctx context.Context, kv *rdb.Client) ([]model.ServerVar, error) {

@@ -47,8 +47,9 @@ type SessionsOut struct {
 }
 
 type VarOut struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
+	Name    string `json:"name"`
+	Value   string `json:"value"`
+	Section string `json:"section,omitempty" jsonschema:"Redis: the INFO section"`
 }
 
 type VarsOut struct {
@@ -155,7 +156,11 @@ func (s *Server) addMonitorTools(srv *mcp.Server, ep string, writes bool) {
 						out.Truncated = true
 						break
 					}
-					out.Values = append(out.Values, VarOut{Name: v.Name, Value: cut(v.Value)})
+					o := VarOut{Name: v.Name, Value: cut(v.Value)}
+					if conn.Type == model.Redis {
+						o.Section = v.Description
+					}
+					out.Values = append(out.Values, o)
 				}
 				c.act.Rows = int64(len(out.Values))
 				return out, nil
