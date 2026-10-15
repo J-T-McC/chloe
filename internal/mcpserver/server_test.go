@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -212,13 +213,21 @@ func TestReadTools(t *testing.T) {
 	// A CTE that writes gets past the keyword check; query_only stops it.
 	f.call(t, "run_query", map[string]any{"connection": "shop", "sql": "WITH x AS (SELECT 1) INSERT INTO secrets SELECT 2, 'x' FROM x"}, "readonly")
 
-	// Read access has no writes.
-	f.call(t, "delete_rows", map[string]any{"connection": "shop", "table": "customers", "where": []any{map[string]any{"column": "id", "op": "=", "value": 1}}}, "can only read")
+	// Read access isn't offered the write tools.
+	tools, err := f.client.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tl := range tools.Tools {
+		if strings.HasSuffix(tl.Name, "_rows") && tl.Name != "select_rows" {
+			t.Fatalf("read-only endpoint lists %s", tl.Name)
+		}
+	}
+	if _, err := f.client.CallTool(context.Background(), &mcp.CallToolParams{Name: "delete_rows", Arguments: map[string]any{"connection": "shop"}}); err == nil || !strings.Contains(err.Error(), "unknown tool") {
+		t.Fatalf("delete_rows on a read-only endpoint: %v", err)
+	}
 	if n := len(f.appr.asked); n != 0 {
 		t.Fatalf("asked %d times", n)
-	}
-	if acts := f.srv.Activity(); len(acts) == 0 || acts[0].Outcome != "error" || acts[0].Tool != "delete_rows" {
-		t.Fatalf("activity: %+v", acts)
 	}
 }
 
@@ -265,6 +274,40 @@ func TestWritesNeedApproval(t *testing.T) {
 	if acts := f.srv.Activity(); acts[0].Outcome != "unasked" {
 		t.Fatalf("activity: %+v", acts[0])
 	}
+}
+
+func TestWriteToolsFollowAccess(t *testing.T) {
+	f := setup(t, store.MCPConnAccess{Level: store.MCPRead, Databases: map[string]store.MCPLevel{"main": store.MCPWrite}})
+	names := func() []string {
+		tools, err := f.client.ListTools(context.Background(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var n []string
+		for _, tl := range tools.Tools {
+			n = append(n, tl.Name)
+		}
+		return n
+	}
+	if n := names(); !slices.Contains(n, "update_rows") {
+		t.Fatalf("a database with write access should offer writes: %v", n)
+	}
+	// Taking write access away drops the tools on the next request.
+	st := f.srv.Settings()
+	st.Endpoints[0].Access[f.conn] = store.MCPConnAccess{Level: store.MCPRead}
+	if err := f.srv.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	if n := names(); slices.Contains(n, "update_rows") {
+		t.Fatalf("still offers writes: %v", n)
+	}
+
+	// With writes allowed somewhere, a read-only database still refuses them.
+	st.Endpoints[0].Access[f.conn] = store.MCPConnAccess{Level: store.MCPWrite, Databases: map[string]store.MCPLevel{"main": store.MCPRead}}
+	if err := f.srv.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	f.call(t, "insert_rows", map[string]any{"connection": "shop", "table": "customers", "rows": []any{map[string]any{"email": "x@y.z"}}}, "can only read")
 }
 
 func TestDatabaseOverrides(t *testing.T) {

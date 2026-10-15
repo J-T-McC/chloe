@@ -61,6 +61,8 @@ parameters. A connection the endpoint can use is opened on demand (it needs a sa
   `pg_terminate_backend`) are limited only by the connection's database user, so share connections with a
   least-privileged user.
 - `update_rows` and `delete_rows` need a non-empty `where`. Each write call is one transaction.
+- Endpoints with no Read-write access anywhere aren't offered the write tools; calling one is an unknown-tool error.
+  The list follows the settings on the next request, so a client sees the change when it reconnects.
 - No DDL, no raw write SQL in v1.
 - MySQL, PostgreSQL and SQLite in v1; MongoDB and Redis later.
 
