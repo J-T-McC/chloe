@@ -3,7 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Copy, FilePlus2, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
-import { Query, arr, errorText, type HistoryEntry } from "../api";
+import { Query, arr, errorText, type HistoryEntry, copyText } from "../api";
 import { connById, useApp } from "../store";
 import { alert, confirm } from "./Dialogs";
 import { openMenu } from "./ContextMenu";
@@ -70,7 +70,7 @@ export function HistoryLog({ active }: { active: boolean }) {
         <button disabled={!picked} onClick={() => picked && openInQuery(picked)} title="Open the statement in a new query">
           <FilePlus2 size={14} /> Open in Query
         </button>
-        <button disabled={!picked} onClick={() => picked && navigator.clipboard.writeText(picked.sql)}>
+        <button disabled={!picked} onClick={() => picked && copyText(picked.sql)}>
           <Copy size={14} /> Copy
         </button>
         <button onClick={load} title="Refresh">
@@ -135,7 +135,7 @@ export function HistoryLog({ active }: { active: boolean }) {
                         setSel(vi.index);
                         openMenu(e, [
                           { label: "Open in Query", onClick: () => openInQuery(h) },
-                          { label: "Copy SQL", onClick: () => navigator.clipboard.writeText(h.sql) },
+                          { label: "Copy SQL", onClick: () => copyText(h.sql) },
                         ]);
                       }}
                     >

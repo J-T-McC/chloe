@@ -1,6 +1,6 @@
 // Context menus shared by the connection tree and the object list, following
 // Navicat's table / objects-area menus.
-import { DBType, Design, Explorer, MaintainOp, ObjectKind, ObjectRef, TableAction, Transfer, arr, errorText } from "./api";
+import { DBType, Design, Explorer, MaintainOp, ObjectKind, ObjectRef, TableAction, Transfer, arr, errorText, copyText } from "./api";
 import { newView, viewDesign } from "./components/designer/ViewDesigner";
 import { openSetPrivileges } from "./components/users/SetPrivilegesDialog";
 import { useTree } from "./tree";
@@ -103,7 +103,7 @@ export function tableMenu(connId: string, refs: ObjectRef[]): MenuItem[] {
     { label: "Maintain", submenu: maintainMenu(connId, refs) },
     ...(lite ? [] : [{ label: "Reverse Tables to Model…", onClick: () => reverseToModel(connId, database, schema, refs.map((r) => r.name)) }]),
     { separator: true },
-    { label: "Copy", shortcut: "⌘C", onClick: () => navigator.clipboard.writeText(refs.map((r) => r.name).join("\n")) },
+    { label: "Copy", shortcut: "⌘C", onClick: () => copyText(refs.map((r) => r.name).join("\n")) },
     later("Paste"),
     { label: "Rename", disabled: !one, onClick: () => runTableAction(connId, ref, TableAction.ActionRename) },
     { separator: true },
@@ -142,7 +142,7 @@ export function viewMenu(connId: string, ref: ObjectRef): MenuItem[] {
     { label: "Export Wizard…", onClick: () => openExport({ connId, database: ref.database, schema: ref.schema, tables: [], sql: `SELECT * FROM ${quoted(connId, ref)}`, name: ref.name }) },
     later("Data Dictionary…"),
     { separator: true },
-    { label: "Copy", shortcut: "⌘C", onClick: () => navigator.clipboard.writeText(ref.name) },
+    { label: "Copy", shortcut: "⌘C", onClick: () => copyText(ref.name) },
     { label: "Rename", onClick: () => runTableAction(connId, ref, TableAction.ActionRename) },
     { separator: true },
     { label: "Refresh", shortcut: "⌘R", onClick: () => useApp.setState((s) => ({ objectsVersion: s.objectsVersion + 1 })) },
@@ -233,7 +233,7 @@ export function tableChildMenu(connId: string, ref: ObjectRef, table: string): M
     },
     { separator: true },
     { label: "New Query", onClick: () => newQuery(connId, ref.database) },
-    { label: "Copy Name", onClick: () => navigator.clipboard.writeText(ref.name) },
+    { label: "Copy Name", onClick: () => copyText(ref.name) },
   ];
 }
 

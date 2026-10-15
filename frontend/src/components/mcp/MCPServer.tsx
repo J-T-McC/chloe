@@ -3,7 +3,7 @@
 import { Bot, ChevronDown, ChevronRight, Copy, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { create } from "zustand";
-import { DBType, Events, Explorer, MCP, MCPLevel, arr, errorText, type MCPActivity, type MCPEndpoint, type MCPSettings, type MCPStatus } from "../../api";
+import { DBType, Events, Explorer, MCP, MCPLevel, arr, errorText, type MCPActivity, type MCPEndpoint, type MCPSettings, type MCPStatus, copyText } from "../../api";
 import { useApp } from "../../store";
 import { alert, confirm } from "../Dialogs";
 import { ConnIcon } from "../icons";
@@ -191,8 +191,12 @@ function EndpointDetail({ ep, url, update }: { ep: MCPEndpoint; url: string; upd
   const sqlConns = connections.filter((c) => SQL_ENGINES.includes(c.type));
   const masked = ep.token.slice(0, 10) + "…" + ep.token.slice(-4);
 
-  const copy = (what: string, text: string) => {
-    navigator.clipboard.writeText(text).catch(() => {});
+  const copy = async (what: string, text: string) => {
+    try {
+      await copyText(text);
+    } catch (e) {
+      return alert("Couldn't copy to the clipboard", errorText(e));
+    }
     setCopied(what);
     setTimeout(() => setCopied(""), 1500);
   };
@@ -246,6 +250,7 @@ function EndpointDetail({ ep, url, update }: { ep: MCPEndpoint; url: string; upd
           </button>
         </div>
         <pre className="mcp-snippet">{clientConfig(client, ep.name, url, masked)}</pre>
+        <p className="hint">The token is shortened here; Copy Config copies it in full.</p>
         <label className="check">
           <input type="checkbox" aria-label="Danger mode" checked={ep.danger} onChange={(e) => setDanger(e.target.checked)} />
           Danger mode: run writes without asking

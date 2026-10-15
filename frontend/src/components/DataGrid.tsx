@@ -1,7 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ResultColumn } from "../api";
+import { copyText, type ResultColumn } from "../api";
 import { openMenu, type MenuItem } from "./ContextMenu";
 
 export type Cell = string | null;
@@ -194,7 +194,7 @@ export function DataGrid(p: DataGridProps) {
       for (let c = n.c0; c <= n.c1; c++) vals.push(cellValue(r, c) ?? "NULL");
       lines.push(vals.join("\t"));
     }
-    await navigator.clipboard.writeText(lines.join("\n"));
+    await copyText(lines.join("\n"));
   };
 
   const ensureLoaded = async (r0: number, r1: number) => {
@@ -326,7 +326,7 @@ export function DataGrid(p: DataGridProps) {
     const items: MenuItem[] = [
       { label: "Copy", shortcut: "⌘C", onClick: () => copySelection() },
       { label: "Copy with Headers", shortcut: "⇧⌘C", onClick: () => copySelection(true) },
-      { label: "Copy Value", onClick: () => navigator.clipboard.writeText(val ?? "NULL") },
+      { label: "Copy Value", onClick: () => copyText(val ?? "NULL") },
     ];
     if (p.editable) {
       items.push(
@@ -378,7 +378,7 @@ export function DataGrid(p: DataGridProps) {
                   openMenu(e, [
                     { label: "Select Column", onClick: () => total && setSel({ r0: 0, c0: c, r1: total - 1, c1: c }) },
                     { label: "Fit Column Width", onClick: () => autoFit(c) },
-                    { label: "Copy Column Name", onClick: () => navigator.clipboard.writeText(col.name) },
+                    { label: "Copy Column Name", onClick: () => copyText(col.name) },
                     ...(p.onSort
                       ? [
                           { separator: true },

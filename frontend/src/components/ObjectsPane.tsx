@@ -1,6 +1,6 @@
 import { Copy, Download, FilePlus2, Network, PencilRuler, Plus, RefreshCw, Table2, Trash2, Upload } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { DBType, Explorer, ObjectInfo, ObjectKind, ObjectRef, TableAction, arr, errorText } from "../api";
+import { DBType, Explorer, ObjectInfo, ObjectKind, ObjectRef, TableAction, arr, errorText, copyText } from "../api";
 import { RedisBrowser } from "./redis/RedisBrowser";
 import { RedisDatabases } from "./redis/RedisDatabases";
 import { MongoCollections } from "./mongo/MongoCollections";
@@ -283,7 +283,7 @@ function SqlObjectsPane() {
                       { label: "Show DDL", onClick: () => useApp.getState().openTab({ kind: "ddl", title: o.name, connId: sel.connId, database: sel.database, schema: o.schema || sel.schema, ref: refOfObj(o) }) },
                       { label: "New Query", onClick: () => newQuery(sel.connId, sel.database, sel.schema) },
                       { separator: true },
-                      { label: "Copy Name", onClick: () => navigator.clipboard.writeText(o.name) },
+                      { label: "Copy Name", onClick: () => copyText(o.name) },
                     ]);
                   }}
                 >
@@ -381,7 +381,7 @@ function InfoPanel({ connId, object, database, schema }: { connId: string; objec
       </dl>
       <div className="info-ddl-head">
         {object.kind === ObjectKind.KindQuery ? "SQL" : "DDL"}
-        <button className="icon" title="Copy DDL" onClick={() => navigator.clipboard.writeText(ddl)} disabled={!ddl}>
+        <button className="icon" title="Copy DDL" onClick={() => copyText(ddl)} disabled={!ddl}>
           <Copy size={12} />
         </button>
       </div>
@@ -413,7 +413,7 @@ export function DDLView({ connId, objRef: r }: { connId: string; objRef: ObjectR
   return (
     <div className="ddl-view">
       <div className="toolbar">
-        <button onClick={() => navigator.clipboard.writeText(ddl)} disabled={!ddl}>
+        <button onClick={() => copyText(ddl)} disabled={!ddl}>
           <Copy size={14} /> Copy
         </button>
         <button onClick={() => newQuery(connId, r.database, r.schema, ddl)} disabled={!ddl}>

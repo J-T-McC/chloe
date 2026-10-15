@@ -1,7 +1,7 @@
 // The user (MySQL) or role (PostgreSQL) list of a connection.
 import { KeyRound, Pencil, Plus, RefreshCw, ShieldCheck, Trash2, UserRound, UsersRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { P, Users, arr, errorText } from "../../api";
+import { P, Users, arr, errorText, copyText } from "../../api";
 import { Tab, useApp } from "../../store";
 import { openMenu } from "../ContextMenu";
 import { alert, confirm } from "../Dialogs";
@@ -57,7 +57,7 @@ export function UsersPane({ tab }: { tab: Tab }) {
       { label: `New ${noun}`, onClick: () => openUser(connId) },
       { label: `Delete ${noun}`, disabled: !list.length, onClick: () => drop(list) },
       { separator: true },
-      { label: "Copy Name", disabled: !list.length, onClick: () => navigator.clipboard.writeText(list.map(accountLabel).join("\n")) },
+      { label: "Copy Name", disabled: !list.length, onClick: () => copyText(list.map(accountLabel).join("\n")) },
       { label: "Refresh", onClick: load },
     ]);
   };

@@ -3,7 +3,7 @@
 import { ArrowLeftRight, ArrowRight, Copy, FilePlus2, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { create } from "zustand";
-import { DBType, Transfer, arr, errorText, type DataSyncPage, type DataSyncResult, type DataSyncTable, type Endpoint } from "../../api";
+import { DBType, Transfer, arr, errorText, type DataSyncPage, type DataSyncResult, type DataSyncTable, type Endpoint, copyText } from "../../api";
 import { connDialect } from "../../dialect";
 import { connById, useApp } from "../../store";
 import { ConnIcon } from "../icons";
@@ -262,7 +262,7 @@ export function DataSyncWizard() {
           {step === "deploy" && (
             <div className="ss-deploy">
               <div className="toolbar">
-                <button onClick={() => navigator.clipboard.writeText(scriptText)}>
+                <button onClick={() => copyText(scriptText)}>
                   <Copy size={14} /> Copy Script
                 </button>
                 <button

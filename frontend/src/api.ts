@@ -25,6 +25,17 @@ export { DBType, ObjectKind, SSHAuth, type Connection, type ServerInfo, type Pro
 export { ChangeKind, TableAction, ImportMode, MaintainOp, JobStatus, type Job, type DataTransferRequest, type Endpoint, type TransferOptions, type StructItem, type DataSyncPage, type DataSyncResult, type DataSyncTable, type ImportPreview, type ImportRequest, type FieldMap, type MaintainResult, type DesignPreview, type ApplyResult as DesignApplyResult, type RowChange, type BrowseRequest, type SortSpec } from "../bindings/chloe/internal/core/models";
 export type { Dialect } from "../bindings/chloe/internal/driver/models";
 export { Events } from "@wailsio/runtime";
+import { Clipboard } from "@wailsio/runtime";
+
+/** Copy text to the clipboard. The desktop webview may refuse navigator.clipboard,
+ *  so Wails' native clipboard takes over there (in the browser build it is a no-op). */
+export async function copyText(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    await Clipboard.SetText(text);
+  }
+}
 
 /** Go nil slices arrive as null; normalise to an empty array. */
 export const arr = <T,>(x: T[] | null | undefined): T[] => x ?? [];
