@@ -486,3 +486,28 @@ func TestBetweenWindow(t *testing.T) {
 		t.Errorf("before: %v", rows)
 	}
 }
+
+func TestPlainDateBounds(t *testing.T) {
+	src := ordersSource()
+	for _, tc := range []struct {
+		f    Filter
+		sql  string
+		args []any
+	}{
+		{Filter{Field: "placed_at", Op: "between", Values: []string{"2026-10-10", "2026-10-14"}}, `"placed_at" >= ? AND "placed_at" < ?`, []any{"2026-10-10", "2026-10-15"}},
+		{Filter{Field: "placed_at", Op: "not_between", Values: []string{"2026-10-10", "2026-10-14"}}, `NOT ("placed_at" >= ? AND "placed_at" < ?)`, []any{"2026-10-10", "2026-10-15"}},
+		{Filter{Field: "placed_at", Op: "<=", Values: []string{"2026-10-14"}}, `"placed_at" < ?`, []any{"2026-10-15"}},
+		{Filter{Field: "placed_at", Op: ">", Values: []string{"2026-10-14"}}, `"placed_at" >= ?`, []any{"2026-10-15"}},
+		{Filter{Field: "placed_at", Op: "=", Values: []string{"2026-10-14"}}, `"placed_at" >= ? AND "placed_at" < ?`, []any{"2026-10-14", "2026-10-15"}},
+		{Filter{Field: "placed_at", Op: "<", Values: []string{"2026-10-14"}}, `"placed_at" < ?`, []any{"2026-10-14"}},
+		// A time stays exact, and other types are untouched.
+		{Filter{Field: "placed_at", Op: "<=", Values: []string{"2026-10-14 12:00:00"}}, `"placed_at" <= ?`, []any{"2026-10-14 12:00:00"}},
+		{Filter{Field: "status", Op: "between", Values: []string{"2026-10-10", "2026-10-14"}}, `"status" BETWEEN ? AND ?`, []any{"2026-10-10", "2026-10-14"}},
+	} {
+		src.Filters = []Filter{tc.f}
+		q, err := PreviewQuery(SQLite, `"t"`, src, 5)
+		if err != nil || !strings.Contains(q.SQL, "WHERE "+tc.sql+" LIMIT") || !reflect.DeepEqual(q.Args, tc.args) {
+			t.Errorf("%s %v: %v\n%s %v", tc.f.Op, tc.f.Values, err, q.SQL, q.Args)
+		}
+	}
+}

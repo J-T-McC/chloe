@@ -299,6 +299,8 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
   alias is shown as typed. Shelves keep the field names.
 - A date axis bucketed by year, quarter, month, week, day or hour gets its empty periods back (sums and counts 0,
   other aggregates empty), unless the chart uses Top N or sorts by value.
+- A plain date compared with a date/time field stands for the whole day: `between a and b` and `<= b` run up to
+  midnight after b, `= d` covers the day, `> d` starts the next day (DATE columns compare as they are).
 - Filters on the dimension's field widen that fill to their window: `in_last` (today included), `between`, `=`, and
   either end from `>=`, `>`, `<=`, `<`.
 - Extracted weekdays and months come back named (`Sun`…`Sat`, `Jan`…`Dec`), in calendar order.

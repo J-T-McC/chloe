@@ -77,8 +77,15 @@ func FilterWindow(src DataSource, c Chart) *Window {
 				from(a)
 				to(a)
 			}
-		case ">=", ">":
+		case ">=":
 			if a, ok := date(f.Values[0]); ok {
+				from(a)
+			}
+		case ">":
+			if a, ok := date(f.Values[0]); ok {
+				if len(f.Values[0]) == 10 {
+					a = a.AddDate(0, 0, 1) // after a plain date: from the next day
+				}
 				from(a)
 			}
 		case "<=":
