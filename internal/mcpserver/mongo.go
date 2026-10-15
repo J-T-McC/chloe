@@ -26,8 +26,11 @@ import (
 
 // MongoDB tools. Filters, projections, updates, pipelines and documents arrive
 // as JSON (Extended JSON for $oid, $date…) and are never evaluated as
-// JavaScript. Every command runs under a 30 s context deadline, which the
-// driver sends to the server as maxTimeMS.
+// JavaScript in Chloe. Every command runs under a 30 s context deadline, which
+// the driver sends to the server as maxTimeMS.
+//
+// Chloe enforces only its own settings (database access levels, approvals);
+// what the database user may do is up to the login the user shares.
 
 const maxMongoWrite = 1000 // documents one insert, update or delete may touch
 
@@ -119,11 +122,10 @@ func addOrdered[In, Out any](s *Server, srv *mcp.Server, epID string, t *mcp.Too
 // --- guards -------------------------------------------------------------------
 
 var (
-	// mongoJS run JavaScript on the server.
-	mongoJS = []string{"$where", "$function", "$accumulator"}
 	// mongoWriteStages write from an aggregation.
 	mongoWriteStages = []string{"$out", "$merge"}
-	// mongoAdminStages report on the whole server, or never end.
+	// mongoAdminStages report on the whole server (every database, which would
+	// get around databases set to Off), or never end.
 	mongoAdminStages = []string{"$currentOp", "$listSessions", "$listLocalSessions", "$changeStream", "$listSampledQueries",
 		"$listCatalog", "$listClusterCatalog", "$shardedDataDistribution"}
 	// mongoSourceStages read another collection, which must be in the same database.
@@ -134,16 +136,14 @@ var (
 )
 
 // checkMongo walks a filter, projection, update or pipeline and refuses
-// server-side JavaScript, writing and admin stages, and reads of another
-// database. Stages are refused at any depth, so nested pipelines ($facet,
-// $lookup, $unionWith) are covered too.
+// writing stages (a read must not write) and stages that reach other databases
+// (which may be Off for this endpoint). Stages are refused at any depth, so
+// nested pipelines ($facet, $lookup, $unionWith) are covered too.
 func checkMongo(v any) error {
 	switch x := v.(type) {
 	case bson.D:
 		for _, e := range x {
 			switch {
-			case slices.Contains(mongoJS, e.Key):
-				return fmt.Errorf("%s runs JavaScript on the server, which isn't allowed over MCP", e.Key)
 			case slices.Contains(mongoWriteStages, e.Key):
 				return fmt.Errorf("%s writes to a collection; the read tools never write (use mongo_insert, mongo_update or mongo_delete)", e.Key)
 			case slices.Contains(mongoAdminStages, e.Key):
@@ -171,41 +171,17 @@ func checkMongo(v any) error {
 func checkSource(stage string, spec any) error {
 	d, ok := spec.(bson.D)
 	if !ok {
-		if name, ok := spec.(string); ok { // $unionWith: "coll"
-			return checkColl(name)
-		}
-		return nil
+		return nil // $unionWith: "coll"
 	}
 	for _, e := range d {
 		switch e.Key {
 		case "db":
 			return fmt.Errorf("%s can only read collections of the same database", stage)
 		case "from", "coll":
-			name, ok := e.Value.(string)
-			if !ok {
+			if _, ok := e.Value.(string); !ok {
 				return fmt.Errorf("%s can only read collections of the same database (%s must be a collection name)", stage, e.Key)
 			}
-			if err := checkColl(name); err != nil {
-				return err
-			}
 		}
-	}
-	return nil
-}
-
-// systemDBs hold MongoDB's own state; agents may read them (when shared) but never write.
-var systemDBs = []string{"admin", "config", "local"}
-
-// isSystemDB matches admin, config and local in any case.
-func isSystemDB(name string) bool {
-	return slices.ContainsFunc(systemDBs, func(s string) bool { return strings.EqualFold(s, name) })
-}
-
-// checkColl refuses system collections: system.users and system.roles hold
-// credentials, system.js stored JavaScript.
-func checkColl(name string) error {
-	if strings.HasPrefix(name, "system.") {
-		return fmt.Errorf("system collections such as %s aren't available over MCP", name)
 	}
 	return nil
 }
@@ -241,12 +217,36 @@ func (t mongoTarget) coll(name string) *mongo.Collection {
 // exists checks a collection or view is there, so a misspelt name isn't taken
 // for an empty result.
 func (t mongoTarget) exists(ctx context.Context, name string) error {
-	names, err := t.cl.Mongo().Database(t.database).ListCollectionNames(ctx, bson.D{{Key: "name", Value: name}})
+	typ, err := t.collType(ctx, name)
+	if err == nil && typ == "" {
+		err = fmt.Errorf("no collection %q in database %s (see mongo_collections)", name, t.database)
+	}
+	return err
+}
+
+// collType is a collection's type (collection, view, timeseries), or "" when it doesn't exist.
+func (t mongoTarget) collType(ctx context.Context, name string) (string, error) {
+	cur, err := t.cl.Mongo().Database(t.database).ListCollections(ctx, bson.D{{Key: "name", Value: name}}, options.ListCollections().SetNameOnly(true))
+	if err != nil {
+		return "", err
+	}
+	var specs []struct {
+		Type string `bson:"type"`
+	}
+	if err := cur.All(ctx, &specs); err != nil || len(specs) == 0 {
+		return "", err
+	}
+	return specs[0].Type, nil
+}
+
+// writable refuses writes to a view before the user is asked: they'd fail on the server.
+func (t mongoTarget) writable(ctx context.Context, name string) error {
+	typ, err := t.collType(ctx, name)
 	if err != nil {
 		return err
 	}
-	if len(names) == 0 {
-		return fmt.Errorf("no collection %q in database %s (see mongo_collections)", name, t.database)
+	if typ == "view" {
+		return fmt.Errorf("%s is a view; change the collection it's built on (see mongo_describe)", name)
 	}
 	return nil
 }
@@ -255,9 +255,6 @@ func (t mongoTarget) exists(ctx context.Context, name string) error {
 func (c *call) mongoColl(ctx context.Context, in MongoCollArgs, need store.MCPLevel) (mongoTarget, error) {
 	if in.Collection == "" {
 		return mongoTarget{}, errors.New("collection is required (see mongo_collections)")
-	}
-	if err := checkColl(in.Collection); err != nil {
-		return mongoTarget{}, err
 	}
 	return c.mongoDB(ctx, in.Connection, in.Database, need)
 }
@@ -279,9 +276,6 @@ func (c *call) mongoDB(ctx context.Context, connection, database string, need st
 	}
 	if !atLeast(have, need) {
 		return mongoTarget{}, fmt.Errorf("this endpoint can only read %s/%s; ask the user to allow writes in Chloe's MCP Server settings", conn.Name, database)
-	}
-	if need == store.MCPWrite && isSystemDB(database) {
-		return mongoTarget{}, fmt.Errorf("%s is MongoDB's own database; agents can't change it", database)
 	}
 	cl, err := c.mongoClient(ctx, conn)
 	if err != nil {
@@ -501,10 +495,17 @@ type MongoInsertArgs struct {
 	Documents []Doc `json:"documents" jsonschema:"documents to insert (at most 1000); _id is generated when left out"`
 }
 
+type MongoInsertFailure struct {
+	Index int             `json:"index" jsonschema:"position in documents, from 0"`
+	ID    json.RawMessage `json:"_id"`
+	Error string          `json:"error"`
+}
+
 type MongoInsertOut struct {
-	Approval string            `json:"approval,omitempty" jsonschema:"how the change was cleared: approved by the user in Chloe, or ran without asking because danger mode is on"`
-	Inserted int               `json:"inserted"`
-	IDs      []json.RawMessage `json:"ids" jsonschema:"_id of each inserted document"`
+	Approval string               `json:"approval,omitempty" jsonschema:"how the change was cleared: approved by the user in Chloe, or ran without asking because danger mode is on"`
+	Inserted int                  `json:"inserted"`
+	IDs      []json.RawMessage    `json:"ids" jsonschema:"_id of each inserted document"`
+	Failed   []MongoInsertFailure `json:"failed,omitempty" jsonschema:"documents that weren't inserted and why; the others were"`
 }
 
 type MongoUpdateArgs struct {
@@ -561,9 +562,6 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 				if l == store.MCPOff {
 					continue
 				}
-				if l == store.MCPWrite && isSystemDB(d.Name) {
-					l = store.MCPRead // never written
-				}
 				out.Databases = append(out.Databases, MongoDatabaseOut{Name: d.Name, Size: d.Size, Access: levelName(l)})
 			}
 			return out, nil
@@ -576,7 +574,6 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 			if err != nil {
 				return MongoCollectionsOut{}, err
 			}
-			// System collections are refused anyway, so they aren't listed.
 			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
 			defer cancel()
 			cs, err := t.cl.Collections(ctx, t.database, true)
@@ -585,9 +582,6 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 			}
 			out := MongoCollectionsOut{Collections: []MongoCollectionOut{}}
 			for _, ci := range cs {
-				if checkColl(ci.Name) != nil {
-					continue
-				}
 				o := MongoCollectionOut{Name: ci.Name, Type: ci.Type, Size: ci.Size, ViewOn: ci.ViewOn}
 				if ci.Type == "collection" {
 					o.Count = &ci.Count
@@ -611,7 +605,7 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 
 	addOrdered(s, srv, ep, readOnlyTool("mongo_find", "Find MongoDB documents",
 		"Reads documents of a collection or view matching a filter, with optional projection, sort and paging. "+
-			"Documents come back as relaxed Extended JSON. $where and other server-side JavaScript is refused."),
+			"Documents come back as relaxed Extended JSON."),
 		func(ctx context.Context, c *call, in MongoFindArgs) (DocsOut, error) {
 			t, err := c.mongoColl(ctx, in.MongoCollArgs, store.MCPRead)
 			if err != nil {
@@ -671,7 +665,7 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 
 	addOrdered(s, srv, ep, readOnlyTool("mongo_aggregate", "Run MongoDB aggregation",
 		"Runs a read-only aggregation pipeline on a collection or view and returns its documents. "+
-			"$out and $merge, server-side JavaScript ($function, $accumulator, $where), admin stages and lookups into other databases are refused."),
+			"$out and $merge, server-wide stages ($currentOp, $listCatalog…) and lookups into other databases are refused."),
 		func(ctx context.Context, c *call, in MongoAggregateArgs) (DocsOut, error) {
 			t, err := c.mongoColl(ctx, in.MongoCollArgs, store.MCPRead)
 			if err != nil {
@@ -729,13 +723,19 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 			case len(in.Documents) > maxMongoWrite:
 				return MongoInsertOut{}, fmt.Errorf("insert at most %d documents per call", maxMongoWrite)
 			}
+			if err := t.writable(ctx, in.Collection); err != nil {
+				return MongoInsertOut{}, err
+			}
 			docs := make([]any, len(in.Documents))
+			ids := make([]any, len(in.Documents))
 			shown := []string{}
 			for i, d := range in.Documents {
 				doc, err := d.bson()
 				if err != nil {
 					return MongoInsertOut{}, fmt.Errorf("document %d: %w", i+1, err)
 				}
+				// Chloe picks missing _ids itself, so it can say which documents were saved.
+				doc, ids[i] = withID(doc)
 				docs[i] = doc
 				if i < 5 {
 					shown = append(shown, extJSON(doc))
@@ -752,15 +752,31 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 			}
 			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
 			defer cancel()
-			r, err := t.coll(in.Collection).InsertMany(ctx, docs)
+			// Unordered: one bad document doesn't stop the rest, and each failure is reported.
+			_, err = t.coll(in.Collection).InsertMany(ctx, docs, options.InsertMany().SetOrdered(false))
+			failed := map[int]string{}
 			if err != nil {
-				return MongoInsertOut{}, mdb.WriteError(err)
+				var bwe mongo.BulkWriteException
+				if !errors.As(err, &bwe) || len(bwe.WriteErrors) == 0 {
+					return MongoInsertOut{}, mdb.WriteError(err)
+				}
+				for _, we := range bwe.WriteErrors {
+					failed[we.Index] = mdb.WriteError(mongo.WriteException{WriteErrors: mongo.WriteErrors{we.WriteError}}).Error()
+				}
 			}
-			out := MongoInsertOut{Inserted: len(r.InsertedIDs), IDs: []json.RawMessage{}}
-			for _, id := range r.InsertedIDs {
+			out := MongoInsertOut{IDs: []json.RawMessage{}}
+			for i, id := range ids {
+				if msg, ok := failed[i]; ok {
+					out.Failed = append(out.Failed, MongoInsertFailure{Index: i, ID: json.RawMessage(extJSON(id)), Error: msg})
+					continue
+				}
 				out.IDs = append(out.IDs, json.RawMessage(extJSON(id)))
 			}
+			out.Inserted = len(out.IDs)
 			c.act.Rows = int64(out.Inserted)
+			if out.Inserted == 0 {
+				return out, fmt.Errorf("nothing was inserted: %s", out.Failed[0].Error)
+			}
 			return out, nil
 		})
 
@@ -785,6 +801,9 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 			}
 			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
 			defer cancel()
+			if err := t.writable(ctx, in.Collection); err != nil {
+				return MongoUpdateOut{}, err
+			}
 			coll := t.coll(in.Collection)
 			ids, err := matchingIDs(ctx, coll, filter, in.Many)
 			if err != nil {
@@ -840,6 +859,9 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 			}
 			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
 			defer cancel()
+			if err := t.writable(ctx, in.Collection); err != nil {
+				return MongoDeletedOut{}, err
+			}
 			coll := t.coll(in.Collection)
 			ids, err := matchingIDs(ctx, coll, filter, in.Many)
 			if err != nil {
@@ -876,6 +898,17 @@ func guarded(what string, d Doc) (bson.D, error) {
 		return nil, err
 	}
 	return v, nil
+}
+
+// withID returns doc with an _id (a new ObjectId first when it has none) and that _id.
+func withID(doc bson.D) (bson.D, any) {
+	for _, e := range doc {
+		if e.Key == "_id" {
+			return doc, e.Value
+		}
+	}
+	id := bson.NewObjectID()
+	return append(bson.D{{Key: "_id", Value: id}}, doc...), id
 }
 
 // writeFilter parses the filter of an update or delete, which can't be empty.
@@ -1034,8 +1067,18 @@ func sampleFields(ctx context.Context, coll *mongo.Collection, n int) (int, []Mo
 				f.seen++
 			}
 			f.types[mdb.ToVal(e.Value).T]++
-			if sub, ok := e.Value.(bson.D); ok && depth < 4 {
-				walk(p+".", sub, depth+1, here)
+			switch sub := e.Value.(type) {
+			case bson.D:
+				if depth < 4 {
+					walk(p+".", sub, depth+1, here)
+				}
+			case bson.A:
+				// Fields of documents in arrays, e.g. items.sku.
+				for _, el := range sub {
+					if d, ok := el.(bson.D); ok && depth < 4 {
+						walk(p+".", d, depth+1, here)
+					}
+				}
 			}
 		}
 	}

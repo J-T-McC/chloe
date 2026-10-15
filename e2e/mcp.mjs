@@ -216,8 +216,8 @@ await step("mongodb tools over MCP", async () => {
   if (got !== "Alan Turing, Ada Lovelace") throw new Error(text(r));
   const agg = await tool("mongo_aggregate", { connection: "docs", database: "shop", collection: "customers", pipeline: [{ $group: { _id: "$address.country", n: { $sum: 1 } } }, { $sort: { n: -1, _id: 1 } }] });
   if (agg.structuredContent.documents[0]._id !== "UK") throw new Error(text(agg));
-  const js = await tool("mongo_find", { connection: "docs", database: "shop", collection: "customers", filter: { $where: "true" } });
-  if (!js.isError || !text(js).includes("JavaScript")) throw new Error(text(js));
+  const out = await tool("mongo_aggregate", { connection: "docs", database: "shop", collection: "customers", pipeline: [{ $out: "copy" }] });
+  if (!out.isError || !text(out).includes("writes to a collection")) throw new Error(text(out));
   const hidden = await tool("mongo_find", { connection: "docs", database: "analytics", collection: "pageviews" });
   if (!hidden.isError || !text(hidden).includes("isn't shared")) throw new Error(text(hidden));
 });

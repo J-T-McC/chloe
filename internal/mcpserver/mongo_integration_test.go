@@ -46,11 +46,15 @@ func setupMongo(t *testing.T, access store.MCPConnAccess, caps store.MCPCapabili
 	}
 	t.Cleanup(func() { db.Drop(context.Background()) })
 	_, err = db.Collection("orders").InsertMany(ctx, []any{
-		bson.D{{Key: "_id", Value: 1}, {Key: "customer", Value: "ada"}, {Key: "status", Value: "open"}, {Key: "total", Value: 30}},
+		bson.D{{Key: "_id", Value: 1}, {Key: "customer", Value: "ada"}, {Key: "status", Value: "open"}, {Key: "total", Value: 30},
+			{Key: "items", Value: bson.A{bson.D{{Key: "sku", Value: "A1"}, {Key: "qty", Value: 2}}}}},
 		bson.D{{Key: "_id", Value: 2}, {Key: "customer", Value: "bob"}, {Key: "status", Value: "open"}, {Key: "total", Value: 10}},
 		bson.D{{Key: "_id", Value: 3}, {Key: "customer", Value: "ada"}, {Key: "status", Value: "shipped"}, {Key: "total", Value: 20}},
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateView(ctx, "open_orders", "orders", bson.A{bson.D{{Key: "$match", Value: bson.D{{Key: "status", Value: "open"}}}}}); err != nil {
 		t.Fatal(err)
 	}
 	return serve(t, m, c.ID, store.MCPEndpoint{Name: "test", Enabled: true, Capabilities: caps, Access: map[string]store.MCPConnAccess{c.ID: access}}), db
@@ -115,11 +119,29 @@ func TestIntegrationMongoTools(t *testing.T) {
 	if got := fmt.Sprint(docs(t, out)); got != "[map[_id:1] map[_id:3] map[_id:2]]" {
 		t.Fatalf("aggregate order: %s", got)
 	}
-	f.call(t, "mongo_find", at(map[string]any{"filter": map[string]any{"$where": "true"}}), "JavaScript")
+	// Server-side JavaScript is up to the database user (javascriptEnabled), not Chloe.
+	if d := docs(t, f.call(t, "mongo_find", at(map[string]any{"filter": map[string]any{"$where": "this.total > 25"}}), "")); len(d) != 1 {
+		t.Fatalf("$where: %v", d)
+	}
 	f.call(t, "mongo_aggregate", at(map[string]any{"pipeline": []any{map[string]any{"$out": "copy"}}}), "writes to a collection")
 	f.call(t, "mongo_aggregate", at(map[string]any{"pipeline": []any{map[string]any{"$lookup": map[string]any{"from": map[string]any{"db": "admin", "coll": "system.users"}, "as": "u"}}}}), "same database")
-	f.call(t, "mongo_insert", map[string]any{"connection": "docs", "database": "local", "collection": "x", "documents": []any{map[string]any{"a": 1}}}, "MongoDB's own database")
 
+	// A batch with a bad document saves the rest and says which failed.
+	part := f.call(t, "mongo_insert", at(map[string]any{"documents": []any{map[string]any{"_id": 20}, map[string]any{"_id": 1}, map[string]any{"_id": 21}}}), "")
+	if part["inserted"].(float64) != 2 || !strings.Contains(fmt.Sprint(part["failed"]), "index:1") || !strings.Contains(fmt.Sprint(part["failed"]), "E11000") {
+		t.Fatalf("partial insert: %v", part)
+	}
+	db.Collection("orders").DeleteMany(ctx, bson.D{{Key: "_id", Value: bson.D{{Key: "$in", Value: bson.A{20, 21}}}}})
+	// Writes to a view are refused before anyone is asked.
+	asked := len(f.appr.asked)
+	f.call(t, "mongo_delete", map[string]any{"connection": "docs", "database": mongoDB, "collection": "open_orders", "filter": map[string]any{"_id": 1}}, "is a view")
+	if len(f.appr.asked) != asked {
+		t.Fatal("asked about a write to a view")
+	}
+	// Fields of documents in arrays are described too.
+	if fs := fmt.Sprint(f.call(t, "mongo_describe", at(nil), "")["fields"]); !strings.Contains(fs, "path:items.sku seen_in:1") {
+		t.Fatalf("array fields: %s", fs)
+	}
 	// Writes keep field order and need approval.
 	ins := f.call(t, "mongo_insert", at(map[string]any{"documents": json.RawMessage(`[{"zeta": 1, "alpha": 2, "_id": 10, "status": "open"}]`)}), "")
 	if ins["inserted"].(float64) != 1 {
@@ -192,11 +214,4 @@ func TestIntegrationMongoReadOnlyAndMonitor(t *testing.T) {
 		t.Fatal("list_sessions")
 	}
 	f.call(t, "server_variables", map[string]any{"connection": "docs", "filter": "featureCompatibility"}, "")
-	// Read access to admin still doesn't reach the credentials.
-	f.call(t, "mongo_find", map[string]any{"connection": "docs", "database": "admin", "collection": "system.users"}, "system collections")
-	f.call(t, "mongo_aggregate", map[string]any{"connection": "docs", "database": "admin", "collection": "system.version",
-		"pipeline": []any{map[string]any{"$unionWith": "system.users"}}}, "system collections")
-	if cs := fmt.Sprint(f.call(t, "mongo_collections", map[string]any{"connection": "docs", "database": "admin"}, "")["collections"]); strings.Contains(cs, "system.") {
-		t.Fatalf("system collections listed: %s", cs)
-	}
 }

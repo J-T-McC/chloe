@@ -73,6 +73,8 @@ Chloe can serve your connections to AI assistants such as Claude Code and Claude
   are built by Chloe from checked column names and bound values, never from agent SQL, and each one waits for your
   approval with the exact statement and the number of rows it affects. An opt-in danger mode skips the dialog for
   an endpoint. No DDL is ever run over MCP.
+- **Engines.** MySQL, MariaDB, PostgreSQL and SQLite through SQL tools; Redis and MongoDB through their own tools
+  (keys and values, documents and aggregations), with the same access levels and approvals.
 - **Capabilities.** Optional, per endpoint:
   - create connections (always approved; you can type the password into the dialog);
   - read and save queries, and open query tabs with SQL for you to review and run;
@@ -89,9 +91,31 @@ To connect an assistant, open **Tools › MCP Server…**, create an endpoint, c
 claude mcp add chloe-claude-code --env CHLOE_MCP_TOKEN=chloe_… -- "/Applications/Chloe.app/Contents/MacOS/Chloe" mcp
 ```
 
-Access is enforced per connection and database, not per table or column. To keep an assistant away from sensitive
-tables, share a connection that signs in as a database user with limited privileges. Full details are in
-[docs/specs/mcp-server.md](docs/specs/mcp-server.md).
+### What Chloe enforces, and what's up to you
+
+Chloe enforces its own settings: which connections and databases each endpoint can see, Read or Read-write, and
+your approval of every change. It does not restrict what the database login itself may do. An assistant can read
+anything the shared login can read in a shared database, including system tables such as `mysql.user`,
+PostgreSQL's `pg_authid` (for superusers) or MongoDB's `system.users`, and it can call any function the login may
+call.
+
+So the database user is your access control:
+
+- **Share a least-privileged login.** Create a database user with only the rights you want the assistant to have
+  (for example, SELECT on the schemas it needs) and save a connection that signs in as it. Don't share a root,
+  superuser or admin login with an endpoint unless you mean to.
+- **Read really is read-only.** Queries run in a read-only transaction, so even a write hidden inside a SELECT
+  (a data-modifying CTE or a function that writes) is refused by the database. What a read-only transaction can't
+  stop are effects outside it, and only if the login allows them: PostgreSQL's `dblink` (its own connection),
+  `pg_terminate_backend()`, advisory locks, writing server files, or MongoDB's server-side JavaScript. A
+  least-privileged login rules these out.
+- **Hide whole databases** you don't want seen by setting them to Off. On MySQL and SQLite this also turns off raw
+  queries for that connection, since a query can name any database. PostgreSQL keeps them, and MongoDB's tools
+  never reach outside the database they're given.
+- **Writes are always yours to approve** unless you turn on danger mode for an endpoint, and every write result
+  tells the assistant whether you approved it or danger mode let it through.
+
+Access is never per table or column. Full details are in [docs/specs/mcp-server.md](docs/specs/mcp-server.md).
 
 ## Screenshots
 

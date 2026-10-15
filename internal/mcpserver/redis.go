@@ -306,8 +306,9 @@ type RedisExpireArgs struct {
 }
 
 type RedisChangedOut struct {
-	Approval string `json:"approval,omitempty" jsonschema:"how the change was cleared: approved by the user in Chloe, or ran without asking because danger mode is on"`
-	Changed  int64  `json:"changed" jsonschema:"what actually changed: elements written, fields set, values pushed, members added, rescored or removed, entries appended, keys deleted; 0 when nothing matched"`
+	Approval  string            `json:"approval,omitempty" jsonschema:"how the change was cleared: approved by the user in Chloe, or ran without asking because danger mode is on"`
+	Changed   int64             `json:"changed" jsonschema:"what actually changed: elements written, fields set, values pushed, members added, rescored or removed, entries appended, keys deleted; 0 when nothing matched"`
+	NewValues map[string]string `json:"new_values,omitempty" jsonschema:"after an increment: the new value of the counter (by key), hash field or sorted set member"`
 }
 
 // --- read-only commands -------------------------------------------------------------
@@ -617,7 +618,7 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 			if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.dbName(), Table: k, Summary: summary, SQL: c.act.SQL, Rows: n}); err != nil {
 				return RedisChangedOut{}, err
 			}
-			if _, err := runTx(ctx, t.cl, k, old, cmds); err != nil {
+			if _, _, err := runTx(ctx, t.cl, k, old, cmds); err != nil {
 				return RedisChangedOut{}, err
 			}
 			c.act.Rows = n
@@ -655,12 +656,12 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 				Summary: fmt.Sprintf("%s %s %s in %s (%s)", verb, typ, showKey(k), t.dbName(), plural(n, "element")), SQL: c.act.SQL, Rows: n}); err != nil {
 				return RedisChangedOut{}, err
 			}
-			changed, err := runTx(ctx, t.cl, k, old, cmds)
+			changed, values, err := runTx(ctx, t.cl, k, old, cmds)
 			if err != nil {
 				return RedisChangedOut{}, err
 			}
 			c.act.Rows = changed
-			return RedisChangedOut{Changed: changed}, nil
+			return RedisChangedOut{Changed: changed, NewValues: values}, nil
 		})
 
 	add(s, srv, ep, writeTool("redis_delete", "Delete Redis keys",
@@ -738,7 +739,7 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 			if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.dbName(), Table: k, Summary: summary, SQL: c.act.SQL, Rows: 1}); err != nil {
 				return RedisChangedOut{}, err
 			}
-			if _, err := runTx(ctx, t.cl, k, old, [][]string{cmd}); err != nil {
+			if _, _, err := runTx(ctx, t.cl, k, old, [][]string{cmd}); err != nil {
 				return RedisChangedOut{}, err
 			}
 			c.act.Rows = 1
@@ -1187,7 +1188,7 @@ func effect(cmd []string, reply redis.Cmder) int64 {
 // key is watched from before its type is checked against old (the type it had
 // when the commands were approved; "none" for a missing key), so a write by
 // anyone else in between aborts the transaction instead of mixing with it.
-func runTx(ctx context.Context, cl *redis.Client, k, old string, cmds [][]string) (int64, error) {
+func runTx(ctx context.Context, cl *redis.Client, k, old string, cmds [][]string) (int64, map[string]string, error) {
 	var replies []redis.Cmder
 	err := cl.Watch(ctx, func(tx *redis.Tx) error {
 		now, err := tx.Type(ctx, k).Result()
@@ -1206,15 +1207,44 @@ func runTx(ctx context.Context, cl *redis.Client, k, old string, cmds [][]string
 		return err
 	}, k)
 	if errors.Is(err, redis.TxFailedErr) {
-		return 0, errKeyChanged(k)
+		return 0, nil, errKeyChanged(k)
 	}
 	var n int64
+	var values map[string]string
 	for i, c := range cmds {
-		if i < len(replies) {
-			n += effect(c, replies[i])
+		if i >= len(replies) {
+			break
+		}
+		n += effect(c, replies[i])
+		if name, v, ok := incremented(c, replies[i]); ok {
+			if values == nil {
+				values = map[string]string{}
+			}
+			values[name] = v
 		}
 	}
-	return n, err
+	return n, values, err
+}
+
+// incremented reports the new value an increment command left: the counter's
+// (named by its key), a hash field's or a member's score.
+func incremented(cmd []string, reply redis.Cmder) (string, string, bool) {
+	c, ok := reply.(*redis.Cmd)
+	if !ok || c.Err() != nil {
+		return "", "", false
+	}
+	var name string
+	switch cmd[0] {
+	case "INCRBY", "INCRBYFLOAT":
+		name = cmd[1]
+	case "HINCRBY", "HINCRBYFLOAT":
+		name = cmd[2]
+	case "ZINCRBY":
+		name = cmd[3]
+	default:
+		return "", "", false
+	}
+	return redisText(name, 200), fmt.Sprint(c.Val()), true
 }
 
 // showKey quotes a key for a summary line, so its text can't read as part of the sentence.

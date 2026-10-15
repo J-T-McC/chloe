@@ -41,15 +41,16 @@ func TestCheckMongo(t *testing.T) {
 		`{"status": "open", "total": {"$gt": 5}, "$expr": {"$eq": ["$a", "$b"]}}`,
 		`{"p": [{"$match": {"a": 1}}, {"$lookup": {"from": "orders", "localField": "_id", "foreignField": "cid", "as": "o"}}, {"$unionWith": "archive"}, {"$unionWith": {"coll": "x", "pipeline": []}}]}`,
 		`{"note": "$where is just text here"}`,
+		// Server-side JavaScript and system collections are the database user's business.
+		`{"$where": "this.a > 1"}`,
+		`{"$expr": {"$function": {"body": "return 1", "args": [], "lang": "js"}}}`,
+		`{"p": [{"$lookup": {"from": "system.users", "as": "u"}}, {"$unionWith": "system.js"}]}`,
 	} {
 		if err := checkMongo(doc(t, ok)); err != nil {
 			t.Errorf("%s: %v", ok, err)
 		}
 	}
 	for s, want := range map[string]string{
-		`{"$where": "this.a > 1"}`: "JavaScript",
-		`{"$expr": {"$function": {"body": "return 1", "args": [], "lang": "js"}}}`:           "JavaScript",
-		`{"p": [{"$group": {"_id": 1, "x": {"$accumulator": {}}}}]}`:                         "JavaScript",
 		`{"p": [{"$out": "copy"}]}`:                                                          "writes",
 		`{"p": [{"$facet": {"a": [{"$merge": {"into": "x"}}]}}]}`:                            "writes",
 		`{"p": [{"$lookup": {"from": "o", "as": "o", "pipeline": [{"$out": "x"}]}}]}`:        "writes",
@@ -58,8 +59,6 @@ func TestCheckMongo(t *testing.T) {
 		`{"p": [{"$lookup": {"from": {"db": "admin", "coll": "system.users"}, "as": "u"}}]}`: "same database",
 		`{"p": [{"$unionWith": {"db": "other", "coll": "x"}}]}`:                              "same database",
 		`{"p": [{"$graphLookup": {"from": {"db": "x", "coll": "y"}}}]}`:                      "same database",
-		`{"p": [{"$lookup": {"from": "system.users", "as": "u"}}]}`:                          "system collections",
-		`{"p": [{"$unionWith": "system.js"}]}`:                                               "system collections",
 	} {
 		err := checkMongo(doc(t, s))
 		if err == nil || !strings.Contains(err.Error(), want) {
@@ -73,10 +72,9 @@ func TestCheckUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	for s, want := range map[string]string{
-		`{}`:                      "at least one operator",
-		`{"name": "replaced"}`:    "not a replacement document",
-		`{"$where": "1"}`:         "isn't supported",
-		`{"$set": {"$where": 1}}`: "JavaScript",
+		`{}`:                   "at least one operator",
+		`{"name": "replaced"}`: "not a replacement document",
+		`{"$where": "1"}`:      "isn't supported",
 	} {
 		err := checkUpdate(doc(t, s))
 		if err == nil || !strings.Contains(err.Error(), want) {

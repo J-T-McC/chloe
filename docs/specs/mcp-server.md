@@ -138,6 +138,18 @@ refuse them.
 - Monitor (capability) covers Redis too: `list_sessions` (CLIENT LIST), `server_status` (INFO, each entry with its `section`), `server_variables` (CONFIG GET, with passwords hidden), `kill_session` (CLIENT KILL; no
   `query_only`). Sessions show client flags in words (blocked, pub/sub…) and the last command.
 
+### Who decides what
+Chloe enforces its own settings: which connections and databases an endpoint sees, Read versus Read-write, and the
+approval of every write. It doesn't second-guess the database login: what a shared login may read or do (system
+tables such as `mysql.user` or `pg_authid`, MongoDB's `system.users`, server-side functions, `dblink`, server files)
+is decided by that login's privileges. To keep an agent away from something, share a connection whose login can't
+reach it. This is why there are no per-table or per-column rules and no name-based blocks.
+
+- Read means no writes: `run_query` runs in a read-only transaction, so a write hidden in a SELECT (a
+  data-modifying CTE, a function that writes, `nextval`) fails in the database. Only effects outside the
+  transaction get through, and only if the login allows them: `dblink` and similar open their own connection;
+  `pg_terminate_backend`, advisory locks and files on the server aren't table data.
+
 ### Monitor (capability)
 | Tool | Access | Arguments |
 |---|---|---|
@@ -222,18 +234,25 @@ Offered to endpoints that can see a MongoDB connection. Access is per database, 
 - Results are relaxed Extended JSON, default 100 documents, at most 1000 and ~256 KB; strings and binary over 4 KB
   are cut and the result says `truncated`. `mongo_describe` samples 100 documents for field paths and types and adds
   indexes, the validator, or a view's pipeline.
-- Guards, checked at every depth before anything is sent:
-  - No server-side JavaScript: `$where`, `$function` and `$accumulator` are refused in filters, pipelines and updates.
+- Guards keep Chloe's own settings true and nothing more (see "Who decides what" below). Checked at every depth
+  before anything is sent:
+  - Reads never write: `$out` and `$merge` are refused anywhere, so also inside `$facet`, `$lookup` and `$unionWith`
+    pipelines.
+  - Databases set to Off stay out of reach: a `$lookup`, `$graphLookup` or `$unionWith` whose source names a
+    database or isn't a plain collection name is refused, as are the server-wide stages `$currentOp`,
+    `$listSessions`, `$listLocalSessions`, `$listCatalog`, `$listClusterCatalog`, `$shardedDataDistribution`,
+    `$listSampledQueries` and `$changeStream` (which also never ends).
   - Updates take the operators `$set $unset $inc $mul $rename $min $max $currentDate $push $pull $pullAll $addToSet
-    $pop $setOnInsert $bit` only; no pipeline-style updates or replacement documents.
-  - `$out` and `$merge` are refused anywhere (so also inside `$facet`, `$lookup` and `$unionWith` pipelines), as are
-    `$currentOp`, `$listSessions`, `$listLocalSessions`, `$changeStream` and `$listSampledQueries`, and any
-    `$lookup`, `$graphLookup` or `$unionWith` whose source names a database or isn't a plain collection name.
-  - `system.*` collections (`system.users` and `system.roles` hold credentials, `system.js` stored JavaScript) are
-    refused for every tool and as lookup sources, and aren't listed.
-  - `admin`, `config` and `local` are never written, whatever the access setting.
+    $pop $setOnInsert $bit` only, so the approval shows a plain change; no pipeline-style updates or replacement
+    documents.
   - Every command runs under a 30 s context deadline, which the driver sends to the server as `maxTimeMS`, so the
     server stops the work rather than only Chloe giving up.
+  - Server-side JavaScript (`$where`, `$function`, `$accumulator`), `system.*` collections and the `admin`,
+    `config` and `local` databases are not restricted by Chloe: whether a login may use them is up to its roles
+    (and `security.javascriptEnabled` on the server).
+- Inserts are unordered: Chloe assigns any missing `_id` first, so when some documents fail (duplicate key,
+  validator) the rest are saved and the result lists each failure with its index and `_id`. Writes to a view are
+  refused before the user is asked.
 - Update and delete need a non-empty filter (`{"_id": {"$exists": true}}` matches everything). Chloe first collects
   the `_id`s of the documents they'd touch (the first match, or with `many` up to 1000; more is an error), the user
   approves that count with the `_id`s listed, and the write runs with `{$and: [filter, {_id: {$in: approved}}]}`, so a

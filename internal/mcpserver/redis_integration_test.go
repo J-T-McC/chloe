@@ -181,7 +181,9 @@ func TestIntegrationRedisTools(t *testing.T) {
 		t.Fatalf("rescore: %v", out)
 	}
 	f.call(t, "redis_edit", at(map[string]any{"key": "hits", "incr": 2}), "")
-	f.call(t, "redis_edit", at(map[string]any{"key": "hits", "incr": 3}), "")
+	if out := f.call(t, "redis_edit", at(map[string]any{"key": "hits", "incr": 3}), ""); fmt.Sprint(out["new_values"]) != "map[hits:5]" {
+		t.Fatalf("incr result: %v", out)
+	}
 	if v := cl.Get(context.Background(), "hits").Val(); v != "5" {
 		t.Fatalf("hits %s", v)
 	}
