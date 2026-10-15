@@ -28,7 +28,7 @@ func TestDashboardTools(t *testing.T) {
 	if d["editable"] != true || len(items) != 3 || d["pages"].([]any)[0].(map[string]any)["size"] != "report" {
 		t.Fatalf("create: %v", d)
 	}
-	if last := items[2].(map[string]any); last["x"] != 4.0 || last["w"] != 8.0 || last["y"] != 3.0 {
+	if last := items[2].(map[string]any); last["x"] != 4.0 || last["w"] != 8.0 || last["y"] != 2.0 { // the text row fits its text
 		t.Errorf("layout: %v", last)
 	}
 
@@ -49,7 +49,7 @@ func TestDashboardTools(t *testing.T) {
 		t.Fatalf("notes on top: %+v", its)
 	}
 	// Moved to the bottom on request; replaced in place otherwise.
-	if n = f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "markdown": "Below.", "place": "bottom"}, ""); n["y"] != 8.0 {
+	if n = f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "markdown": "Below.", "place": "bottom"}, ""); n["y"] != 7.0 {
 		t.Fatalf("bottom: %v", n)
 	}
 	if its = itemsOf(t, f, "Weekly"); its[0].Y != 0 || its[0].Kind != "text" || its[0].CreatedBy != "" {
@@ -66,6 +66,20 @@ func TestDashboardTools(t *testing.T) {
 	if nt := page["notes"].([]any)[0].(map[string]any); nt["by"] != "test" || nt["markdown"] != "Updated." || len(page["text"].([]any)) != 1 {
 		t.Errorf("text and notes apart: %v", page)
 	}
+	// Bottom notes stay at the bottom through an edit, below everything else.
+	f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "markdown": "At the end.", "place": "bottom"}, "")
+	noOverlap(t, itemsOf(t, f, "Weekly"))
+	f.call(t, "edit_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "pages": []any{map[string]any{"rows": []any{
+		map[string]any{"tiles": []any{map[string]any{"text": "# Weekly people"}}},
+		map[string]any{"tiles": []any{map[string]any{"chart": "Count", "span": 4}, map[string]any{"chart": "by name"}}}}}}}, "")
+	its = itemsOf(t, f, "Weekly")
+	noOverlap(t, its)
+	if last := its[len(its)-1]; last.CreatedBy != "mcp:test" || last.Y != 7 {
+		t.Fatalf("bottom notes after edit: %+v", its)
+	}
+	f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "markdown": "Updated.", "place": "top"}, "")
+	noOverlap(t, itemsOf(t, f, "Weekly"))
+
 	// Re-laying out the page keeps the notes.
 	ed := f.call(t, "edit_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "pages": []any{map[string]any{"rows": []any{
 		map[string]any{"tiles": []any{map[string]any{"chart": "Count"}}}}}}}, "")
@@ -127,4 +141,16 @@ func itemsOf(t *testing.T, f *fixture, dashboard string) []bi.Item {
 	}
 	t.Fatalf("no dashboard %q", dashboard)
 	return nil
+}
+
+// noOverlap fails when two tiles share a grid cell.
+func noOverlap(t *testing.T, items []bi.Item) {
+	t.Helper()
+	for i, a := range items {
+		for _, b := range items[i+1:] {
+			if a.X < b.X+b.W && b.X < a.X+a.W && a.Y < b.Y+b.H && b.Y < a.Y+a.H {
+				t.Errorf("tiles overlap: %+v and %+v", a, b)
+			}
+		}
+	}
 }

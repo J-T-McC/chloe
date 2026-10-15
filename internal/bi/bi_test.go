@@ -528,7 +528,7 @@ func TestDashboards(t *testing.T) {
 		}
 		return "", fmt.Errorf("no chart %q", ref)
 	}
-	items, bottom, err := LayoutRows([][]RowTile{{{Text: "# Weekly"}}, {{Chart: "revenue"}, {Chart: "Revenue", Span: 4}, {Text: "notes"}}}, []string{"S", "L"}, 0, false, id)
+	items, bottom, err := LayoutRows([][]RowTile{{{Text: "# Weekly"}}, {{Chart: "revenue"}, {Chart: "Revenue", Span: 4}, {Text: "notes"}}}, []string{"S", "L"}, 0, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -536,25 +536,25 @@ func TestDashboards(t *testing.T) {
 	for _, it := range items {
 		got += fmt.Sprintf("%s %d,%d %dx%d; ", it.Kind, it.X, it.Y, it.W, it.H)
 	}
-	if want := "text 0,0 12x3; chart 0,3 4x8; chart 4,3 4x8; text 8,3 4x8; "; got != want || bottom != 11 {
+	if want := "text 0,0 12x2; chart 0,2 4x8; chart 4,2 4x8; text 8,2 4x8; "; got != want || bottom != 10 {
 		t.Errorf("layout: %s (bottom %d)", got, bottom)
 	}
 	// On a report page a row grows to fit its text.
 	long := "## Summary\n" + strings.Repeat("A line of findings about the rooms and users this week.\n", 6)
-	if grown, _, _ := LayoutRows([][]RowTile{{{Text: long, Span: 8}, {Chart: "Revenue"}}}, []string{"S"}, 0, true, id); grown[0].H <= 3 || grown[1].H != grown[0].H {
+	if grown, _, _ := LayoutRows([][]RowTile{{{Text: long, Span: 8}, {Chart: "Revenue"}}}, []string{"S"}, 0, id); grown[0].H <= 3 || grown[1].H != grown[0].H {
 		t.Errorf("text row didn't grow: %+v", grown)
 	}
-	if fit, _, _ := LayoutRows([][]RowTile{{{Text: "One line."}}, {{Text: "One line."}}}, []string{"", "L"}, 0, true, id); fit[0].H != 2 || fit[1].H != 8 {
-		t.Errorf("text rows fit unless a height is asked for: %+v", fit)
+	if fit, _, _ := LayoutRows([][]RowTile{{{Text: "One line."}}, {{Text: "One line."}}, {{Text: "One line."}, {Chart: "Revenue"}}}, []string{"", "L", "S"}, 0, id); fit[0].H != 2 || fit[1].H != 2 || fit[2].H != 3 {
+		t.Errorf("text-only rows fit their text, rows with charts take their label: %+v", fit)
 	}
-	if _, _, err := LayoutRows([][]RowTile{{{Chart: "nope"}}}, nil, 0, false, id); err == nil || !strings.Contains(err.Error(), `no chart "nope"`) {
+	if _, _, err := LayoutRows([][]RowTile{{{Chart: "nope"}}}, nil, 0, id); err == nil || !strings.Contains(err.Error(), `no chart "nope"`) {
 		t.Errorf("unknown chart: %v", err)
 	}
-	if _, _, err := LayoutRows([][]RowTile{{{Text: "a", Span: 8}, {Text: "b", Span: 6}}}, nil, 0, false, id); err == nil {
+	if _, _, err := LayoutRows([][]RowTile{{{Text: "a", Span: 8}, {Text: "b", Span: 6}}}, nil, 0, id); err == nil {
 		t.Error("over-wide row accepted")
 	}
 	d, err := w.PutDashboard(Dashboard{Meta: Meta{Name: "Weekly"}, Pages: []Page{{Size: SizeSlide, Items: items}}})
-	if err != nil || d.Pages[0].ID == "" || d.Pages[0].Bottom() != 11 {
+	if err != nil || d.Pages[0].ID == "" || d.Pages[0].Bottom() != 10 {
 		t.Fatalf("put: %v %+v", err, d)
 	}
 	d.Pages[0].Items[1].Y = 6 // 6 + 8 > 12 rows

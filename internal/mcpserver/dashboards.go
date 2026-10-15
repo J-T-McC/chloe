@@ -21,7 +21,7 @@ type TileArg struct {
 }
 
 type RowArg struct {
-	Height string    `json:"height,omitempty" jsonschema:"S, M (default), L or XL"`
+	Height string    `json:"height,omitempty" jsonschema:"for rows with a chart: S (3 grid rows), M (5, default), L (8) or XL (11, which fills a 16:9 slide on its own). A 16:9 slide holds 12 grid rows in all. Rows of only text are always as tall as their text"`
 	Tiles  []TileArg `json:"tiles"`
 }
 
@@ -162,14 +162,19 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 				if edited.Pages, err = c.layoutPages(&w, in.Pages); err != nil {
 					return DashboardOut{}, err
 				}
-				// Notes written with set_notes stay on the page with the same number.
+				// Notes written with set_notes stay on the page with the same number,
+				// at its top or bottom as they were.
 				for i := range edited.Pages {
 					if i >= len(d.Pages) {
 						break
 					}
 					for _, it := range d.Pages[i].Items {
 						if it.Kind == bi.ItemText && it.CreatedBy != "" {
-							if err := setNotes(&edited.Pages[i], it.CreatedBy, it.Text, ""); err != nil {
+							place := "top"
+							if it.Y > 0 && it.Y+it.H >= d.Pages[i].Bottom() {
+								place = "bottom"
+							}
+							if err := setNotes(&edited.Pages[i], it.CreatedBy, it.Text, place); err != nil {
 								return DashboardOut{}, fmt.Errorf("page %d: keeping the notes by %s: %w", i+1, strings.TrimPrefix(it.CreatedBy, "mcp:"), err)
 							}
 							for j := range edited.Pages[i].Items {
@@ -405,7 +410,7 @@ func (c *call) layoutPages(w *bi.Workspace, in []PageArg) ([]bi.Page, error) {
 				return nil, fmt.Errorf("page %d row %d has no tiles", i+1, r+1)
 			}
 		}
-		items, _, err := bi.LayoutRows(rows, heights, 0, size == bi.SizeReport, chartID)
+		items, _, err := bi.LayoutRows(rows, heights, 0, chartID)
 		if err != nil {
 			return nil, fmt.Errorf("page %d: %w", i+1, err)
 		}

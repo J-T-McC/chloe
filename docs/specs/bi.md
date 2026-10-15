@@ -324,8 +324,9 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
   page (pushing the rest down) or in the first free rows of a slide.
 - Pages are laid out at one size, 1280px wide (a slide 1280×720), and scaled to fit wherever they're shown, so the
   designer is a true miniature of Present and of exports.
-- On report pages a row an agent describes grows to fit its text, and a row of only text with no height asked for is
-  exactly as tall as its text. Heights come from metrics measured in Chloe (13.5px text on 20.25px lines, 22px tile
+- A row an agent describes that holds only text is exactly as tall as its text (its height label is ignored); a row
+  with a chart takes its label (S 3, M 5, L 8, XL 11 grid rows; a slide holds 12) and grows if its text needs more.
+  `edit_dashboard` keeps notes at the top or bottom of their page, as they were. Heights come from metrics measured in Chloe (13.5px text on 20.25px lines, 22px tile
   padding, rows 48px plus 12px gaps); an e2e check renders agent notes and asserts they fit with under a row to spare.
 - `set_notes` takes `place` (top or bottom of a report page); without it, existing notes stay where they are. It and
   `open_dashboard` answer briefly (the notes' row and height; the dashboard's name and page count). `edit_dashboard` keeps notes written with
