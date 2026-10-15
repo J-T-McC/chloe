@@ -42,6 +42,7 @@ type CreateSourceArgs struct {
 	Table      string      `json:"table,omitempty" jsonschema:"a table or view to read; or pass sql"`
 	SQL        string      `json:"sql,omitempty" jsonschema:"one read-only query (SELECT, WITH, VALUES, TABLE); it always runs in a read-only transaction"`
 	Mode       string      `json:"mode,omitempty" jsonschema:"live (read each time a chart is drawn, the default) or archive (read once into a snapshot)"`
+	Timezone   string      `json:"timezone,omitempty" jsonschema:"IANA time zone (e.g. America/Los_Angeles) to bucket and filter date/time fields in; values without a zone are taken as UTC. MySQL needs its time zone tables loaded"`
 	Filters    []FilterArg `json:"filters,omitempty" jsonschema:"conditions on the source's rows, joined with AND"`
 }
 
@@ -93,6 +94,17 @@ type EditChartArgs struct {
 type ChartArgs struct {
 	WorkspaceArgs
 	Chart string `json:"chart" jsonschema:"a chart name or id in the workspace"`
+}
+
+type EditSourceArgs struct {
+	WorkspaceArgs
+	DataSource string      `json:"data_source" jsonschema:"a data source name or id in the workspace"`
+	Rename     string      `json:"rename,omitempty"`
+	Table      string      `json:"table,omitempty" jsonschema:"read this table or view instead"`
+	SQL        string      `json:"sql,omitempty" jsonschema:"read this query instead"`
+	Mode       string      `json:"mode,omitempty" jsonschema:"live or archive"`
+	Timezone   *string     `json:"timezone,omitempty" jsonschema:"IANA time zone for date/time fields; empty string to clear"`
+	Filters    []FilterArg `json:"filters,omitempty" jsonschema:"replaces the source's filters"`
 }
 
 type SourceArgs struct {
@@ -244,7 +256,7 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 				return SourceOut{}, err
 			}
 			src := bi.DataSource{Meta: bi.Meta{Name: in.Name, CreatedBy: "mcp:" + c.ep.Name}, ConnID: tg.connID, Database: tg.database, Schema: tg.schema,
-				Table: in.Table, SQL: in.SQL, Mode: in.Mode}
+				Table: in.Table, SQL: in.SQL, Mode: in.Mode, Timezone: in.Timezone}
 			if err := c.checkSource(tg, src); err != nil {
 				return SourceOut{}, err
 			}
@@ -255,6 +267,61 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			if in.Table != "" {
 				c.act.SQL = in.Table
 			}
+			saved, err := c.s.m.BISaveSource(ctx, p, src)
+			if err != nil {
+				return SourceOut{}, err
+			}
+			c.biChanged(p)
+			return SourceOut{DataSource: saved, Connection: tg.conn, Editable: true}, nil
+		})
+
+	add(s, srv, ep, &mcp.Tool{Name: "edit_data_source", Description: "Changes a data source created over MCP: its table or query, mode, time zone, filters (each replaced when given), or its name. " +
+		"Charts built on it keep working while the fields they use remain. The user's own data sources can't be changed.",
+		Annotations: &mcp.ToolAnnotations{Title: "Edit data source", DestructiveHint: &t, OpenWorldHint: &f}},
+		func(ctx context.Context, c *call, in EditSourceArgs) (SourceOut, error) {
+			p, w, err := c.workspace(in.Workspace)
+			if err != nil {
+				return SourceOut{}, err
+			}
+			found := findSource(&w, in.DataSource)
+			if found == nil {
+				return SourceOut{}, fmt.Errorf("no data source %q in the workspace (see get_workspace)", in.DataSource)
+			}
+			if !agentMade(found.CreatedBy) {
+				return SourceOut{}, errors.New("this is one of the user's data sources; agents can't change them, so create one of your own")
+			}
+			src := *found
+			if in.Table != "" && in.SQL != "" {
+				return SourceOut{}, errors.New("pass table or sql, not both")
+			}
+			if in.Table != "" {
+				src.Table, src.SQL = in.Table, ""
+			}
+			if in.SQL != "" {
+				src.Table, src.SQL = "", in.SQL
+			}
+			if r := strings.TrimSpace(in.Rename); r != "" {
+				src.Name = r
+			}
+			if in.Mode != "" {
+				src.Mode = in.Mode
+			}
+			if in.Timezone != nil {
+				src.Timezone = *in.Timezone
+			}
+			if in.Filters != nil {
+				if src.Filters, err = filters(in.Filters); err != nil {
+					return SourceOut{}, err
+				}
+			}
+			tg, err := c.resolve(ctx, src.ConnID, src.Database, src.Schema, store.MCPRead)
+			if err != nil {
+				return SourceOut{}, err
+			}
+			if err := c.checkSource(tg, src); err != nil {
+				return SourceOut{}, err
+			}
+			c.act.SQL = src.SQL
 			saved, err := c.s.m.BISaveSource(ctx, p, src)
 			if err != nil {
 				return SourceOut{}, err

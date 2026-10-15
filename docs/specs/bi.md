@@ -228,6 +228,7 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 | `export_dashboard` | Read on its sources | `workspace, dashboard, format` (pdf / png / html) |
 | `open_dashboard` | — | `workspace, dashboard` (Chloe comes to the front) |
 | `open_chart` | — | `workspace, chart` (Chloe comes to the front) |
+| `edit_data_source` | Read | `workspace, data_source, rename?, table? or sql?, mode?, timezone?, filters?` (agent-made only) |
 | `delete_chart` | — | `workspace, chart` (agent-made charts only) |
 | `delete_data_source` | — | `workspace, data_source` (agent-made, once no chart uses it) |
 
@@ -285,8 +286,12 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
   sealed with the keychain key in `bi/data/<workspace id>/<source id>.archive`, cached in memory while in use).
 - Columns are typed from the database's type names; untyped columns, and text columns whose sampled values are all
   dates (SQLite stores dates as text), are typed from up to 200 sample rows.
-- Date buckets come back as sortable text (`2026-03`, `2026-Q1`, `2026-W09`, weekday `0` = Sunday) and the chart
-  labels them (`Mar 2026`, `Q1 2026`, `Sun`). Weeks start on Sunday and number like strftime's `%U` on every engine.
+- Date buckets come back as sortable text (`2026-03`, `2026-Q1`; a week as the date of its Sunday, `2026-09-13`) and
+  the chart labels them (`Mar 2026`, `Q1 2026`, `Week of Sep 13, 2026`). `week_x` numbers weeks like strftime's `%U`.
+- **Time zone** per data source (an IANA name): date/time fields are bucketed and filtered as wall-clock time there.
+  Values without a zone count as UTC; DATE columns aren't shifted. PostgreSQL uses `AT TIME ZONE`, MySQL `CONVERT_TZ`
+  (Chloe refuses with a hint when MySQL's time zone tables aren't loaded), SQLite and archives Chloe's own `chloe_tz()`.
+  Archive snapshots store zoned values in UTC. `in_last` counts days in the source's zone.
 - Sort, Top N with Others and value operations run on the aggregated rows, so they work the same live and archived.
   Without a sort, date and number dimensions keep their order and categories go largest first.
 - Names are unique per kind: a chart may share its data source's name.
@@ -294,7 +299,8 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
   alias is shown as typed. Shelves keep the field names.
 - A date axis bucketed by year, quarter, month, week, day or hour gets its empty periods back (sums and counts 0,
   other aggregates empty), unless the chart uses Top N or sorts by value.
-- An `in_last` filter on the dimension's field widens that fill to the whole window, today included.
+- Filters on the dimension's field widen that fill to their window: `in_last` (today included), `between`, `=`, and
+  either end from `>=`, `>`, `<=`, `<`.
 - Extracted weekdays and months come back named (`Sun`…`Sat`, `Jan`…`Dec`), in calendar order.
 - Table columns can group a date by a bucket.
 - Every dimension value gets a row for every series (0 for sums and counts), so stacked series never have holes.

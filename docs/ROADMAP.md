@@ -113,7 +113,7 @@ statistics catalogs get around name checks), so share connections that log in as
 ## 9. BI (spec: `docs/specs/bi.md`)
 - [x] Charts and MCP core: BI library, data sources (table/view/query, live/archive), chart designer, Create Chart from
   the grid and from query results, Present; MCP Reports tools for workspaces, data sources, charts and their data
-- [ ] Time zone per data source (bucket and filter dates in a named zone; needs MySQL's time zone tables, SQLite has none)
+- [x] Time zone per data source (bucket and filter dates in a named zone)
 - [ ] Dashboards and reports: pages, Markdown text, present, print/export (PDF, PNG, SVG, HTML), snapshots and history
 - [ ] The rest of Navicat's BI: remaining chart types, interaction and controls, parameters, custom fields, joins, shapes
 - [ ] MongoDB data sources

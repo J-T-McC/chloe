@@ -130,8 +130,9 @@ export function formatLabel(v: unknown, col: Pick<B.Column, "type" | "aggregate"
   }
   switch (bucket) {
     case "week": {
-      const m = s.match(/^(\d{4})-W(\d{2})$/);
-      return m ? `W${m[2]} ${m[1]}` : s;
+      // A week is the date of its Sunday.
+      const d = parseDate(s);
+      return d ? (dateFormat ? formatDate(d, dateFormat) : `Week of ${formatDate(d, "MMM D, YYYY")}`) : s;
     }
     case "quarter_x":
     case "week_x":

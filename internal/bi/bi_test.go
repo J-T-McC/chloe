@@ -194,7 +194,7 @@ func TestTypes(t *testing.T) {
 	if GuessType([]string{"1", "2.5"}) != TypeNumber || GuessType([]string{"2024-03-01", "2024-03-02 10:00"}) != TypeDateTime || GuessType([]string{"1", "x"}) != TypeString {
 		t.Error("guess")
 	}
-	for in, want := range map[string]string{"2024-03-01 10:30:00+00": "2024-03-01 10:30:00", "2024-03-01T10:30:00.5Z": "2024-03-01 10:30:00.5", "2024-03-01": "2024-03-01", "x": "x"} {
+	for in, want := range map[string]string{"2024-03-01 10:30:00+00": "2024-03-01 10:30:00", "2024-03-01T10:30:00.5Z": "2024-03-01 10:30:00.5", "2026-09-15 10:00:00-07": "2026-09-15 17:00:00", "2024-03-01": "2024-03-01", "x": "x"} {
 		if got := NormalizeDate(in); got != want {
 			t.Errorf("%q: %q", in, got)
 		}
@@ -332,17 +332,17 @@ func TestFillPeriods(t *testing.T) {
 	// Weeks across a new year, and averages left empty.
 	cols[0].Aggregate = "week"
 	c = Chart{Type: "line", Value: []ChartField{{Field: "x", Aggregate: "avg"}}}
-	got = Shape(c, []Column{cols[0], cols[2]}, [][]*string{{s("2025-W51"), s("1")}, {s("2026-W01"), s("2")}})
+	got = Shape(c, []Column{cols[0], cols[2]}, [][]*string{{s("2025-12-14"), s("1")}, {s("2026-01-04"), s("2")}})
 	var labels []any
 	for _, r := range got {
 		labels = append(labels, r[0])
 	}
-	if want := []any{"2025-W51", "2025-W52", "2026-W00", "2026-W01"}; !reflect.DeepEqual(labels, want) || got[1][1] != nil {
+	if want := []any{"2025-12-14", "2025-12-21", "2025-12-28", "2026-01-04"}; !reflect.DeepEqual(labels, want) || got[1][1] != nil {
 		t.Errorf("weeks: %v", got)
 	}
 	// Top N or a value sort leaves the periods alone.
 	c.Top = 1
-	if got = Shape(c, []Column{cols[0], cols[2]}, [][]*string{{s("2025-W51"), s("1")}, {s("2026-W01"), s("2")}}); len(got) != 1 {
+	if got = Shape(c, []Column{cols[0], cols[2]}, [][]*string{{s("2025-12-14"), s("1")}, {s("2026-01-04"), s("2")}}); len(got) != 1 {
 		t.Errorf("top: %v", got)
 	}
 }
@@ -434,5 +434,55 @@ func TestWindowAndNames(t *testing.T) {
 	tbl.Value[0].Aggregate = "sum"
 	if _, _, err := ChartQuery(SQLite, `"data"`, src, tbl, 10); err == nil || !strings.Contains(err.Error(), "placed_at (datetime) on the value shelf can't use aggregate \"sum\"") {
 		t.Errorf("message: %v", err)
+	}
+}
+
+func TestTimezone(t *testing.T) {
+	for _, bad := range []string{"Mars/Base", "x'; DROP", "America/Los Angeles"} {
+		if CheckTimezone(bad) == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	src := ordersSource()
+	src.Timezone = "America/Los_Angeles"
+	src.Fields = []Field{{Name: "placed_at", Type: TypeDateTime, DBType: "TIMESTAMPTZ"}, {Name: "made", Type: TypeDateTime, DBType: "DATETIME"},
+		{Name: "day", Type: TypeDateTime, DBType: "DATE"}, {Name: "total", Type: TypeNumber}}
+	c := Chart{Type: "bar", Dimension: []ChartField{{Field: "placed_at", Aggregate: "day"}}, Value: []ChartField{{Field: "total", Aggregate: "sum"}},
+		Filters: []Filter{{Field: "made", Op: ">=", Values: []string{"2026-01-01"}}, {Field: "day", Op: "=", Values: []string{"2026-01-02"}}}}
+	q, _, err := ChartQuery(pg, `"t"`, src, c, 10)
+	if err != nil || !strings.Contains(q.SQL, `to_char(CAST(("placed_at" AT TIME ZONE 'America/Los_Angeles') AS timestamp), 'YYYY-MM-DD')`) ||
+		!strings.Contains(q.SQL, `(CAST("made" AS timestamp) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles') >= $1`) || !strings.Contains(q.SQL, `"day" = $2`) {
+		t.Errorf("postgres: %v\n%s", err, q.SQL)
+	}
+	src.Fields[0].DBType = "TIMESTAMP"
+	if q, _, _ := ChartQuery(mysql, "`t`", src, c, 10); !strings.Contains(q.SQL, "CONVERT_TZ(`placed_at`, @@session.time_zone, 'America/Los_Angeles')") || !strings.Contains(q.SQL, "CONVERT_TZ(`made`, '+00:00', 'America/Los_Angeles') >= ?") {
+		t.Errorf("mysql: %s", q.SQL)
+	}
+	if q, _, _ := ChartQuery(SQLite, `"data"`, src, c, 10); !strings.Contains(q.SQL, `strftime('%Y-%m-%d', chloe_tz("placed_at", 'America/Los_Angeles'))`) {
+		t.Errorf("sqlite: %s", q.SQL)
+	}
+	if got, _ := InZone("2026-09-16 05:30:00", "America/Los_Angeles"); got != "2026-09-15 22:30:00" {
+		t.Errorf("in zone: %s", got)
+	}
+	if got, _ := InZone("2026-09-16 05:30:00+02", "America/Los_Angeles"); got != "2026-09-15 20:30:00" {
+		t.Errorf("zoned value: %s", got)
+	}
+}
+
+func TestBetweenWindow(t *testing.T) {
+	s := func(v string) *string { return &v }
+	src := ordersSource()
+	c := Chart{Type: "bar", Dimension: []ChartField{{Field: "placed_at", Aggregate: "day"}}, Value: []ChartField{{Field: "id", Aggregate: "count"}},
+		Filters: []Filter{{Field: "placed_at", Op: "between", Values: []string{"2026-10-10", "2026-10-20"}}}}
+	cols := []Column{{Role: "dimension", Aggregate: "day", Type: TypeDateTime}, {Role: "value", Type: TypeNumber}}
+	rows := ShapeRange(c, cols, [][]*string{{s("2026-10-12"), s("3")}, {s("2026-10-14"), s("1")}}, FilterWindow(src, c))
+	if len(rows) != 11 || rows[0][0] != "2026-10-10" || rows[10][0] != "2026-10-20" {
+		t.Errorf("between: %v", rows)
+	}
+	// An open end stops at the data; < excludes its day.
+	c.Filters = []Filter{{Field: "placed_at", Op: "<", Values: []string{"2026-10-17"}}}
+	rows = ShapeRange(c, cols, [][]*string{{s("2026-10-12"), s("3")}}, FilterWindow(src, c))
+	if len(rows) != 5 || rows[4][0] != "2026-10-16" {
+		t.Errorf("before: %v", rows)
 	}
 }

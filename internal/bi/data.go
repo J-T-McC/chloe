@@ -33,28 +33,68 @@ func Shape(c Chart, cols []Column, raw [][]*string) [][]any {
 	return ShapeRange(c, cols, raw, nil)
 }
 
-// Window is the date range an in_last filter on the dimension asks for; empty
-// periods are filled out to its edges.
-type Window struct{ From, To time.Time }
+// Window is the date range filters on the dimension's field ask for (either
+// end may be open); empty periods are filled out to its edges.
+type Window struct{ From, To *time.Time }
 
-// FilterWindow finds an in_last filter (the source's or the chart's) on the
-// chart's dimension field.
+// FilterWindow reads the range of the source's and the chart's filters on the
+// chart's dimension field: in_last, between, =, >=, >, <=, <.
 func FilterWindow(src DataSource, c Chart) *Window {
 	if len(c.Dimension) == 0 {
 		return nil
 	}
-	var w *Window
-	for _, f := range append(slices.Clone(src.Filters), c.Filters...) {
-		if f.Disabled || f.Negate || f.Op != "in_last" || f.Field != c.Dimension[0].Field || f.check() != nil {
-			continue
-		}
-		n, _ := strconv.Atoi(f.Values[0])
-		from := Since(now(), n, f.Values[1])
-		if w == nil || from.After(w.From) {
-			w = &Window{From: from, To: now()}
+	var w Window
+	from := func(t time.Time) {
+		if w.From == nil || t.After(*w.From) {
+			w.From = &t
 		}
 	}
-	return w
+	to := func(t time.Time) {
+		if w.To == nil || t.Before(*w.To) {
+			w.To = &t
+		}
+	}
+	date := func(s string) (time.Time, bool) { return ParseDateTime(s) }
+	for _, f := range append(slices.Clone(src.Filters), c.Filters...) {
+		if f.Disabled || f.Negate || f.Field != c.Dimension[0].Field || f.check() != nil {
+			continue
+		}
+		switch f.Op {
+		case "in_last":
+			n, _ := strconv.Atoi(f.Values[0])
+			today := now().In(location(src.Timezone))
+			from(Since(today, n, f.Values[1]))
+			to(today)
+		case "between":
+			if a, ok := date(f.Values[0]); ok {
+				from(a)
+			}
+			if b, ok := date(f.Values[1]); ok {
+				to(b)
+			}
+		case "=":
+			if a, ok := date(f.Values[0]); ok {
+				from(a)
+				to(a)
+			}
+		case ">=", ">":
+			if a, ok := date(f.Values[0]); ok {
+				from(a)
+			}
+		case "<=":
+			if a, ok := date(f.Values[0]); ok {
+				to(a)
+			}
+		case "<":
+			if a, ok := date(f.Values[0]); ok {
+				to(a.Add(-time.Nanosecond))
+			}
+		}
+	}
+	if w.From == nil && w.To == nil {
+		return nil
+	}
+	return &w
 }
 
 // ShapeRange is Shape with the dimension's filtered date window, if any.
@@ -329,10 +369,14 @@ func GuessType(samples []string) string {
 }
 
 // NormalizeDate rewrites a date/time display string for an archive snapshot as
-// SQLite's "YYYY-MM-DD HH:MM:SS" (time zone dropped), so strftime reads it.
+// SQLite's "YYYY-MM-DD HH:MM:SS", so strftime reads it. A time with a zone is
+// stored in UTC.
 func NormalizeDate(s string) string {
 	if !dateLike(s) {
 		return s
+	}
+	if t, ok := ParseDateTime(s); ok && hasZone(s) {
+		return t.Format("2006-01-02 15:04:05.999999")
 	}
 	end := 10
 	for end < len(s) && end < 26 && strings.ContainsRune("0123456789:. T", rune(s[end])) {
@@ -428,14 +472,16 @@ func fillPeriods(c Chart, cols []Column, rows [][]any, dim int, win *Window) [][
 	start, ok1 := parsePeriod(bucket, lo)
 	end, ok2 := parsePeriod(bucket, hi)
 	if win != nil {
-		// Out to the edges of the filtered window, today included.
-		from, _ := parsePeriod(bucket, PeriodLabel(bucket, win.From))
-		to, _ := parsePeriod(bucket, PeriodLabel(bucket, win.To))
-		if !ok1 || from.Before(start) {
-			start, ok1 = from, true
+		// Out to the edges of the filtered window.
+		if win.From != nil {
+			if from, ok := parsePeriod(bucket, PeriodLabel(bucket, *win.From)); ok && (!ok1 || from.Before(start)) {
+				start, ok1 = from, true
+			}
 		}
-		if !ok2 || to.After(end) {
-			end, ok2 = to, true
+		if win.To != nil {
+			if to, ok := parsePeriod(bucket, PeriodLabel(bucket, *win.To)); ok && (!ok2 || to.After(end)) {
+				end, ok2 = to, true
+			}
 		}
 	}
 	if !ok1 || !ok2 {
@@ -541,7 +587,7 @@ func PeriodLabel(bucket string, t time.Time) string {
 	case "month":
 		return t.Format("2006-01")
 	case "week":
-		return fmt.Sprintf("%d-W%02d", t.Year(), (t.YearDay()-1+7-int(t.Weekday()))/7)
+		return t.AddDate(0, 0, -int(t.Weekday())).Format("2006-01-02")
 	case "hour":
 		return t.Format("2006-01-02 15")
 	}
@@ -562,21 +608,24 @@ func parsePeriod(bucket, s string) (time.Time, bool) {
 		}
 	case "month":
 		t, err = time.Parse("2006-01", s)
-	case "week":
-		var y, w int
-		if _, err = fmt.Sscanf(s, "%d-W%d", &y, &w); err == nil {
-			t = time.Date(y, 1, 1, 0, 0, 0, 0, time.UTC)
-			for t.Year() == y && PeriodLabel("week", t) != s {
-				t = t.AddDate(0, 0, 1)
-			}
-			if t.Year() != y {
-				return t, false
-			}
-		}
 	case "hour":
 		t, err = time.Parse("2006-01-02 15", s)
 	default:
 		t, err = time.Parse("2006-01-02", s)
 	}
 	return t, err == nil
+}
+
+// hasZone reports whether a date/time string ends in a zone (Z, +07, -07:00).
+func hasZone(s string) bool {
+	s = strings.TrimSpace(s)
+	if strings.HasSuffix(s, "Z") || strings.HasSuffix(s, " UTC") {
+		return true
+	}
+	if len(s) <= 10 {
+		return false
+	}
+	tail := s[10:]
+	i := strings.LastIndexAny(tail, "+-")
+	return i > 0 && len(tail)-i >= 3
 }

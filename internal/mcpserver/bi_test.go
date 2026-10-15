@@ -145,6 +145,21 @@ INSERT INTO orders VALUES (1, 1, 10, '2026-01-05'), (2, 1, 15, '2026-02-01'), (3
 		}
 	}
 
+	// Agents edit their own sources: a time zone moves orders across days.
+	f.call(t, "edit_data_source", map[string]any{"workspace": "Sales", "data_source": "Orders", "timezone": "Mars/Base"}, "unknown time zone")
+	f.call(t, "edit_data_source", map[string]any{"workspace": "Sales", "data_source": "Hidden", "timezone": "UTC"}, "user's data sources")
+	es := f.call(t, "edit_data_source", map[string]any{"workspace": "Sales", "data_source": "Orders", "timezone": "Pacific/Kiritimati"}, "")
+	if es["timezone"] != "Pacific/Kiritimati" {
+		t.Fatalf("edit source: %v", es)
+	}
+	f.call(t, "create_chart", map[string]any{"workspace": "Sales", "name": "Days", "data_source": "Orders", "type": "bar",
+		"dimension": []any{map[string]any{"field": "placed_at", "bucket": "day"}}, "value": []any{map[string]any{"field": "id", "aggregate": "count"}}}, "")
+	days := f.call(t, "get_chart_data", map[string]any{"workspace": "Sales", "chart": "Days"}, "")["rows"].([]any)
+	if first := days[0].([]any)[0]; first != "2026-01-05" { // midnight UTC is 14:00 the same day at UTC+14
+		t.Errorf("zoned days: %v", days[:2])
+	}
+	f.call(t, "delete_chart", map[string]any{"workspace": "Sales", "chart": "Days"}, "")
+
 	// Agents delete only what they made, charts before their source.
 	f.call(t, "delete_chart", map[string]any{"workspace": "Sales", "chart": "Mine"}, "user's charts")
 	f.call(t, "delete_data_source", map[string]any{"workspace": "Sales", "data_source": "Orders"}, "delete them first")

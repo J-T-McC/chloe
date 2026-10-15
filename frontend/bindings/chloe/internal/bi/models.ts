@@ -165,6 +165,12 @@ export interface DataSource {
      * Mode is live (read when used) or archive (read into a snapshot on refresh).
      */
     "mode": string;
+
+    /**
+     * Timezone (IANA name) is where date/time fields are bucketed and filtered;
+     * values without a zone are taken as UTC. "" uses them as stored.
+     */
+    "timezone"?: string;
     "filters"?: Filter[] | null;
     "sorts"?: Sort[] | null;
     "projection"?: Projection | null;
