@@ -18,6 +18,8 @@ const (
 	EventMCPStatus       = "mcp:status"
 	EventMCPSettings     = "mcp:settings"
 	EventMCPConnection   = "mcp:connection-added"
+	EventMCPQuerySaved   = "mcp:query-saved"
+	EventMCPOpenQuery    = "mcp:open-query"
 )
 
 func init() {
@@ -27,6 +29,8 @@ func init() {
 	application.RegisterEvent[mcpserver.Status](EventMCPStatus)
 	application.RegisterEvent[store.MCPSettings](EventMCPSettings)
 	application.RegisterEvent[string](EventMCPConnection)
+	application.RegisterEvent[mcpserver.QueryTab](EventMCPQuerySaved)
+	application.RegisterEvent[mcpserver.QueryTab](EventMCPOpenQuery)
 }
 
 // MCPApprover shows approval requests in the app and waits for the answer.
@@ -58,13 +62,7 @@ func (a *MCPApprover) Approve(ctx context.Context, req mcpserver.ApprovalRequest
 		return mcpserver.Answer{}
 	}
 	app.Event.Emit(EventMCPApproval, req)
-	// Bring Chloe forward so the request isn't missed behind the agent's window.
-	for _, w := range app.Window.GetAll() {
-		w.UnMinimise()
-		w.Show()
-		w.Focus()
-		break
-	}
+	focusMain(app)
 	select {
 	case ans := <-ch:
 		return ans
@@ -117,6 +115,21 @@ func (MCPEvents) ConnectionAdded(id string) {
 	}
 }
 
+func (MCPEvents) QuerySaved(connID, database, schema string) {
+	if app := application.Get(); app != nil {
+		app.Event.Emit(EventMCPQuerySaved, mcpserver.QueryTab{ConnID: connID, Database: database, Schema: schema})
+	}
+}
+
+func (MCPEvents) OpenQueryTab(tab mcpserver.QueryTab) {
+	app := application.Get()
+	if app == nil {
+		return
+	}
+	app.Event.Emit(EventMCPOpenQuery, tab)
+	focusMain(app)
+}
+
 func (MCPEvents) Status(s mcpserver.Status) {
 	if app := application.Get(); app != nil {
 		app.Event.Emit(EventMCPStatus, s)
@@ -150,4 +163,14 @@ func (s *MCPService) Pending() []mcpserver.ApprovalRequest { return s.Approver.l
 // new connection ("" keeps the agent's).
 func (s *MCPService) Resolve(id string, approved bool, password string) {
 	s.Approver.resolve(id, mcpserver.Answer{OK: approved, Password: password})
+}
+
+// focusMain brings Chloe forward so what an agent asked for isn't missed behind its window.
+func focusMain(app *application.App) {
+	for _, w := range app.Window.GetAll() {
+		w.UnMinimise()
+		w.Show()
+		w.Focus()
+		break
+	}
 }

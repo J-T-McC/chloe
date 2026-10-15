@@ -13,7 +13,7 @@ Order reflects dependencies: later features build on the earlier ones. Specs for
 5. Polish: Redis pub/sub, cluster and sentinel; Form view and hex/image cell editors; preferences window
    (history logging on/off, autosave interval)
 
-MCP server (6b): next are the Monitor and saved queries / query tabs capabilities, then ER models.
+MCP server (6b): next are the ER model tools, then MongoDB and Redis tools.
 
 ## 1. Foundation ✅
 Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, table viewer, query editor with autocomplete.
@@ -67,7 +67,7 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 - [x] Create connections (capability), into a group whose access they inherit
 - [x] Hardening from live testing: PostgreSQL array values, index columns and row estimates before ANALYZE; an
   unanswered approval is reported as a timeout, not a refusal; SQLite paths checked only after approval
-- [ ] Monitor, saved queries and query tabs (capabilities)
+- [x] Monitor (sessions, status, variables, kill with approval) and saved queries / query tabs (capabilities)
 - [ ] ER model tools
 - [ ] MongoDB and Redis tools; hidden columns; a dedicated database user with matching GRANTs
 

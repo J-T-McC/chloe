@@ -91,6 +91,10 @@ type Events interface {
 	Settings(st store.MCPSettings)
 	// ConnectionAdded reports a connection an agent created.
 	ConnectionAdded(id string)
+	// QuerySaved reports a query an agent saved into a database's Queries folder.
+	QuerySaved(connID, database, schema string)
+	// OpenQueryTab asks the UI to open a query tab for the user.
+	OpenQueryTab(tab QueryTab)
 }
 
 // ApprovalTimeout is how long a write waits for the user.
@@ -347,9 +351,16 @@ func (s *Server) serverFor(id string) *mcp.Server {
 			ep = e
 		}
 	}
-	s.addTools(srv, id, canWrite(ep))
+	writes := canWrite(ep)
+	s.addTools(srv, id, writes)
 	if ep.Capabilities.CreateConnections {
 		s.addConnectionTools(srv, id)
+	}
+	if ep.Capabilities.SavedQueries {
+		s.addQueryTools(srv, id)
+	}
+	if ep.Capabilities.Monitor {
+		s.addMonitorTools(srv, id, writes)
 	}
 	s.servers[id] = srv
 	return srv

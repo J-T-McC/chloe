@@ -4,6 +4,7 @@ import { Bot, ChevronDown, ChevronRight, Copy, Folder, Plus, RefreshCw, Trash2 }
 import { useEffect, useMemo, useState } from "react";
 import { create } from "zustand";
 import { DBType, Events, Explorer, MCP, MCPLevel, arr, errorText, type MCPActivity, type MCPEndpoint, type MCPSettings, type MCPStatus, copyText } from "../../api";
+import { openAgentQuery, refreshFolder } from "../../queries";
 import { useApp } from "../../store";
 import { alert, confirm } from "../Dialogs";
 import { ConnIcon } from "../icons";
@@ -31,6 +32,8 @@ export function listenMCP() {
   // A group rename moves its access; an agent can add connections.
   Events.On("mcp:settings", (ev) => useMCP.setState({ settings: ev.data }));
   Events.On("mcp:connection-added", () => useApp.getState().loadConnections());
+  Events.On("mcp:query-saved", (ev) => refreshFolder(ev.data.connId, ev.data.database, ev.data.schema || undefined));
+  Events.On("mcp:open-query", (ev) => openAgentQuery(ev.data));
   Events.On("mcp:activity", (ev) => useMCP.setState((s) => ({ activity: [ev.data, ...s.activity].slice(0, 1000) })));
 }
 
@@ -275,6 +278,26 @@ function EndpointDetail({ ep, url, update }: { ep: MCPEndpoint; url: string; upd
           Create connections
         </label>
         {ep.capabilities.createConnections && <NewConnectionGroup ep={ep} update={update} />}
+        <label className="check">
+          <input
+            type="checkbox"
+            aria-label="Saved queries and query tabs"
+            checked={ep.capabilities.savedQueries}
+            onChange={(e) => update({ ...ep, capabilities: { ...ep.capabilities, savedQueries: e.target.checked } })}
+          />
+          Saved queries and query tabs
+        </label>
+        <p className="hint">Read and save queries, and open query tabs for you to review and run. Agents never replace a saved query or run a tab.</p>
+        <label className="check">
+          <input
+            type="checkbox"
+            aria-label="Monitor"
+            checked={ep.capabilities.monitor}
+            onChange={(e) => update({ ...ep, capabilities: { ...ep.capabilities, monitor: e.target.checked } })}
+          />
+          Monitor
+        </label>
+        <p className="hint">Sessions, status and variables of connections whose databases are all shared. Killing a session needs Read-write and asks unless danger mode is on.</p>
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 // Saved queries (each database's Queries folder), the Save prompt when closing an
 // edited query tab, and drafts: the text of open query tabs, kept so it survives
 // a quit or crash and comes back on the next start.
-import { ObjectKind, Query, errorText, type Draft, type SavedQuery } from "./api";
+import { ObjectKind, Query, errorText, type Draft, type MCPQueryTab, type SavedQuery } from "./api";
 import { alert, choose, confirm, prompt } from "./components/Dialogs";
 import { Tab, connById, useApp } from "./store";
 import { useTree } from "./tree";
@@ -36,7 +36,7 @@ function folderKey(connId: string, database: string, schema?: string) {
 }
 
 /** Reload the Queries folder (tree and Objects list) of a database. */
-function refreshFolder(connId: string, database: string, schema?: string) {
+export function refreshFolder(connId: string, database: string, schema?: string) {
   const tree = useTree.getState();
   const key = folderKey(connId, database, schema);
   if (tree.children[key]) tree.refresh({ key, type: "folder", label: "", connId, database, schema, kind: ObjectKind.KindQuery, depth: 0, expandable: true });
@@ -55,6 +55,16 @@ export async function openSavedQuery(connId: string, database: string, schema: s
   if (open) return app.setActive(open.id);
   app.openDatabase(connId, database);
   app.openTab({ kind: "query", title: q.name, connId, database, schema, sql: q.sql, queryId: q.id, savedSql: q.sql });
+}
+
+/** A tab an agent opened over MCP: one of the saved queries, or new unsaved SQL. Nothing runs. */
+export function openAgentQuery(t: MCPQueryTab) {
+  const schema = t.schema || undefined;
+  if (t.queryName) return openSavedQuery(t.connId, t.database, schema, t.queryName);
+  const app = useApp.getState();
+  app.openDatabase(t.connId, t.database);
+  app.openTab({ kind: "query", title: t.title, connId: t.connId, database: t.database, schema, sql: t.sql, savedSql: "", dirty: true });
+  scheduleDrafts();
 }
 
 /** Save a query tab, asking for a name when it's new (or for Save As). False when cancelled or failed. */

@@ -202,6 +202,48 @@ await step("connection inherits, then overrides, group access", async () => {
   await shot("mcp-groups");
 });
 
+const pane = () => page.locator(".tab-pane:visible");
+const mcpTab = () => page.locator(".tab", { hasText: "MCP Server" }).click();
+
+await step("agent saves a query and opens query tabs", async () => {
+  if ((await rpc("tools/list", {})).result.tools.some((t) => t.name === "save_query")) throw new Error("offered without the capability");
+  await page.getByLabel("Saved queries and query tabs").check();
+  await page.waitForTimeout(200);
+  // Open big's Queries folder so the saved query shows up in it.
+  await row(/big$/).first().dblclick();
+  await row(/^\s*main\s*$/).first().dblclick();
+  await row(/^\s*Queries\s*$/).first().dblclick();
+  await page.getByText("big › main › Queries").waitFor();
+  await page.waitForTimeout(300); // the empty folder finishes loading
+  const saved = await tool("save_query", { connection: "big", name: "Agent report", sql: "SELECT count(*) AS n FROM n" });
+  if (saved.isError) throw new Error(text(saved));
+  await row(/Agent report/).first().waitFor();
+  const again = await tool("save_query", { connection: "big", name: "agent report", sql: "DELETE FROM n" });
+  if (!again.isError || !text(again).includes("can't replace")) throw new Error("replaced: " + text(again));
+
+  const opened = await tool("open_query_tab", { connection: "big", sql: "UPDATE n SET v = 'from agent'" });
+  if (opened.isError) throw new Error(text(opened));
+  await page.locator(".tab.active", { hasText: "Query from" }).waitFor();
+  await pane().locator(".view-lines", { hasText: "UPDATE n SET v = 'from agent'" }).waitFor();
+  await shot("mcp-query-tab");
+  const ran = await tool("run_query", { connection: "big", sql: "SELECT count(*) FROM n WHERE v = 'from agent'" });
+  if (ran.structuredContent.rows[0][0] !== "0") throw new Error("the tab's SQL ran");
+
+  await tool("open_query_tab", { connection: "big", name: "Agent report" });
+  await page.locator(".tab.active", { hasText: "Agent report" }).waitFor();
+  await pane().locator(".view-lines", { hasText: "SELECT count(*) AS n FROM n" }).waitFor();
+  await mcpTab();
+});
+
+await step("monitor capability", async () => {
+  await page.getByLabel("Monitor", { exact: true }).check();
+  await page.waitForTimeout(200);
+  const names = (await rpc("tools/list", {})).result.tools.map((t) => t.name);
+  if (!names.includes("list_sessions") || names.includes("kill_session")) throw new Error("tools: " + names.join(", "));
+  const r = await tool("list_sessions", { connection: "big" });
+  if (!r.isError || !text(r).includes("no server to monitor")) throw new Error(text(r));
+});
+
 await step("stop server", async () => {
   await page.getByLabel("Run MCP server").uncheck();
   await page.getByText("Stopped").waitFor();

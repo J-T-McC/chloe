@@ -27,6 +27,8 @@ declare module "@wailsio/runtime" {
             "mcp:approval": mcpserver$0.ApprovalRequest;
             "mcp:approval-done": string;
             "mcp:connection-added": string;
+            "mcp:open-query": mcpserver$0.QueryTab;
+            "mcp:query-saved": mcpserver$0.QueryTab;
             "mcp:settings": store$0.MCPSettings;
             "mcp:status": mcpserver$0.Status;
             "result:progress": services$0.ResultProgress;

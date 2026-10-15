@@ -51,12 +51,35 @@ func (a *approver) Approve(ctx context.Context, r mcpserver.ApprovalRequest) mcp
 	return mcpserver.Answer{OK: a.answer, Password: a.password}
 }
 
+// events records what the server asks the UI to do.
+type events struct {
+	mu    sync.Mutex
+	saved []string // connID/database/schema
+	tabs  []mcpserver.QueryTab
+}
+
+func (e *events) Activity(mcpserver.Activity) {}
+func (e *events) Status(mcpserver.Status)     {}
+func (e *events) Settings(store.MCPSettings)  {}
+func (e *events) ConnectionAdded(string)      {}
+func (e *events) QuerySaved(c, db, sch string) {
+	e.mu.Lock()
+	e.saved = append(e.saved, c+"/"+db+"/"+sch)
+	e.mu.Unlock()
+}
+func (e *events) OpenQueryTab(t mcpserver.QueryTab) {
+	e.mu.Lock()
+	e.tabs = append(e.tabs, t)
+	e.mu.Unlock()
+}
+
 type fixture struct {
 	m      *core.Manager
 	srv    *mcpserver.Server
 	conn   string // connection ID
 	ep     store.MCPEndpoint
 	appr   *approver
+	events *events
 	client *mcp.ClientSession
 	url    string
 }
@@ -99,8 +122,8 @@ func setupConn(t *testing.T, conn model.Connection, database, schema, seed strin
 	}
 	m.CloseSession(sid)
 
-	appr := &approver{answer: true}
-	srv := mcpserver.New(m, appr, nil)
+	appr, ev := &approver{answer: true}, &events{}
+	srv := mcpserver.New(m, appr, ev)
 	ep := store.MCPEndpoint{Name: "test", Enabled: true, Access: map[string]store.MCPConnAccess{c.ID: access}}
 	// Port 0 never listens (Enabled is false); the test serves the handler itself.
 	if err := srv.Save(store.MCPSettings{Endpoints: []store.MCPEndpoint{ep}}); err != nil {
@@ -110,7 +133,7 @@ func setupConn(t *testing.T, conn model.Connection, database, schema, seed strin
 	hs := httptest.NewServer(srv.Handler())
 	t.Cleanup(hs.Close)
 
-	f := &fixture{m: m, srv: srv, conn: c.ID, ep: ep, appr: appr, url: hs.URL + "/mcp"}
+	f := &fixture{m: m, srv: srv, conn: c.ID, ep: ep, appr: appr, events: ev, url: hs.URL + "/mcp"}
 	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
 	cs, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: f.url, HTTPClient: tokenClient(ep.Token)}, nil)
 	if err != nil {
