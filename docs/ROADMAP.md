@@ -3,8 +3,8 @@
 Order reflects dependencies: later features build on the earlier ones. Specs for each area live in `docs/specs/`.
 
 ## Next up
-1. **BI: dashboards and agent reports** (spec: `docs/specs/bi.md`, phase 2): pages, Markdown notes, export, snapshots
-   and history, and the MCP dashboard tools; charts and their MCP tools are done
+1. **BI reports** (spec: `docs/specs/bi.md`, phase 2b): snapshots and history with diffs, export (PDF, PNG, SVG,
+   HTML); charts and dashboards with their MCP tools are done
 2. **Explain / visual explain** for MySQL and PostgreSQL, with MongoDB's explain
 3. Transfer and sync follow-ups: Data Transfer file target and per-table Advanced mode (rename, fields,
    filters); functions/procedures/events in transfer and structure sync; profiles for the sync tools;
@@ -75,7 +75,8 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 - [x] ER model tools (capability): list, read, create from a database or a copy, edit agent-created models, generate CREATE or sync SQL, open in Chloe
 - [x] Stdio bridge (`Chloe mcp`) over a user-only Unix socket, so clients need no network port; HTTP can be switched off
 - [x] Reports tools, phase 1: BI workspaces, read-only data sources, charts and their data (`docs/specs/bi.md`)
-- [ ] Reports tools, phase 2: dashboards, snapshots and history, notes, export
+- [x] Reports tools, phase 2: dashboards and notes
+- [ ] Reports tools, phase 2b: snapshots and history, export
 - [ ] MongoDB and Redis tools
 
 Access stays per group, connection and database: no table or column permissions. Without a Chloe-managed
@@ -114,6 +115,8 @@ statistics catalogs get around name checks), so share connections that log in as
 - [x] Charts and MCP core: BI library, data sources (table/view/query, live/archive), chart designer, Create Chart from
   the grid and from query results, Present; MCP Reports tools for workspaces, data sources, charts and their data
 - [x] Time zone per data source (bucket and filter dates in a named zone)
-- [ ] Dashboards and reports: pages, Markdown text, present, print/export (PDF, PNG, SVG, HTML), snapshots and history
+- [x] Dashboards: pages (16:9 slides or scrolling reports) of charts and Markdown on a 12-column grid, auto refresh,
+  present; MCP tools to build them, refresh them and write notes on them
+- [ ] Reports: snapshots and history with diffs, print/export (PDF, PNG, SVG, HTML) and their MCP tools
 - [ ] The rest of Navicat's BI: remaining chart types, interaction and controls, parameters, custom fields, joins, shapes
 - [ ] MongoDB data sources

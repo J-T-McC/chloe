@@ -112,6 +112,28 @@ export interface Column {
 }
 
 /**
+ * Dashboard is pages of charts and text laid out on a 12-column grid.
+ */
+export interface Dashboard {
+    "id": string;
+    "name": string;
+
+    /**
+     * CreatedBy is "mcp:<endpoint>" for objects an agent created; agents may edit only those.
+     */
+    "createdBy"?: string;
+    "created"?: string;
+    "modified"?: string;
+    "remarks"?: string;
+    "pages": Page[] | null;
+
+    /**
+     * Refresh reloads every chart on the open page this often (minutes; 0 = off).
+     */
+    "refresh"?: number;
+}
+
+/**
  * Data is what a chart draws: its columns, then one row per group with
  * dimension and series cells as text and values as numbers (nil is NULL).
  */
@@ -195,6 +217,7 @@ export interface Entry {
     "name": string;
     "dataSources": number;
     "charts": number;
+    "dashboards": number;
     "createdBy"?: string;
     "modified": string;
 
@@ -237,6 +260,42 @@ export interface Filter {
     "disabled"?: boolean;
 }
 
+/**
+ * Item is a tile on a page: a chart of the workspace, or Markdown text.
+ */
+export interface Item {
+    "id": string;
+    "kind": string;
+
+    /**
+     * Chart is the chart's ID (kind chart).
+     */
+    "chart"?: string;
+
+    /**
+     * Text is Markdown (kind text).
+     */
+    "text"?: string;
+
+    /**
+     * X, Y, W, H place the tile in grid columns and rows.
+     */
+    "x": number;
+    "y": number;
+    "w": number;
+    "h": number;
+
+    /**
+     * CreatedBy is "mcp:<endpoint>" for an agent's notes.
+     */
+    "createdBy"?: string;
+
+    /**
+     * Updated is when an agent last wrote its notes.
+     */
+    "updated"?: string;
+}
+
 export interface NumberFormat {
     "prefix"?: string;
     "suffix"?: string;
@@ -251,6 +310,22 @@ export interface NumberFormat {
      * NoSeparator drops the thousands separator.
      */
     "noSeparator"?: boolean;
+}
+
+export interface Page {
+    "id": string;
+    "name"?: string;
+
+    /**
+     * Size is 16:9 (a slide) or report (scrolls).
+     */
+    "size": string;
+    "items": Item[] | null;
+
+    /**
+     * Note is the page's note (Navicat's Page Note).
+     */
+    "note"?: string;
 }
 
 /**
@@ -338,4 +413,5 @@ export interface Workspace {
     "createdBy"?: string;
     "dataSources": DataSource[] | null;
     "charts": Chart[] | null;
+    "dashboards": Dashboard[] | null;
 }

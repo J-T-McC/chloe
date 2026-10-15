@@ -1,6 +1,7 @@
 package bi
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -509,5 +510,64 @@ func TestPlainDateBounds(t *testing.T) {
 		if err != nil || !strings.Contains(q.SQL, "WHERE "+tc.sql+" LIMIT") || !reflect.DeepEqual(q.Args, tc.args) {
 			t.Errorf("%s %v: %v\n%s %v", tc.f.Op, tc.f.Values, err, q.SQL, q.Args)
 		}
+	}
+}
+
+func TestDashboards(t *testing.T) {
+	w := New("x")
+	src, _ := w.PutSource(ordersSource())
+	ch, _ := w.PutChart(Chart{Meta: Meta{Name: "Revenue"}, DataSource: src.ID, Type: "bar"})
+	id := func(ref string) (string, error) {
+		if c := w.Chart(ref); c != nil {
+			return c.ID, nil
+		}
+		for _, c := range w.Charts {
+			if strings.EqualFold(c.Name, ref) {
+				return c.ID, nil
+			}
+		}
+		return "", fmt.Errorf("no chart %q", ref)
+	}
+	items, bottom, err := LayoutRows([][]RowTile{{{Text: "# Weekly"}}, {{Chart: "revenue"}, {Chart: "Revenue", Span: 4}, {Text: "notes"}}}, []string{"S", "L"}, 0, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := ""
+	for _, it := range items {
+		got += fmt.Sprintf("%s %d,%d %dx%d; ", it.Kind, it.X, it.Y, it.W, it.H)
+	}
+	if want := "text 0,0 12x3; chart 0,3 4x8; chart 4,3 4x8; text 8,3 4x8; "; got != want || bottom != 11 {
+		t.Errorf("layout: %s (bottom %d)", got, bottom)
+	}
+	if _, _, err := LayoutRows([][]RowTile{{{Chart: "nope"}}}, nil, 0, id); err == nil || !strings.Contains(err.Error(), `no chart "nope"`) {
+		t.Errorf("unknown chart: %v", err)
+	}
+	if _, _, err := LayoutRows([][]RowTile{{{Text: "a", Span: 8}, {Text: "b", Span: 6}}}, nil, 0, id); err == nil {
+		t.Error("over-wide row accepted")
+	}
+	d, err := w.PutDashboard(Dashboard{Meta: Meta{Name: "Weekly"}, Pages: []Page{{Size: SizeSlide, Items: items}}})
+	if err != nil || d.Pages[0].ID == "" || d.Pages[0].Bottom() != 11 {
+		t.Fatalf("put: %v %+v", err, d)
+	}
+	d.Pages[0].Items[1].Y = 6 // 6 + 8 > 12 rows
+	if _, err := w.PutDashboard(d); err == nil || !strings.Contains(err.Error(), "past the slide") {
+		t.Errorf("slide overflow: %v", err)
+	}
+	d.Pages[0].Size = SizeReport
+	if _, err := w.PutDashboard(d); err != nil {
+		t.Errorf("report page: %v", err)
+	}
+	if len(w.DashboardsUsing(ch.ID)) != 1 {
+		t.Error("dashboards using")
+	}
+	// Deleting a chart takes its tiles off the dashboards.
+	if err := w.Delete(ch.ID); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(w.Dashboards[0].Pages[0].Items); n != 2 {
+		t.Errorf("tiles left: %d", n)
+	}
+	if TextRows("one line") != 2 || TextRows(strings.Repeat("line\n", 40)) < 15 {
+		t.Errorf("text rows: %d %d", TextRows("one line"), TextRows(strings.Repeat("line\n", 40)))
 	}
 }

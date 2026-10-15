@@ -315,6 +315,19 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 - Over MCP, data sources on connections the endpoint can't read show only their name, and their charts only name and
   type; creating or editing charts on them is refused.
 
+## Implementation notes (phase 2, dashboards)
+- Pages are a 12-column grid (react-grid-layout): tiles snap to it, move by their grip and resize from the corner. A
+  page is a **16:9 slide** (12 rows that fit the pane) or a **report** that grows downward. Navicat's free canvas,
+  shapes, images and tile layers aren't there; the grid replaces tile layers.
+- Tiles are charts of the workspace or Markdown text (sanitized: no HTML; links open in the browser). An agent's notes
+  are a text tile it owns, headed "Notes from <endpoint> · <time>"; `set_notes` replaces it, at the top of a report
+  page (pushing the rest down) or in the first free rows of a slide.
+- Deleting a chart takes its tiles off every dashboard. Auto refresh (off, 1, 5, 15, 30, 60 min) reloads the open
+  dashboard. Present shows one page at a time (← →, Esc).
+- MCP: `create_dashboard` and `edit_dashboard` (rows of tiles across 12 columns; pages default to report),
+  `set_notes`, `refresh_dashboard` (every chart's data plus the page's text), `open_dashboard`, `delete_dashboard`.
+- Next (phase 2b): snapshots and history with diffs, export (PDF, PNG, SVG, HTML) and print, and their MCP tools.
+
 ## Out of scope
 - File/ODBC data sources, cross-connection joins, Navicat Cloud/On-Prem sync.
 - Reading or writing Navicat's `.nbi` files (the sample was read only to learn the object model).

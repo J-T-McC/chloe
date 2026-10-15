@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { Connection, Connections, DBType, Explorer, ObjectKind, ObjectRef, arr, errorText } from "./api";
 import { alert, prompt } from "./components/Dialogs";
 
-export type TabKind = "objects" | "query" | "table" | "ddl" | "monitor" | "design" | "erd" | "model" | "viewdesign" | "redisconsole" | "users" | "user" | "collection" | "mongoquery" | "mongoshell" | "mongodesign" | "mongousers" | "history" | "mcp" | "bi" | "bisource" | "bichart";
+export type TabKind = "objects" | "query" | "table" | "ddl" | "monitor" | "design" | "erd" | "model" | "viewdesign" | "redisconsole" | "users" | "user" | "collection" | "mongoquery" | "mongoshell" | "mongodesign" | "mongousers" | "history" | "mcp" | "bi" | "bisource" | "bichart" | "bidash";
 
 export interface Tab {
   id: string;
@@ -215,7 +215,7 @@ export const useApp = create<AppState>((set, get) => ({
         t.kind === tab.kind &&
         (tab.kind === "model"
           ? !!tab.modelPath && t.modelPath === tab.modelPath
-          : tab.kind === "bi" || tab.kind === "bisource" || tab.kind === "bichart"
+          : tab.kind === "bi" || tab.kind === "bisource" || tab.kind === "bichart" || tab.kind === "bidash"
             ? !!tab.biPath && t.biPath === tab.biPath && (tab.kind === "bi" || (!!tab.biId && t.biId === tab.biId))
             : tab.kind !== "query" && t.connId === tab.connId && sameRef(t.ref, tab.ref)),
     );

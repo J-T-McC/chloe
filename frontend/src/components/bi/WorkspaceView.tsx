@@ -1,7 +1,7 @@
 // A BI workspace tab: its data sources and charts in a detail or icon view, with
 // quick filters and a properties pane (General, Using, Used By), like Navicat's
 // workspace window.
-import { ChartColumn, Database, LayoutGrid, List, Plus, RefreshCw } from "lucide-react";
+import { ChartColumn, Database, LayoutDashboard, LayoutGrid, List, Plus, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { B, BI, arr, errorText } from "../../api";
 import { Tab, connById, useApp } from "../../store";
@@ -12,10 +12,10 @@ import { Split } from "../Split";
 import { biChanged, openObject, useBIVersion, workspaceTitle } from "./actions";
 import { ChartTypeIcon } from "./icons";
 
-type Filter = "all" | "source" | "chart";
+type Filter = "all" | "source" | "chart" | "dashboard";
 
 interface Item {
-  kind: "source" | "chart";
+  kind: "source" | "chart" | "dashboard";
   id: string;
   name: string;
   chartType?: string;
@@ -77,10 +77,12 @@ export function WorkspaceView({ tab }: { tab: Tab }) {
 
   const sources = arr(w?.dataSources);
   const charts = arr(w?.charts);
+  const dashboards = arr(w?.dashboards);
   const items: Item[] = useMemo(() => {
     const out: Item[] = [
       ...sources.map((s) => ({ kind: "source" as const, id: s.id, name: s.name, createdBy: s.createdBy, created: s.created, modified: s.modified, refreshed: s.mode === "archive" ? s.refreshedAt : "", remarks: s.remarks })),
       ...charts.map((c) => ({ kind: "chart" as const, id: c.id, name: c.name, chartType: c.type, source: sources.find((s) => s.id === c.dataSource)?.name ?? "(deleted)", createdBy: c.createdBy, created: c.created, modified: c.modified, remarks: c.remarks })),
+      ...dashboards.map((d) => ({ kind: "dashboard" as const, id: d.id, name: d.name, createdBy: d.createdBy, created: d.created, modified: d.modified })),
     ];
     const f = search.toLowerCase();
     return out
@@ -103,19 +105,24 @@ export function WorkspaceView({ tab }: { tab: Tab }) {
     biChanged(path);
   };
   const rename = async (x: Item) => {
-    const name = await prompt(x.kind === "source" ? "Rename Data Source" : "Rename Chart", { message: "New name", defaultValue: x.name });
+    const name = await prompt(`Rename ${KIND_NAME[x.kind]}`, { message: "New name", defaultValue: x.name });
     if (!name?.trim() || name.trim() === x.name) return;
     run("Couldn't rename it", async () => {
-      if (x.kind === "chart") await BI.SaveChart(path, { ...charts.find((c) => c.id === x.id)!, name: name.trim() });
+      if (x.kind === "dashboard") await BI.SaveDashboard(path, { ...dashboards.find((d) => d.id === x.id)!, name: name.trim() });
+      else if (x.kind === "chart") await BI.SaveChart(path, { ...charts.find((c) => c.id === x.id)!, name: name.trim() });
       else await BI.SaveSource(path, { ...sources.find((s) => s.id === x.id)!, name: name.trim() });
       const app = useApp.getState();
       for (const t of app.tabs) if (t.biPath === path && t.biId === x.id) app.updateTab(t.id, { title: name.trim() });
     });
   };
   const remove = async (x: Item) => {
-    const users = x.kind === "source" ? charts.filter((c) => c.dataSource === x.id).map((c) => c.name) : [];
-    const msg = users.length ? `Delete the data source "${x.name}"? These charts use it and will show that it's gone: ${users.join(", ")}.` : `Delete "${x.name}"? This can't be undone.`;
-    if (!(await confirm(x.kind === "source" ? "Delete Data Source" : "Delete Chart", { message: msg, okLabel: "Delete" }))) return;
+    const users = x.kind === "source" ? charts.filter((c) => c.dataSource === x.id).map((c) => c.name) : x.kind === "chart" ? dashboards.filter((d) => arr(d.pages).some((p) => arr(p.items).some((it) => it.chart === x.id))).map((d) => d.name) : [];
+    const msg = !users.length
+      ? `Delete "${x.name}"? This can't be undone.`
+      : x.kind === "source"
+        ? `Delete the data source "${x.name}"? These charts use it and will show that it's gone: ${users.join(", ")}.`
+        : `Delete the chart "${x.name}"? It will be taken off these dashboards: ${users.join(", ")}.`;
+    if (!(await confirm(`Delete ${KIND_NAME[x.kind]}`, { message: msg, okLabel: "Delete" }))) return;
     run("Couldn't delete it", async () => {
       await BI.DeleteObject(path, x.id);
       const app = useApp.getState();
@@ -123,7 +130,7 @@ export function WorkspaceView({ tab }: { tab: Tab }) {
     });
   };
   const menu = (x: Item): MenuItem[] => [
-    { label: x.kind === "source" ? "Design Data Source" : "Design Chart", onClick: () => open(x) },
+    { label: x.kind === "dashboard" ? "Open Dashboard" : `Design ${KIND_NAME[x.kind]}`, onClick: () => open(x) },
     { label: "Rename…", onClick: () => rename(x) },
     { label: "Delete…", onClick: () => remove(x) },
     ...(x.kind === "source" && sources.find((s) => s.id === x.id)?.mode === "archive"
@@ -146,6 +153,9 @@ export function WorkspaceView({ tab }: { tab: Tab }) {
         <button onClick={newChart}>
           <Plus size={14} /> New Chart
         </button>
+        <button onClick={() => openObject(path, "dashboard", "", "")}>
+          <Plus size={14} /> New Dashboard
+        </button>
         <span className="tb-sep" />
         <label className="tb-label">
           Theme{" "}
@@ -156,9 +166,9 @@ export function WorkspaceView({ tab }: { tab: Tab }) {
         </label>
         <span className="tb-sep" />
         <div className="seg">
-          {(["all", "source", "chart"] as Filter[]).map((f) => (
+          {(["all", "source", "chart", "dashboard"] as Filter[]).map((f) => (
             <button key={f} className={filter === f ? "on" : ""} onClick={() => setFilter(f)}>
-              {f === "all" ? "All" : f === "source" ? "Data Source" : "Chart"}
+              {f === "all" ? "All" : KIND_NAME[f]}
             </button>
           ))}
         </div>
@@ -201,9 +211,9 @@ export function WorkspaceView({ tab }: { tab: Tab }) {
                   {items.map((x) => (
                     <tr key={x.id} className={x.id === picked ? "selected" : ""} onClick={() => setPicked(x.id)} onDoubleClick={() => open(x)} onContextMenu={(e) => (setPicked(x.id), openMenu(e, menu(x)))}>
                       <td>
-                        {x.kind === "source" ? <Database size={13} /> : <ChartTypeIcon type={x.chartType!} size={13} />} {x.name}
+                        <KindIcon x={x} size={13} /> {x.name}
                       </td>
-                      <td>{x.kind === "source" ? "Data Source" : "Chart"}</td>
+                      <td>{KIND_NAME[x.kind]}</td>
                       <td>{x.chartType ? chartTypeName(x.chartType) : ""}</td>
                       <td>{x.source ?? ""}</td>
                       <td className="muted">{createdByLabel(x.createdBy)}</td>
@@ -217,14 +227,16 @@ export function WorkspaceView({ tab }: { tab: Tab }) {
               <div className="bi-icons">
                 {items.map((x) => (
                   <div key={x.id} className={"bi-icon" + (x.id === picked ? " selected" : "")} onClick={() => setPicked(x.id)} onDoubleClick={() => open(x)} onContextMenu={(e) => (setPicked(x.id), openMenu(e, menu(x)))}>
-                    <div className="bi-icon-art">{x.kind === "source" ? <Database size={34} strokeWidth={1.4} /> : <ChartTypeIcon type={x.chartType!} size={34} strokeWidth={1.4} />}</div>
+                    <div className="bi-icon-art">
+                      <KindIcon x={x} size={34} strokeWidth={1.4} />
+                    </div>
                     <div className="bi-icon-name">{x.name}</div>
                   </div>
                 ))}
               </div>
             )}
             {w && !items.length && (
-              <div className="center-hint">{sources.length + charts.length ? "Nothing matches the filter." : "This workspace is empty. Start with New Data Source: a table, view or query that charts are built on."}</div>
+              <div className="center-hint">{sources.length + charts.length + dashboards.length ? "Nothing matches the filter." : "This workspace is empty. Start with New Data Source: a table, view or query that charts are built on."}</div>
             )}
           </div>
         }
@@ -232,6 +244,14 @@ export function WorkspaceView({ tab }: { tab: Tab }) {
       />
     </div>
   );
+}
+
+const KIND_NAME = { source: "Data Source", chart: "Chart", dashboard: "Dashboard" } as const;
+
+function KindIcon({ x, size, strokeWidth }: { x: Pick<Item, "kind" | "chartType">; size: number; strokeWidth?: number }) {
+  if (x.kind === "source") return <Database size={size} strokeWidth={strokeWidth} />;
+  if (x.kind === "dashboard") return <LayoutDashboard size={size} strokeWidth={strokeWidth} />;
+  return <ChartTypeIcon type={x.chartType!} size={size} strokeWidth={strokeWidth} />;
 }
 
 export const CHART_TYPE_NAMES: Record<string, string> = {
@@ -256,9 +276,18 @@ function Properties({ w, sel, path }: { w: B.Workspace | null; sel: Item | null;
   if (!w) return <div className="info-panel empty" />;
   const sources = arr(w.dataSources);
   const charts = arr(w.charts);
+  const dashboards = arr(w.dashboards);
   const src = sel?.kind === "source" ? sources.find((s) => s.id === sel.id) : sel ? sources.find((s) => s.id === charts.find((c) => c.id === sel.id)?.dataSource) : null;
-  const using = sel?.kind === "chart" ? (src ? [{ kind: "source" as const, id: src.id, name: src.name }] : []) : [];
-  const usedBy = sel?.kind === "source" ? charts.filter((c) => c.dataSource === sel.id).map((c) => ({ kind: "chart" as const, id: c.id, name: c.name, type: c.type })) : [];
+  type Dep = { kind: "source" | "chart" | "dashboard"; id: string; name: string; type?: string };
+  const board = sel?.kind === "dashboard" ? dashboards.find((d) => d.id === sel.id) : null;
+  const boardCharts = board ? charts.filter((c) => arr(board.pages).some((p) => arr(p.items).some((it) => it.chart === c.id))) : [];
+  const using: Dep[] = sel?.kind === "chart" ? (src ? [{ kind: "source", id: src.id, name: src.name }] : []) : boardCharts.map((c) => ({ kind: "chart", id: c.id, name: c.name, type: c.type }));
+  const usedBy: Dep[] =
+    sel?.kind === "source"
+      ? charts.filter((c) => c.dataSource === sel.id).map((c) => ({ kind: "chart", id: c.id, name: c.name, type: c.type }))
+      : sel?.kind === "chart"
+        ? dashboards.filter((d) => arr(d.pages).some((p) => arr(p.items).some((it) => it.chart === sel.id))).map((d) => ({ kind: "dashboard", id: d.id, name: d.name }))
+        : [];
   return (
     <div className="info-panel bi-props">
       <div className="seg-tabs compact">
@@ -276,11 +305,17 @@ function Properties({ w, sel, path }: { w: B.Workspace | null; sel: Item | null;
         sel ? (
           <>
             <div className="info-head">
-              {sel.kind === "source" ? <Database size={16} /> : <ChartTypeIcon type={sel.chartType!} size={16} />} {sel.name}
+              <KindIcon x={sel} size={16} /> {sel.name}
             </div>
             <dl>
               <dt>Type</dt>
-              <dd>{sel.kind === "source" ? "Data Source" : `Chart (${chartTypeName(sel.chartType!)})`}</dd>
+              <dd>{sel.kind === "chart" ? `Chart (${chartTypeName(sel.chartType!)})` : KIND_NAME[sel.kind]}</dd>
+              {board && (
+                <>
+                  <dt>Pages</dt>
+                  <dd>{arr(board.pages).length}</dd>
+                </>
+              )}
               {sel.kind === "source" && src && (
                 <>
                   <dt>Connection</dt>
@@ -327,6 +362,8 @@ function Properties({ w, sel, path }: { w: B.Workspace | null; sel: Item | null;
               <dd>{sources.length}</dd>
               <dt>Charts</dt>
               <dd>{charts.length}</dd>
+              <dt>Dashboards</dt>
+              <dd>{dashboards.length}</dd>
               <dt>Theme</dt>
               <dd>{w.theme === "dark" ? "Dark" : "Light"}</dd>
               {w.createdBy && (
@@ -344,7 +381,7 @@ function Properties({ w, sel, path }: { w: B.Workspace | null; sel: Item | null;
         <ul className="bi-deps">
           {(tab === "using" ? using : usedBy).map((x) => (
             <li key={x.id} onDoubleClick={() => openObject(path, x.kind, x.id, x.name)}>
-              {x.kind === "source" ? <Database size={13} /> : <ChartTypeIcon type={(x as { type: string }).type} size={13} />} {x.name}
+              <KindIcon x={{ kind: x.kind, chartType: x.type }} size={13} /> {x.name}
             </li>
           ))}
           {!(tab === "using" ? using : usedBy).length && <li className="muted">{tab === "using" ? "It doesn't depend on anything." : "Nothing uses it."}</li>}

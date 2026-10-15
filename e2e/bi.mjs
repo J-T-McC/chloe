@@ -233,6 +233,65 @@ await step("a data source time zone moves dates across days", async () => {
   check(text.includes("Sat") && text.includes("Sun") && !text.includes("Mon"), "zoned weekdays: " + text.slice(0, 300));
 });
 
+const dash = () => page.locator(".bi-dash-editor:visible");
+await step("a dashboard of charts and text", async () => {
+  await page.locator(".tab", { hasText: "Sales (BI)" }).click();
+  await page.locator(".bi-workspace:visible").getByRole("button", { name: "New Dashboard" }).click();
+  await dash().waitFor();
+  await dash().getByRole("button", { name: "Add Text" }).click();
+  await dash().getByLabel("Text").fill("# Sales overview\n**North** leads. <img src=x onerror=alert(1)>");
+  await dash().getByRole("button", { name: "Add Chart" }).click();
+  await page.locator(".menu-item", { hasText: "Revenue to date" }).click();
+  await dash().getByRole("button", { name: "Add Chart" }).click();
+  await page.locator(".menu-item", { hasText: /^\s*orders\s*$/ }).click();
+  await dash().locator(".bi-tile").nth(2).waitFor();
+  check((await dash().locator(".bi-tile").count()) === 3, "tiles");
+  await dash().locator(".bi-tile .bi-echart svg").first().waitFor();
+  await dash().getByTestId("bi-value").waitFor();
+  const text = dash().getByTestId("bi-text");
+  check((await text.locator("h1").innerText()) === "Sales overview", "markdown heading");
+  check(!(await text.locator("img").count()), "markup in text rendered");
+  // Tiles stay inside the 16:9 slide.
+  const box = await dash().locator(".bi-canvas-page").boundingBox();
+  check(Math.abs(box.width / box.height - 16 / 9) < 0.02, `slide ratio ${box.width}x${box.height}`);
+  await dash().locator(".bi-dash-canvas-wrap").click({ position: { x: 4, y: 4 } });
+  await dash().getByLabel("Dashboard name").fill("Sales overview");
+  await dash().getByRole("button", { name: "Save" }).click();
+  await page.locator(".tab.active", { hasText: "Sales overview" }).waitFor();
+  await page.waitForTimeout(200);
+  check(!(await page.locator(".tab.active .tab-dirty").count()), "dirty after save");
+  await shot("bi-dashboard");
+});
+
+await step("pages, report size and present", async () => {
+  await dash().getByTitle("Add Page").click();
+  check((await dash().locator(".bi-page-thumb").count()) === 2, "pages");
+  await dash().getByLabel("Page size").selectOption("report");
+  await dash().getByRole("button", { name: "Add Text" }).click();
+  await dash().getByLabel("Text").fill("## Details\nMore below.");
+  await dash().getByRole("button", { name: "Save" }).click();
+  await page.waitForTimeout(300);
+  await dash().locator(".bi-page-thumb").first().click();
+  await dash().getByRole("button", { name: "Present" }).click();
+  const pres = page.getByTestId("bi-present");
+  await pres.locator(".bi-echart svg").waitFor();
+  await shot("bi-dashboard-present");
+  await page.keyboard.press("ArrowRight");
+  await pres.getByText("Page 2 of 2").waitFor();
+  await pres.getByText("More below.").waitFor();
+  await page.keyboard.press("Escape");
+  await pres.waitFor({ state: "detached" });
+  // The workspace knows the chart is on it.
+  await page.locator(".tab", { hasText: "Sales (BI)" }).click();
+  const ws = page.locator(".bi-workspace:visible");
+  await ws.getByRole("button", { name: "Dashboard", exact: true }).click();
+  check((await ws.locator("tbody tr").count()) === 1, "dashboard filter");
+  await ws.getByRole("button", { name: "All", exact: true }).click();
+  await ws.locator("tr", { hasText: "Revenue to date" }).click();
+  await ws.locator(".bi-props").getByRole("button", { name: "Used By" }).click();
+  check((await ws.locator(".bi-deps").innerText()).includes("Sales overview"), "chart used by");
+});
+
 await step("dark theme", async () => {
   await page.locator(".tab", { hasText: "Sales (BI)" }).click();
   await page.locator(".bi-workspace:visible").getByLabel("Theme").selectOption("dark");
