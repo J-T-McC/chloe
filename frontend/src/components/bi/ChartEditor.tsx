@@ -88,7 +88,7 @@ export function fitToType(c: B.Chart, t: B.ChartType, fields: B.Field[]): B.Char
   return out;
 }
 
-const queryKey = (c: B.Chart | null) => (c ? JSON.stringify([c.dataSource, c.type, c.dimension, c.series, c.value, c.secondary, c.target, cleanFilters(arr(c.filters)), c.sort, c.top, c.others]) : "");
+const queryKey = (c: B.Chart | null) => (c ? JSON.stringify([c.dataSource, c.type, c.dimension, c.series, c.value, c.secondary, c.target, cleanFilters(arr(c.filters)), c.sort, c.top, c.others, c.props?.sameDays]) : "");
 const comparable = (c: B.Chart | null) => (c ? JSON.stringify({ ...c, modified: undefined, filters: cleanFilters(arr(c.filters)) }) : "");
 
 export function ChartEditor({ tab }: { tab: Tab }) {
@@ -486,6 +486,11 @@ function PropsPane({ draft, props, setProps, update, fields }: { draft: B.Chart;
           {t !== "gauge" && (
             <label className="check">
               <input type="checkbox" checked={!!props.lowerIsBetter} onChange={(e) => setProps({ lowerIsBetter: e.target.checked })} /> Lower is better
+            </label>
+          )}
+          {t === "trend" && (
+            <label className="check" title="While the latest week, month, quarter or year is still going, compare it with the same days of the one before">
+              <input type="checkbox" checked={!!props.sameDays} onChange={(e) => setProps({ sameDays: e.target.checked })} /> Compare the same days of the previous period
             </label>
           )}
         </Section>

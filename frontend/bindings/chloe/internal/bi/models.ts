@@ -239,6 +239,11 @@ export interface Data {
      * Params are the parameter values the read used, for titles and text.
      */
     "params"?: Values;
+
+    /**
+     * Previous is what a sameDays Trend compares its current period with.
+     */
+    "previous"?: Previous | null;
 }
 
 /**
@@ -534,6 +539,16 @@ export interface Parameter {
 }
 
 /**
+ * Previous is the value over the first days of the period before the current
+ * one, From to To (dates, both included).
+ */
+export interface Previous {
+    "value": any;
+    "from": string;
+    "to": string;
+}
+
+/**
  * Projection keeps or drops fields of the data source.
  */
 export interface Projection {
@@ -597,6 +612,13 @@ export interface Props {
      * LowerIsBetter colours a Trend's or KPI's change: a fall is good.
      */
     "lowerIsBetter"?: boolean;
+
+    /**
+     * SameDays has a Trend whose latest period is still going (this week on a
+     * Thursday) compare it with the same days of the period before (Sunday to
+     * Thursday last week) instead of that whole period.
+     */
+    "sameDays"?: boolean;
 
     /**
      * Control is how a Control chart picks values: list (several), combo (one)

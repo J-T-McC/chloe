@@ -121,6 +121,19 @@ export function niceMax(x: number): number {
   return 10 * p;
 }
 
+/** A value axis for a rate shown as a percentage stops at 100 % when the values
+ *  come close to it, in quarter steps, rather than at a round step past it
+ *  (120 %). Small rates and values over 100 % keep the automatic axis. */
+export function percentCap(fmt: B.NumberFormat, p: Pivot, stacked: boolean): { max?: number; interval?: number } {
+  const cap = fmt.percent ? 1 : (fmt.suffix ?? "").startsWith("%") ? 100 : 0;
+  if (!cap) return {};
+  const column = (i: number) => p.series.map((s) => s.values[i] ?? 0);
+  const tops = p.categories.map((_, i) => (stacked ? column(i).reduce((t, v) => t + v, 0) : Math.max(...column(i))));
+  const all = p.series.flatMap((s) => s.values.filter((v): v is number => v !== null));
+  const hi = Math.max(...tops, ...all);
+  return all.length && Math.min(...all) >= 0 && hi <= cap && hi > cap / 2 ? { max: cap, interval: cap / 4 } : {};
+}
+
 /** Each category's values as shares of 100 %. */
 export function toPercent(p: Pivot): Pivot {
   const totals = p.categories.map((_, i) => p.series.reduce((t, s) => t + Math.abs(s.values[i] ?? 0), 0));
@@ -491,6 +504,7 @@ function buildBase(chart: B.Chart, data: B.Data, theme: ChartTheme): EChartsCore
     nameGap: 44,
     nameTextStyle: { color: t.ink2 },
     max: pct ? 100 : undefined,
+    ...(pct ? {} : percentCap(fmt, p, stacked)),
     // Room above the tallest value, so bars and labels don't touch the top; a
     // few round ticks, so short charts aren't crowded.
     boundaryGap: pct ? undefined : [0, "8%"],

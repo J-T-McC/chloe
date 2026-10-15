@@ -285,6 +285,20 @@ func (m *Manager) BIChartData(ctx context.Context, w bi.Workspace, c bi.Chart, p
 		out.Complete, out.Columns, out.Truncated = true, cols, truncated
 		out.Rows = bi.ShapeRange(c, cols, raw, bi.FilterWindow(*src, c))
 		out.RanAt = time.Now().UTC().Format(time.RFC3339)
+		if pc, span, ok := bi.SameDays(*src, c, cols, out.Rows); ok {
+			pq, pcols, err := bi.ChartQuery(d, from, *src, pc, 1)
+			if err != nil {
+				return err
+			}
+			_, praw, _, err := query(pq)
+			if err != nil {
+				return err
+			}
+			if rows := bi.Shape(pc, pcols, praw); len(rows) > 0 && len(rows[0]) > 0 {
+				span.Value = rows[0][0]
+			}
+			out.Previous = span
+		}
 		return nil
 	}
 	if src.Mode == bi.ModeArchive {

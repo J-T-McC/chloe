@@ -225,6 +225,11 @@ function TrendFigure({ chart, data, theme }: { chart: B.Chart; data: B.Data; the
   const last = points[points.length - 1];
   const prev = points[points.length - 2];
   const label = (x: unknown) => formatLabel(x, cols[di], chart.props?.dateFormat, { sameYear: oneYear(points.map((p) => p.label), cols[di]) });
+  // A period still going compares with the same days of the one before (sameDays).
+  const same = data.previous;
+  const base = same ? (typeof same.value === "number" ? same.value : null) : (prev?.v ?? null);
+  const day = (d: string) => formatLabel(d, { type: "datetime", aggregate: "day" }, "MMM D");
+  const vs = same ? `vs ${day(same.from)}–${day(same.to)}` : `vs ${label(prev?.label)}`;
   const t = TOKENS[theme];
   // A sparkline of the last twelve periods, the current one marked.
   const spark = points.slice(-12);
@@ -244,7 +249,7 @@ function TrendFigure({ chart, data, theme }: { chart: B.Chart; data: B.Data; the
       <div className="bi-value-label">
         {cols[vi]?.label} · {label(last?.label)}
       </div>
-      {prev && last?.v !== null && prev.v !== null && <Delta change={(last?.v ?? 0) - prev.v} base={prev.v} lowerIsBetter={chart.props?.lowerIsBetter} fmt={fmt} vs={`vs ${label(prev.label)}`} />}
+      {base !== null && last?.v !== null && <Delta change={(last?.v ?? 0) - base} base={base} lowerIsBetter={chart.props?.lowerIsBetter} fmt={fmt} vs={vs} />}
       {spark.length > 1 && (
         <svg className="bi-spark" width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden>
           <path d={path} fill="none" stroke={t.axis} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />

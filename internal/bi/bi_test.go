@@ -717,6 +717,46 @@ func TestOpenEndedWindow(t *testing.T) {
 	}
 }
 
+func TestSameDays(t *testing.T) {
+	defer func(f func() time.Time) { now = f }(now)
+	now = func() time.Time { return time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC) } // a Thursday
+	src := ordersSource()
+	c := Chart{Type: "trend", Dimension: []ChartField{{Field: "placed_at", Aggregate: "week"}}, Value: []ChartField{{Field: "total", Aggregate: "sum"}},
+		Props: Props{SameDays: true}}
+	cols := []Column{{Role: "dimension", Aggregate: "week", Field: "placed_at", Type: TypeString}, {Role: "value", Type: TypeNumber}}
+	rows := [][]any{{"2026-10-04", 40.0}, {"2026-10-11", 33.0}}
+	prev, span, ok := SameDays(src, c, cols, rows)
+	if !ok || span.From != "2026-10-04" || span.To != "2026-10-08" {
+		t.Fatalf("Sunday to Thursday last week: %v %+v", ok, span)
+	}
+	if prev.Type != "value" || prev.Dimension != nil || len(prev.Filters) != 2 || prev.Filters[1].Op != "<" || prev.Filters[1].Values[0] != "2026-10-09" {
+		t.Errorf("comparison chart: %+v", prev)
+	}
+	q, _, err := ChartQuery(SQLite, Table(`"t"`), src, prev, 1)
+	if err != nil || !strings.Contains(q.SQL, ">=") || strings.Contains(q.SQL, "GROUP BY") {
+		t.Errorf("comparison query: %v %s", err, q.SQL)
+	}
+
+	// A month on the 31st compares with all of the shorter month before.
+	now = func() time.Time { return time.Date(2026, 3, 31, 12, 0, 0, 0, time.UTC) }
+	c.Dimension[0].Aggregate, cols[0].Aggregate = "month", "month"
+	if _, span, _ := SameDays(src, c, cols, [][]any{{"2026-03", 5.0}}); span == nil || span.From != "2026-02-01" || span.To != "2026-02-28" {
+		t.Errorf("March 31st: %+v", span)
+	}
+	// Nothing to compare when the latest period has ended, the option is off, or the bucket is a day.
+	if _, _, ok := SameDays(src, c, cols, [][]any{{"2026-02", 5.0}}); ok {
+		t.Error("ended period compared")
+	}
+	c.Props.SameDays = false
+	if _, _, ok := SameDays(src, c, cols, [][]any{{"2026-03", 5.0}}); ok {
+		t.Error("option off")
+	}
+	c.Props.SameDays, c.Dimension[0].Aggregate, cols[0].Aggregate = true, "day", "day"
+	if _, _, ok := SameDays(src, c, cols, [][]any{{"2026-03-31", 5.0}}); ok {
+		t.Error("day bucket")
+	}
+}
+
 func TestGridMigration(t *testing.T) {
 	// A version 1 file: 12-row slides. Each tile keeps its pixels at twice the rows.
 	v1 := []byte(`{"format":"chloe-bi","version":1,"id":"w","name":"Old","dataSources":[],"charts":[{"id":"c","name":"C","dataSource":"s","type":"bar","props":{}}],
