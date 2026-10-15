@@ -308,6 +308,24 @@ func (b *qb) where(fields []Field, filters []Filter) (string, error) {
 		var e string
 		switch f.Op {
 		case "=", "!=", "<", "<=", ">", ">=":
+			// A plain date on a date/time field means the whole day.
+			if day, ok := wholeDay(fd, f.Values[0]); ok {
+				next := day.AddDate(0, 0, 1).Format("2006-01-02")
+				switch f.Op {
+				case "=", "!=":
+					e = col + " >= " + b.bind(fd, f.Values[0]) + " AND " + col + " < " + b.bind(fd, next)
+					if f.Op == "!=" {
+						e = "NOT (" + e + ")"
+					}
+				case "<=":
+					e = col + " < " + b.bind(fd, next)
+				case ">":
+					e = col + " >= " + b.bind(fd, next)
+				default: // < and >= already start at midnight
+					e = col + " " + f.Op + " " + b.bind(fd, f.Values[0])
+				}
+				break
+			}
 			op := map[string]string{"!=": "<>"}[f.Op]
 			if op == "" {
 				op = f.Op
@@ -342,7 +360,12 @@ func (b *qb) where(fields []Field, filters []Filter) (string, error) {
 		case "is_not_empty":
 			e = b.text(col) + " <> ''"
 		case "between", "not_between":
-			e = col + " BETWEEN " + b.bind(fd, f.Values[0]) + " AND " + b.bind(fd, f.Values[1])
+			if day, ok := wholeDay(fd, f.Values[1]); ok {
+				// The end date is included whole: up to midnight the day after.
+				e = col + " >= " + b.bind(fd, f.Values[0]) + " AND " + col + " < " + b.bind(fd, day.AddDate(0, 0, 1).Format("2006-01-02"))
+			} else {
+				e = col + " BETWEEN " + b.bind(fd, f.Values[0]) + " AND " + b.bind(fd, f.Values[1])
+			}
 			if f.Op == "not_between" {
 				e = "NOT (" + e + ")"
 			}
@@ -365,6 +388,16 @@ func (b *qb) where(fields []Field, filters []Filter) (string, error) {
 		return "", nil
 	}
 	return " WHERE " + strings.Join(parts, " AND "), nil
+}
+
+// wholeDay reports whether v is a plain date (2026-10-14) compared with a
+// date/time field, where it should stand for the whole day.
+func wholeDay(f Field, v string) (time.Time, bool) {
+	if f.Type != TypeDateTime || strings.EqualFold(f.DBType, "date") || len(v) != 10 {
+		return time.Time{}, false
+	}
+	t, err := time.Parse("2006-01-02", v)
+	return t, err == nil
 }
 
 func (b *qb) aggregate(f Field, agg string) string {
