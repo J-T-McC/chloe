@@ -868,3 +868,45 @@ func TestControlChart(t *testing.T) {
 		t.Error("bad interaction accepted")
 	}
 }
+
+func TestTesterFixes(t *testing.T) {
+	src := ordersSource()
+	// Relative dates need a date field; numbers compare with numbers.
+	for _, f := range []Filter{{Field: "status", Op: "in_period", Values: []string{"last", "month"}}, {Field: "total", Op: ">=", Values: []string{"lots"}}} {
+		if _, err := (Chart{Type: "value", Value: []ChartField{{Field: "total", Aggregate: "sum"}}, Filters: []Filter{f}}).Check(src, "sqlite"); err == nil {
+			t.Errorf("accepted %+v", f)
+		}
+	}
+	if _, err := (Chart{Type: "value", Value: []ChartField{{Field: "total", Aggregate: "sum"}}, Filters: []Filter{{Field: "total", Op: ">=", Values: []string{"[$x]"}}}}).Check(src, "sqlite"); err != nil {
+		t.Errorf("a parameter value was refused before it's filled in: %v", err)
+	}
+	lo, hi := 100.0, 10.0
+	if _, err := (Chart{Type: "gauge", Value: []ChartField{{Field: "total", Aggregate: "sum"}}, Props: Props{Min: &lo, Max: &hi}}).Check(src, "sqlite"); err == nil {
+		t.Error("gauge min above max")
+	}
+	s := func(v string) *string { return &v }
+	cols := []Column{{Role: "dimension", Type: TypeString}}
+	if got := Shape(Chart{Type: "control"}, cols, [][]*string{{s("Cats")}, {s("Yacht")}, {s("frontier")}}); fmt.Sprint(got) != "[[Cats] [frontier] [Yacht]]" {
+		t.Errorf("control order: %v", got)
+	}
+	// Top N keeps the largest, even on a date dimension.
+	dcols := []Column{{Role: "dimension", Type: TypeString, Aggregate: "day"}, {Role: "value", Type: TypeNumber}}
+	got := Shape(Chart{Type: "treemap", Top: 1, Value: []ChartField{{Field: "x", Aggregate: "sum"}}}, dcols, [][]*string{{s("2026-01-01"), s("1")}, {s("2026-01-02"), s("9")}})
+	if len(got) != 1 || got[0][0] != "2026-01-02" {
+		t.Errorf("top by value: %v", got)
+	}
+	// Parameters a source names must exist; an archive's query can't be overridden.
+	w := paramWorkspace(t)
+	src.CustomFields = []CustomField{{Name: "x", Kind: CustomCalculated, Expression: "total * [$nope]"}}
+	if err := w.CheckRefs(src); err == nil || !strings.Contains(err.Error(), "$nope") {
+		t.Errorf("unknown parameter: %v", err)
+	}
+	src.CustomFields = nil
+	src.Table, src.SQL, src.Mode = "", "SELECT * FROM orders WHERE customer = [$region]", ModeArchive
+	if _, _, err := w.Resolve(src, Chart{}, map[string]string{"region": "South"}); err == nil || !strings.Contains(err.Error(), "snapshot") {
+		t.Errorf("archive override: %v", err)
+	}
+	if _, err := parseExpr(`IF(a = 1, "yes", 0)`); err == nil || !strings.Contains(err.Error(), "single quotes") {
+		t.Errorf("double quotes: %v", err)
+	}
+}

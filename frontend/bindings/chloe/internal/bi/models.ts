@@ -461,6 +461,11 @@ export interface NumberFormat {
      * NoSeparator drops the thousands separator.
      */
     "noSeparator"?: boolean;
+
+    /**
+     * Percent shows values as percentages (0.2 → 20%).
+     */
+    "percent"?: boolean;
 }
 
 export interface Page {

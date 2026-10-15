@@ -4395,6 +4395,7 @@ table.mapping select {
 }
 
 .bi-delta {
+  white-space: nowrap;
   margin-top: 8px;
   font-size: 13px;
   font-weight: 600;
@@ -5310,4 +5311,59 @@ table.mapping select {
   right: 6px;
   opacity: 0.5;
   z-index: 2;
+}
+
+/* KPI and Trend tiles: the figure shares the tile with a meter or a change and a
+   sparkline, so it's smaller; very short tiles drop the extras. */
+.bi-tile .bi-value {
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.bi-tile .bi-value:has(.bi-kpi, .bi-delta) .bi-value-figure {
+  font-size: clamp(14px, min(26cqh, 16cqw), 52px);
+}
+
+.bi-tile .bi-kpi {
+  margin-top: clamp(4px, 4cqh, 14px);
+}
+
+.bi-tile .bi-kpi-row,
+.bi-tile .bi-delta {
+  font-size: clamp(10px, 7cqh, 13px);
+}
+
+.bi-tile .bi-delta {
+  margin-top: clamp(2px, 3cqh, 8px);
+}
+
+@container (max-height: 170px) {
+  .bi-spark,
+  .bi-kpi-row {
+    display: none;
+  }
+}
+
+@container (max-height: 110px) {
+  .bi-kpi,
+  .bi-value:has(.bi-delta) .bi-value-label {
+    display: none;
+  }
+}
+
+/* A range control: from and to on one line. */
+.bi-control.range {
+  flex-wrap: nowrap;
+}
+
+.bi-control.range input {
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
+  font: inherit;
+  padding: 3px 6px;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
 }

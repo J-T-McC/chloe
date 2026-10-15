@@ -109,6 +109,7 @@ func readStmt(ctx context.Context, ds driver.Session, q bi.Stmt, limit int) ([]m
 // doesn't type are typed from sample values.
 func (m *Manager) BIFields(ctx context.Context, w bi.Workspace, src bi.DataSource) ([]bi.Field, error) {
 	var fields []bi.Field
+	previous := src.Fields
 	src.Joins = slices.Clone(src.Joins)
 	if err := m.biJoinColumns(ctx, &src); err != nil {
 		return nil, err
@@ -126,14 +127,60 @@ func (m *Manager) BIFields(ctx context.Context, w bi.Workspace, src bi.DataSourc
 		if err != nil {
 			return err
 		}
-		fields = probeFields(cols, rows)
+		var unsampled []int
+		fields, unsampled = probeFields(cols, rows)
+		// Columns with no values to look at (a parameter or join that matches
+		// nothing right now) keep the type they had, or for a table source are
+		// typed from their table.
+		for _, i := range unsampled {
+			f := &fields[i]
+			if old, ok := fieldNamed(previous, f.Name); ok {
+				f.Type = old.Type
+				continue
+			}
+			if src.Table == "" {
+				continue
+			}
+			table, col := src.Table, f.Name
+			if t, c, ok := strings.Cut(f.Name, "."); ok && slices.ContainsFunc(src.Joins, func(j bi.Join) bool { return j.Table == t }) {
+				table, col = t, c
+			}
+			ref := model.ObjectRef{Database: src.Database, Schema: src.Schema, Name: table}
+			if d.HasSchemas && ref.Schema == "" {
+				ref.Schema = d.DefaultSchema
+			}
+			q := bi.Stmt{SQL: fmt.Sprintf("SELECT %s FROM %s WHERE %s IS NOT NULL LIMIT 50", d.QuoteIdent(col), d.Qualified(ref), d.QuoteIdent(col))}
+			if _, rows, _, err := readStmt(ctx, ds, q, 50); err == nil {
+				var samples []string
+				for _, r := range rows {
+					if r[0] != nil && *r[0] != "" {
+						samples = append(samples, *r[0])
+					}
+				}
+				if g := bi.GuessType(samples); len(samples) > 0 && (f.Type == bi.TypeString || f.DBType == "") && g != bi.TypeString {
+					f.Type = g
+				}
+			}
+		}
 		return nil
 	})
 	return fields, err
 }
 
-func probeFields(cols []model.ResultColumn, rows [][]*string) []bi.Field {
+func fieldNamed(fs []bi.Field, name string) (bi.Field, bool) {
+	for _, f := range fs {
+		if f.Name == name {
+			return f, true
+		}
+	}
+	return bi.Field{}, false
+}
+
+// probeFields types columns, and lists those it had no sample values for whose
+// type was only guessed.
+func probeFields(cols []model.ResultColumn, rows [][]*string) ([]bi.Field, []int) {
 	fields := make([]bi.Field, len(cols))
+	var unsampled []int
 	for i, c := range cols {
 		f := bi.Field{Name: c.Name, DBType: c.Type, Type: bi.FieldType(c.Type)}
 		var samples []string
@@ -141,6 +188,9 @@ func probeFields(cols []model.ResultColumn, rows [][]*string) []bi.Field {
 			if r[i] != nil && *r[i] != "" {
 				samples = append(samples, *r[i])
 			}
+		}
+		if len(samples) == 0 && (f.Type == "" || f.Type == bi.TypeString) {
+			unsampled = append(unsampled, i)
 		}
 		switch guess := bi.GuessType(samples); {
 		case f.Type == "":
@@ -151,7 +201,7 @@ func probeFields(cols []model.ResultColumn, rows [][]*string) []bi.Field {
 		}
 		fields[i] = f
 	}
-	return fields
+	return fields, unsampled
 }
 
 // BIPreview reads the first rows of a data source, projected, filtered and sorted.
@@ -277,19 +327,54 @@ func (m *Manager) biJoinColumns(ctx context.Context, src *bi.DataSource) error {
 	if err := m.Ensure(ctx, src.ConnID); err != nil {
 		return err
 	}
-	for i, j := range src.Joins {
-		t, err := m.TableDetail(ctx, src.ConnID, model.ObjectRef{Database: src.Database, Schema: src.Schema, Name: j.Table, Kind: model.KindTable})
+	columns := func(table string) ([]string, error) {
+		t, err := m.TableDetail(ctx, src.ConnID, model.ObjectRef{Database: src.Database, Schema: src.Schema, Name: table, Kind: model.KindTable})
 		if err != nil {
-			return fmt.Errorf("join %s: %w", j.Table, err)
+			return nil, fmt.Errorf("join %s: %w", table, err)
 		}
 		if len(t.Columns) == 0 {
-			return fmt.Errorf("no table or view %q to join", j.Table)
+			return nil, fmt.Errorf("no table or view %q to join", table)
 		}
-		cols := make([]string, len(t.Columns))
+		out := make([]string, len(t.Columns))
 		for k, c := range t.Columns {
-			cols[k] = c.Name
+			out[k] = c.Name
 		}
-		src.Joins[i].Columns = cols
+		return out, nil
+	}
+	base, err := columns(src.Table)
+	if err != nil {
+		return err
+	}
+	// What the left side of a match may name: the first table's columns, then
+	// table.column of each earlier join.
+	known := slices.Clone(base)
+	for i, j := range src.Joins {
+		all, err := columns(j.Table)
+		if err != nil {
+			return err
+		}
+		// Columns given pick which of the joined table's columns come through.
+		picked := all
+		if len(j.Columns) > 0 {
+			for _, c := range j.Columns {
+				if !slices.Contains(all, c) {
+					return fmt.Errorf("%s has no column %q (columns: %s)", j.Table, c, strings.Join(all, ", "))
+				}
+			}
+			picked = j.Columns
+		}
+		for _, on := range j.On {
+			if !slices.Contains(known, on.Left) {
+				return fmt.Errorf("the join on %s matches %q, which isn't a column of %s or table.column of an earlier join", j.Table, on.Left, src.Table)
+			}
+			if !slices.Contains(all, on.Right) {
+				return fmt.Errorf("%s has no column %q (columns: %s)", j.Table, on.Right, strings.Join(all, ", "))
+			}
+		}
+		src.Joins[i].Columns = picked
+		for _, c := range picked {
+			known = append(known, j.Table+"."+c)
+		}
 	}
 	return nil
 }
@@ -638,6 +723,9 @@ func (m *Manager) BISaveSource(ctx context.Context, path string, src bi.DataSour
 	}
 	// Custom fields are typed against the fields just read.
 	if err := src.Validate(); err != nil {
+		return src, err
+	}
+	if err := w.CheckRefs(src); err != nil {
 		return src, err
 	}
 	src.TypeCustom()

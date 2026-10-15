@@ -86,8 +86,9 @@ type DashboardOpened struct {
 
 type ExportArgs struct {
 	DashboardArgs
-	Page   string `json:"page,omitempty" jsonschema:"a page number (1 = first) or name; default every page"`
-	Format string `json:"format,omitempty" jsonschema:"png (the default: one image per page, also returned to you so you can see the page) or pdf (one file of the pages)"`
+	Page       string            `json:"page,omitempty" jsonschema:"a page number (1 = first) or name; default every page"`
+	Format     string            `json:"format,omitempty" jsonschema:"png (the default: one image per page, also returned to you so you can see the page) or pdf (one file of the pages)"`
+	Parameters map[string]string `json:"parameters,omitempty" jsonschema:"parameter values to draw the pages with, by name; the saved values don't change"`
 }
 
 type ExportOut struct {
@@ -103,6 +104,7 @@ type DashboardOut struct {
 
 type ChartResult struct {
 	Chart     string      `json:"chart"`
+	Title     string      `json:"title,omitempty" jsonschema:"the title shown, parameters filled in"`
 	ID        string      `json:"id"`
 	Type      string      `json:"type"`
 	Columns   []bi.Column `json:"columns,omitempty"`
@@ -312,6 +314,11 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 			if d == nil {
 				return RefreshOut{}, fmt.Errorf("no dashboard %q in the workspace (see get_workspace)", in.Dashboard)
 			}
+			// Parameter values are checked once, not per chart.
+			values, err := w.Values(in.Parameters)
+			if err != nil {
+				return RefreshOut{}, err
+			}
 			out := RefreshOut{Dashboard: d.Name, AsOf: time.Now().UTC().Format(time.RFC3339), Pages: []PageResult{}}
 			only := -1
 			if in.Page != "" {
@@ -339,7 +346,7 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 								Y: it.Y, H: it.H, Place: place, Needed: need, Fits: need <= it.H})
 						} else {
 							need := bi.TextRowsAt(it.Text, it.W, false)
-							pr.Text = append(pr.Text, it.Text)
+							pr.Text = append(pr.Text, values.Expand(it.Text))
 							pr.TextFit = append(pr.TextFit, TextFit{Y: it.Y, H: it.H, Needed: need, Fits: need <= it.H})
 						}
 						continue
@@ -352,7 +359,11 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 						pr.Charts = append(pr.Charts, r)
 						continue
 					}
-					r := ChartResult{Chart: ch.Name, ID: ch.ID, Type: ch.Type}
+					title := ch.Props.Title
+					if title == "" {
+						title = ch.Name
+					}
+					r := ChartResult{Chart: ch.Name, ID: ch.ID, Type: ch.Type, Title: values.Expand(title)}
 					src := w.Source(ch.DataSource)
 					switch {
 					case src == nil:
@@ -431,7 +442,10 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 			if format == "pdf" {
 				scale = 2
 			}
-			pngs, err := c.s.events.Render(ctx, p, d.ID, pages, scale)
+			if _, err := w.Values(in.Parameters); err != nil {
+				return ExportOut{}, nil, err
+			}
+			pngs, err := c.s.events.Render(ctx, p, d.ID, pages, scale, in.Parameters)
 			if err != nil {
 				return ExportOut{}, nil, err
 			}

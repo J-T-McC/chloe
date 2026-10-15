@@ -78,6 +78,11 @@ export interface RenderRequest {
     "dashboard": string;
     "pages": number[] | null;
     "scale": number;
+
+    /**
+     * Params are parameter values to draw with (not saved).
+     */
+    "params"?: { [_ in string]?: string } | null;
 }
 
 /**

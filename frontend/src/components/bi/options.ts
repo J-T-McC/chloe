@@ -59,7 +59,18 @@ export function pivot(chart: B.Chart, data: B.Data): Pivot {
       }
       s.values[catIndex.get(dim >= 0 ? keyOf(r?.[dim]) : "")!] = num(r?.[val]);
     }
-    series.push(...[...names.entries()].sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true })).map(([, s]) => s));
+    // Split series keep the order the data has for date parts (Sun…Sat) and
+    // custom-sorted fields; otherwise they go by name, so a series keeps its
+    // colour when others come and go.
+    const order = cols[ser].order ?? [];
+    const entries = [...names.entries()];
+    if (order.length) {
+      const at = (k: string) => (order.indexOf(k) < 0 ? order.length : order.indexOf(k));
+      entries.sort(([a], [b]) => at(a) - at(b) || a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+    } else if (!cols[ser].aggregate) {
+      entries.sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+    }
+    series.push(...entries.map(([, s]) => s));
   } else {
     cols.forEach((c, j) => {
       if (c.role !== "value" && c.role !== "secondary") return;
@@ -93,6 +104,14 @@ function dimOthers(option: Record<string, unknown>, p: Pivot, chart: B.Chart, se
   });
   return option;
 }
+
+/** Scatter axes leave a little room around the points, but never go below zero
+ *  for values that aren't negative. */
+const padMin = (v: { min: number; max: number }) => {
+  const pad = (v.max - v.min || Math.abs(v.max) || 1) * 0.1;
+  return v.min >= 0 ? Math.max(0, v.min - pad) : v.min - pad;
+};
+const padMax = (v: { min: number; max: number }) => v.max + (v.max - v.min || Math.abs(v.max) || 1) * 0.1;
 
 /** A round maximum a little above x, for a gauge with no range set. */
 export function niceMax(x: number): number {
@@ -222,7 +241,8 @@ function buildBase(chart: B.Chart, data: B.Data, theme: ChartTheme): EChartsCore
       tooltip: { ...tooltip, trigger: "item", formatter: (x: { value: [number, number, number | null] }) => `${ys[x.value[1]]} · ${p.categories[x.value[0]]}<br/><b>${valueText(x.value[2])}</b>` },
       grid: { left: 8, right: 16, top: 12, bottom: 44, containLabel: true },
       xAxis: categoryAxisOf(p.categories, props.xTitle, { splitArea: { show: false } }),
-      yAxis: categoryAxisOf(ys, props.yTitle, { nameGap: 60 }),
+      // Rows read top-down in the series' order (Sun first).
+      yAxis: categoryAxisOf(ys, props.yTitle, { nameGap: 60, inverse: true }),
       visualMap: {
         min: Number.isFinite(lo) ? lo : 0,
         max: Number.isFinite(hi) ? hi : 1,
@@ -309,6 +329,7 @@ function buildBase(chart: B.Chart, data: B.Data, theme: ChartTheme): EChartsCore
     const [left, right] = p.series;
     // One scale both ways, so the sides compare at a glance.
     const reach = niceMax(Math.max(0, ...[left, right].flatMap((s) => (s?.values ?? []).map((v) => Math.abs(v ?? 0)))));
+    // Even ticks both ways: 0, half the reach, the reach.
     const mirror = (s: Series | undefined, sign: number) => ({
       name: s?.name ?? "",
       type: "bar",
@@ -324,7 +345,7 @@ function buildBase(chart: B.Chart, data: B.Data, theme: ChartTheme): EChartsCore
       legend: { ...legend, show: props.legend !== "none" },
       tooltip: { ...tooltip, trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: (v: number | null) => valueText(v === null ? null : Math.abs(v)) },
       grid: { left: 8, right: 16, top: props.legend === "none" ? 12 : 36, bottom: 4, containLabel: true },
-      xAxis: valueAxisOf(props.xTitle, { min: -reach, max: reach, axisLabel: { ...axisText, formatter: (v: number) => formatNumber(Math.abs(v), { ...fmt, decimals: undefined }, true) } }),
+      xAxis: valueAxisOf(props.xTitle, { min: -reach, max: reach, interval: reach / 2, axisLabel: { ...axisText, formatter: (v: number) => formatNumber(Math.abs(v), { ...fmt, decimals: undefined }, true) } }),
       yAxis: categoryAxisOf(p.categories, props.yTitle, { inverse: true }),
       series: [mirror(left, -1), mirror(right, 1)],
     };
@@ -366,8 +387,8 @@ function buildBase(chart: B.Chart, data: B.Data, theme: ChartTheme): EChartsCore
       // Room on the left for the Y title; padding inside the axes so points
       // and their labels don't sit on them.
       grid: { left: 36, right: 24, top: list.length > 1 && props.legend !== "none" ? 36 : 16, bottom: 28, containLabel: true },
-      xAxis: valueAxisOf(props.xTitle || cols[xi]?.label, { nameGap: 28, scale: true, boundaryGap: ["8%", "8%"], splitLine: { show: false } }),
-      yAxis: valueAxisOf(props.yTitle || cols[yi]?.label, { scale: true, boundaryGap: ["10%", "10%"], nameGap: 40 }),
+      xAxis: valueAxisOf(props.xTitle || cols[xi]?.label, { nameGap: 28, scale: true, min: padMin, max: padMax, splitLine: { show: false } }),
+      yAxis: valueAxisOf(props.yTitle || cols[yi]?.label, { scale: true, min: padMin, max: padMax, nameGap: 40 }),
       series: list.map((g) => ({
         type: "scatter",
         name: g.name,
@@ -459,7 +480,8 @@ function buildBase(chart: B.Chart, data: B.Data, theme: ChartTheme): EChartsCore
     nameTextStyle: { color: t.ink2 },
     axisLine: { lineStyle: { color: t.axis } },
     axisTick: { show: false },
-    axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true },
+    // Every label when there are few enough to fit; otherwise ECharts thins them.
+    axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true, interval: !horizontal && p.categories.length <= 12 ? 0 : "auto" },
     boundaryGap: !isLine,
   };
   const valueAxis = {

@@ -207,6 +207,8 @@ type NumberFormat struct {
 	Decimals *int   `json:"decimals,omitempty"`
 	// NoSeparator drops the thousands separator.
 	NoSeparator bool `json:"noSeparator,omitempty"`
+	// Percent shows values as percentages (0.2 → 20%).
+	Percent bool `json:"percent,omitempty"`
 }
 
 // New returns an empty workspace.
@@ -399,7 +401,18 @@ func (d DataSource) Validate() error {
 	if err := d.checkJoins(); err != nil {
 		return err
 	}
-	return d.checkCustom()
+	if err := d.checkCustom(); err != nil {
+		return err
+	}
+	// Once the fields are known, filters are checked against their types.
+	for _, f := range d.Filters {
+		if fd, ok := fieldIn(d.allFields(), f.Field); ok {
+			if err := checkFieldFilter(f, fd); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // allFields are the fields a source's rows have: its columns and custom fields.

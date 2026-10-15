@@ -176,6 +176,11 @@ func shape(c Chart, cols []Column, raw [][]*string, win *Window) [][]any {
 	}
 	dim := slices.IndexFunc(cols, func(c Column) bool { return c.Role == "dimension" })
 	val := valueColumn(c, cols, "value")
+	if dim >= 0 && val < 0 {
+		// A list of values (Control): in label order, whatever the database's collation.
+		slices.SortStableFunc(rows, func(a, b []any) int { return compareOrdered(cols[dim].Order, key(a[dim]), key(b[dim])) })
+		return rows
+	}
 	if dim < 0 || val < 0 {
 		return rows
 	}
@@ -199,6 +204,10 @@ func shape(c Chart, cols []Column, raw [][]*string, win *Window) [][]any {
 	sortBy := c.Sort
 	if sortBy == nil {
 		sortBy = defaultSort(c, cols[dim])
+		// Top N keeps the largest, whatever the dimension.
+		if c.Top > 0 {
+			sortBy = &ChartSort{By: "value", Desc: true}
+		}
 	}
 	if sortBy.By == "value" {
 		// Ties go alphabetically whichever way values run.

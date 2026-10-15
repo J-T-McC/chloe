@@ -485,3 +485,24 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 - Any tile can be **locked** (its properties: Lock position and size): it can't be dragged or resized and shows a
   small lock in the designer. Navicat's free-canvas groups and alignment guides aren't needed on the grid.
 
+## Implementation notes (phase 3, after the tester pass)
+- A column with no values to look at when the source is read (a parameter or join that matches nothing right now)
+  keeps the type it had; a table source's column is typed from its table instead.
+- `joins[].columns` picks which of a joined table's columns come through (default all); the left side of a match
+  must be a column of the first table or `table.column` of an earlier join.
+- An archive source's query ran when its snapshot was taken: overriding a parameter it uses is refused with a hint
+  to refresh the data or go live. Sources naming a parameter the workspace doesn't have are refused when saved.
+- Filters are checked against their field: relative dates need a date/time field, and a number field compares with
+  numbers (a `[$parameter]` value is checked once filled in). A gauge's minimum must be below its maximum.
+- Top N keeps the largest values whatever the dimension (it sorts by value unless a sort is set). Control lists,
+  and split series without a date part or custom order, sort case-insensitively; date parts (Sun…Sat) and
+  custom-sorted fields keep their order as series too; heatmap rows read top-down.
+- Number format `percent` shows 0.2 as 20%.
+- MCP: `refresh_dashboard` fills parameters into page text and returns each chart's `title`; it and
+  `export_dashboard` (which takes `parameters` now) check parameter values once. `delete_parameter` deletes an
+  agent's parameter that nothing uses. `edit_data_source` refuses a change that would break the source's charts,
+  naming them. Wrong property types and double-quoted text in expressions get plain errors.
+- KPI, Trend and Gauge tiles scale their text to the tile; very short tiles drop the extras (meter details,
+  sparkline, gauge labels).
+- Not built: ratios of totals (calculated fields are per row), custom sort by another field, MCP control targets.
+
