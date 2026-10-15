@@ -1,5 +1,6 @@
 // README screenshots: e2e/run.sh screenshots, then copy e2e/.out/shots/readme-*.png to docs/assets/screenshots/.
 import { chromium } from "playwright";
+import { readFileSync } from "node:fs";
 
 const out = process.argv[2];
 const browser = await chromium.launch();
@@ -80,6 +81,23 @@ await step("er diagram", async () => {
   await close(/MySQL\s*$/);
 });
 
+await step("model library", async () => {
+  await row(/MySQL\s*$/).first().dblclick();
+  await row(/^\s*shop\s*$/).first().click({ button: "right" });
+  await page.locator(".menu-item", { hasText: "Reverse Database to Model" }).click();
+  await page.locator(".model-editor .erd-table").first().waitFor();
+  await page.locator(".model-editor:visible").getByRole("button", { name: "Save", exact: true }).click();
+  await page.locator(".modal.small input").fill("Shop");
+  await page.locator(".modal.small").getByRole("button", { name: "OK" }).click();
+  await page.locator(".tab.active", { hasText: "Shop (model)" }).waitFor();
+  await page.locator(".tool-button", { hasText: "Model" }).click();
+  await page.locator(".models-list tbody tr", { hasText: "Shop" }).click();
+  await page.locator(".info-panel .model-tables").waitFor();
+  await page.waitForTimeout(400);
+  await shot("models");
+  await close(/MySQL\s*$/);
+});
+
 await step("query editor", async () => {
   await row(/PostgreSQL\s*$/).first().dblclick();
   await row(/^\s*postgres\s*$/).first().dblclick();
@@ -102,9 +120,14 @@ await step("query editor", async () => {
     await page.keyboard.press("Enter");
     await page.keyboard.press("Home");
   }
+  await page.getByRole("button", { name: "Beautify" }).click();
+  await page.waitForTimeout(300);
+  await editor.locator(".view-lines").click();
   await page.keyboard.press("Meta+R");
   await page.locator(".result-tabs button", { hasText: "Result 1" }).waitFor();
-  await page.keyboard.type("\nSELECT * FROM orders o WHERE o.", { delay: 15 });
+  await editor.locator(".view-lines").click();
+  await page.keyboard.press("Meta+ArrowDown");
+  await page.keyboard.type("\n\nSELECT * FROM orders o WHERE o.", { delay: 15 });
   await page.locator(".suggest-widget .monaco-list-row").first().waitFor();
   await page.waitForTimeout(500);
   await shot("query");
@@ -134,6 +157,44 @@ await step("redis", async () => {
   await page.locator(".redis-key-row", { hasText: /HASH\s*1$/ }).first().click();
   await page.waitForTimeout(600);
   await shot("redis");
+});
+
+// MCP: an endpoint's access, then a write waiting for approval (denied).
+const MCP_URL = "http://127.0.0.1:47199/mcp";
+const token = () => JSON.parse(readFileSync(`${process.env.LITE}/../config/mcp.json`, "utf8")).endpoints[0].token;
+const callTool = (name, args) =>
+  fetch(MCP_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${token()}`, "MCP-Protocol-Version": "2025-06-18" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+  }).then((r) => r.text());
+
+await step("mcp server", async () => {
+  await page.locator(".mcp-button").click();
+  await page.getByLabel("Port").fill("47199");
+  await page.getByLabel("Port").press("Enter");
+  await page.getByLabel("Run MCP server").check();
+  await page.getByText(`Listening on ${MCP_URL}`).waitFor();
+  await page.getByRole("button", { name: "New Endpoint" }).click();
+  await page.getByLabel("Endpoint name").fill("Claude Code");
+  await page.getByLabel("Endpoint name").blur();
+  await page.locator(".mcp-list-row", { hasText: "Claude Code" }).waitFor();
+  await page.getByLabel("Access to MySQL", { exact: true }).selectOption("write");
+  await page.getByLabel("Access to PostgreSQL", { exact: true }).selectOption("read");
+  await page.getByLabel("Saved queries and query tabs").check();
+  await page.getByLabel("ER models").check();
+  await page.waitForTimeout(400);
+  await shot("mcp");
+});
+
+await step("mcp approval", async () => {
+  const pending = callTool("update_rows", { connection: "MySQL", database: "shop", table: "products", where: [{ column: "id", op: "=", value: 1 }], set: { price: "44.99" } });
+  await page.getByRole("dialog", { name: "Approve AI change" }).waitFor();
+  await page.waitForTimeout(300);
+  await shot("mcp-approval");
+  await page.getByRole("button", { name: "Deny" }).click();
+  await pending;
+  await page.getByLabel("Run MCP server").uncheck();
 });
 
 await browser.close();

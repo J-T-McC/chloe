@@ -2,105 +2,143 @@
 
 <h1 align="center">Chloe</h1>
 
-A fast desktop database client inspired by Navicat Premium. It keeps the menus, dialogs and workflows I rely on, leaves out
-the bloat and the features I never used, and adds the improvements I always wanted.
+<p align="center">A desktop database client for MySQL, MariaDB, PostgreSQL, SQLite, MongoDB and Redis.</p>
 
-Built with Go, [Wails v3](https://v3.wails.io) (system webview), React and Monaco.
+Chloe follows the menus, dialogs and workflows of Navicat Premium, so the layout will be familiar, and adds an
+[MCP server](#mcp-server) that lets AI assistants work with your databases under your control. It is built with Go,
+[Wails v3](https://v3.wails.io) (the system webview), React and Monaco.
 
 ![Query editor with autocomplete](docs/assets/screenshots/query.png)
 
-## Databases
+## Supported databases
 
-MySQL, MariaDB, PostgreSQL, SQLite, MongoDB and Redis. SQL Server and Oracle are planned.
+| Engine | Support |
+|---|---|
+| MySQL, MariaDB | Full: objects, designers, transfer and synchronization, users and privileges, server monitor |
+| PostgreSQL | Full, including schemas, materialized views, sequences and types |
+| SQLite | Database files and attachments, designers (with table rebuilds where `ALTER` falls short), transfer, data synchronization |
+| MongoDB | Documents, shell, collection and view designers, import and export, users and roles, server monitor |
+| Redis | Keys and typed values, console, server monitor |
+
+SQL Server and Oracle are planned. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Features
 
-- **Connections**: groups with drag-and-drop ordering, SSH tunnels, SSL, presets for hosted services (Supabase, Neon, RDS,
-  PlanetScale…), paste a connection URL, import/export
-- **Query editor**: Monaco with context-aware autocomplete (tables, columns, aliases, FK-based joins, enum values, JSON
-  keys), beautify, saved queries, history log, tabs that survive a restart
-- **Data grid**: browse, filter, sort and edit tables; value panel for text and JSON
-- **Designers**: tables (columns, keys, foreign keys, indexes, triggers, partitions), views, functions, databases, with an
-  SQL preview before saving
-- **Import / export**: CSV, TSV, JSON, SQL, Excel; dump and execute SQL files
-- **Data Transfer** between MySQL/MariaDB, PostgreSQL and SQLite, converting types, defaults and constraints
-- **Structure and Data Synchronization** with diff views and deployment scripts
-- **ER diagrams**: reverse-engineer, edit, forward-engineer and sync models, kept in a model library
-- **Users and privileges** for MySQL and PostgreSQL
-- **Server monitor**: sessions, kill query, variables, status
-- **MongoDB**: grid/tree/JSON views, document editor, mongosh-style shell with completion, collection designer
-- **Redis**: key browser, typed value editors, TTL, console
-- **MCP server** for AI assistants (Claude Code, Claude Desktop…): per-endpoint tokens and Off/Read/Read-write access by
-  group, connection or database; every write is shown in an approval dialog with its SQL and row count (or runs unasked
-  in opt-in danger mode); agents can propose new connections, save queries, open query tabs for you to run and watch
-  sessions, build ER models; activity log
-- **Security**: passwords in the OS keychain; connections, queries and history encrypted with a keychain key
+### Connections
+- Groups with drag-and-drop ordering, SSH tunnels (password or key) and full SSL options
+- Presets for hosted services (Supabase, Neon, Amazon RDS, DigitalOcean, PlanetScale, TiDB) and connection URLs
+- Import and export, with passphrase-encrypted exports
 
-What's next is in [docs/ROADMAP.md](docs/ROADMAP.md).
+### SQL development
+- Monaco editor with context-aware completion: tables, columns, aliases, joins along foreign keys, enum values and
+  JSON keys
+- Beautify, saved queries in each database's Queries folder, a history log of every statement run, and query tabs
+  that are restored after a restart
+- Data grid for browsing, filtering, sorting and editing, with a value panel for long text and JSON
+
+### Design
+- Designers for tables (columns, keys, foreign keys, indexes, checks, triggers, partitions), views, functions and
+  databases, each with an SQL preview before anything is applied
+- ER diagrams of existing databases
+- Data models: reverse engineer a database, design offline, generate SQL, and synchronize the model to any
+  compatible database. Models are kept in a library that records the database each one belongs to.
+
+### Data movement
+- Import and export: CSV, TSV, JSON, SQL and Excel; dump and execute SQL files
+- Data Transfer between MySQL/MariaDB, PostgreSQL and SQLite, converting types, defaults, identity columns and
+  constraints
+- Structure Synchronization and Data Synchronization with side-by-side differences and deployment scripts
+
+### Administration
+- Users and privileges for MySQL and PostgreSQL, users and roles for MongoDB
+- Server monitor: sessions (kill a session or its query), variables and status
+
+### Security
+- Passwords are stored in the OS keychain. On macOS only Chloe's code signature can read them.
+- Connections, saved queries, history and drafts are encrypted at rest with a key held in the keychain.
 
 ## MCP server
 
-Tools > MCP Server… serves Chloe's connections to MCP clients at `http://127.0.0.1:47101/mcp` while Chloe is open. It's
-off by default, listens on loopback only, and each endpoint has its own bearer token. Create an endpoint, open up the
-groups, connections or databases it may use, and use **Copy Config** to get the client snippet, for example for Claude
-Code:
+Chloe can serve your connections to AI assistants such as Claude Code and Claude Desktop over the
+[Model Context Protocol](https://modelcontextprotocol.io).
+
+![MCP server settings](docs/assets/screenshots/mcp.png)
+
+- **Local only.** The server is off by default, runs only while Chloe is open, and listens on `127.0.0.1`.
+- **Endpoints.** Each assistant gets its own endpoint with its own bearer token. Access is Off, Read or Read-write
+  per connection group, connection and database.
+- **Approval.** Agents read through structured tools and one read-only query at a time. Inserts, updates and deletes
+  are built by Chloe from checked column names and bound values, never from agent SQL, and each one waits for your
+  approval with the exact statement and the number of rows it affects. An opt-in danger mode skips the dialog for
+  an endpoint. No DDL is ever run over MCP.
+- **Capabilities.** Optional, per endpoint:
+  - create connections (always approved; you can type the password into the dialog);
+  - read and save queries, and open query tabs with SQL for you to review and run;
+  - monitor sessions and server status;
+  - build data models and generate the SQL to apply them.
+- **Activity log.** Every tool call is recorded with its SQL and outcome.
+
+![Approving an agent's change](docs/assets/screenshots/mcp-approval.png)
+
+To connect an assistant, open **Tools › MCP Server…**, create an endpoint, choose what it may access, and use
+**Copy Config** for the client snippet. For Claude Code:
 
 ```sh
-claude mcp add --transport http chloe-local-testing http://127.0.0.1:47101/mcp --header "Authorization: Bearer chloe_…"
+claude mcp add --transport http chloe-claude-code http://127.0.0.1:47101/mcp --header "Authorization: Bearer chloe_…"
 ```
 
-Agents get tools to list and describe objects, select rows, run one read-only query, and insert, update or delete rows.
-Optional capabilities let them read and save queries, open query tabs with SQL for you to review and run (how they hand
-over schema changes), watch sessions and server status, and build ER models and the SQL to apply them.
-Chloe builds the write SQL itself from checked column names and bound values, and there's no DDL. Writes wait for your
-approval unless the endpoint is in danger mode; connections an agent proposes always do, and you can type the password
-into the dialog so it never passes through the conversation. Details: [docs/specs/mcp-server.md](docs/specs/mcp-server.md).
+Access is enforced per connection and database, not per table or column. To keep an assistant away from sensitive
+tables, share a connection that signs in as a database user with limited privileges. Full details are in
+[docs/specs/mcp-server.md](docs/specs/mcp-server.md).
 
 ## Screenshots
 
 | | |
 |---|---|
 | ![Data grid](docs/assets/screenshots/grid.png) Data grid | ![Table designer](docs/assets/screenshots/designer.png) Table designer |
-| ![ER diagram](docs/assets/screenshots/erd.png) ER diagram | ![MongoDB](docs/assets/screenshots/mongo.png) MongoDB documents |
-| ![Redis](docs/assets/screenshots/redis.png) Redis keys | |
+| ![ER diagram](docs/assets/screenshots/erd.png) ER diagram | ![Model library](docs/assets/screenshots/models.png) Model library |
+| ![MongoDB](docs/assets/screenshots/mongo.png) MongoDB documents | ![Redis](docs/assets/screenshots/redis.png) Redis keys |
 
-Regenerate with `make e2e SCRIPT=screenshots`, then copy `e2e/.out/shots/readme-*.png` to `docs/assets/screenshots/`.
+To regenerate them, run `make e2e SCRIPT=screenshots` and copy `e2e/.out/shots/readme-*.png` to
+`docs/assets/screenshots/`.
 
-## Build and install
+## Building
 
-Requires Go 1.26+, Node 22+ and the Wails CLI:
+Chloe requires Go 1.26 or later, Node 22 or later, and the Wails CLI:
 
 ```sh
 go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.29
 ```
 
-The Makefile finds `wails3` in `$(go env GOPATH)/bin` even when that isn't on your PATH:
+The Makefile finds `wails3` in `$(go env GOPATH)/bin` even when that directory isn't on your `PATH`.
 
 ```sh
 make dev       # run with hot reload
 make build     # build bin/Chloe
-make install   # macOS: build a signed Chloe.app and replace /Applications/Chloe.app (rerun to update)
+make install   # macOS: build a signed Chloe.app into /Applications, replacing any previous copy
 ```
 
-`install` quits a running copy first; saved connections and keychain passwords carry over. Builds are signed with
-`CHLOE_SIGN_IDENTITY`, else the first "Apple Development" certificate in the keychain, else ad hoc. A stable signature
-keeps the keychain trusting Chloe across rebuilds.
+`make install` quits a running copy first; saved connections and keychain passwords carry over. Builds are signed
+with `CHLOE_SIGN_IDENTITY` if set, otherwise with the first "Apple Development" certificate in the keychain,
+otherwise ad hoc. A stable signature lets the keychain keep trusting Chloe across rebuilds.
 
-## Test
+## Testing
 
 ```sh
-make test                     # Go unit tests (SQLite included, no Docker)
-make test-it                  # start the Docker databases, seed them, run integration tests
-make test-frontend            # type check and frontend unit tests
-make e2e SCRIPT=sqlite        # build the browser build, then Playwright (smoke, sqlite, mongo, mcp, …)
+make test                  # Go unit tests (SQLite included; no Docker needed)
+make test-it               # start and seed the Docker databases, then run the integration tests
+make test-frontend         # type check and frontend unit tests
+make e2e SCRIPT=sqlite     # Playwright against the browser build (smoke, sqlite, mongo, model, mcp, …)
 ```
 
-The Docker databases (`docker compose up -d`) use password `chloe`: MySQL `:33306`, PostgreSQL `:55432`, MongoDB `:37017`
-(user `root`) and Redis `:63790`, seeded with `shop` sample data from `testdata/`.
+`make db` (or `docker compose up -d`) starts the test databases with password `chloe`: MySQL on `:33306`,
+PostgreSQL on `:55432`, MongoDB on `:37017` (user `root`) and Redis on `:63790`, seeded with the `shop` sample data
+in `testdata/`.
 
-`CHLOE_CONFIG_DIR=<dir>` with `CHLOE_SECRETS=memory` runs against an isolated config without touching the keychain. The
-browser build (`bin/Chloe-server`) has no login, so it requires `CHLOE_SECRETS=memory` and listens only on loopback.
+Setting `CHLOE_CONFIG_DIR=<dir>` together with `CHLOE_SECRETS=memory` runs Chloe against an isolated configuration
+without touching the keychain. The browser build (`bin/Chloe-server`) has no login, so it requires
+`CHLOE_SECRETS=memory` and listens only on loopback.
 
 ## License
 
-[MIT](LICENSE). Not affiliated with Navicat or PremiumSoft.
+[MIT](LICENSE). Chloe is not affiliated with Navicat or PremiumSoft.
