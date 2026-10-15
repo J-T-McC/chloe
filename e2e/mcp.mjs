@@ -289,13 +289,13 @@ await step("agent builds a report and writes notes", async () => {
   await ok("create_chart", { workspace: "Agent report", name: "Row count", data_source: "Rows", type: "value", value: [{ field: "id", aggregate: "count" }] });
   await ok("create_chart", { workspace: "Agent report", name: "Last rows", data_source: "Rows", type: "table", value: [{ field: "id" }, { field: "v" }], sort: { by: "dimension", desc: true }, top: 5 });
   await ok("create_dashboard", { workspace: "Agent report", name: "Daily", pages: [{ rows: [
-    { height: "S", tiles: [{ text: "# Daily rows\nWhat the table looks like today." }] },
+    { tiles: [{ text: "# Daily rows\nWhat the table looks like today." }] },
     { tiles: [{ chart: "Row count", span: 4 }, { chart: "Last rows" }] },
   ] }] });
   const r = await ok("refresh_dashboard", { workspace: "Agent report", dashboard: "Daily" });
   const n = r.pages[0].charts[0].rows[0][0];
   if (typeof n !== "number" || n < 200) throw new Error("refresh: " + JSON.stringify(r.pages[0].charts[0]));
-  await ok("set_notes", { workspace: "Agent report", dashboard: "Daily", markdown: `**${n} rows**, unchanged. <script>window.pwned = 1</script>` });
+  await ok("set_notes", { workspace: "Agent report", dashboard: "Daily", markdown: `**${n} rows**, unchanged. <script>window.pwned = 1</script>\n- ids run 1 to 250\n- two rows were deleted\n- values follow "row n"\n- nothing is NULL\n- no new rows today` });
   await ok("open_dashboard", { workspace: "Agent report", dashboard: "Daily" });
   const dash = page.locator(".bi-dash-editor:visible");
   await dash.getByTestId("bi-notes").waitFor();
@@ -318,6 +318,15 @@ await step("agent builds a report and writes notes", async () => {
     return fr.height > 200 && n.bottom <= fr.bottom && n.height > 20;
   });
   if (!shown) throw new Error("the page isn't visible");
+  // Text tiles fit their Markdown: nothing cut off, and less than a row to spare.
+  const fits = await page.evaluate(() =>
+    [...document.querySelectorAll(".bi-dash-editor .bi-text-tile")].map((el) => {
+      const head = el.querySelector(".bi-notes-head");
+      const need = el.querySelector(".bi-md").offsetHeight + (head ? head.offsetHeight + 4 : 0) + 22;
+      return [need, el.offsetHeight];
+    }),
+  );
+  if (!fits.length || fits.some(([need, have]) => need > have + 1 || have - need >= 60)) throw new Error("text tiles: " + JSON.stringify(fits));
   await shot("mcp-report");
   await mcpTab();
 });

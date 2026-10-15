@@ -41,14 +41,24 @@ func TestDashboardTools(t *testing.T) {
 
 	// Notes: added at the top of a report page, then replaced in place.
 	n := f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "markdown": "Three customers; **Cy** has no name."}, "")
-	items = n["pages"].([]any)[0].(map[string]any)["items"].([]any)
-	note := items[0].(map[string]any)
-	if note["createdBy"] != "mcp:test" || note["y"] != 0.0 || note["updated"] == nil || items[1].(map[string]any)["y"] != 2.0 {
-		t.Fatalf("notes: %v", items)
+	if n["y"] != 0.0 || n["h"] != 2.0 || n["updated"] == "" || n["page"] != 1.0 || n["items"] != nil {
+		t.Fatalf("notes: %v", n)
 	}
-	n = f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "page": "Overview", "markdown": "Updated."}, "")
-	if items = n["pages"].([]any)[0].(map[string]any)["items"].([]any); len(items) != 4 || items[0].(map[string]any)["text"] != "Updated." {
-		t.Fatalf("replace notes: %v", items)
+	its := itemsOf(t, f, "Weekly")
+	if its[0].CreatedBy != "mcp:test" || its[1].Y != 2 {
+		t.Fatalf("notes on top: %+v", its)
+	}
+	// Moved to the bottom on request; replaced in place otherwise.
+	if n = f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "markdown": "Below.", "place": "bottom"}, ""); n["y"] != 8.0 {
+		t.Fatalf("bottom: %v", n)
+	}
+	if its = itemsOf(t, f, "Weekly"); its[0].Y != 0 || its[0].Kind != "text" || its[0].CreatedBy != "" {
+		t.Fatalf("gap closed: %+v", its)
+	}
+	f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "markdown": "x", "place": "middle"}, "top or bottom")
+	n = f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "page": "Overview", "markdown": "Updated.", "place": "top"}, "")
+	if its = itemsOf(t, f, "Weekly"); len(its) != 4 || its[0].Text != "Updated." || n["y"] != 0.0 {
+		t.Fatalf("replace notes: %+v", its)
 	}
 	f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "page": "3", "markdown": "x"}, "has 1 page")
 	r = f.call(t, "refresh_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly"}, "")
@@ -79,8 +89,8 @@ func TestDashboardTools(t *testing.T) {
 	f.call(t, "edit_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Mine", "rename": "x"}, "user's dashboards")
 	f.call(t, "delete_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Mine"}, "user's dashboards")
 	n = f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Mine", "markdown": "Looks fine."}, "")
-	if it := n["pages"].([]any)[0].(map[string]any)["items"].([]any)[1].(map[string]any); it["y"] != 8.0 || it["h"] != 2.0 {
-		t.Errorf("slide notes: %v", it)
+	if n["y"] != 8.0 || n["h"] != 2.0 {
+		t.Errorf("slide notes: %v", n)
 	}
 	f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Mine", "page": "2", "markdown": "x"}, "no room")
 
@@ -88,7 +98,9 @@ func TestDashboardTools(t *testing.T) {
 	if gw := f.call(t, "get_workspace", map[string]any{"workspace": "Ops"}, ""); len(gw["dashboards"].([]any)) != 2 || gw["dashboard_count"] != 2.0 {
 		t.Fatalf("get_workspace: %v", gw["dashboards"])
 	}
-	f.call(t, "open_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly report"}, "")
+	if o := f.call(t, "open_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly report"}, ""); o["pages"] != 1.0 || o["items"] != nil {
+		t.Errorf("open: %v", o)
+	}
 	if last := f.events.opened[len(f.events.opened)-1]; !strings.HasPrefix(last, p+"#") {
 		t.Errorf("open: %v", f.events.opened)
 	}
@@ -98,4 +110,21 @@ func TestDashboardTools(t *testing.T) {
 		t.Errorf("after deleting a chart: %v", r)
 	}
 	f.call(t, "delete_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly report"}, "")
+}
+
+// itemsOf reads a dashboard's first page from the workspace file.
+func itemsOf(t *testing.T, f *fixture, dashboard string) []bi.Item {
+	t.Helper()
+	p, err := f.m.Store.BI().Find("Ops")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, _ := bi.Read(p)
+	for _, d := range w.Dashboards {
+		if d.Name == dashboard {
+			return d.Pages[0].Items
+		}
+	}
+	t.Fatalf("no dashboard %q", dashboard)
+	return nil
 }

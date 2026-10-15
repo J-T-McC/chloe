@@ -3,6 +3,7 @@ package bi
 import (
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 
@@ -172,12 +173,18 @@ type RowTile struct {
 
 // LayoutRows turns rows of tiles into placed items, starting at row y. Spans
 // left at 0 share what the row has left equally. On a report page (grow) a row
-// with text is made tall enough for it.
+// with text is made tall enough for it, and a row of only text without a height
+// is exactly as tall as its text.
 func LayoutRows(rows [][]RowTile, heights []string, y int, grow bool, chartID func(string) (string, error)) ([]Item, int, error) {
 	var items []Item
 	for r, row := range rows {
 		h := RowHeights["M"]
-		if r < len(heights) && heights[r] != "" {
+		explicit := r < len(heights) && heights[r] != ""
+		textOnly := !slices.ContainsFunc(row, func(t RowTile) bool { return t.Chart != "" })
+		if grow && textOnly && !explicit {
+			h = 2 // a row of text is as tall as its text
+		}
+		if explicit {
 			v, ok := RowHeights[strings.ToUpper(heights[r])]
 			if !ok {
 				return nil, y, fmt.Errorf("row %d: height is S, M, L or XL, not %q", r+1, heights[r])
@@ -191,7 +198,7 @@ func LayoutRows(rows [][]RowTile, heights []string, y int, grow bool, chartID fu
 				if w <= 0 {
 					w = PageCols / len(row)
 				}
-				h = max(h, TextRowsAt(t.Text, w))
+				h = max(h, TextRowsAt(t.Text, w, false))
 			}
 			used += max(t.Span, 0)
 			if t.Span <= 0 {
@@ -234,28 +241,76 @@ func LayoutRows(rows [][]RowTile, heights []string, y int, grow bool, chartID fu
 	return items, y, nil
 }
 
-// TextRows estimates the grid rows Markdown needs across a whole page.
-func TextRows(md string) int { return TextRowsAt(md, PageCols) }
+// TextRows is the grid rows Markdown needs across a whole page.
+func TextRows(md string) int { return TextRowsAt(md, PageCols, false) }
 
-// TextRowsAt estimates the grid rows Markdown needs in a tile w columns wide
-// (pages are laid out 1280px wide, rows 48px apart plus 12px gaps).
-func TextRowsAt(md string, w int) int {
-	chars := max(12, (w*105-24)/8) // characters per line at 13.5px
-	px := 30                      // padding
+// Text tile metrics, measured in Chloe at the 1280px page width: rows are 48px
+// with 12px gaps, tiles have 22px of padding and border, body text is 13.5px on
+// 20.25px lines at about 7.2px a character, and a notes tile has a 21px header.
+const (
+	rowPx      = 48
+	gapPx      = 12
+	tilePadPx  = 22
+	notesHead  = 21.25
+	lineHPx    = 20.25
+	charPx     = 7.2
+	blockGapPx = 4
+)
+
+// TextRowsAt is the grid rows Markdown needs in a tile w columns wide; notes
+// tiles (an agent's) have a header line.
+func TextRowsAt(md string, w int, notes bool) int {
+	colPx := (float64(1280-2*gapPx) - float64((PageCols-1)*gapPx)) / PageCols
+	tilePx := float64(w)*colPx + float64(w-1)*gapPx
+	perLine := max(8, int((tilePx-34)/charPx))
+	lines := func(s string, scale float64) float64 {
+		n := int(float64(len([]rune(s))) * scale)
+		return float64(max(1, (n+perLine-1)/perLine))
+	}
+	px := float64(tilePadPx)
+	if notes {
+		px += notesHead
+	}
+	blocks := 0
+	inPara := false
 	for _, l := range strings.Split(strings.TrimSpace(md), "\n") {
 		t := strings.TrimSpace(l)
-		lineH, n := 21, len(t)
 		switch {
+		case t == "":
+			inPara = false
+			continue
 		case strings.HasPrefix(t, "# "):
-			lineH, n = 36, n*2
+			px += 36*lines(t, 1.8) + 6
+			inPara = false
 		case strings.HasPrefix(t, "## "):
-			lineH, n = 28, n*3/2
-		case strings.HasPrefix(t, "### "):
-			lineH = 24
+			px += 27*lines(t, 1.35) + 6
+			inPara = false
+		case strings.HasPrefix(t, "### "), strings.HasPrefix(t, "#### "):
+			px += 22.5*lines(t, 1.1) + 8
+			inPara = false
+		case strings.HasPrefix(t, "- "), strings.HasPrefix(t, "* "), len(t) > 2 && t[0] >= '0' && t[0] <= '9' && strings.Contains(t[:min(4, len(t))], ". "):
+			px += lineHPx * lines(t, 1)
+			if !inPara {
+				blocks++
+			}
+			inPara = true
+			continue
+		case strings.HasPrefix(t, "|"):
+			px += 27 // a table row with its padding
+		default:
+			px += lineHPx * lines(t, 1) // lines run on in a paragraph (breaks are on)
+			if !inPara {
+				blocks++
+			}
+			inPara = true
+			continue
 		}
-		px += lineH * (1 + n/chars)
+		blocks++
 	}
-	return max(2, min(30, (px+12+59)/60))
+	px += float64(max(0, blocks-1) * blockGapPx)
+	// A tile h rows tall is h*48 + (h-1)*12 pixels.
+	h := int(math.Ceil((px + gapPx) / (rowPx + gapPx)))
+	return max(2, min(30, h))
 }
 
 // Bottom is the first free row below a page's tiles.
