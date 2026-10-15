@@ -2,6 +2,7 @@ package mcpserver_test
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -65,6 +66,34 @@ INSERT INTO orders VALUES (1, 1, 10, '2026-01-05'), (2, 1, 15, '2026-02-01'), (3
 	if got := f.call(t, "get_chart_data", map[string]any{"workspace": "Sales", "chart": "Share"}, "")["rows"].([]any); len(got) != 2 {
 		t.Fatalf("pie: %v", got)
 	}
+	if _, ok := data["sql"]; ok {
+		t.Error("sql returned without include_sql")
+	}
+	if d := f.call(t, "get_chart_data", map[string]any{"workspace": "Sales", "chart": "Share", "include_sql": true}, ""); !strings.Contains(fmt.Sprint(d["sql"]), "SELECT") {
+		t.Errorf("include_sql: %v", d["sql"])
+	}
+
+	// A chart read from get_workspace goes back into edit_chart unchanged.
+	f.call(t, "create_chart", map[string]any{"workspace": "Sales", "name": "Scorecard", "data_source": "Orders", "type": "table",
+		"value": []any{map[string]any{"field": "email"}, map[string]any{"field": "id", "aggregate": "count"}, map[string]any{"field": "total", "aggregate": "sum"}},
+		"sort": map[string]any{"by": "value", "field": "total", "desc": true}, "filters": []any{map[string]any{"field": "placed_at", "op": "in_last", "value": []any{100, "year"}}}}, "")
+	var got map[string]any
+	for _, ch := range f.call(t, "get_workspace", map[string]any{"workspace": "Sales"}, "")["charts"].([]any) {
+		if ch.(map[string]any)["name"] == "Scorecard" {
+			got = ch.(map[string]any)
+		}
+	}
+	args := map[string]any{"workspace": "Sales", "chart": "Scorecard"}
+	for _, k := range []string{"type", "value", "filters", "sort", "props"} {
+		args[k] = got[k]
+	}
+	f.call(t, "edit_chart", args, "")
+	tbl := f.call(t, "get_chart_data", map[string]any{"workspace": "Sales", "chart": "Scorecard"}, "")["rows"].([]any)
+	if want := []any{[]any{"cy@example.com", 1.0, 30.0}, []any{"ada@example.com", 2.0, 25.0}}; !reflect.DeepEqual(tbl, want) {
+		t.Fatalf("table sorted by total: %v", tbl)
+	}
+	f.call(t, "edit_chart", map[string]any{"workspace": "Sales", "chart": "Scorecard", "sort": map[string]any{"by": "value", "field": "nope"}}, "isn't one of the chart's values")
+
 	p := ws["path"].(string)
 	lib := f.m.Store.BI()
 	w, _ := bi.Read(p)
@@ -79,7 +108,7 @@ INSERT INTO orders VALUES (1, 1, 10, '2026-01-05'), (2, 1, 15, '2026-02-01'), (3
 		t.Fatalf("user chart data: %v", got)
 	}
 	gw := f.call(t, "get_workspace", map[string]any{"workspace": "Sales"}, "")
-	if len(gw["charts"].([]any)) != 2 || gw["data_sources"].([]any)[0].(map[string]any)["connection"] != "shop" {
+	if len(gw["charts"].([]any)) != 3 || gw["data_sources"].([]any)[0].(map[string]any)["connection"] != "shop" {
 		t.Fatalf("get_workspace: %v", gw)
 	}
 
@@ -112,7 +141,7 @@ INSERT INTO orders VALUES (1, 1, 10, '2026-01-05'), (2, 1, 15, '2026-02-01'), (3
 	if last := f.events.opened[len(f.events.opened)-1]; !strings.HasPrefix(last, p+"#") || w.ID == "" {
 		t.Fatalf("open: %v", f.events.opened)
 	}
-	if ls := f.call(t, "list_workspaces", map[string]any{}, "")["workspaces"].([]any); len(ls) != 1 || ls[0].(map[string]any)["chart_count"] != 3.0 {
+	if ls := f.call(t, "list_workspaces", map[string]any{}, "")["workspaces"].([]any); len(ls) != 1 || ls[0].(map[string]any)["chart_count"] != 4.0 {
 		t.Fatalf("list: %v", ls)
 	}
 }

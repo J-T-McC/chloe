@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"chloe/internal/driver"
 	"chloe/internal/sqlsplit"
@@ -55,7 +56,7 @@ func TestChartQueryPerDialect(t *testing.T) {
 		if !reflect.DeepEqual(q.Args, tc.args) {
 			t.Errorf("%s: args %v", name, q.Args)
 		}
-		if len(cols) != 2 || cols[0].Role != "dimension" || cols[0].Label != "placed_at (Month)" || cols[1].Label != "Sum of total" || cols[1].Type != TypeNumber {
+		if len(cols) != 2 || cols[0].Role != "dimension" || cols[0].Label != "Placed At (Month)" || cols[1].Label != "Sum of Total" || cols[1].Type != TypeNumber {
 			t.Errorf("%s: columns %+v", name, cols)
 		}
 	}
@@ -217,11 +218,18 @@ func TestLibrary(t *testing.T) {
 	if err != nil || len(w.DataSources) != 1 || len(w.Charts) != 1 || w.Charts[0].Created == "" {
 		t.Fatalf("update: %v %+v", err, w)
 	}
+	// Names are unique per kind: a chart may be named after its data source.
 	if _, err := l.Update(p, func(w *Workspace) error {
 		_, err := w.PutChart(Chart{Meta: Meta{Name: "orders"}, DataSource: "s1", Type: "bar"})
 		return err
-	}); err == nil || !strings.Contains(err.Error(), "already has a data source") {
-		t.Errorf("duplicate name: %v", err)
+	}); err != nil {
+		t.Errorf("chart named like its source: %v", err)
+	}
+	if _, err := l.Update(p, func(w *Workspace) error {
+		_, err := w.PutChart(Chart{Meta: Meta{Name: "BY MONTH"}, DataSource: "s1", Type: "bar"})
+		return err
+	}); err == nil || !strings.Contains(err.Error(), "already has a chart") {
+		t.Errorf("duplicate chart name: %v", err)
 	}
 	if err := os.MkdirAll(l.DataDir(w.ID), 0o700); err != nil {
 		t.Fatal(err)
@@ -253,5 +261,110 @@ func TestLibrary(t *testing.T) {
 	}
 	if len(l.List()) != 1 {
 		t.Errorf("list: %+v", l.List())
+	}
+}
+
+func TestHumanize(t *testing.T) {
+	for in, want := range map[string]string{"total": "Total", "placed_at": "Placed At", "customer_id": "Customer ID", "orderTotal": "Order Total",
+		"HTTPStatus": "HTTP Status", "unit-price": "Unit Price", "MRR": "MRR", "o.total": "O Total", "x": "X", "": ""} {
+		if got := Humanize(in); got != want {
+			t.Errorf("%q: %q, want %q", in, got, want)
+		}
+	}
+	if l := (ChartField{Field: "total", Aggregate: "sum", Alias: "revenue"}).Label(); l != "revenue" {
+		t.Errorf("alias: %q", l)
+	}
+}
+
+func TestTableSort(t *testing.T) {
+	s := func(v string) *string { return &v }
+	cols := []Column{{Role: "column", Field: "game", Type: TypeString}, {Role: "column", Field: "rooms", Label: "Count of Rooms", Aggregate: "count", Type: TypeNumber},
+		{Role: "column", Field: "events", Label: "Average of Events", Aggregate: "avg", Type: TypeNumber}}
+	raw := [][]*string{{s("Alpha"), s("3"), s("9")}, {s("Bravo"), s("10"), s("1")}, {s("Charlie"), s("5"), s("4")}}
+	c := Chart{Type: "table", Value: []ChartField{{Field: "game"}, {Field: "rooms", Aggregate: "count"}, {Field: "events", Aggregate: "avg"}}}
+	names := func(rows [][]any) (out []any) {
+		for _, r := range rows {
+			out = append(out, r[0])
+		}
+		return out
+	}
+	c.Sort = &ChartSort{By: "value", Desc: true}
+	if got := names(Shape(c, cols, raw)); !reflect.DeepEqual(got, []any{"Bravo", "Charlie", "Alpha"}) {
+		t.Errorf("first aggregate: %v", got)
+	}
+	c.Sort.Field = "events"
+	if got := names(Shape(c, cols, raw)); !reflect.DeepEqual(got, []any{"Alpha", "Charlie", "Bravo"}) {
+		t.Errorf("named column: %v", got)
+	}
+	c.Sort, c.Top = &ChartSort{By: "dimension", Desc: true}, 2
+	if got := names(Shape(c, cols, raw)); !reflect.DeepEqual(got, []any{"Charlie", "Bravo"}) {
+		t.Errorf("dimension + top: %v", got)
+	}
+	c.Sort = &ChartSort{By: "value", Field: "nope"}
+	if _, err := c.Check(DataSource{Fields: []Field{{Name: "game"}, {Name: "rooms", Type: TypeNumber}, {Name: "events", Type: TypeNumber}}}, "mysql"); err == nil {
+		t.Error("unknown sort field accepted")
+	}
+}
+
+func TestFillPeriods(t *testing.T) {
+	s := func(v string) *string { return &v }
+	cols := []Column{{Role: "dimension", Aggregate: "day", Type: TypeDateTime}, {Role: "series", Type: TypeString}, {Role: "value", Aggregate: "count", Type: TypeNumber}}
+	raw := [][]*string{{s("2026-09-28"), s("won"), s("2")}, {s("2026-10-01"), s("won"), s("1")}, {s("2026-10-01"), s("lost"), s("4")}}
+	c := Chart{Type: "stacked_bar", Value: []ChartField{{Field: "id", Aggregate: "count"}}}
+	got := Shape(c, cols, raw)
+	var days []string
+	for _, r := range got {
+		if r[1] == "won" {
+			days = append(days, r[0].(string))
+		}
+	}
+	if want := []string{"2026-09-28", "2026-09-29", "2026-09-30", "2026-10-01"}; !reflect.DeepEqual(days, want) {
+		t.Fatalf("days: %v", days)
+	}
+	if len(got) != 7 || got[1][2] != 0.0 {
+		t.Errorf("filled rows: %v", got)
+	}
+	// Weeks across a new year, and averages left empty.
+	cols[0].Aggregate = "week"
+	c = Chart{Type: "line", Value: []ChartField{{Field: "x", Aggregate: "avg"}}}
+	got = Shape(c, []Column{cols[0], cols[2]}, [][]*string{{s("2025-W51"), s("1")}, {s("2026-W01"), s("2")}})
+	var labels []any
+	for _, r := range got {
+		labels = append(labels, r[0])
+	}
+	if want := []any{"2025-W51", "2025-W52", "2026-W00", "2026-W01"}; !reflect.DeepEqual(labels, want) || got[1][1] != nil {
+		t.Errorf("weeks: %v", got)
+	}
+	// Top N or a value sort leaves the periods alone.
+	c.Top = 1
+	if got = Shape(c, []Column{cols[0], cols[2]}, [][]*string{{s("2025-W51"), s("1")}, {s("2026-W01"), s("2")}}); len(got) != 1 {
+		t.Errorf("top: %v", got)
+	}
+}
+
+func TestInLast(t *testing.T) {
+	sat := time.Date(2026, 10, 17, 15, 0, 0, 0, time.UTC) // a Saturday
+	for _, tc := range []struct {
+		n    int
+		unit string
+		want string
+	}{{30, "day", "2026-09-18"}, {1, "day", "2026-10-17"}, {1, "week", "2026-10-11"}, {2, "week", "2026-10-04"}, {3, "month", "2026-08-01"}, {1, "year", "2026-01-01"}} {
+		if got := Since(sat, tc.n, tc.unit).Format("2006-01-02"); got != tc.want {
+			t.Errorf("%d %s: %s, want %s", tc.n, tc.unit, got, tc.want)
+		}
+	}
+	defer func(f func() time.Time) { now = f }(now)
+	now = func() time.Time { return sat }
+	src := ordersSource()
+	src.Filters = []Filter{{Field: "placed_at", Op: "in_last", Values: []string{"30", "day"}}}
+	q, err := PreviewQuery(pg, `"t"`, src, 5)
+	if err != nil || !strings.Contains(q.SQL, `"placed_at" >= $1`) || q.Args[0] != "2026-09-18" {
+		t.Errorf("%v %s %v", err, q.SQL, q.Args)
+	}
+	for _, bad := range [][]string{{"0", "day"}, {"x", "day"}, {"3", "fortnight"}} {
+		src.Filters[0].Values = bad
+		if _, err := PreviewQuery(pg, `"t"`, src, 5); err == nil {
+			t.Errorf("%v accepted", bad)
+		}
 	}
 }

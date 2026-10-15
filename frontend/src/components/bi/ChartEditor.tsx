@@ -410,7 +410,11 @@ function PropsPane({ draft, props, setProps, update, fields }: { draft: B.Chart;
   const setNum = (p: Partial<B.NumberFormat>) => setProps({ number: { ...num, ...p } });
   const t = draft.type;
   const pie = t === "pie" || t === "donut";
-  const sortValue = !draft.sort ? "" : `${draft.sort.by}:${draft.sort.desc ? "desc" : "asc"}`;
+  const sortValue = !draft.sort ? "" : `${draft.sort.by}:${draft.sort.desc ? "desc" : "asc"}:${draft.sort.field ?? ""}`;
+  const table = t === "table";
+  // Value fields a sort can name: a table's aggregated columns, a chart's values.
+  const sortable = [...arr(draft.value), ...arr(draft.secondary)].filter((v) => !table || v.aggregate);
+  const multi = sortable.length > 1;
   return (
     <div className="bi-props-pane">
       <div className="pane-title">Properties</div>
@@ -467,7 +471,7 @@ function PropsPane({ draft, props, setProps, update, fields }: { draft: B.Chart;
               <input type="checkbox" checked={!!props.smooth} onChange={(e) => setProps({ smooth: e.target.checked })} /> Smooth lines
             </label>
           )}
-          {t !== "table" && (
+          {(
             <>
               <label className="bi-prop">
                 Sort
@@ -475,22 +479,29 @@ function PropsPane({ draft, props, setProps, update, fields }: { draft: B.Chart;
                   aria-label="Sort"
                   value={sortValue}
                   onChange={(e) => {
-                    const [by, dir] = e.target.value.split(":");
-                    update({ sort: by ? { by, desc: dir === "desc" } : null });
+                    const [by, dir, field] = e.target.value.split(":");
+                    update({ sort: by ? { by, desc: dir === "desc", ...(field ? { field } : {}) } : null });
                   }}
                 >
-                  <option value="">Automatic</option>
-                  <option value="dimension:asc">By dimension, ascending</option>
-                  <option value="dimension:desc">By dimension, descending</option>
-                  <option value="value:desc">By value, largest first</option>
-                  <option value="value:asc">By value, smallest first</option>
+                  <option value="">{table ? "As read" : "Automatic"}</option>
+                  <option value="dimension:asc:">{table ? "By first column, ascending" : "By dimension, ascending"}</option>
+                  <option value="dimension:desc:">{table ? "By first column, descending" : "By dimension, descending"}</option>
+                  {(multi ? sortable : sortable.slice(0, 1)).flatMap((v) => {
+                    const name = multi ? fieldLabel(v) : "value";
+                    const f = multi ? v.field : "";
+                    return [
+                      <option key={"d" + v.field + v.aggregate} value={`value:desc:${f}`}>{`By ${name}, largest first`}</option>,
+                      <option key={"a" + v.field + v.aggregate} value={`value:asc:${f}`}>{`By ${name}, smallest first`}</option>,
+                    ];
+                  })}
+                  {!!draft.sort?.field && !sortable.some((v) => v.field === draft.sort?.field) && <option value={sortValue}>{`By ${draft.sort.field}`}</option>}
                 </select>
               </label>
               <label className="bi-prop">
                 Show only top
                 <input aria-label="Top" type="number" min={0} placeholder="all" value={draft.top || ""} onChange={(e) => update({ top: Math.max(0, Number(e.target.value) || 0) })} />
               </label>
-              {!!draft.top && (
+              {!!draft.top && !table && (
                 <label className="check">
                   <input type="checkbox" checked={!!draft.others} onChange={(e) => update({ others: e.target.checked })} /> Group the rest as Others
                 </label>

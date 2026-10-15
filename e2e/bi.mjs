@@ -144,15 +144,55 @@ await step("a value chart from New Chart", async () => {
   await editor().getByLabel("Decimals").selectOption("0");
   await page.waitForTimeout(200);
   check((await editor().getByTestId("bi-value").innerText()) === "$930", "decimals");
+  check((await editor().locator(".bi-value-label").innerText()) === "Sum of Total", "label: " + (await editor().locator(".bi-value-label").innerText()));
+  // Names are unique per kind: a chart may share its data source's name.
+  await editor().getByLabel("Chart name").fill("orders");
   await editor().getByRole("button", { name: "Save" }).click();
-  await page.locator(".tab.active", { hasText: "Chart" }).waitFor();
+  await page.locator(".tab.active", { hasText: "orders" }).waitFor();
+  await page.waitForTimeout(200);
+  check(!(await editor().locator(".error-banner").count()), "save error: " + (await editor().locator(".error-banner").allInnerTexts()));
+});
+
+await step("table sorted by a named column, with a relative date filter", async () => {
+  await page.locator(".tab", { hasText: "Sales (BI)" }).click();
+  await page.locator(".bi-workspace:visible").getByRole("button", { name: "New Chart" }).click();
+  await editor().waitFor();
+  await editor().getByRole("radio", { name: "Table" }).click();
+  await drag("region", "value");
+  await drag("id", "value");
+  await drag("total", "value");
+  const pill = async (i, agg) => {
+    await shelf("value").locator(".bi-pill").nth(i).click();
+    await page.locator(".menu-item", { hasText: "Aggregate" }).hover();
+    await page.locator(".menu-item", { hasText: new RegExp(`^\\s*${agg}\\s*$`) }).click();
+  };
+  await pill(1, "Count");
+  await pill(2, "Sum");
+  await editor().getByLabel("Sort").selectOption({ label: "By Sum of total, largest first" });
+  await page.waitForTimeout(600);
+  const firstCells = await editor().locator(".bi-table tbody tr td:first-child").allInnerTexts();
+  check(firstCells.join(",") === "East,North,South,West", "table order: " + firstCells.join(","));
+  const heads = await editor().locator(".bi-table th").allInnerTexts();
+  check(heads.join("|") === "Region|Count of ID|Sum of Total", "headers: " + heads.join("|"));
+  // Everything is within the last 100 years; nothing in the last day.
+  await editor().getByRole("button", { name: "Add Condition" }).click();
+  await editor().getByLabel("Filter field").selectOption("placed_at");
+  await editor().getByLabel("Filter operator").selectOption("in_last");
+  await editor().getByLabel("Filter count").fill("100");
+  await editor().getByLabel("Filter unit").selectOption("year");
+  await page.waitForTimeout(600);
+  check((await editor().locator(".bi-table tbody tr").count()) === 4, "in the last 100 years");
+  await editor().getByLabel("Filter unit").selectOption("day");
+  await editor().getByLabel("Filter count").fill("1");
+  await editor().getByText("No data").waitFor();
+  await shot("bi-table");
 });
 
 await step("archive data source with a filter", async () => {
   await page.locator(".tab", { hasText: "Sales (BI)" }).click();
   const ws = page.locator(".bi-workspace:visible");
   await ws.getByRole("button", { name: "All", exact: true }).click();
-  await ws.locator("tr", { has: page.locator("td:first-child", { hasText: /^\s*orders$/ }) }).dblclick();
+  await ws.locator("tr", { has: page.locator("td:first-child", { hasText: /^\s*orders$/ }) }).filter({ hasText: "Data Source" }).dblclick();
   const src = page.locator(".bi-source:visible");
   await src.locator(".bi-preview tbody tr").first().waitFor();
   check((await src.locator(".bi-preview tbody tr").count()) === 8, "preview rows");

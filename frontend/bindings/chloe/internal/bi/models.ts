@@ -67,6 +67,12 @@ export interface ChartSort {
      * dimension or value
      */
     "by": string;
+
+    /**
+     * Field picks the value (by field name or label) when a chart has several; a
+     * table sorts by its first aggregated column otherwise.
+     */
+    "field"?: string;
     "desc"?: boolean;
 }
 

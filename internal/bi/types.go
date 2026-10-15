@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // Shelf limits of a chart type: Min..Max fields, Max 0 meaning the shelf isn't offered.
@@ -109,18 +110,62 @@ var aggregateNames = map[string]string{
 	"weekday_x": "Weekday (Extract)", "hour_x": "Hour (Extract)", "minute_x": "Minute (Extract)", "second_x": "Second (Extract)",
 }
 
-// Label is how a chart field is titled: its alias, or e.g. "Sum of total".
+// Label is how a chart field is titled in legends, tooltips and table headers:
+// its alias as typed, or the field name made readable, e.g. "Sum of Total" or
+// "Placed At (Month)".
 func (f ChartField) Label() string {
 	if f.Alias != "" {
 		return f.Alias
 	}
+	name := Humanize(f.Field)
 	switch {
 	case f.Aggregate == "":
-		return f.Field
+		return name
 	case slices.Contains(DateBuckets, f.Aggregate):
-		return fmt.Sprintf("%s (%s)", f.Field, aggregateNames[f.Aggregate])
+		return fmt.Sprintf("%s (%s)", name, aggregateNames[f.Aggregate])
 	}
-	return aggregateNames[f.Aggregate] + " of " + f.Field
+	return aggregateNames[f.Aggregate] + " of " + name
+}
+
+var acronyms = map[string]string{"id": "ID", "ids": "IDs", "url": "URL", "uri": "URI", "sku": "SKU", "api": "API", "ip": "IP", "uuid": "UUID", "kpi": "KPI", "vip": "VIP", "utc": "UTC"}
+
+// Humanize turns a column name into a label: snake_case, kebab-case and
+// camelCase become words, each capitalized ("customer_id" -> "Customer ID").
+// Words with capitals of their own keep them.
+func Humanize(name string) string {
+	var words []string
+	var cur []rune
+	flush := func() {
+		if len(cur) > 0 {
+			words = append(words, string(cur))
+			cur = nil
+		}
+	}
+	rs := []rune(name)
+	for i, r := range rs {
+		switch {
+		case r == '_' || r == '-' || r == ' ' || r == '.':
+			flush()
+			continue
+		case unicode.IsUpper(r) && i > 0 && (unicode.IsLower(rs[i-1]) || i+1 < len(rs) && unicode.IsLower(rs[i+1]) && unicode.IsUpper(rs[i-1])):
+			flush()
+		}
+		cur = append(cur, r)
+	}
+	flush()
+	if len(words) == 0 {
+		return name
+	}
+	for i, w := range words {
+		if a, ok := acronyms[strings.ToLower(w)]; ok && w == strings.ToLower(w) {
+			words[i] = a
+			continue
+		}
+		r := []rune(w)
+		r[0] = unicode.ToUpper(r[0])
+		words[i] = string(r)
+	}
+	return strings.Join(words, " ")
 }
 
 // shelves returns a chart's shelves by name, in query order.
@@ -175,6 +220,15 @@ func (c Chart) Check(src DataSource, dialect string) (complete bool, err error) 
 	}
 	if c.Sort != nil && c.Sort.By != "dimension" && c.Sort.By != "value" {
 		return false, fmt.Errorf("sort by is dimension or value, not %q", c.Sort.By)
+	}
+	if c.Sort != nil && c.Sort.Field != "" {
+		ok := false
+		for _, cf := range append(slices.Clone(c.Value), c.Secondary...) {
+			ok = ok || cf.Field == c.Sort.Field || cf.Label() == c.Sort.Field || cf.Alias == c.Sort.Field
+		}
+		if !ok {
+			return false, fmt.Errorf("sort field %q isn't one of the chart's values", c.Sort.Field)
+		}
 	}
 	if c.Top < 0 {
 		return false, fmt.Errorf("top can't be negative")

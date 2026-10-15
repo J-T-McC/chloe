@@ -2,9 +2,11 @@ package bi
 
 import (
 	"cmp"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // MaxChartRows bounds what one chart query returns.
@@ -45,13 +47,19 @@ func Shape(c Chart, cols []Column, raw [][]*string) [][]any {
 		}
 		rows[i] = row
 	}
-	if c.Type == "table" || c.Type == "value" {
+	switch c.Type {
+	case "value":
 		return rows
+	case "table":
+		return shapeTable(c, cols, rows)
 	}
 	dim := slices.IndexFunc(cols, func(c Column) bool { return c.Role == "dimension" })
-	val := slices.IndexFunc(cols, func(c Column) bool { return c.Role == "value" })
+	val := valueColumn(c, cols, "value")
 	if dim < 0 || val < 0 {
 		return rows
+	}
+	if c.Top == 0 && (c.Sort == nil || c.Sort.By == "dimension") && c.Type != "pie" && c.Type != "donut" {
+		rows = fillPeriods(c, cols, rows, dim)
 	}
 	// Totals per dimension value (over series) decide value order and Top N.
 	totals := map[string]float64{}
@@ -267,4 +275,193 @@ func NormalizeDate(s string) string {
 		end++
 	}
 	return strings.Replace(strings.TrimRight(s[:end], " ."), "T", " ", 1)
+}
+
+// valueColumn is the column a sort by value uses: the one the sort names (by
+// field or label), else the first column with the role.
+func valueColumn(c Chart, cols []Column, role string) int {
+	if c.Sort != nil && c.Sort.Field != "" {
+		if i := slices.IndexFunc(cols, func(col Column) bool {
+			return (col.Role == role || col.Role == "secondary") && (col.Field == c.Sort.Field || col.Label == c.Sort.Field)
+		}); i >= 0 {
+			return i
+		}
+	}
+	return slices.IndexFunc(cols, func(col Column) bool { return col.Role == role })
+}
+
+// shapeTable sorts a table's rows (by its first column, or by a value column:
+// the named one or the first aggregated one) and keeps the top n.
+func shapeTable(c Chart, cols []Column, rows [][]any) [][]any {
+	if c.Sort != nil && len(cols) > 0 {
+		idx := 0
+		if c.Sort.By == "value" {
+			idx = valueColumn(c, cols, "column")
+			if c.Sort.Field == "" {
+				if i := slices.IndexFunc(cols, func(col Column) bool { return col.Aggregate != "" && col.Type == TypeNumber }); i >= 0 {
+					idx = i
+				}
+			}
+		}
+		slices.SortStableFunc(rows, func(a, b []any) int {
+			r := compareCells(a[idx], b[idx])
+			if c.Sort.Desc {
+				r = -r
+			}
+			return r
+		})
+	}
+	if c.Top > 0 && len(rows) > c.Top {
+		rows = rows[:c.Top]
+	}
+	return rows
+}
+
+// compareCells orders numbers numerically and text by compareLabels; NULL first.
+func compareCells(a, b any) int {
+	switch {
+	case a == nil && b == nil:
+		return 0
+	case a == nil:
+		return -1
+	case b == nil:
+		return 1
+	}
+	x, okA := a.(float64)
+	y, okB := b.(float64)
+	if okA && okB {
+		return cmp.Compare(x, y)
+	}
+	return compareLabels(key(a), key(b))
+}
+
+// maxFill bounds how many periods filling may add.
+const maxFill = 5000
+
+// fillPeriods adds the periods between the first and last that have no rows,
+// so a date axis keeps its gaps: sums and counts there are 0, other aggregates
+// empty. Only whole periods (year … hour) are filled.
+func fillPeriods(c Chart, cols []Column, rows [][]any, dim int) [][]any {
+	bucket := cols[dim].Aggregate
+	if !slices.Contains([]string{"year", "quarter", "month", "week", "day", "hour"}, bucket) || len(rows) == 0 {
+		return rows
+	}
+	have := map[string]bool{}
+	var lo, hi string
+	for _, r := range rows {
+		s, ok := r[dim].(string)
+		if !ok {
+			continue
+		}
+		have[s] = true
+		if lo == "" || s < lo {
+			lo = s
+		}
+		if s > hi {
+			hi = s
+		}
+	}
+	start, ok1 := parsePeriod(bucket, lo)
+	end, ok2 := parsePeriod(bucket, hi)
+	if !ok1 || !ok2 {
+		return rows
+	}
+	ser := slices.IndexFunc(cols, func(c Column) bool { return c.Role == "series" })
+	var series []any
+	seen := map[string]bool{}
+	for _, r := range rows {
+		if ser >= 0 && !seen[key(r[ser])] {
+			seen[key(r[ser])] = true
+			series = append(series, r[ser])
+		}
+	}
+	if ser < 0 {
+		series = []any{nil}
+	}
+	fields := append(slices.Clone(c.Value), c.Secondary...)
+	empty := func(label string, s any) []any {
+		row := make([]any, len(cols))
+		row[dim] = label
+		if ser >= 0 {
+			row[ser] = s
+		}
+		vi := 0
+		for j, col := range cols {
+			if col.Role != "value" && col.Role != "secondary" {
+				continue
+			}
+			if vi < len(fields) && slices.Contains([]string{"sum", "count", "count_distinct"}, fields[vi].Aggregate) {
+				row[j] = 0.0
+			}
+			vi++
+		}
+		return row
+	}
+	step := 24 * time.Hour
+	if bucket == "hour" {
+		step = time.Hour
+	}
+	added := 0
+	for t := start; !t.After(end) && added < maxFill; t = t.Add(step) {
+		label := PeriodLabel(bucket, t)
+		if have[label] {
+			continue
+		}
+		have[label] = true
+		for _, s := range series {
+			rows = append(rows, empty(label, s))
+		}
+		added++
+	}
+	return rows
+}
+
+// PeriodLabel labels a time as the chart queries label its period.
+func PeriodLabel(bucket string, t time.Time) string {
+	switch bucket {
+	case "year":
+		return t.Format("2006")
+	case "quarter":
+		return fmt.Sprintf("%d-Q%d", t.Year(), (int(t.Month())+2)/3)
+	case "month":
+		return t.Format("2006-01")
+	case "week":
+		return fmt.Sprintf("%d-W%02d", t.Year(), (t.YearDay()-1+7-int(t.Weekday()))/7)
+	case "hour":
+		return t.Format("2006-01-02 15")
+	}
+	return t.Format("2006-01-02")
+}
+
+// parsePeriod returns the first day (or hour) of a period label.
+func parsePeriod(bucket, s string) (time.Time, bool) {
+	var t time.Time
+	var err error
+	switch bucket {
+	case "year":
+		t, err = time.Parse("2006", s)
+	case "quarter":
+		var y, q int
+		if _, err = fmt.Sscanf(s, "%d-Q%d", &y, &q); err == nil {
+			t = time.Date(y, time.Month(q*3-2), 1, 0, 0, 0, 0, time.UTC)
+		}
+	case "month":
+		t, err = time.Parse("2006-01", s)
+	case "week":
+		var y, w int
+		if _, err = fmt.Sscanf(s, "%d-W%d", &y, &w); err == nil {
+			t = time.Date(y, 1, 1, 0, 0, 0, 0, time.UTC)
+			for t.Year() == y && PeriodLabel("week", t) != s {
+				t = t.AddDate(0, 0, 1)
+			}
+			if t.Year() != y {
+				return t, false
+			}
+		}
+	case "hour":
+		t, err = time.Parse("2006-01-02 15", s)
+	default:
+		t, err = time.Parse("2006-01-02", s)
+	}
+	return t, err == nil
 }

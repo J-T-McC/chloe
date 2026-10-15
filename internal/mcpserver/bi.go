@@ -26,8 +26,10 @@ type CreateWorkspaceArgs struct {
 
 type FilterArg struct {
 	Field string `json:"field"`
-	Op    string `json:"op" jsonschema:"one of = != < <= > >= contains not_contains begins_with not_begins_with ends_with not_ends_with is_null is_not_null is_empty is_not_empty between not_between in not_in"`
-	Value any    `json:"value,omitempty" jsonschema:"the value; two values for between, a list for in, nothing for is_null/is_empty"`
+	Op    string `json:"op" jsonschema:"one of = != < <= > >= contains not_contains begins_with not_begins_with ends_with not_ends_with is_null is_not_null is_empty is_not_empty between not_between in not_in in_last"`
+	Value any    `json:"value,omitempty" jsonschema:"the value; two values for between, a list for in, [n, unit] for in_last (unit day week month or year: the last n units including the current one, so charts stay current), nothing for is_null/is_empty"`
+	// Values is how get_workspace returns filters, accepted as well.
+	Values []any `json:"values,omitempty" jsonschema:"the values as a list, as get_workspace returns them (instead of value)"`
 }
 
 type CreateSourceArgs struct {
@@ -48,11 +50,14 @@ type FieldArg struct {
 	Bucket    string `json:"bucket,omitempty" jsonschema:"for date/time dimensions and series: year quarter month week day hour minute second, or quarter_x month_x week_x day_x weekday_x hour_x minute_x second_x for one part (all Marches together); default month"`
 	Alias     string `json:"alias,omitempty" jsonschema:"label shown in the chart"`
 	Operation string `json:"operation,omitempty" jsonschema:"cumulative (running total) or subtract (change from the previous value)"`
+	// Op is how get_workspace returns the operation, accepted as well.
+	Op string `json:"op,omitempty" jsonschema:"same as operation (get_workspace's name for it)"`
 }
 
 type SortArg struct {
-	By   string `json:"by" jsonschema:"dimension or value"`
-	Desc bool   `json:"desc,omitempty"`
+	By    string `json:"by" jsonschema:"dimension or value"`
+	Field string `json:"field,omitempty" jsonschema:"with by value: which value field (name or label) to sort by; tables otherwise use their first aggregated column"`
+	Desc  bool   `json:"desc,omitempty"`
 }
 
 type ChartSpec struct {
@@ -65,7 +70,9 @@ type ChartSpec struct {
 	Sort       *SortArg       `json:"sort,omitempty" jsonschema:"default: dates and numbers in order, categories by value descending"`
 	Top        *int           `json:"top,omitempty" jsonschema:"keep the first n dimension values"`
 	Others     *bool          `json:"others,omitempty" jsonschema:"with top: add the rest up as Others"`
-	Properties map[string]any `json:"properties,omitempty" jsonschema:"display settings: title, hideTitle, legend (auto top bottom right none), labels, labelPercent, stack100, smooth, number {prefix suffix unit(auto K M B) decimals noSeparator}, dateFormat (YYYY MMM DD…), palette, colors (hex list), xTitle, yTitle"`
+	Properties map[string]any `json:"properties,omitempty" jsonschema:"display settings: title, hideTitle, legend (auto top bottom right none), labels, labelPercent, stack100, smooth, number {prefix suffix unit(auto K M B) decimals noSeparator}, dateFormat (YYYY MMM DD…), palette, colors (hex list), xTitle, yTitle. Display only: get_chart_data returns unformatted numbers"`
+	// Props is how get_workspace returns properties, accepted as well.
+	Props map[string]any `json:"props,omitempty" jsonschema:"same as properties (get_workspace's name for them)"`
 }
 
 type CreateChartArgs struct {
@@ -85,6 +92,11 @@ type EditChartArgs struct {
 type ChartArgs struct {
 	WorkspaceArgs
 	Chart string `json:"chart" jsonschema:"a chart name or id in the workspace"`
+}
+
+type ChartDataArgs struct {
+	ChartArgs
+	IncludeSQL bool `json:"include_sql,omitempty" jsonschema:"also return the query Chloe built (it repeats the data source's query)"`
 }
 
 type WorkspaceInfo struct {
@@ -126,7 +138,7 @@ type ChartDataOut struct {
 	Complete  bool        `json:"complete" jsonschema:"false while a shelf the chart type needs is empty"`
 	Mode      string      `json:"mode" jsonschema:"live or archive"`
 	AsOf      string      `json:"as_of" jsonschema:"when the rows were read (archive: when the snapshot was taken)"`
-	SQL       string      `json:"sql,omitempty" jsonschema:"the query Chloe built"`
+	SQL       string      `json:"sql,omitempty" jsonschema:"the query Chloe built, with include_sql"`
 }
 
 func chartTypesText() string {
@@ -299,8 +311,9 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 		})
 
 	add(s, srv, ep, readOnlyTool("get_chart_data", "Get chart data",
-		"Reads what a chart shows: one row per dimension (and series) value with its aggregated values, in the chart's order, as the user sees it in Chloe."),
-		func(ctx context.Context, c *call, in ChartArgs) (ChartDataOut, error) {
+		"Reads what a chart shows: one row per dimension (and series) value with its aggregated values, in the chart's order, as the user sees it in Chloe. "+
+			"Values are unformatted numbers (the chart's number format is display only); periods with no rows on a date axis are included, with 0 for sums and counts."),
+		func(ctx context.Context, c *call, in ChartDataArgs) (ChartDataOut, error) {
 			_, w, err := c.workspace(in.Workspace)
 			if err != nil {
 				return ChartDataOut{}, err
@@ -322,8 +335,11 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			if err != nil {
 				return ChartDataOut{}, err
 			}
-			return ChartDataOut{Columns: data.Columns, Rows: data.Rows, RowCount: len(data.Rows), Truncated: data.Truncated, Complete: data.Complete,
-				Mode: data.Mode, AsOf: data.RanAt, SQL: data.SQL}, nil
+			out := ChartDataOut{Columns: data.Columns, Rows: data.Rows, RowCount: len(data.Rows), Truncated: data.Truncated, Complete: data.Complete, Mode: data.Mode, AsOf: data.RanAt}
+			if in.IncludeSQL {
+				out.SQL = data.SQL
+			}
+			return out, nil
 		})
 
 	add(s, srv, ep, &mcp.Tool{Name: "open_chart", Description: "Opens a chart in Chloe for the user.",
@@ -475,7 +491,11 @@ func (c *call) applySpec(ch *bi.Chart, src bi.DataSource, in ChartSpec) error {
 			if agg == "" && !(t.Raw && name == "value") {
 				agg = bi.DefaultAggregate(name, f, false)
 			}
-			out = append(out, bi.ChartField{Field: a.Field, Aggregate: agg, Alias: a.Alias, Op: a.Operation})
+			op := a.Operation
+			if op == "" {
+				op = a.Op
+			}
+			out = append(out, bi.ChartField{Field: a.Field, Aggregate: agg, Alias: a.Alias, Op: op})
 		}
 		*dst = out
 		return nil
@@ -497,13 +517,16 @@ func (c *call) applySpec(ch *bi.Chart, src bi.DataSource, in ChartSpec) error {
 		ch.Filters = fs
 	}
 	if in.Sort != nil {
-		ch.Sort = &bi.ChartSort{By: in.Sort.By, Desc: in.Sort.Desc}
+		ch.Sort = &bi.ChartSort{By: in.Sort.By, Field: in.Sort.Field, Desc: in.Sort.Desc}
 	}
 	if in.Top != nil {
 		ch.Top = *in.Top
 	}
 	if in.Others != nil {
 		ch.Others = *in.Others
+	}
+	if in.Properties == nil {
+		in.Properties = in.Props
 	}
 	if in.Properties != nil {
 		var p bi.Props
@@ -566,7 +589,11 @@ func filters(in []FilterArg) ([]bi.Filter, error) {
 	out := []bi.Filter{}
 	for _, a := range in {
 		f := bi.Filter{Field: a.Field, Op: a.Op}
-		switch v := a.Value.(type) {
+		v := a.Value
+		if v == nil && a.Values != nil {
+			v = a.Values
+		}
+		switch v := v.(type) {
 		case nil:
 		case []any:
 			for _, x := range v {
