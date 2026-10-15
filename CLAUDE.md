@@ -6,7 +6,7 @@ What's done and what's next: `docs/ROADMAP.md`. Behaviour specs: `docs/specs/`.
 ## Layout
 - `internal/` is plain Go with no Wails dependency: `core` (manager, design/edit/transfer/dump),
   `driver/{mysql,postgres,sqlite}` + `rdb` (Redis) + `mdb` (MongoDB: documents as `Val`, goja shell),
-  `design` (DDL generators), `sqlsplit`, `transfer`, `privs`, `store`.
+  `design` (DDL generators), `sqlsplit`, `transfer`, `privs`, `store`, `mcpserver` (MCP tools over `core`).
 - `services/` holds thin Wails services over `core`. Their bindings are generated into `frontend/bindings`.
 - `frontend/src`: `components/` (`mongo/`, `redis/`…), `editor/` (Monaco completion and format), `sql/` (lexer and
   autocomplete engine), `mongo/` (document formatting and shell completion),
@@ -35,7 +35,9 @@ Sample data lives in `testdata/seed_*` (`seed_mongo.js` runs in mongosh). To reb
 - Destructive menu items are not coloured red.
 - Reverse engineering (REA, Ghidra) of the installed Navicat is for behaviour specs only.
   Never copy decompiled code, names or assets.
-- Only support engines that can be tested in local Docker (Snowflake is out). Don't start the MCP server feature until the user discusses it.
+- Only support engines that can be tested in local Docker (Snowflake is out).
+- MCP server (`docs/specs/mcp-server.md`): loopback HTTP only, no TLS; Chloe builds all write SQL from checked column
+  names and bound values; writes wait for approval unless the endpoint is in danger mode. No DDL over MCP.
 - Verify UI changes in the browser build with an e2e script, not just a type check.
 
 ## Gotchas

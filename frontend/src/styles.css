@@ -3877,3 +3877,230 @@ table.mapping select {
 .dsync-table tr.dst.op-delete {
   background: var(--deleted);
 }
+
+/* MCP server */
+.mcp {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mcp-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.mcp-port {
+  width: 64px;
+}
+
+.mcp-status {
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.mcp-status.error {
+  color: var(--danger);
+}
+
+.mcp-list {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 8px;
+  overflow: auto;
+}
+
+.mcp-list-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  cursor: default;
+}
+
+.mcp-list-row .name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-list-row.selected {
+  background: var(--sel);
+}
+
+.mcp-list-row.disabled .name {
+  color: var(--text-3);
+}
+
+.mcp-list-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.mcp-detail {
+  height: 100%;
+  overflow: auto;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.mcp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 720px;
+}
+
+.mcp-form > label:not(.check) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mcp-form > label:not(.check) > span,
+.mcp-label {
+  width: 56px;
+  flex: none;
+  color: var(--text-2);
+}
+
+.mcp-form > label > input:not([type="checkbox"]) {
+  flex: 1;
+  max-width: 320px;
+}
+
+.mcp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mcp-token {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 2px 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.mcp-snippet {
+  margin: 0;
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}
+
+.mcp-access-title {
+  margin-top: 14px;
+}
+
+.mcp-access {
+  max-width: 720px;
+}
+
+.mcp-access table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.mcp-access th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-2);
+  border-bottom: 1px solid var(--border);
+  padding: 4px 6px;
+}
+
+.mcp-access td {
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mcp-access td:last-child {
+  width: 190px;
+}
+
+.mcp-access select {
+  width: 100%;
+}
+
+.mcp-expand {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  vertical-align: -1px;
+}
+
+.mcp-db {
+  padding-left: 40px !important;
+}
+
+.mcp-activity {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.monitor-table tr.outcome-error .mcp-outcome,
+.monitor-table tr.outcome-denied .mcp-outcome {
+  color: var(--danger);
+}
+
+.monitor-table tr.outcome-unasked .mcp-outcome {
+  color: var(--warn);
+}
+
+.mcp-button.running {
+  color: var(--accent);
+}
+
+.mcp-button.danger-mode {
+  color: var(--warn);
+  gap: 5px;
+}
+
+.mcp-flag {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.mcp-approval {
+  width: 560px;
+}
+
+.mcp-approval-target {
+  color: var(--text-2);
+  margin-bottom: 6px;
+}
+
+.mcp-approval-sql {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}

@@ -13,7 +13,7 @@ Order reflects dependencies: later features build on the earlier ones. Specs for
 5. Polish: Redis pub/sub, cluster and sentinel; Form view and hex/image cell editors; preferences window
    (history logging on/off, autosave interval)
 
-The MCP server (6b) waits until the user has discussed it.
+MCP server (6b): next are Monitor, saved queries / query tabs and create connections, then ER models.
 
 ## 1. Foundation ✅
 Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, table viewer, query editor with autocomplete.
@@ -60,14 +60,13 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 ## 6. Users & privileges ✅
 - Users/roles, server privileges, object privileges (MySQL, PostgreSQL)
 
-## 6b. MCP server (on hold until discussed with the user)
-- Chloe as an MCP server for AI assistants: pick connections to expose, with
-  per-table / per-column read and write permissions
-- Structured tools (list/describe tables, select/insert/update rows) where
-  Chloe builds the SQL, so table and column rules are enforceable; read-only
-  access also runs in read-only transactions
-- Optional: create a dedicated database user with matching GRANTs (uses the
-  privileges feature) so the database itself enforces the policy
+## 6b. MCP server (spec: `docs/specs/mcp-server.md`)
+- [x] Streamable HTTP on 127.0.0.1, endpoints with their own tokens, Off / Read / Read-write per connection and database
+- [x] Data tools for MySQL, PostgreSQL and SQLite (list/describe, select_rows, read-only run_query, insert/update/delete rows)
+- [x] Approval dialog for writes, opt-in danger mode, activity log, Tools > MCP Server… and the titlebar button
+- [ ] Monitor, saved queries and query tabs, create connections (capabilities)
+- [ ] ER model tools
+- [ ] MongoDB and Redis tools; hidden columns; a dedicated database user with matching GRANTs
 
 ## 7. More engines
 - [x] Redis: key browser, typed value editors, TTL, console, server monitor (pub/sub, cluster and sentinel still to do)

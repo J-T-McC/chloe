@@ -93,8 +93,9 @@ func (d Dialect) TransactionalDDL() bool { return d.Name != "mysql" }
 
 // Session is a single dedicated server connection.
 type Session interface {
-	// Query executes one statement. If it produces rows, the returned Rows must be closed.
-	Query(ctx context.Context, sql string) (Rows, error)
+	// Query executes one statement, with bind parameters per Dialect.Placeholder.
+	// If it produces rows, the returned Rows must be closed.
+	Query(ctx context.Context, sql string, args ...any) (Rows, error)
 	// Exec runs a parameterised statement (placeholders per Dialect.Placeholder).
 	Exec(ctx context.Context, sql string, args ...any) (int64, error)
 	// Cancel aborts the statement currently running on this session (server-side where possible).

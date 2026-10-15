@@ -60,15 +60,15 @@ type Querier interface {
 }
 
 // Run executes a statement choosing Query or Exec.
-func Run(ctx context.Context, q Querier, stmt string, f Formatter) (*Rows, error) {
+func Run(ctx context.Context, q Querier, stmt string, f Formatter, args ...any) (*Rows, error) {
 	if ReturnsRows(stmt) {
-		rows, err := q.QueryContext(ctx, stmt)
+		rows, err := q.QueryContext(ctx, stmt, args...)
 		if err != nil {
 			return nil, err
 		}
 		return NewRows(rows, 0, f)
 	}
-	res, err := q.ExecContext(ctx, stmt)
+	res, err := q.ExecContext(ctx, stmt, args...)
 	if err != nil {
 		return nil, err
 	}

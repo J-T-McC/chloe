@@ -39,6 +39,7 @@ type Store struct {
 	keyMu   sync.Mutex
 	key     []byte // file key, once read from the keychain
 	work    *Workspace
+	mcpMu   sync.Mutex // mcp.json
 	// locked explains why an encrypted connections.json couldn't be read. The
 	// store is then empty and never writes, so the file is left as it was.
 	locked string

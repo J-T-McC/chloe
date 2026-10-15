@@ -5,6 +5,7 @@ import * as ConnectionService from "./connectionservice.js";
 import * as DesignService from "./designservice.js";
 import * as ExplorerService from "./explorerservice.js";
 import * as LayoutService from "./layoutservice.js";
+import * as MCPService from "./mcpservice.js";
 import * as ModelService from "./modelservice.js";
 import * as MongoService from "./mongoservice.js";
 import * as MonitorService from "./monitorservice.js";
@@ -17,6 +18,7 @@ export {
     DesignService,
     ExplorerService,
     LayoutService,
+    MCPService,
     ModelService,
     MongoService,
     MonitorService,

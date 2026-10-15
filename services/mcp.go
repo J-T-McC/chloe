@@ -1,0 +1,134 @@
+package services
+
+import (
+	"context"
+	"sync"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
+
+	"chloe/internal/mcpserver"
+	"chloe/internal/store"
+)
+
+// MCP events emitted to the frontend.
+const (
+	EventMCPApproval     = "mcp:approval"      // an agent's write waits for the user
+	EventMCPApprovalDone = "mcp:approval-done" // a request was answered elsewhere or timed out
+	EventMCPActivity     = "mcp:activity"
+	EventMCPStatus       = "mcp:status"
+)
+
+func init() {
+	application.RegisterEvent[mcpserver.ApprovalRequest](EventMCPApproval)
+	application.RegisterEvent[string](EventMCPApprovalDone)
+	application.RegisterEvent[mcpserver.Activity](EventMCPActivity)
+	application.RegisterEvent[mcpserver.Status](EventMCPStatus)
+}
+
+// MCPApprover shows approval requests in the app and waits for the answer.
+type MCPApprover struct {
+	mu      sync.Mutex
+	pending map[string]pendingApproval
+}
+
+type pendingApproval struct {
+	req mcpserver.ApprovalRequest
+	ch  chan bool
+}
+
+func (a *MCPApprover) Approve(ctx context.Context, req mcpserver.ApprovalRequest) bool {
+	ch := make(chan bool, 1)
+	a.mu.Lock()
+	if a.pending == nil {
+		a.pending = map[string]pendingApproval{}
+	}
+	a.pending[req.ID] = pendingApproval{req, ch}
+	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		delete(a.pending, req.ID)
+		a.mu.Unlock()
+	}()
+	app := application.Get()
+	if app == nil {
+		return false
+	}
+	app.Event.Emit(EventMCPApproval, req)
+	// Bring Chloe forward so the request isn't missed behind the agent's window.
+	for _, w := range app.Window.GetAll() {
+		w.UnMinimise()
+		w.Show()
+		w.Focus()
+		break
+	}
+	select {
+	case ok := <-ch:
+		return ok
+	case <-ctx.Done():
+		app.Event.Emit(EventMCPApprovalDone, req.ID)
+		return false
+	}
+}
+
+func (a *MCPApprover) resolve(id string, ok bool) {
+	a.mu.Lock()
+	p, found := a.pending[id]
+	a.mu.Unlock()
+	if found {
+		select {
+		case p.ch <- ok:
+		default:
+		}
+	}
+}
+
+func (a *MCPApprover) list() []mcpserver.ApprovalRequest {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := []mcpserver.ApprovalRequest{}
+	for _, p := range a.pending {
+		out = append(out, p.req)
+	}
+	return out
+}
+
+// MCPEvents forwards server activity to the frontend.
+type MCPEvents struct{}
+
+func (MCPEvents) Activity(a mcpserver.Activity) {
+	if app := application.Get(); app != nil {
+		app.Event.Emit(EventMCPActivity, a)
+	}
+}
+
+func (MCPEvents) Status(s mcpserver.Status) {
+	if app := application.Get(); app != nil {
+		app.Event.Emit(EventMCPStatus, s)
+	}
+}
+
+// MCPService backs the MCP Server window.
+type MCPService struct {
+	S        *mcpserver.Server
+	Approver *MCPApprover
+}
+
+func (s *MCPService) Settings() store.MCPSettings { return s.S.Settings() }
+
+// Save stores the settings and returns them with new endpoints' IDs and tokens filled in.
+func (s *MCPService) Save(st store.MCPSettings) (store.MCPSettings, error) {
+	err := s.S.Save(st)
+	return s.S.Settings(), err
+}
+
+func (s *MCPService) NewToken() string         { return mcpserver.NewToken() }
+func (s *MCPService) Status() mcpserver.Status { return s.S.Status() }
+
+func (s *MCPService) Activity() []mcpserver.Activity { return s.S.Activity() }
+func (s *MCPService) ClearActivity()                 { s.S.ClearActivity() }
+
+// Pending lists writes waiting for approval (shown again after a reload).
+func (s *MCPService) Pending() []mcpserver.ApprovalRequest { return s.Approver.list() }
+
+// Resolve answers an approval request.
+func (s *MCPService) Resolve(id string, approved bool) { s.Approver.resolve(id, approved) }

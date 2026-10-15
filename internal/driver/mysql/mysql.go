@@ -368,8 +368,8 @@ type Session struct {
 	id   int64
 }
 
-func (s *Session) Query(ctx context.Context, stmt string) (driver.Rows, error) {
-	return sqlcommon.Run(ctx, s.conn, stmt, sqlcommon.FormatValue)
+func (s *Session) Query(ctx context.Context, stmt string, args ...any) (driver.Rows, error) {
+	return sqlcommon.Run(ctx, s.conn, stmt, sqlcommon.FormatValue, args...)
 }
 
 // Cancel kills the running statement from a separate pool connection, which is how
