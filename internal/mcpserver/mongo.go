@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -123,7 +124,8 @@ var (
 	// mongoWriteStages write from an aggregation.
 	mongoWriteStages = []string{"$out", "$merge"}
 	// mongoAdminStages report on the whole server, or never end.
-	mongoAdminStages = []string{"$currentOp", "$listSessions", "$listLocalSessions", "$changeStream", "$listSampledQueries"}
+	mongoAdminStages = []string{"$currentOp", "$listSessions", "$listLocalSessions", "$changeStream", "$listSampledQueries",
+		"$listCatalog", "$listClusterCatalog", "$shardedDataDistribution"}
 	// mongoSourceStages read another collection, which must be in the same database.
 	mongoSourceStages = []string{"$lookup", "$graphLookup", "$unionWith"}
 	// mongoUpdateOps are the update operators mongo_update takes.
@@ -194,6 +196,11 @@ func checkSource(stage string, spec any) error {
 // systemDBs hold MongoDB's own state; agents may read them (when shared) but never write.
 var systemDBs = []string{"admin", "config", "local"}
 
+// isSystemDB matches admin, config and local in any case.
+func isSystemDB(name string) bool {
+	return slices.ContainsFunc(systemDBs, func(s string) bool { return strings.EqualFold(s, name) })
+}
+
 // checkColl refuses system collections: system.users and system.roles hold
 // credentials, system.js stored JavaScript.
 func checkColl(name string) error {
@@ -231,6 +238,19 @@ func (t mongoTarget) coll(name string) *mongo.Collection {
 	return t.cl.Mongo().Database(t.database).Collection(name)
 }
 
+// exists checks a collection or view is there, so a misspelt name isn't taken
+// for an empty result.
+func (t mongoTarget) exists(ctx context.Context, name string) error {
+	names, err := t.cl.Mongo().Database(t.database).ListCollectionNames(ctx, bson.D{{Key: "name", Value: name}})
+	if err != nil {
+		return err
+	}
+	if len(names) == 0 {
+		return fmt.Errorf("no collection %q in database %s (see mongo_collections)", name, t.database)
+	}
+	return nil
+}
+
 // mongoColl is mongoDB for a tool on one collection.
 func (c *call) mongoColl(ctx context.Context, in MongoCollArgs, need store.MCPLevel) (mongoTarget, error) {
 	if in.Collection == "" {
@@ -260,7 +280,7 @@ func (c *call) mongoDB(ctx context.Context, connection, database string, need st
 	if !atLeast(have, need) {
 		return mongoTarget{}, fmt.Errorf("this endpoint can only read %s/%s; ask the user to allow writes in Chloe's MCP Server settings", conn.Name, database)
 	}
-	if need == store.MCPWrite && slices.Contains(systemDBs, database) {
+	if need == store.MCPWrite && isSystemDB(database) {
 		return mongoTarget{}, fmt.Errorf("%s is MongoDB's own database; agents can't change it", database)
 	}
 	cl, err := c.mongoClient(ctx, conn)
@@ -279,8 +299,10 @@ func (c *call) mongoClient(ctx context.Context, conn model.Connection) (*mdb.Cli
 
 // --- results ---------------------------------------------------------------------
 
-// extJSON renders a value as relaxed Extended JSON, for results, approvals and the log.
+// extJSON renders a value as relaxed Extended JSON, for results, approvals and
+// the log; longs beyond 2^53 stay $numberLong.
 func extJSON(v any) string {
+	v = cutLongs(v)
 	if d, ok := v.(bson.A); ok {
 		parts := make([]string, len(d))
 		for i, e := range d {
@@ -297,6 +319,27 @@ func extJSON(v any) string {
 		return fmt.Sprint(v)
 	}
 	return string(b)
+}
+
+// cutLongs keeps big longs exact for display, where values aren't shortened.
+func cutLongs(v any) any {
+	switch x := v.(type) {
+	case bson.D:
+		out := make(bson.D, len(x))
+		for i, e := range x {
+			out[i] = bson.E{Key: e.Key, Value: cutLongs(e.Value)}
+		}
+		return out
+	case bson.A:
+		out := make(bson.A, len(x))
+		for i, e := range x {
+			out[i] = cutLongs(e)
+		}
+		return out
+	case int64:
+		return bigLong(x)
+	}
+	return v
 }
 
 // cutDoc shortens long strings and binary values so one document can't fill a response.
@@ -324,15 +367,27 @@ func cutDoc(v any, cut *bool) any {
 			*cut = true
 			return fmt.Sprintf("[binary, %d bytes]", len(x.Data))
 		}
+	case int64:
+		return bigLong(x)
 	}
 	return v
+}
+
+// bigLong keeps a long that JSON numbers can't hold exactly (beyond 2^53) as
+// {"$numberLong": "…"}, which agents and the approval dialog read correctly.
+func bigLong(n int64) any {
+	if n > 1<<53 || n < -(1<<53) {
+		return bson.D{{Key: "$numberLong", Value: strconv.FormatInt(n, 10)}}
+	}
+	return n
 }
 
 type DocsOut struct {
 	Documents []json.RawMessage `json:"documents" jsonschema:"documents as relaxed Extended JSON"`
 	Count     int               `json:"count"`
 	Total     *int64            `json:"total,omitempty" jsonschema:"documents matching the filter, when count was asked for"`
-	Truncated bool              `json:"truncated" jsonschema:"more documents exist than were returned, or long values were cut (they end in …[N more bytes]); never write a cut value back"`
+	HasMore   bool              `json:"has_more" jsonschema:"more documents follow; page with skip (mongo_find) or narrow the query"`
+	Truncated bool              `json:"truncated" jsonschema:"long values were cut (strings end in …[N more bytes], binary shows its size); never write a cut value back"`
 }
 
 // readDocs reads up to limit documents from a cursor, cutting long values and
@@ -343,7 +398,7 @@ func readDocs(ctx context.Context, cur *mongo.Cursor, limit int) (DocsOut, error
 	size := 0
 	for cur.Next(ctx) {
 		if len(out.Documents) >= limit || size > maxResultBytes {
-			out.Truncated = true
+			out.HasMore = true
 			break
 		}
 		var d bson.D
@@ -388,7 +443,7 @@ type MongoDatabasesOut struct {
 type MongoCollectionOut struct {
 	Name   string `json:"name"`
 	Type   string `json:"type" jsonschema:"collection, view or timeseries"`
-	Count  int64  `json:"count,omitempty"`
+	Count  *int64 `json:"count,omitempty" jsonschema:"documents; absent for views and time-series collections (count them with mongo_find count: true)"`
 	Size   int64  `json:"size_bytes,omitempty"`
 	ViewOn string `json:"view_on,omitempty"`
 }
@@ -398,21 +453,22 @@ type MongoCollectionsOut struct {
 }
 
 type MongoFieldOut struct {
-	Path string `json:"path"`
-	Type string `json:"type" jsonschema:"BSON type seen most: string, int, long, double, decimal, bool, date, oid, object, array…"`
+	Path   string `json:"path"`
+	Type   string `json:"type" jsonschema:"BSON type seen most: string, int, long, double, decimal, bool, date, oid, object, array…"`
+	SeenIn int    `json:"seen_in" jsonschema:"sampled documents that have the field"`
 }
 
 type MongoIndexOut struct {
-	Name   string          `json:"name"`
-	Keys   json.RawMessage `json:"keys"`
-	Unique bool            `json:"unique,omitempty"`
-	TTL    int64           `json:"expire_after_seconds,omitempty"`
+	Name string          `json:"name"`
+	Spec json.RawMessage `json:"spec" jsonschema:"the index as listIndexes reports it: key, unique, partialFilterExpression, weights, expireAfterSeconds…"`
 }
 
 type MongoDescribeOut struct {
 	Type      string          `json:"type"`
 	Count     int64           `json:"count"`
-	Fields    []MongoFieldOut `json:"fields" jsonschema:"field paths seen in a sample of 100 documents"`
+	Sampled   int             `json:"sampled" jsonschema:"documents sampled for fields (up to 100)"`
+	Fields    []MongoFieldOut `json:"fields" jsonschema:"field paths seen in the sample, nested documents included"`
+	Options   json.RawMessage `json:"options,omitempty" jsonschema:"collection options: capped, size, max, timeseries, validationLevel, validationAction, collation…"`
 	Indexes   []MongoIndexOut `json:"indexes"`
 	Validator json.RawMessage `json:"validator,omitempty"`
 	ViewOn    string          `json:"view_on,omitempty"`
@@ -505,7 +561,7 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 				if l == store.MCPOff {
 					continue
 				}
-				if l == store.MCPWrite && slices.Contains(systemDBs, d.Name) {
+				if l == store.MCPWrite && isSystemDB(d.Name) {
 					l = store.MCPRead // never written
 				}
 				out.Databases = append(out.Databases, MongoDatabaseOut{Name: d.Name, Size: d.Size, Access: levelName(l)})
@@ -532,7 +588,11 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 				if checkColl(ci.Name) != nil {
 					continue
 				}
-				out.Collections = append(out.Collections, MongoCollectionOut{Name: ci.Name, Type: ci.Type, Count: ci.Count, Size: ci.Size, ViewOn: ci.ViewOn})
+				o := MongoCollectionOut{Name: ci.Name, Type: ci.Type, Size: ci.Size, ViewOn: ci.ViewOn}
+				if ci.Type == "collection" {
+					o.Count = &ci.Count
+				}
+				out.Collections = append(out.Collections, o)
 			}
 			return out, nil
 		})
@@ -565,6 +625,12 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 			if err != nil {
 				return DocsOut{}, err
 			}
+			if in.Limit < 0 || in.Skip < 0 {
+				return DocsOut{}, errors.New("limit and skip can't be negative (limit 0 means the default of 100)")
+			}
+			if err := t.exists(ctx, in.Collection); err != nil {
+				return DocsOut{}, err
+			}
 			sort := bson.D{}
 			for _, s := range in.Sort {
 				dir := 1
@@ -574,10 +640,10 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 				sort = append(sort, bson.E{Key: s.Field, Value: dir})
 			}
 			limit := clampLimit(in.Limit)
-			c.act.SQL = fmt.Sprintf("db.%s.find(%s, %s).sort(%s).skip(%d).limit(%d)", in.Collection, extJSON(filter), extJSON(proj), extJSON(sort), max(in.Skip, 0), limit)
+			c.act.SQL = fmt.Sprintf("db.%s.find(%s, %s).sort(%s).skip(%d).limit(%d)", in.Collection, extJSON(filter), extJSON(proj), extJSON(sort), in.Skip, limit)
 			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
 			defer cancel()
-			o := options.Find().SetSkip(max(in.Skip, 0)).SetLimit(int64(limit) + 1)
+			o := options.Find().SetSkip(in.Skip).SetLimit(int64(limit) + 1)
 			if len(proj) > 0 {
 				o.SetProjection(proj)
 			}
@@ -609,6 +675,12 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 		func(ctx context.Context, c *call, in MongoAggregateArgs) (DocsOut, error) {
 			t, err := c.mongoColl(ctx, in.MongoCollArgs, store.MCPRead)
 			if err != nil {
+				return DocsOut{}, err
+			}
+			if in.Limit < 0 {
+				return DocsOut{}, errors.New("limit can't be negative (0 means the default of 100)")
+			}
+			if err := t.exists(ctx, in.Collection); err != nil {
 				return DocsOut{}, err
 			}
 			pipeline := bson.A{}
@@ -682,7 +754,7 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 			defer cancel()
 			r, err := t.coll(in.Collection).InsertMany(ctx, docs)
 			if err != nil {
-				return MongoInsertOut{}, err
+				return MongoInsertOut{}, mdb.WriteError(err)
 			}
 			out := MongoInsertOut{Inserted: len(r.InsertedIDs), IDs: []json.RawMessage{}}
 			for _, id := range r.InsertedIDs {
@@ -731,7 +803,8 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 			shown := c.act.SQL + idList(ids)
 			if n == 0 {
 				summary = fmt.Sprintf("Insert a document into %s (upsert: nothing matched)", in.Collection)
-				shown = c.act.SQL + "\n// upsert"
+				c.act.SQL = fmt.Sprintf("db.%s.updateOne(%s, %s, {\"upsert\": true})", in.Collection, extJSON(filter), extJSON(update))
+				shown = c.act.SQL
 			}
 			if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.database, Table: in.Collection, Summary: summary, SQL: shown, Rows: max(n, 1)}); err != nil {
 				return MongoUpdateOut{}, err
@@ -743,7 +816,7 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 				r, err = coll.UpdateMany(ctx, onlyIDs(filter, ids), update)
 			}
 			if err != nil {
-				return MongoUpdateOut{}, err
+				return MongoUpdateOut{}, mdb.WriteError(err)
 			}
 			out := MongoUpdateOut{Matched: r.MatchedCount, Modified: r.ModifiedCount}
 			if r.UpsertedID != nil {
@@ -787,7 +860,7 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 			}
 			r, err := coll.DeleteMany(ctx, onlyIDs(filter, ids))
 			if err != nil {
-				return MongoDeletedOut{}, err
+				return MongoDeletedOut{}, mdb.WriteError(err)
 			}
 			c.act.Rows = r.DeletedCount
 			return MongoDeletedOut{Deleted: r.DeletedCount}, nil
@@ -880,24 +953,37 @@ func describeCollection(ctx context.Context, t mongoTarget, name string) (MongoD
 		return MongoDescribeOut{}, fmt.Errorf("no collection %q in %s (see mongo_collections)", name, t.database)
 	}
 	out := MongoDescribeOut{Type: ci.Type, Count: ci.Count, ViewOn: ci.ViewOn, Fields: []MongoFieldOut{}, Indexes: []MongoIndexOut{}}
+	if ci.Type != "collection" {
+		// Collection stats don't count views or time-series buckets' documents.
+		n, err := t.coll(name).CountDocuments(ctx, bson.D{})
+		if err != nil {
+			return out, err
+		}
+		out.Count = n
+	}
 	opts, _ := mdb.FromVal(ci.Options)
 	if d, ok := opts.(bson.D); ok {
+		rest := bson.D{}
 		for _, e := range d {
 			switch e.Key {
 			case "validator":
 				out.Validator = json.RawMessage(extJSON(e.Value))
 			case "pipeline":
 				out.Pipeline = json.RawMessage(extJSON(e.Value))
+			case "viewOn":
+			default:
+				rest = append(rest, e)
 			}
 		}
+		if len(rest) > 0 {
+			out.Options = json.RawMessage(extJSON(rest))
+		}
 	}
-	fields, err := t.cl.SampleFields(ctx, t.database, name, 100)
+	sampled, fields, err := sampleFields(ctx, t.coll(name), 100)
 	if err != nil {
 		return out, err
 	}
-	for _, f := range fields {
-		out.Fields = append(out.Fields, MongoFieldOut{Path: f.Name, Type: f.Type})
-	}
+	out.Sampled, out.Fields = sampled, fields
 	if ci.Type == "view" {
 		return out, nil
 	}
@@ -906,22 +992,66 @@ func describeCollection(ctx context.Context, t mongoTarget, name string) (MongoD
 		return out, err
 	}
 	for _, ix := range idx {
-		keys := bson.D{}
-		for _, k := range ix.Keys {
-			var v any = k.Type
-			switch k.Type {
-			case "1":
-				v = 1
-			case "-1":
-				v = -1
-			}
-			keys = append(keys, bson.E{Key: k.Field, Value: v})
+		spec, _ := mdb.FromVal(ix.Spec)
+		if d, ok := spec.(bson.D); ok {
+			d = slices.DeleteFunc(slices.Clone(d), func(e bson.E) bool { return e.Key == "v" || e.Key == "name" || e.Key == "ns" })
+			spec = d
 		}
-		o := MongoIndexOut{Name: ix.Name, Keys: json.RawMessage(extJSON(keys)), Unique: ix.Unique}
-		if ix.TTL >= 0 {
-			o.TTL = ix.TTL
-		}
-		out.Indexes = append(out.Indexes, o)
+		out.Indexes = append(out.Indexes, MongoIndexOut{Name: ix.Name, Spec: json.RawMessage(extJSON(spec))})
 	}
 	return out, nil
+}
+
+// sampleFields lists the field paths of up to n random documents, with the
+// type seen most and how many documents have each.
+func sampleFields(ctx context.Context, coll *mongo.Collection, n int) (int, []MongoFieldOut, error) {
+	cur, err := coll.Aggregate(ctx, bson.A{bson.D{{Key: "$sample", Value: bson.D{{Key: "size", Value: n}}}}})
+	if err != nil {
+		return 0, nil, err
+	}
+	var docs []bson.D
+	if err := cur.All(ctx, &docs); err != nil {
+		return 0, nil, err
+	}
+	type field struct {
+		seen  int
+		types map[string]int
+	}
+	byPath := map[string]*field{}
+	var order []string
+	var walk func(prefix string, d bson.D, depth int, here map[string]bool)
+	walk = func(prefix string, d bson.D, depth int, here map[string]bool) {
+		for _, e := range d {
+			p := prefix + e.Key
+			f := byPath[p]
+			if f == nil {
+				f = &field{types: map[string]int{}}
+				byPath[p] = f
+				order = append(order, p)
+			}
+			if !here[p] {
+				here[p] = true
+				f.seen++
+			}
+			f.types[mdb.ToVal(e.Value).T]++
+			if sub, ok := e.Value.(bson.D); ok && depth < 4 {
+				walk(p+".", sub, depth+1, here)
+			}
+		}
+	}
+	for _, d := range docs {
+		walk("", d, 0, map[string]bool{})
+	}
+	out := make([]MongoFieldOut, 0, len(order))
+	for _, p := range order {
+		f := byPath[p]
+		best, most := "", 0
+		for t, c := range f.types {
+			if c > most || c == most && t < best {
+				best, most = t, c
+			}
+		}
+		out = append(out, MongoFieldOut{Path: p, Type: best, SeenIn: f.seen})
+	}
+	return len(docs), out, nil
 }

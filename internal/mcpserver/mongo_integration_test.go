@@ -90,7 +90,7 @@ func TestIntegrationMongoTools(t *testing.T) {
 		t.Fatalf("collections: %s", cs)
 	}
 	desc := f.call(t, "mongo_describe", at(nil), "")
-	if !strings.Contains(fmt.Sprint(desc["fields"]), "path:total type:int") || !strings.Contains(fmt.Sprint(desc["indexes"]), "_id_") {
+	if !strings.Contains(fmt.Sprint(desc["fields"]), "path:total seen_in:3 type:int") || !strings.Contains(fmt.Sprint(desc["indexes"]), "_id_") {
 		t.Fatalf("describe: %v", desc)
 	}
 
@@ -99,8 +99,16 @@ func TestIntegrationMongoTools(t *testing.T) {
 	if d := docs(t, out); len(d) != 2 || d[0]["_id"].(float64) != 1 || out["total"].(float64) != 2 {
 		t.Fatalf("find: %v", out)
 	}
-	if d := docs(t, f.call(t, "mongo_find", at(map[string]any{"limit": 2}), "")); len(d) != 2 {
-		t.Fatalf("limit: %v", d)
+	if out := f.call(t, "mongo_find", at(map[string]any{"limit": 2}), ""); len(docs(t, out)) != 2 || out["has_more"] != true || out["truncated"] != false {
+		t.Fatalf("limit: %v", out)
+	}
+	f.call(t, "mongo_find", at(map[string]any{"limit": -5}), "can't be negative")
+	f.call(t, "mongo_find", at(map[string]any{"collection": "ordres"}), `no collection "ordres"`)
+	f.call(t, "mongo_aggregate", map[string]any{"connection": "docs", "database": "nodb", "collection": "x", "pipeline": []any{}}, "no collection")
+	// Longs beyond 2^53 stay exact.
+	db.Collection("orders").UpdateOne(ctx, bson.D{{Key: "_id", Value: 3}}, bson.D{{Key: "$set", Value: bson.D{{Key: "big", Value: int64(9007199254740993)}}}})
+	if d := docs(t, f.call(t, "mongo_find", at(map[string]any{"filter": map[string]any{"_id": 3}}), "")); fmt.Sprint(d[0]["big"]) != "map[$numberLong:9007199254740993]" {
+		t.Fatalf("big long: %v", d[0]["big"])
 	}
 	// A $sort stage keeps its key order: customer ascending, then total descending.
 	out = f.call(t, "mongo_aggregate", at(map[string]any{"pipeline": json.RawMessage(`[{"$sort": {"customer": 1, "total": -1}}, {"$project": {"_id": 1}}]`)}), "")
@@ -148,8 +156,8 @@ func TestIntegrationMongoTools(t *testing.T) {
 	f.appr.mu.Unlock()
 
 	up = f.call(t, "mongo_update", at(map[string]any{"filter": map[string]any{"_id": 50}, "update": map[string]any{"$set": map[string]any{"status": "new"}}, "upsert": true}), "")
-	if up["upserted_id"].(float64) != 50 {
-		t.Fatalf("upsert: %v", up)
+	if up["upserted_id"].(float64) != 50 || !strings.Contains(f.appr.last().SQL, `{"upsert": true}`) {
+		t.Fatalf("upsert: %v %s", up, f.appr.last().SQL)
 	}
 	if up := f.call(t, "mongo_update", at(map[string]any{"filter": map[string]any{"_id": 404}, "update": map[string]any{"$set": map[string]any{"a": 1}}}), ""); up["matched"].(float64) != 0 {
 		t.Fatalf("no match: %v", up)
