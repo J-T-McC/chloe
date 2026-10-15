@@ -183,7 +183,7 @@ func (m *Manager) BIChartData(ctx context.Context, w bi.Workspace, c bi.Chart) (
 			return err
 		}
 		out.Complete, out.Columns, out.Truncated = true, cols, truncated
-		out.Rows = bi.Shape(c, cols, raw)
+		out.Rows = bi.ShapeRange(c, cols, raw, bi.FilterWindow(*src, c))
 		out.RanAt = time.Now().UTC().Format(time.RFC3339)
 		return nil
 	}

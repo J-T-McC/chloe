@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -29,7 +30,7 @@ type FilterArg struct {
 	Op    string `json:"op" jsonschema:"one of = != < <= > >= contains not_contains begins_with not_begins_with ends_with not_ends_with is_null is_not_null is_empty is_not_empty between not_between in not_in in_last"`
 	Value any    `json:"value,omitempty" jsonschema:"the value; two values for between, a list for in, [n, unit] for in_last (unit day week month or year: the last n units including the current one, so charts stay current), nothing for is_null/is_empty"`
 	// Values is how get_workspace returns filters, accepted as well.
-	Values []any `json:"values,omitempty" jsonschema:"the values as a list, as get_workspace returns them (instead of value)"`
+	Values []any `json:"values,omitempty" jsonschema:"the values as a list, as get_workspace returns them (instead of value). Values are kept as text, the way they're bound"`
 }
 
 type CreateSourceArgs struct {
@@ -46,8 +47,8 @@ type CreateSourceArgs struct {
 
 type FieldArg struct {
 	Field     string `json:"field"`
-	Aggregate string `json:"aggregate,omitempty" jsonschema:"for value fields: sum avg count count_distinct min max, median on PostgreSQL live sources; default sum for numbers, count otherwise. Table columns may leave it empty to group by the column"`
-	Bucket    string `json:"bucket,omitempty" jsonschema:"for date/time dimensions and series: year quarter month week day hour minute second, or quarter_x month_x week_x day_x weekday_x hour_x minute_x second_x for one part (all Marches together); default month"`
+	Aggregate string `json:"aggregate,omitempty" jsonschema:"for value fields: sum avg count count_distinct min max, median on PostgreSQL live sources; default sum for numbers, count otherwise. Table columns may leave it empty to group by the column, or use a bucket to group a date column. Stored as aggregate whichever name you send"`
+	Bucket    string `json:"bucket,omitempty" jsonschema:"for date/time dimensions and series: year quarter month week day hour minute second, or quarter_x month_x week_x day_x weekday_x hour_x minute_x second_x for one part (all Marches together; weekdays and months come back as Sun… and Jan…); default month. get_workspace returns it as aggregate, which is accepted too"`
 	Alias     string `json:"alias,omitempty" jsonschema:"label shown in the chart"`
 	Operation string `json:"operation,omitempty" jsonschema:"cumulative (running total) or subtract (change from the previous value)"`
 	// Op is how get_workspace returns the operation, accepted as well.
@@ -92,6 +93,15 @@ type EditChartArgs struct {
 type ChartArgs struct {
 	WorkspaceArgs
 	Chart string `json:"chart" jsonschema:"a chart name or id in the workspace"`
+}
+
+type SourceArgs struct {
+	WorkspaceArgs
+	DataSource string `json:"data_source" jsonschema:"a data source name or id in the workspace"`
+}
+
+type DeletedOut struct {
+	Deleted string `json:"deleted"`
 }
 
 type ChartDataArgs struct {
@@ -340,6 +350,62 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 				out.SQL = data.SQL
 			}
 			return out, nil
+		})
+
+	add(s, srv, ep, &mcp.Tool{Name: "delete_chart", Description: "Deletes a chart created over MCP (scratch work, a chart you replaced). The user's own charts can't be deleted.",
+		Annotations: &mcp.ToolAnnotations{Title: "Delete chart", DestructiveHint: &t, OpenWorldHint: &f}},
+		func(ctx context.Context, c *call, in ChartArgs) (DeletedOut, error) {
+			p, w, err := c.workspace(in.Workspace)
+			if err != nil {
+				return DeletedOut{}, err
+			}
+			ch := findChart(&w, in.Chart)
+			if ch == nil {
+				return DeletedOut{}, fmt.Errorf("no chart %q in the workspace (see get_workspace)", in.Chart)
+			}
+			if !agentMade(ch.CreatedBy) {
+				return DeletedOut{}, errors.New("this is one of the user's charts; agents can only delete charts they created")
+			}
+			id, name := ch.ID, ch.Name
+			if _, err := c.s.m.Store.BI().Update(p, func(w *bi.Workspace) error { return w.Delete(id) }); err != nil {
+				return DeletedOut{}, err
+			}
+			c.act.SQL = p + " › " + name
+			c.biChanged(p)
+			return DeletedOut{Deleted: name}, nil
+		})
+
+	add(s, srv, ep, &mcp.Tool{Name: "delete_data_source", Description: "Deletes a data source created over MCP, with its archive snapshot. Delete the charts built on it first; " +
+		"the user's own data sources can't be deleted.",
+		Annotations: &mcp.ToolAnnotations{Title: "Delete data source", DestructiveHint: &t, OpenWorldHint: &f}},
+		func(ctx context.Context, c *call, in SourceArgs) (DeletedOut, error) {
+			p, w, err := c.workspace(in.Workspace)
+			if err != nil {
+				return DeletedOut{}, err
+			}
+			src := findSource(&w, in.DataSource)
+			if src == nil {
+				return DeletedOut{}, fmt.Errorf("no data source %q in the workspace (see get_workspace)", in.DataSource)
+			}
+			if !agentMade(src.CreatedBy) {
+				return DeletedOut{}, errors.New("this is one of the user's data sources; agents can only delete data sources they created")
+			}
+			if users := w.ChartsUsing(src.ID); len(users) > 0 {
+				var names []string
+				for _, u := range users {
+					names = append(names, u.Name)
+				}
+				return DeletedOut{}, fmt.Errorf("charts are built on %q: %s; delete them first", src.Name, strings.Join(names, ", "))
+			}
+			id, name := src.ID, src.Name
+			lib := c.s.m.Store.BI()
+			if _, err := lib.Update(p, func(w *bi.Workspace) error { return w.Delete(id) }); err != nil {
+				return DeletedOut{}, err
+			}
+			_ = os.Remove(lib.ArchivePath(w.ID, id))
+			c.act.SQL = p + " › " + name
+			c.biChanged(p)
+			return DeletedOut{Deleted: name}, nil
 		})
 
 	add(s, srv, ep, &mcp.Tool{Name: "open_chart", Description: "Opens a chart in Chloe for the user.",

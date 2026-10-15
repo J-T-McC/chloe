@@ -397,3 +397,42 @@ func TestFillSeries(t *testing.T) {
 		t.Errorf("categories: %v", got)
 	}
 }
+
+func TestWindowAndNames(t *testing.T) {
+	defer func(f func() time.Time) { now = f }(now)
+	now = func() time.Time { return time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC) }
+	s := func(v string) *string { return &v }
+	src := ordersSource()
+	c := Chart{Type: "bar", Dimension: []ChartField{{Field: "placed_at", Aggregate: "day"}}, Value: []ChartField{{Field: "id", Aggregate: "count"}},
+		Filters: []Filter{{Field: "placed_at", Op: "in_last", Values: []string{"7", "day"}}}}
+	cols := []Column{{Role: "dimension", Aggregate: "day", Type: TypeDateTime}, {Role: "value", Type: TypeNumber}}
+	rows := ShapeRange(c, cols, [][]*string{{s("2026-10-11"), s("3")}}, FilterWindow(src, c))
+	if len(rows) != 7 || rows[0][0] != "2026-10-09" || rows[6][0] != "2026-10-15" || rows[6][1] != 0.0 {
+		t.Errorf("window fill: %v", rows)
+	}
+	// Even with no rows at all the window is drawn.
+	if rows = ShapeRange(c, cols, nil, FilterWindow(src, c)); len(rows) != 7 {
+		t.Errorf("empty window: %v", rows)
+	}
+	// Weekdays and months are named once in order.
+	c = Chart{Type: "bar", Dimension: []ChartField{{Field: "placed_at", Aggregate: "weekday_x"}}, Value: []ChartField{{Field: "id", Aggregate: "count"}}}
+	cols[0].Aggregate = "weekday_x"
+	rows = Shape(c, cols, [][]*string{{s("3"), s("5")}, {s("0"), s("1")}, {s("6"), s("2")}})
+	if got := []any{rows[0][0], rows[1][0], rows[2][0]}; !reflect.DeepEqual(got, []any{"Sun", "Wed", "Sat"}) {
+		t.Errorf("weekdays: %v", got)
+	}
+	// Tables can bucket a date column.
+	tbl := Chart{Type: "table", Value: []ChartField{{Field: "placed_at", Aggregate: "weekday_x"}, {Field: "id", Aggregate: "count"}}}
+	src.Fields = append(src.Fields, Field{Name: "id", Type: TypeNumber})
+	q, tc, err := ChartQuery(SQLite, `"data"`, src, tbl, 10)
+	if err != nil || !strings.Contains(q.SQL, `strftime('%w', "placed_at") AS "c0"`) || !strings.Contains(q.SQL, "GROUP BY 1") || tc[0].Aggregate != "weekday_x" {
+		t.Errorf("table bucket: %v %s", err, q.SQL)
+	}
+	if rows = Shape(tbl, tc, [][]*string{{s("1"), s("4")}}); rows[0][0] != "Mon" {
+		t.Errorf("table weekday name: %v", rows)
+	}
+	tbl.Value[0].Aggregate = "sum"
+	if _, _, err := ChartQuery(SQLite, `"data"`, src, tbl, 10); err == nil || !strings.Contains(err.Error(), "placed_at (datetime) on the value shelf can't use aggregate \"sum\"") {
+		t.Errorf("message: %v", err)
+	}
+}

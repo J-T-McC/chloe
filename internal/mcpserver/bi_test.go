@@ -145,6 +145,15 @@ INSERT INTO orders VALUES (1, 1, 10, '2026-01-05'), (2, 1, 15, '2026-02-01'), (3
 		}
 	}
 
+	// Agents delete only what they made, charts before their source.
+	f.call(t, "delete_chart", map[string]any{"workspace": "Sales", "chart": "Mine"}, "user's charts")
+	f.call(t, "delete_data_source", map[string]any{"workspace": "Sales", "data_source": "Orders"}, "delete them first")
+	f.call(t, "delete_data_source", map[string]any{"workspace": "Sales", "data_source": "Hidden"}, "user's data sources")
+	f.call(t, "create_chart", map[string]any{"workspace": "Sales", "name": "Scratch", "data_source": "Orders", "type": "value", "value": []any{map[string]any{"field": "total"}}}, "")
+	if d := f.call(t, "delete_chart", map[string]any{"workspace": "Sales", "chart": "Scratch"}, ""); d["deleted"] != "Scratch" {
+		t.Fatalf("delete: %v", d)
+	}
+	f.call(t, "get_chart_data", map[string]any{"workspace": "Sales", "chart": "Scratch"}, "no chart")
 	f.call(t, "open_chart", map[string]any{"workspace": "Sales", "chart": "Share"}, "")
 	if last := f.events.opened[len(f.events.opened)-1]; !strings.HasPrefix(last, p+"#") || w.ID == "" {
 		t.Fatalf("open: %v", f.events.opened)

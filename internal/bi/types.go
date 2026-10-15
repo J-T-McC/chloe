@@ -98,9 +98,25 @@ func AllowedAggregates(shelf string, f Field, raw bool, dialect string) []string
 		out = slices.DeleteFunc(out, func(a string) bool { return a == "median" })
 	}
 	if raw {
-		out = append([]string{""}, out...)
+		// A table column groups by its plain value or, for dates, by a bucket.
+		lead := []string{""}
+		if f.Type == TypeDateTime {
+			lead = append(lead, DateBuckets...)
+		}
+		out = append(lead, out...)
 	}
 	return out
+}
+
+// IsBucket reports whether an aggregate is a date bucket (a grouping).
+func IsBucket(agg string) bool { return slices.Contains(DateBuckets, agg) }
+
+// describe names an aggregate or bucket for messages; "" is the plain value.
+func describe(agg string) string {
+	if agg == "" {
+		return `"" (the plain value)`
+	}
+	return fmt.Sprintf("%q", agg)
 }
 
 var aggregateNames = map[string]string{
@@ -227,7 +243,15 @@ func (c Chart) Check(src DataSource, dialect string) (complete bool, err error) 
 			}
 			allowed := AllowedAggregates(sh.name, f, t.Raw, dialect)
 			if !slices.Contains(allowed, cf.Aggregate) {
-				return false, fmt.Errorf("%s on the %s shelf can't use aggregate %q (allowed: %s)", cf.Field, sh.name, cf.Aggregate, strings.Join(quoteAll(allowed), ", "))
+				var names []string
+				for _, a := range allowed {
+					names = append(names, describe(a))
+				}
+				what := "aggregate"
+				if sh.name == "dimension" || sh.name == "series" || IsBucket(cf.Aggregate) {
+					what = "bucket"
+				}
+				return false, fmt.Errorf("%s (%s) on the %s shelf can't use %s %s (allowed: %s)", cf.Field, f.Type, sh.name, what, describe(cf.Aggregate), strings.Join(names, ", "))
 			}
 			if cf.Op != "" && cf.Op != "cumulative" && cf.Op != "subtract" {
 				return false, fmt.Errorf("value operation is cumulative or subtract, not %q", cf.Op)
@@ -282,12 +306,4 @@ func fieldIn(fs []Field, name string) (Field, bool) {
 		return Field{}, false
 	}
 	return fs[i], true
-}
-
-func quoteAll(xs []string) []string {
-	out := make([]string, len(xs))
-	for i, x := range xs {
-		out[i] = fmt.Sprintf("%q", x)
-	}
-	return out
 }
