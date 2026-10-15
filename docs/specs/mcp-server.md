@@ -88,7 +88,49 @@ parameters. A connection the endpoint can use is opened on demand (it needs a sa
 - Endpoints with no Read-write access anywhere aren't offered the write tools; calling one is an unknown-tool error.
   The list follows the settings on the next request, so a client sees the change when it reconnects.
 - No DDL, no raw write SQL in v1.
-- MySQL, PostgreSQL and SQLite in v1; MongoDB and Redis later.
+- MySQL, PostgreSQL and SQLite; Redis has its own tools (below); MongoDB later.
+
+### Redis (per connection access)
+Offered to endpoints that can see a Redis connection. Access is per logical database, keyed by its number
+(`db0`, `db1`… in the access tree). `list_connections` lists Redis connections with engine `redis`; the SQL tools
+refuse them.
+
+| Tool | Access | Arguments |
+|---|---|---|
+| `redis_databases` | any | `connection` |
+| `redis_scan` | Read | `connection, db?, pattern?, type?, cursor?, count?` |
+| `redis_get` | Read | `connection, db?, key, cursor?, count?` |
+| `redis_command` | Read | `connection, db?, args` |
+| `redis_set` | Read-write | `connection, db?, key, type, value, ttl?, only_if_new?` |
+| `redis_edit` | Read-write | `connection, db?, key, incr?, set_fields?, delete_fields?, incr_fields?, push?, push_head?, add?, add_scored?, incr_scores?, remove?, add_entry?` |
+| `redis_delete` | Read-write | `connection, db?, keys` |
+| `redis_expire` | Read-write | `connection, db?, key, ttl` |
+
+- `db` defaults to 0. Keys that aren't UTF-8 come back as base64 with `key_base64`, which the agent passes back;
+  values that aren't UTF-8 are shown as `0x…` hex. Strings are cut at 64 KB and collection elements at 4 KB, and
+  the result says `truncated` so an agent doesn't write a cut value back. Approvals show binary bytes as `\xNN`.
+- `redis_scan` and `redis_get` page with a cursor (default 100, at most 1000 keys or elements; Redis treats the
+  count as a hint, so small hashes and sets come whole). A cursor that isn't one the tool returned is refused.
+- `redis_command` runs one command from a fixed list of read commands (GET, HGETALL, ZRANGEBYSCORE, XRANGE,
+  PFCOUNT, GEOSEARCH, OBJECT ENCODING, JSON.GET…). Nothing that writes, blocks, switches database or runs a script;
+  KEYS is refused in favour of `redis_scan`. The reply is formatted like redis-cli.
+- Writes are built from fixed commands with the agent's keys and values as arguments, run in MULTI/EXEC, and shown
+  in the approval dialog as redis-cli commands. `redis_set` replaces a whole value; a replaced key keeps its expiry
+  unless `ttl` is given (a string replaced by a string with `KEEPTTL`, any other replacement with `PEXPIREAT` to the
+  same deadline). `redis_edit` changes part of one value, creating it when missing: counters (`INCRBY`), hash
+  fields, list values, set and sorted set members (`ZADD CH`, `ZINCRBY`), stream entries. `changed` reports what
+  Redis actually did, so removing a member that isn't there gives 0. `redis_delete` takes at most 1000 exact keys (duplicates are dropped; UNLINK); there's no
+  delete by pattern, and no FLUSHDB.
+- After approval the key is WATCHed and its type checked against what was approved before MULTI/EXEC, so a key
+  created, deleted or retyped by someone else while the dialog was open, or written to during the check, aborts the
+  write ("changed while waiting for approval"). Changes of the same type in that window aren't detected: `redis_set`
+  still replaces the whole value and `redis_edit`'s changes are relative to whatever is there.
+- Summaries quote the key, so a key's text can't read as part of the sentence. Approvals list the first 20
+  commands and cut each value at 4 KB; the summary always gives the full count.
+- Reads have only Chloe's 30 s client timeout: Redis has no server-side limit, so `HGETALL` or `SMEMBERS` on a huge
+  key can stall a single-threaded server for everyone. This is the same trust as `run_query`.
+- Monitor (capability) covers Redis too: `list_sessions` (CLIENT LIST), `server_status` (INFO, each entry with its `section`), `server_variables` (CONFIG GET, with passwords hidden), `kill_session` (CLIENT KILL; no
+  `query_only`). Sessions show client flags in words (blocked, pub/sub…) and the last command.
 
 ### Monitor (capability)
 | Tool | Access | Arguments |
@@ -98,7 +140,7 @@ parameters. A connection the endpoint can use is opened on demand (it needs a sa
 | `server_variables` | Read | `connection, filter?` |
 | `kill_session` | Read-write | `connection, id, query_only?` |
 
-- MySQL/MariaDB and PostgreSQL. Sessions and status span the whole server, so the endpoint needs the level on every
+- MySQL/MariaDB, PostgreSQL and Redis. Sessions and status span the whole server, so the endpoint needs the level on every
   database of the connection; one hidden or read-only database makes the tools refuse.
 - `filter` keeps names containing the text (case-insensitive). Session queries are cut like result cells.
 - `kill_session` asks unless danger mode is on, showing the session's user, host, database, state, time and query.
@@ -152,7 +194,21 @@ There's no separate `test_connection` tool: it would let an agent probe hosts an
   stays a manual Synchronize to Database or a query tab.
 - MySQL, MariaDB and PostgreSQL; models don't support SQLite.
 
-## Window (Tools > MCP Server…, and the titlebar MCP button)
+### MongoDB (planned)
+Filters, sorts, projections, pipelines and documents arrive as JSON (Extended JSON for `$oid`, `$date`…) and are
+never evaluated as JavaScript in Chloe. Guards, checked recursively before anything is sent:
+- No server-side JavaScript: `$where`, `$function` and `$accumulator` are refused anywhere in a filter, pipeline or
+  update.
+- Updates take operator documents only (`$set`, `$inc`…); pipeline-style updates and whole-document replacement
+  through the update tool are refused.
+- Read tools refuse the writing stages `$out` and `$merge`, also inside `$facet`, `$lookup` and `$unionWith`
+  pipelines; the admin stages `$currentOp`, `$listSessions` and `$listLocalSessions`; and a `$lookup`,
+  `$graphLookup` or `$unionWith` whose source names another database.
+- Every command carries `maxTimeMS` (30 s), so the server stops it rather than only Chloe giving up.
+- Update and delete first collect the matching `_id`s (capped), the user approves that count, and the write runs
+  with `{$and: [filter, {_id: {$in: approved}}]}`, so it can never touch a document that wasn't approved.
+
+
 A tab like the History Log:
 - Toolbar: **Run MCP server**, **HTTP on port** (with the port), and the status (HTTP URL and/or the bridge).
 - **Copy Config** per client: Claude Code (bridge or HTTP), JSON with the bridge (Claude Desktop, `.mcp.json`,
@@ -166,4 +222,5 @@ A tab like the History Log:
 1. Server, endpoints, data tools, approval, danger mode, activity, window.
 2. Monitor, saved queries / query tabs, create connections. ✅
 3. ER models. ✅
-4. Reports (`docs/specs/bi.md`): workspaces, data sources and charts ✅; dashboards next.
+4. Reports (`docs/specs/bi.md`): workspaces, data sources and charts ✅; dashboards ✅.
+5. Redis ✅; MongoDB next.

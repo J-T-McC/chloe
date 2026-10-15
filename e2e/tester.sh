@@ -2,6 +2,8 @@
 # A sandbox for a tester agent: the browser build with a seeded games database,
 # an MCP endpoint (Reports on) and a browser kept open so exports render.
 #   make server && e2e/tester.sh        # then: node e2e/mcp-call.mjs <tool> '<json>'
+# TESTER_REDIS=1 also shares the Docker Redis (reseeded) read-write as "cache", with Monitor on;
+# writes are approved automatically and each approval dialog's text goes to e2e/.tester/approvals.log.
 # Stop it with: pkill -f Chloe-server; pkill -f tester-setup
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -24,8 +26,11 @@ WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 300)
 INSERT INTO users SELECT i, (i % 4 <> 0), strftime('%Y-%m-%d %H:%M:%S', '2026-09-12', '+' || (i * 9173 % 3000000) || ' seconds'),
   strftime('%Y-%m-%d %H:%M:%S', '2026-10-01', '+' || (i * 4111 % 1200000) || ' seconds') FROM n;
 SQL
+if [ -n "$TESTER_REDIS" ]; then
+  docker exec -i chloe-redis redis-cli -a chloe --no-auth-warning < testdata/seed_redis.txt >/dev/null
+fi
 CHLOE_CONFIG_DIR="$out/config" CHLOE_SECRETS=memory CHLOE_REPORTS_DIR="$out/reports" ./bin/Chloe-server > "$out/server.log" 2>&1 &
 sleep 1.5
-cd e2e && nohup node tester-setup.mjs "$out" > "$out/setup.log" 2>&1 &
+cd e2e && TESTER_REDIS="$TESTER_REDIS" nohup node tester-setup.mjs "$out" > "$out/setup.log" 2>&1 &
 for i in $(seq 1 60); do [ -f "$out/endpoint.json" ] && break; sleep 0.5; done
 cat "$out/endpoint.json" 2>/dev/null || (cat "$out/setup.log"; exit 1)

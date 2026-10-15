@@ -144,6 +144,52 @@ await step("danger mode skips the dialog", async () => {
   await page.locator(".mcp-button.running").waitFor();
 });
 
+await step("redis connection in the access tree", async () => {
+  await page.getByRole("button", { name: "Connection" }).first().click();
+  await page.locator(".type-card").filter({ has: page.locator(`span:text-is("Redis")`) }).click();
+  await field("Connection Name").fill("cache");
+  await field("Host").fill("127.0.0.1");
+  await field("Port").fill("63790");
+  await field("Password").fill("chloe");
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.getByLabel("Access to cache", { exact: true }).selectOption("write");
+  await page.getByLabel("Databases of cache").click();
+  await page.getByLabel("Access to cache db1", { exact: true }).selectOption("off");
+  await page.waitForTimeout(200);
+  await shot("mcp-redis-access");
+});
+
+await step("redis tools over MCP", async () => {
+  const names = (await rpc("tools/list", {})).result.tools.map((t) => t.name);
+  for (const n of ["redis_databases", "redis_scan", "redis_get", "redis_command", "redis_set", "redis_edit", "redis_delete", "redis_expire"])
+    if (!names.includes(n)) throw new Error("missing " + n);
+  const dbs = (await tool("redis_databases", { connection: "cache" })).structuredContent.databases;
+  if (dbs.some((d) => d.db === 1) || !dbs.some((d) => d.db === 0 && d.keys > 0)) throw new Error(JSON.stringify(dbs));
+  const scan = (await tool("redis_scan", { connection: "cache", pattern: "user:*", type: "hash" })).structuredContent;
+  if (scan.keys.length !== 3) throw new Error(JSON.stringify(scan));
+  const v = (await tool("redis_get", { connection: "cache", key: "leaderboard" })).structuredContent;
+  if (v.type !== "zset" || v.items[0].value !== "alan" || v.items[0].score !== 85) throw new Error(JSON.stringify(v));
+  const r = await tool("redis_command", { connection: "cache", args: ["HGET", "user:1", "name"] });
+  if (r.structuredContent.reply !== '"Ada Lovelace"') throw new Error(text(r));
+  const hidden = await tool("redis_scan", { connection: "cache", db: 1 });
+  if (!hidden.isError || !text(hidden).includes("isn't shared")) throw new Error(text(hidden));
+});
+
+await step("redis write waits for approval", async () => {
+  const pending = tool("redis_edit", { connection: "cache", key: "user:1", set_fields: { visits: 13 }, delete_fields: ["email"] });
+  await page.getByRole("dialog", { name: "Approve AI change" }).waitFor();
+  const body = await page.locator(".mcp-approval").innerText();
+  if (!body.includes('change hash "user:1" in db0 (2 elements)') || !body.includes('HSET "user:1" "visits" "13"') || !body.includes('HDEL "user:1" "email"')) throw new Error(body);
+  await shot("mcp-redis-approval");
+  await page.getByRole("button", { name: "Approve" }).click();
+  const r = await pending;
+  if (r.isError) throw new Error(text(r));
+  const v = (await tool("redis_get", { connection: "cache", key: "user:1" })).structuredContent;
+  if (v.items.length !== 2 || !v.items.some((i) => i.field === "visits" && i.value === "13")) throw new Error(JSON.stringify(v));
+  // Later steps check which tools a read-only endpoint gets.
+  await page.getByLabel("Access to cache", { exact: true }).selectOption("off");
+});
+
 await step("read-only access refuses writes", async () => {
   await page.getByLabel("Access to big", { exact: true }).selectOption("read");
   await page.waitForTimeout(200);

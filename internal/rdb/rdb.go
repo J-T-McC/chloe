@@ -122,6 +122,9 @@ func (c *Client) db(n int) *redis.Client {
 	return cl
 }
 
+// DB returns the pooled client of logical database n.
+func (c *Client) DB(n int) *redis.Client { return c.db(n) }
+
 func (c *Client) ServerVersion() string { return c.version }
 
 // OpenConnections counts pooled connections across databases.
@@ -221,10 +224,13 @@ func (c *Client) ScanKeys(ctx context.Context, db int, cursor, pattern, typ stri
 	for {
 		var batch []string
 		var err error
+		// Ask for what's still missing, so a pattern scan of several rounds
+		// doesn't overshoot count by a whole round.
+		n := int64(max(count-len(names), 10))
 		if typ != "" {
-			batch, cur, err = cl.ScanType(ctx, cur, pattern, int64(count), typ).Result()
+			batch, cur, err = cl.ScanType(ctx, cur, pattern, n, typ).Result()
 		} else {
-			batch, cur, err = cl.Scan(ctx, cur, pattern, int64(count)).Result()
+			batch, cur, err = cl.Scan(ctx, cur, pattern, n).Result()
 		}
 		if err != nil {
 			return ScanResult{}, err

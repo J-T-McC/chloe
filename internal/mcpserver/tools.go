@@ -1,8 +1,8 @@
 package mcpserver
 
 import (
-	"encoding/json"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -181,7 +181,11 @@ func (a access) hidesDatabases() bool {
 	return false
 }
 
-var sqlEngines = []model.DBType{model.MySQL, model.MariaDB, model.PostgreSQL, model.SQLite}
+var (
+	sqlEngines = []model.DBType{model.MySQL, model.MariaDB, model.PostgreSQL, model.SQLite}
+	// mcpEngines are the engines list_connections shows.
+	mcpEngines = append(slices.Clone(sqlEngines), model.Redis)
+)
 
 // target is a resolved connection/database the call may use.
 type target struct {
@@ -196,7 +200,13 @@ func (t target) ref(name string, kind model.ObjectKind) model.ObjectRef {
 	return model.ObjectRef{Database: t.database, Schema: t.schema, Name: name, Kind: kind}
 }
 
+// connection finds a SQL connection the endpoint can see.
 func (c *call) connection(name string) (model.Connection, access, error) {
+	return c.connectionOf(name, sqlEngines)
+}
+
+// connectionOf finds a connection of one of the engines that the endpoint can see.
+func (c *call) connectionOf(name string, engines []model.DBType) (model.Connection, access, error) {
 	var match []model.Connection
 	for _, conn := range c.s.m.Store.List() {
 		if conn.ID == name {
@@ -217,8 +227,14 @@ func (c *call) connection(name string) (model.Connection, access, error) {
 	case len(match) == 0 || !a.visible():
 		return model.Connection{}, a, fmt.Errorf("no connection %q is shared with this endpoint (see list_connections)", name)
 	}
-	if !slices.Contains(sqlEngines, match[0].Type) {
-		return model.Connection{}, a, fmt.Errorf("%s connections aren't available over MCP yet", match[0].Type)
+	if typ := match[0].Type; !slices.Contains(engines, typ) {
+		switch {
+		case typ == model.Redis:
+			return model.Connection{}, a, fmt.Errorf("%s is a Redis connection; use the redis_ tools", match[0].Name)
+		case slices.Contains(sqlEngines, typ):
+			return model.Connection{}, a, fmt.Errorf("%s is a %s connection; this tool is for Redis", match[0].Name, typ)
+		}
+		return model.Connection{}, a, fmt.Errorf("%s connections aren't available over MCP yet", typ)
 	}
 	return match[0], a, nil
 }
@@ -373,7 +389,7 @@ type ConnectionOut struct {
 	Group     string            `json:"group,omitempty"`
 	Engine    string            `json:"engine"`
 	Access    string            `json:"access" jsonschema:"read or write: the default for the connection's databases"`
-	Databases map[string]string `json:"databases,omitempty" jsonschema:"per-database access that differs from the default (off, read, write)"`
+	Databases map[string]string `json:"databases,omitempty" jsonschema:"per-database access that differs from the default (off, read, write); Redis databases are numbers"`
 	Database  string            `json:"default_database,omitempty"`
 }
 
@@ -488,7 +504,7 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 			out := ConnectionsOut{Connections: []ConnectionOut{}}
 			for _, conn := range c.s.m.Store.List() {
 				a := accessTo(c.ep, conn)
-				if !a.visible() || !slices.Contains(sqlEngines, conn.Type) {
+				if !a.visible() || !slices.Contains(mcpEngines, conn.Type) {
 					continue
 				}
 				o := ConnectionOut{ID: conn.ID, Name: conn.Name, Group: conn.Group, Engine: string(conn.Type), Access: levelName(a.level), Database: conn.InitialDatabase}
@@ -500,8 +516,11 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 						o.Databases[db] = levelName(l)
 					}
 				}
-				if conn.Type == model.SQLite {
+				switch conn.Type {
+				case model.SQLite:
 					o.Database = "main"
+				case model.Redis:
+					o.Database = ""
 				}
 				out.Connections = append(out.Connections, o)
 			}

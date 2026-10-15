@@ -3,8 +3,8 @@
 Order reflects dependencies: later features build on the earlier ones. Specs for each area live in `docs/specs/`.
 
 ## Next up
-1. **BI reports** (spec: `docs/specs/bi.md`, phase 2b): snapshots and history with diffs, export (PDF, PNG, SVG,
-   HTML); charts and dashboards with their MCP tools are done
+1. **BI reports** (spec: `docs/specs/bi.md`, phase 2b): snapshots and history with diffs, SVG and HTML export;
+   charts, dashboards and PNG/PDF export with their MCP tools are done
 2. **Explain / visual explain** for MySQL and PostgreSQL, with MongoDB's explain
 3. Transfer and sync follow-ups: Data Transfer file target and per-table Advanced mode (rename, fields,
    filters); functions/procedures/events in transfer and structure sync; profiles for the sync tools;
@@ -15,7 +15,7 @@ Order reflects dependencies: later features build on the earlier ones. Specs for
 6. Polish: Redis pub/sub, cluster and sentinel; Form view and hex/image cell editors; preferences window
    (history logging on/off, autosave interval)
 
-MCP server (6b): next are MongoDB and Redis tools.
+MCP server (6b): Redis tools are done; MongoDB tools are next.
 
 ## 1. Foundation ✅
 Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, table viewer, query editor with autocomplete.
@@ -78,7 +78,8 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 - [x] Reports tools, phase 2: dashboards and notes
 - [x] export_dashboard: PNGs returned to the agent and saved, or a PDF
 - [ ] Reports tools: snapshots and history
-- [ ] MongoDB and Redis tools
+- [x] Redis tools (scan, get, read-only commands; set, edit, delete, expire with approval; Monitor)
+- [ ] MongoDB tools
 
 Access stays per group, connection and database: no table or column permissions. Without a Chloe-managed
 database user there's no complete way to enforce them while keeping `run_query` (views, functions, run-time SQL and

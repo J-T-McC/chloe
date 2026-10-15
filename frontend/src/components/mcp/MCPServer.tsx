@@ -3,7 +3,7 @@
 import { Bot, ChevronDown, ChevronRight, Copy, Folder, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { create } from "zustand";
-import { DBType, Events, Explorer, MCP, MCPLevel, arr, errorText, type MCPActivity, type MCPEndpoint, type MCPSettings, type MCPStatus, copyText } from "../../api";
+import { DBType, Events, Explorer, MCP, Redis, MCPLevel, arr, errorText, type MCPActivity, type MCPEndpoint, type MCPSettings, type MCPStatus, copyText } from "../../api";
 import { openAgentQuery, refreshFolder } from "../../queries";
 import { openModel } from "../model/actions";
 import { useApp } from "../../store";
@@ -11,7 +11,8 @@ import { alert, confirm } from "../Dialogs";
 import { ConnIcon } from "../icons";
 import { Split } from "../Split";
 
-const SQL_ENGINES: string[] = [DBType.MySQL, DBType.MariaDB, DBType.PostgreSQL, DBType.SQLite];
+/** Engines MCP serves; MongoDB isn't there yet. */
+const MCP_ENGINES: string[] = [DBType.MySQL, DBType.MariaDB, DBType.PostgreSQL, DBType.SQLite, DBType.Redis];
 
 interface MCPState {
   settings: MCPSettings | null;
@@ -279,7 +280,7 @@ function EndpointDetail({ ep, url, update }: { ep: MCPEndpoint; url: string; upd
       <div className="pane-title mcp-access-title">Connection Access</div>
       <div className="mcp-access">
         <AccessTable ep={ep} update={update} />
-        <p className="hint">Connections take their group's access unless set otherwise. MongoDB and Redis connections aren't available over MCP yet.</p>
+        <p className="hint">Connections take their group's access unless set otherwise. MongoDB connections aren't available over MCP yet.</p>
       </div>
       <div className="pane-title mcp-access-title">Capabilities</div>
       <div className="form mcp-form">
@@ -389,11 +390,11 @@ const levelName = (l: MCPLevel | undefined) => LEVELS.find(([v]) => v === (l ?? 
 function AccessTable({ ep, update }: { ep: MCPEndpoint; update(e: MCPEndpoint): void }) {
   const connections = useApp((s) => s.connections);
   const groups = useApp((s) => s.groups);
-  const sql = connections.filter((c) => SQL_ENGINES.includes(c.type));
+  const shared = connections.filter((c) => MCP_ENGINES.includes(c.type));
   // Groups set on the endpoint show even when empty (e.g. the new-connection group).
   const allGroups = [...new Set([...groups, ...Object.keys(ep.groups ?? {})])];
-  const top = sql.filter((c) => !c.group);
-  if (!sql.length && !allGroups.length) return <div className="empty-hint">No MySQL, PostgreSQL or SQLite connections yet.</div>;
+  const top = shared.filter((c) => !c.group);
+  if (!shared.length && !allGroups.length) return <div className="empty-hint">No MySQL, PostgreSQL, SQLite or Redis connections yet.</div>;
   return (
     <table>
       <thead>
@@ -404,7 +405,7 @@ function AccessTable({ ep, update }: { ep: MCPEndpoint; update(e: MCPEndpoint): 
       </thead>
       <tbody>
         {allGroups.map((g) => (
-          <GroupRows key={g} group={g} conns={sql.filter((c) => c.group === g).map((c) => c.id)} ep={ep} update={update} />
+          <GroupRows key={g} group={g} conns={shared.filter((c) => c.group === g).map((c) => c.id)} ep={ep} update={update} />
         ))}
         {top.map((c) => (
           <AccessRows key={c.id} connId={c.id} ep={ep} update={update} />
@@ -468,8 +469,10 @@ function AccessRows({ connId, ep, update, groupLevel }: { connId: string; ep: MC
       setError(useApp.getState().errors[connId] || "Couldn't connect");
       return;
     }
-    Explorer.ListDatabases(connId)
-      .then((d) => setDbs(arr(d)))
+    // Redis databases are numbers; access is keyed by the number, shown as db0, db1…
+    const list = conn.type === DBType.Redis ? Redis.Databases(connId).then((d) => arr(d).map((x) => String(x.index))) : Explorer.ListDatabases(connId).then(arr);
+    list
+      .then((d) => setDbs(d))
       .catch((e) => setError(errorText(e)));
   };
   // Databases with overrides show even before the list loads (or if they're gone).
@@ -514,10 +517,10 @@ function AccessRows({ connId, ep, update, groupLevel }: { connId: string; ep: MC
       {expanded &&
         shown.map((db) => (
           <tr key={db}>
-            <td className={"mcp-db" + (inGroup ? " mcp-in-group" : "")}>{db}</td>
+            <td className={"mcp-db" + (inGroup ? " mcp-in-group" : "")}>{conn.type === DBType.Redis ? `db${db}` : db}</td>
             <td>
               <select
-                aria-label={`Access to ${conn.name} ${db}`}
+                aria-label={`Access to ${conn.name} ${conn.type === DBType.Redis ? `db${db}` : db}`}
                 value={db in overrides ? overrides[db] || "off" : "inherit"}
                 onChange={(e) => {
                   const next = { ...overrides };

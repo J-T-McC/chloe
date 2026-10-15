@@ -25,6 +25,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"chloe/internal/core"
+	"chloe/internal/model"
 	"chloe/internal/store"
 )
 
@@ -393,21 +394,31 @@ func (s *Server) serverFor(id string) *mcp.Server {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if srv, ok := s.servers[id]; ok {
-		return srv
-	}
-	srv := mcp.NewServer(&mcp.Implementation{Name: "chloe", Title: "Chloe", Version: Build}, &mcp.ServerOptions{
-		Instructions: "Chloe is a database client. These tools reach the connections the user has shared with this endpoint. " +
-			"Start with list_connections. Writes may wait for the user to approve them in Chloe. (Chloe build " + Build + ")",
-	})
 	var ep store.MCPEndpoint
 	for _, e := range s.settings.Endpoints {
 		if e.ID == id {
 			ep = e
 		}
 	}
+	// The Redis tools come and go with the endpoint's Redis connections, which
+	// change without the settings changing, so they're part of the cache key.
+	redisTools := s.seesRedis(ep)
+	key := id
+	if redisTools {
+		key += "+redis"
+	}
+	if srv, ok := s.servers[key]; ok {
+		return srv
+	}
+	srv := mcp.NewServer(&mcp.Implementation{Name: "chloe", Title: "Chloe", Version: Build}, &mcp.ServerOptions{
+		Instructions: "Chloe is a database client. These tools reach the connections the user has shared with this endpoint. " +
+			"Start with list_connections. Writes may wait for the user to approve them in Chloe. (Chloe build " + Build + ")",
+	})
 	writes := canWrite(ep)
 	s.addTools(srv, id, writes)
+	if redisTools {
+		s.addRedisTools(srv, id, writes)
+	}
 	if ep.Capabilities.CreateConnections {
 		s.addConnectionTools(srv, id)
 	}
@@ -424,8 +435,18 @@ func (s *Server) serverFor(id string) *mcp.Server {
 		s.addBITools(srv, id)
 		s.addDashboardTools(srv, id)
 	}
-	s.servers[id] = srv
+	s.servers[key] = srv
 	return srv
+}
+
+// seesRedis reports whether an endpoint can see any Redis connection.
+func (s *Server) seesRedis(ep store.MCPEndpoint) bool {
+	for _, conn := range s.m.Store.List() {
+		if conn.Type == model.Redis && accessTo(ep, conn).visible() {
+			return true
+		}
+	}
+	return false
 }
 
 // ServerForTest builds an endpoint's MCP server without the HTTP layer.
