@@ -81,6 +81,7 @@ func (f Filter) check() error {
 	case n >= 0 && len(f.Values) != n:
 		return fmt.Errorf("%s on %s takes %d value(s), got %d", f.Op, f.Field, n, len(f.Values))
 	case f.Op == "in_last":
+		f.Values[1] = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(f.Values[1])), "s") // days, Weeks…
 		if k, err := strconv.Atoi(f.Values[0]); err != nil || k < 1 {
 			return fmt.Errorf("in_last on %s needs a count of 1 or more, not %q", f.Field, f.Values[0])
 		}

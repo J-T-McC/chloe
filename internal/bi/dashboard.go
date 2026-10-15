@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -189,7 +191,7 @@ func LayoutRows(rows [][]RowTile, heights []string, y int, chartID func(string) 
 			h = v
 		}
 		if textOnly {
-			h = 2
+			h = 1
 		}
 		used, open := 0, 0
 		for _, t := range row {
@@ -245,13 +247,14 @@ func LayoutRows(rows [][]RowTile, heights []string, y int, chartID func(string) 
 func TextRows(md string) int { return TextRowsAt(md, PageCols, false) }
 
 // Text tile metrics, measured in Chloe at the 1280px page width: rows are 48px
-// with 12px gaps, tiles have 22px of padding and border, body text is 13.5px on
-// 20.25px lines at about 7.2px a character, and a notes tile has a 21px header.
+// with 12px gaps, tiles have 18px of padding and border, and body text is 13.5px
+// on 20.25px lines at about 7.2px a character. A notes tile's header is a caption
+// beside its first line, taking about 34 characters of it.
 const (
 	rowPx      = 48
 	gapPx      = 12
-	tilePadPx  = 22
-	notesHead  = 21.25
+	tilePadPx  = 18
+	notesHead  = 34 // characters
 	lineHPx    = 20.25
 	charPx     = 7.2
 	blockGapPx = 4
@@ -268,32 +271,41 @@ func TextRowsAt(md string, w int, notes bool) int {
 		return float64(max(1, (n+perLine-1)/perLine))
 	}
 	px := float64(tilePadPx)
-	if notes {
-		px += notesHead
-	}
+	first := notes // the header shares the first line
 	blocks := 0
 	inPara := false
+	trailing := 0.0 // a heading's bottom margin, dropped when nothing follows it
 	for _, l := range strings.Split(strings.TrimSpace(md), "\n") {
 		t := strings.TrimSpace(l)
+		if first && t != "" {
+			t = strings.Repeat(" ", notesHead) + t
+			first = false
+		}
 		switch {
 		case t == "":
 			inPara = false
 			continue
 		case strings.HasPrefix(t, "# "):
 			px += 36*lines(t, 1.8) + 6
-			inPara = false
+			inPara, trailing = false, 6
+			blocks++
+			continue
 		case strings.HasPrefix(t, "## "):
 			px += 27*lines(t, 1.35) + 6
-			inPara = false
+			inPara, trailing = false, 6
+			blocks++
+			continue
 		case strings.HasPrefix(t, "### "), strings.HasPrefix(t, "#### "):
 			px += 22.5*lines(t, 1.1) + 8
-			inPara = false
+			inPara, trailing = false, 8
+			blocks++
+			continue
 		case strings.HasPrefix(t, "- "), strings.HasPrefix(t, "* "), len(t) > 2 && t[0] >= '0' && t[0] <= '9' && strings.Contains(t[:min(4, len(t))], ". "):
 			px += lineHPx * lines(t, 1)
 			if !inPara {
 				blocks++
 			}
-			inPara = true
+			inPara, trailing = true, 0
 			continue
 		case strings.HasPrefix(t, "|"):
 			px += 27 // a table row with its padding
@@ -302,16 +314,17 @@ func TextRowsAt(md string, w int, notes bool) int {
 			if !inPara {
 				blocks++
 			}
-			inPara = true
+			inPara, trailing = true, 0
 			continue
 		}
 		blocks++
+		trailing = 0
 	}
-	px += float64(max(0, blocks-1) * blockGapPx)
-	// A tile h rows tall is h*48 + (h-1)*12 pixels (a slide's rows are 47px; at
-	// worst a 3px shortfall there, and text tiles scroll rather than clip).
-	h := int(math.Ceil((px + gapPx) / (rowPx + gapPx)))
-	return max(2, min(30, h))
+	px += float64(max(0, blocks-1)*blockGapPx) - trailing
+	// A tile h rows tall is h*48 + (h-1)*12 pixels (a slide's rows are 47px); text
+	// that fits only to the pixel would still show a scrollbar, so keep 2px spare.
+	h := int(math.Ceil((px + 2 + gapPx) / (rowPx + gapPx)))
+	return max(1, min(30, h))
 }
 
 // Bottom is the first free row below a page's tiles.
@@ -390,4 +403,20 @@ func (p *Page) FitText() bool {
 	}
 	p.Items = items
 	return true
+}
+
+// PageWidth is the width pages are laid out at, in CSS pixels.
+const PageWidth = 1280
+
+// ReportsDir is where exports are written for agents: CHLOE_REPORTS_DIR, or
+// "Chloe Reports" in the user's Documents.
+func ReportsDir() string {
+	if d := os.Getenv("CHLOE_REPORTS_DIR"); d != "" {
+		return d
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "Chloe Reports"
+	}
+	return filepath.Join(home, "Documents", "Chloe Reports")
 }

@@ -48,7 +48,8 @@ tasks:
           TARGET: '{{.OUTPUT}}'
     vars:
       GIT_COMMIT:
-        sh: git describe --always --dirty 2>/dev/null || echo dev
+        # testdata/ changes with every test run; it doesn't make a build dirty.
+        sh: 'c=$(git rev-parse --short HEAD 2>/dev/null || echo dev); git diff --quiet HEAD -- . ":!testdata" 2>/dev/null || c="$c-dirty"; echo "$c"'
       BUILD_FLAGS: '{{if eq .DEV "true"}}{{if or .EXTRA_TAGS (eq .OBFUSCATED "true")}}-tags {{if eq .OBFUSCATED "true"}}wails_obfuscated{{if .EXTRA_TAGS}},{{end}}{{end}}{{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l" -ldflags="-X chloe/internal/mcpserver.Build={{.GIT_COMMIT}}"{{else}}-tags production{{if eq .OBFUSCATED "true"}},wails_obfuscated{{end}}{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s -X chloe/internal/mcpserver.Build={{.GIT_COMMIT}}"{{end}}'
       DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}'
       OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'

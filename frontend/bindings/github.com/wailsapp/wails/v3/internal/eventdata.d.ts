@@ -22,6 +22,7 @@ declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
             "bi:changed": string;
+            "bi:render": services$0.RenderRequest;
             "connection:closed": string;
             "job:progress": core$0.Job;
             "mcp:activity": mcpserver$0.Activity;

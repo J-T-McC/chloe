@@ -168,6 +168,9 @@ type Props struct {
 	Palette string   `json:"palette,omitempty"`
 	Colors  []string `json:"colors,omitempty"`
 	XTitle  string   `json:"xTitle,omitempty"`
+	// LabelCase is how category and series values are shown: "" makes enum-like
+	// values readable (ended_early → Ended Early), raw shows them as stored.
+	LabelCase string `json:"labelCase,omitempty"`
 	YTitle  string   `json:"yTitle,omitempty"`
 }
 

@@ -118,9 +118,39 @@ const DEFAULT_SPEC: Record<string, string> = {
   second: "MMM D, HH:mm:SS",
 };
 
+const ACRONYMS: Record<string, string> = { id: "ID", ids: "IDs", url: "URL", api: "API", ui: "UI", ip: "IP", vip: "VIP", utc: "UTC", kpi: "KPI", sku: "SKU", usa: "USA", uk: "UK", eu: "EU", ai: "AI" };
+
+/** Makes an enum-like value readable: ended_early → Ended Early, never started →
+ *  Never Started, signedIn → Signed In. Anything else (mixed case, emails, URLs,
+ *  paths, numbers) is left as stored. */
+export function readable(s: string): string {
+  // all lowercase (with _ - or spaces between words), or one camelCase word
+  if (!/^[a-z][a-z0-9]*(?:[_\- ][a-z0-9]+)*$/.test(s) && !/^[a-z]+(?:[A-Z][a-z0-9]+)+$/.test(s)) return s;
+  return s
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[_\- ]+/)
+    .map((w) => ACRONYMS[w.toLowerCase()] ?? w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+export interface LabelOptions {
+  /** Every date shown is in the same year, so days and weeks leave it out. */
+  sameYear?: boolean;
+  /** Show values as stored (the chart's labelCase raw). */
+  raw?: boolean;
+}
+
+/** Whether date labels of a dimension all fall in one year. */
+export function oneYear(values: unknown[], col: Pick<B.Column, "type" | "aggregate">): boolean {
+  if (col.type !== "datetime" && !col.aggregate) return false;
+  const years = new Set(values.filter((v) => typeof v === "string" && /^\d{4}-/.test(v)).map((v) => (v as string).slice(0, 4)));
+  return years.size === 1;
+}
+
 /** A dimension or series label as shown: date buckets read naturally
- *  ("Mar 2026", "Q1 2026", "Mon"), or with the chart's date format. */
-export function formatLabel(v: unknown, col: Pick<B.Column, "type" | "aggregate">, dateFormat = ""): string {
+ *  ("Mar 2026", "Q1 2026", "Mon"), or with the chart's date format; enum-like
+ *  text readably. */
+export function formatLabel(v: unknown, col: Pick<B.Column, "type" | "aggregate">, dateFormat = "", opts: LabelOptions = {}): string {
   if (v === null || v === undefined) return "(null)";
   const s = String(v);
   const bucket = col.aggregate ?? "";
@@ -132,7 +162,7 @@ export function formatLabel(v: unknown, col: Pick<B.Column, "type" | "aggregate"
     case "week": {
       // A week is the date of its Sunday.
       const d = parseDate(s);
-      return d ? (dateFormat ? formatDate(d, dateFormat) : `Week of ${formatDate(d, "MMM D, YYYY")}`) : s;
+      return d ? (dateFormat ? formatDate(d, dateFormat) : `Week of ${formatDate(d, opts.sameYear ? "MMM D" : "MMM D, YYYY")}`) : s;
     }
     case "quarter_x":
     case "week_x":
@@ -149,9 +179,9 @@ export function formatLabel(v: unknown, col: Pick<B.Column, "type" | "aggregate"
     case "second_x":
       return `:${s}`;
   }
-  if (col.type !== "datetime" && !bucket) return s;
+  if (col.type !== "datetime" && !bucket) return opts.raw ? s : readable(s);
   const d = parseDate(s, bucket);
   if (!d) return s;
-  const spec = dateFormat || DEFAULT_SPEC[bucket];
+  const spec = dateFormat || (opts.sameYear && bucket === "day" ? "MMM D" : DEFAULT_SPEC[bucket]);
   return spec ? formatDate(d, spec) : s;
 }

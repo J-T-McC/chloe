@@ -72,7 +72,7 @@ type ChartSpec struct {
 	Sort       *SortArg       `json:"sort,omitempty" jsonschema:"default: dates and numbers in order, categories by value descending"`
 	Top        *int           `json:"top,omitempty" jsonschema:"keep the first n dimension values"`
 	Others     *bool          `json:"others,omitempty" jsonschema:"with top: add the rest up as Others"`
-	Properties map[string]any `json:"properties,omitempty" jsonschema:"display settings: title, hideTitle, legend (auto top bottom right none), labels, labelPercent, stack100, smooth, number {prefix suffix unit(auto K M B) decimals noSeparator}, dateFormat (YYYY MMM DD…), palette, colors (hex list), xTitle, yTitle. Display only: get_chart_data returns unformatted numbers"`
+	Properties map[string]any `json:"properties,omitempty" jsonschema:"display settings: title, hideTitle, legend (auto top bottom right none), labels, labelPercent, stack100, smooth, number {prefix suffix unit(auto K M B) decimals noSeparator}, dateFormat (YYYY MMM DD…), palette, colors (hex list), xTitle, yTitle, labelCase (raw shows category values as stored; by default ended_early shows as Ended Early). Display only: get_chart_data returns unformatted numbers"`
 	// Props is how get_workspace returns properties, accepted as well.
 	Props map[string]any `json:"props,omitempty" jsonschema:"same as properties (get_workspace's name for them)"`
 }

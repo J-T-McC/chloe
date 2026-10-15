@@ -263,7 +263,8 @@ tasks:
       - '{{if eq .OBFUSCATED "true"}}garble {{.GARBLE_ARGS}} build{{else}}go build{{end}} {{.BUILD_FLAGS}} -o "{{.BIN_DIR}}/{{.APP_NAME}}-server{{exeExt}}"'
     vars:
       GIT_COMMIT:
-        sh: git describe --always --dirty 2>/dev/null || echo dev
+        # testdata/ changes with every test run; it doesn't make a build dirty.
+        sh: 'c=$(git rev-parse --short HEAD 2>/dev/null || echo dev); git diff --quiet HEAD -- . ":!testdata" 2>/dev/null || c="$c-dirty"; echo "$c"'
       BUILD_FLAGS: '-tags server{{if eq .DEV "true"}}{{if eq .OBFUSCATED "true"}},wails_obfuscated{{end}}{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -buildvcs=false -gcflags=all="-l" -ldflags="-X chloe/internal/mcpserver.Build={{.GIT_COMMIT}}"{{else}},production{{if eq .OBFUSCATED "true"}},wails_obfuscated{{end}}{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s -X chloe/internal/mcpserver.Build={{.GIT_COMMIT}}"{{end}}'
 
   run:server:

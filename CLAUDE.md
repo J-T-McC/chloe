@@ -26,6 +26,8 @@ make test                              # unit tests plus SQLite (no Docker neede
 make test-it                           # start and seed the Docker databases, run integration tests
 make test-frontend                     # type check and frontend unit tests
 make e2e SCRIPT=smoke                  # Playwright against the browser build (smoke|sqlite|mongo|joins|mcp|...); reseeds first
+e2e/tester.sh                          # MCP sandbox for a tester agent (seeded games db, Reports on); then
+node e2e/mcp-call.mjs tools            #   list tools, or `node e2e/mcp-call.mjs <tool> '<json>'` (images saved to e2e/.tester/images)
 ```
 Sample data lives in `testdata/seed_*` (`seed_mongo.js` runs in mongosh). To rebuild `testdata/shop.db`, run
 `rm -f testdata/shop.db && sqlite3 testdata/shop.db < testdata/seed_sqlite.sql`.

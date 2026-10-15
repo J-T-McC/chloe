@@ -549,6 +549,17 @@ function PropsPane({ draft, props, setProps, update, fields }: { draft: B.Chart;
           <input type="checkbox" checked={!num.noSeparator} onChange={(e) => setNum({ noSeparator: !e.target.checked })} /> Thousands separator
         </label>
       </Section>
+      {t !== "value" && (
+        <Section title="Labels">
+          <label className="bi-prop">
+            Category values
+            <select aria-label="Label case" value={props.labelCase ?? ""} onChange={(e) => setProps({ labelCase: e.target.value })}>
+              <option value="">Readable (ended_early → Ended Early)</option>
+              <option value="raw">As stored</option>
+            </select>
+          </label>
+        </Section>
+      )}
       <Section title="Date Format">
         <label className="bi-prop">
           Custom

@@ -1,8 +1,14 @@
 package mcpserver_test
 
 import (
+	"bytes"
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"chloe/internal/bi"
 	"chloe/internal/store"
@@ -41,11 +47,11 @@ func TestDashboardTools(t *testing.T) {
 
 	// Notes: added at the top of a report page, then replaced in place.
 	n := f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "markdown": "Three customers; **Cy** has no name."}, "")
-	if n["y"] != 0.0 || n["h"] != 2.0 || n["updated"] == "" || n["page"] != 1.0 || n["items"] != nil {
+	if n["y"] != 0.0 || n["h"] != 1.0 || n["updated"] == "" || n["page"] != 1.0 || n["items"] != nil {
 		t.Fatalf("notes: %v", n)
 	}
 	its := itemsOf(t, f, "Weekly")
-	if its[0].CreatedBy != "mcp:test" || its[1].Y != 2 {
+	if its[0].CreatedBy != "mcp:test" || its[1].Y != 1 {
 		t.Fatalf("notes on top: %+v", its)
 	}
 	// Moved to the bottom on request; replaced in place otherwise.
@@ -84,7 +90,7 @@ func TestDashboardTools(t *testing.T) {
 	ed := f.call(t, "edit_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "pages": []any{map[string]any{"rows": []any{
 		map[string]any{"tiles": []any{map[string]any{"chart": "Count"}}}}}}}, "")
 	kept := ed["pages"].([]any)[0].(map[string]any)["items"].([]any)
-	if len(kept) != 2 || kept[0].(map[string]any)["text"] != "Updated." || kept[1].(map[string]any)["y"] != 2.0 {
+	if len(kept) != 2 || kept[0].(map[string]any)["text"] != "Updated." || kept[1].(map[string]any)["y"] != 1.0 {
 		t.Errorf("notes after edit_dashboard: %v", kept)
 	}
 
@@ -103,10 +109,10 @@ func TestDashboardTools(t *testing.T) {
 	f.call(t, "edit_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Mine", "rename": "x"}, "user's dashboards")
 	f.call(t, "delete_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Mine"}, "user's dashboards")
 	n = f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Mine", "markdown": "Looks fine."}, "")
-	if n["y"] != 8.0 || n["h"] != 2.0 {
+	if n["y"] != 8.0 || n["h"] != 1.0 {
 		t.Errorf("slide notes: %v", n)
 	}
-	f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Mine", "page": "2", "markdown": "x"}, "no room")
+	f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Mine", "page": "2", "markdown": "x"}, "has 0 free")
 
 	f.call(t, "edit_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "refresh": 5, "rename": "Weekly report"}, "")
 	if gw := f.call(t, "get_workspace", map[string]any{"workspace": "Ops"}, ""); len(gw["dashboards"].([]any)) != 2 || gw["dashboard_count"] != 2.0 {
@@ -135,13 +141,61 @@ func TestDashboardTools(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Old", "markdown": "x"}, "it's your dashboard, so make room with edit_dashboard")
+	f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Old", "markdown": "x"}, "it's your dashboard, so shorten the notes, make room with edit_dashboard")
 	f.call(t, "edit_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Old", "rename": "Old layout"}, "")
-	if its := itemsOf(t, f, "Old layout"); its[0].H != 2 || its[1].Y != 2 || its[2].Y != 7 || its[2].H != 2 {
+	if its := itemsOf(t, f, "Old layout"); its[0].H != 2 || its[1].Y != 2 || its[2].Y != 7 || its[2].H != 1 {
 		t.Errorf("refit: %+v", its)
 	}
-	if n := f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Old layout", "markdown": "Fits now."}, ""); n["y"] != 9.0 {
+	if n := f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Old layout", "markdown": "Fits now."}, ""); n["y"] != 8.0 {
 		t.Errorf("notes in the freed rows: %v", n)
+	}
+
+	// Exports: PNGs come back to the agent and are saved; a PDF is saved.
+	reports := t.TempDir()
+	t.Setenv("CHLOE_REPORTS_DIR", reports)
+	res, err := f.client.CallTool(context.Background(), &mcp.CallToolParams{Name: "export_dashboard", Arguments: map[string]any{"workspace": "Ops", "dashboard": "Old layout"}})
+	if err != nil || res.IsError {
+		t.Fatalf("export: %v %+v", err, res)
+	}
+	var images int
+	for _, ct := range res.Content {
+		if im, ok := ct.(*mcp.ImageContent); ok && im.MIMEType == "image/png" && bytes.HasPrefix(im.Data, []byte("\x89PNG")) {
+			images++
+		}
+	}
+	files, _ := filepath.Glob(filepath.Join(reports, "Ops", "Old layout p1 *.png"))
+	if images != 1 || len(files) != 1 || f.events.rendered[len(f.events.rendered)-1] != "[0]@1" {
+		t.Fatalf("png export: %d images, files %v, %v", images, files, f.events.rendered)
+	}
+	pdf := f.call(t, "export_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly report", "format": "pdf"}, "")
+	if data, _ := os.ReadFile(pdf["files"].([]any)[0].(string)); !bytes.HasPrefix(data, []byte("%PDF")) || f.events.rendered[len(f.events.rendered)-1] != "[0]@2" {
+		t.Fatalf("pdf export: %v", pdf)
+	}
+	f.call(t, "export_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly report", "format": "gif"}, "png or pdf")
+
+	// Slides: rows that don't fit are named; notes are never cut off; notes follow
+	// their page by name when pages move.
+	f.call(t, "create_dashboard", map[string]any{"workspace": "Ops", "name": "Tall", "pages": []any{map[string]any{"size": "16:9", "rows": []any{
+		map[string]any{"height": "XL", "tiles": []any{map[string]any{"chart": "Count"}}},
+		map[string]any{"height": "S", "tiles": []any{map[string]any{"chart": "Count"}}}}}}}, "its rows take 14 grid rows (row 1 11, row 2 3)")
+	f.call(t, "create_dashboard", map[string]any{"workspace": "Ops", "name": "X", "pages": []any{map[string]any{"rows": []any{
+		map[string]any{"tiles": []any{map[string]any{"chart": "Nope"}}}}}}}, "(charts: ")
+	f.call(t, "create_dashboard", map[string]any{"workspace": "Ops", "name": "Moves", "pages": []any{
+		map[string]any{"name": "Overview", "rows": []any{map[string]any{"tiles": []any{map[string]any{"chart": "Count"}}}}},
+		map[string]any{"name": "Slide", "size": "16:9", "rows": []any{map[string]any{"height": "L", "tiles": []any{map[string]any{"chart": "Count"}}}}}}}, "")
+	long := "Notes:\n- one\n- two\n- three\n- four\n- five\n- six"
+	f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Moves", "page": "Slide", "markdown": long + "\n- seven\n- eight\n- nine\n- ten"}, "need 5 grid rows but the 16:9 slide has 4 free")
+	f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Moves", "page": "Overview", "markdown": "On top.", "place": "top"}, "")
+	sw := f.call(t, "edit_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Moves", "pages": []any{
+		map[string]any{"name": "Slide", "size": "16:9", "rows": []any{map[string]any{"height": "L", "tiles": []any{map[string]any{"chart": "Count"}}}}},
+		map[string]any{"name": "Overview", "rows": []any{map[string]any{"tiles": []any{map[string]any{"chart": "Count"}}}}}}}, "")
+	pgs := sw["pages"].([]any)
+	if a, b := pgs[0].(map[string]any)["items"].([]any), pgs[1].(map[string]any)["items"].([]any); len(a) != 1 || len(b) != 2 || b[0].(map[string]any)["text"] != "On top." || b[0].(map[string]any)["y"] != 0.0 {
+		t.Fatalf("notes follow their page: %v", pgs)
+	}
+	rf := f.call(t, "refresh_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Moves", "page": "Overview"}, "")
+	if nt := rf["pages"].([]any)[0].(map[string]any)["notes"].([]any)[0].(map[string]any); nt["place"] != "top" || nt["fits"] != true || nt["h"] != 1.0 {
+		t.Errorf("notes in refresh: %v", nt)
 	}
 
 	// A deleted chart leaves its dashboards.
