@@ -544,6 +544,9 @@ func TestDashboards(t *testing.T) {
 	if grown, _, _ := LayoutRows([][]RowTile{{{Text: long, Span: 8}, {Chart: "Revenue"}}}, []string{"S"}, 0, true, id); grown[0].H <= 3 || grown[1].H != grown[0].H {
 		t.Errorf("text row didn't grow: %+v", grown)
 	}
+	if fit, _, _ := LayoutRows([][]RowTile{{{Text: "One line."}}, {{Text: "One line."}}}, []string{"", "L"}, 0, true, id); fit[0].H != 2 || fit[1].H != 8 {
+		t.Errorf("text rows fit unless a height is asked for: %+v", fit)
+	}
 	if _, _, err := LayoutRows([][]RowTile{{{Chart: "nope"}}}, nil, 0, false, id); err == nil || !strings.Contains(err.Error(), `no chart "nope"`) {
 		t.Errorf("unknown chart: %v", err)
 	}
@@ -572,8 +575,28 @@ func TestDashboards(t *testing.T) {
 	if n := len(w.Dashboards[0].Pages[0].Items); n != 2 {
 		t.Errorf("tiles left: %d", n)
 	}
-	if TextRows("one line") != 2 || TextRows(strings.Repeat("line\n", 40)) < 13 {
-		t.Errorf("text rows: %d %d", TextRows("one line"), TextRows(strings.Repeat("line\n", 40)))
+	// Heights measured in Chloe (content px; a tile of h rows holds 60h-12):
+	// 5 bullets 123px → 3 rows; a long paragraph across 4 columns 103px → 2; ## + 3 bullets 116px → 3.
+	para := "A room counts as abandoned when it was never started, or started but never reached an ended state, which covers rooms stuck playing for more than a day and rooms whose players all left before the first round finished."
+	for _, tc := range []struct {
+		md    string
+		w     int
+		notes bool
+		want  int
+	}{
+		{"The scorecard counts rooms by outcome.", 12, false, 2},
+		{para, 12, false, 2},
+		{para, 4, false, 3}, // measured 4 lines; estimates round up (spare space, never cut off)
+		{"- one item here\n- two item here\n- three item here\n- four item here\n- five item here", 12, false, 3},
+		{"## Notes\n- one\n- two\n- three", 12, false, 3},
+		{"# Weekly report\nWhat changed this week.", 12, false, 2},
+		{"One line of notes.", 12, true, 2},
+		{"- a\n- b\n- c\n- d\n- e", 12, true, 3},
+		{strings.Repeat("line\n", 40), 12, false, 15}, // 832px > 14 rows' 828
+	} {
+		if got := TextRowsAt(tc.md, tc.w, tc.notes); got != tc.want {
+			t.Errorf("%q at %d: %d rows, want %d", tc.md[:min(20, len(tc.md))], tc.w, got, tc.want)
+		}
 	}
 }
 

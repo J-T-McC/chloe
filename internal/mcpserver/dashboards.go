@@ -60,6 +60,21 @@ type NotesArgs struct {
 	DashboardArgs
 	Page     string `json:"page,omitempty" jsonschema:"a page number (1 = first) or name; default 1"`
 	Markdown string `json:"markdown" jsonschema:"your notes: what changed, what stands out. Replaces your earlier notes on that page"`
+	Place    string `json:"place,omitempty" jsonschema:"top (default for new notes) or bottom of the page; omit to keep your notes where they are"`
+}
+
+type NotesOut struct {
+	Dashboard string `json:"dashboard"`
+	Page      int    `json:"page"`
+	Y         int    `json:"y" jsonschema:"the notes tile's row"`
+	H         int    `json:"h" jsonschema:"its height in rows"`
+	Updated   string `json:"updated"`
+}
+
+type DashboardOpened struct {
+	Dashboard string `json:"dashboard"`
+	ID        string `json:"id"`
+	Pages     int    `json:"pages"`
 }
 
 type DashboardOut struct {
@@ -154,7 +169,7 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 					}
 					for _, it := range d.Pages[i].Items {
 						if it.Kind == bi.ItemText && it.CreatedBy != "" {
-							if err := setNotes(&edited.Pages[i], it.CreatedBy, it.Text); err != nil {
+							if err := setNotes(&edited.Pages[i], it.CreatedBy, it.Text, ""); err != nil {
 								return DashboardOut{}, fmt.Errorf("page %d: keeping the notes by %s: %w", i+1, strings.TrimPrefix(it.CreatedBy, "mcp:"), err)
 							}
 							for j := range edited.Pages[i].Items {
@@ -173,21 +188,24 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 	add(s, srv, ep, &mcp.Tool{Name: "set_notes", Description: "Writes your Markdown notes on a dashboard page, shown in Chloe as \"Notes from " + "<endpoint>\" with the time. " +
 		"Calling it again replaces your notes on that page. Works on the user's dashboards too; it never changes their charts or text.",
 		Annotations: &mcp.ToolAnnotations{Title: "Set dashboard notes", DestructiveHint: &f, IdempotentHint: true, OpenWorldHint: &f}},
-		func(ctx context.Context, c *call, in NotesArgs) (DashboardOut, error) {
+		func(ctx context.Context, c *call, in NotesArgs) (NotesOut, error) {
 			p, w, err := c.workspace(in.Workspace)
 			if err != nil {
-				return DashboardOut{}, err
+				return NotesOut{}, err
 			}
 			d := findDashboard(&w, in.Dashboard)
 			if d == nil {
-				return DashboardOut{}, fmt.Errorf("no dashboard %q in the workspace (see get_workspace)", in.Dashboard)
+				return NotesOut{}, fmt.Errorf("no dashboard %q in the workspace (see get_workspace)", in.Dashboard)
 			}
 			if strings.TrimSpace(in.Markdown) == "" {
-				return DashboardOut{}, errors.New("markdown is empty")
+				return NotesOut{}, errors.New("markdown is empty")
+			}
+			if in.Place != "" && in.Place != "top" && in.Place != "bottom" {
+				return NotesOut{}, fmt.Errorf("place is top or bottom, not %q", in.Place)
 			}
 			pi, err := findPage(*d, in.Page)
 			if err != nil {
-				return DashboardOut{}, err
+				return NotesOut{}, err
 			}
 			id := d.ID
 			var saved bi.Dashboard
@@ -196,7 +214,7 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 				if d == nil {
 					return errors.New("the dashboard was deleted")
 				}
-				if err := setNotes(&d.Pages[pi], "mcp:"+c.ep.Name, in.Markdown); err != nil {
+				if err := setNotes(&d.Pages[pi], "mcp:"+c.ep.Name, in.Markdown, in.Place); err != nil {
 					return err
 				}
 				var err error
@@ -204,11 +222,17 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 				return err
 			})
 			if err != nil {
-				return DashboardOut{}, err
+				return NotesOut{}, err
 			}
 			c.act.SQL = p + " › " + saved.Name
 			c.biChanged(p)
-			return DashboardOut{Dashboard: saved, Editable: agentMade(saved.CreatedBy)}, nil
+			out := NotesOut{Dashboard: saved.Name, Page: pi + 1}
+			for _, it := range saved.Pages[pi].Items {
+				if it.Kind == bi.ItemText && it.CreatedBy == "mcp:"+c.ep.Name {
+					out.Y, out.H, out.Updated = it.Y, it.H, it.Updated
+				}
+			}
+			return out, nil
 		})
 
 	add(s, srv, ep, readOnlyTool("refresh_dashboard", "Refresh dashboard",
@@ -277,20 +301,20 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 
 	add(s, srv, ep, &mcp.Tool{Name: "open_dashboard", Description: "Opens a dashboard in Chloe for the user.",
 		Annotations: &mcp.ToolAnnotations{Title: "Open dashboard", DestructiveHint: &f, OpenWorldHint: &f}},
-		func(ctx context.Context, c *call, in DashboardArgs) (DashboardOut, error) {
+		func(ctx context.Context, c *call, in DashboardArgs) (DashboardOpened, error) {
 			p, w, err := c.workspace(in.Workspace)
 			if err != nil {
-				return DashboardOut{}, err
+				return DashboardOpened{}, err
 			}
 			d := findDashboard(&w, in.Dashboard)
 			if d == nil {
-				return DashboardOut{}, fmt.Errorf("no dashboard %q in the workspace (see get_workspace)", in.Dashboard)
+				return DashboardOpened{}, fmt.Errorf("no dashboard %q in the workspace (see get_workspace)", in.Dashboard)
 			}
 			if c.s.events == nil {
-				return DashboardOut{}, errors.New("Chloe's window isn't available")
+				return DashboardOpened{}, errors.New("Chloe's window isn't available")
 			}
 			c.s.events.OpenBI(p, d.ID)
-			return DashboardOut{Dashboard: *d, Editable: agentMade(d.CreatedBy)}, nil
+			return DashboardOpened{Dashboard: d.Name, ID: d.ID, Pages: len(d.Pages)}, nil
 		})
 
 	add(s, srv, ep, &mcp.Tool{Name: "delete_dashboard", Description: "Deletes a dashboard created over MCP (not its charts). The user's dashboards can't be deleted.",
@@ -405,16 +429,27 @@ func (c *call) putDashboard(p string, d bi.Dashboard) (bi.Dashboard, error) {
 	return saved, nil
 }
 
-// setNotes writes an endpoint's notes tile on a page: replacing its text, or
-// adding it at the top (report pages push the rest down) or in the first free
-// rows of a slide.
-func setNotes(pg *bi.Page, by, md string) error {
+// setNotes writes an endpoint's notes tile on a page: replacing its text in
+// place, or adding it at the top of a report page (pushing the rest down) or at
+// the bottom (place), or in the first free rows of a slide.
+func setNotes(pg *bi.Page, by, md, place string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
-	h := bi.TextRows(md)
+	h := bi.TextRowsAt(md, bi.PageCols, true)
 	for i := range pg.Items {
 		it := &pg.Items[i]
 		if it.Kind != bi.ItemText || it.CreatedBy != by {
 			continue
+		}
+		if moved := place == "top" && it.Y != 0 || place == "bottom" && it.Y+it.H != pg.Bottom(); moved && pg.Size == bi.SizeReport {
+			// Lift it out, close the gap, and add it again where asked.
+			y, gone := it.Y, it.H
+			pg.Items = append(pg.Items[:i], pg.Items[i+1:]...)
+			for j := range pg.Items {
+				if pg.Items[j].Y >= y+gone {
+					pg.Items[j].Y -= gone
+				}
+			}
+			return setNotes(pg, by, md, place)
 		}
 		grow := 0
 		if pg.Size == bi.SizeReport && h > it.H {
@@ -433,6 +468,11 @@ func setNotes(pg *bi.Page, by, md string) error {
 		return nil
 	}
 	note := bi.Item{ID: uuid.NewString(), Kind: bi.ItemText, Text: md, X: 0, W: bi.PageCols, H: h, CreatedBy: by, Updated: now}
+	if pg.Size == bi.SizeReport && place == "bottom" {
+		note.Y = pg.Bottom()
+		pg.Items = append(pg.Items, note)
+		return nil
+	}
 	if pg.Size == bi.SizeReport {
 		for j := range pg.Items {
 			pg.Items[j].Y += h
