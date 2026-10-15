@@ -268,6 +268,15 @@ export const CHART_TYPE_NAMES: Record<string, string> = {
   donut: "Donut",
   value: "Value",
   table: "Table",
+  waterfall: "Waterfall",
+  tornado: "Tornado",
+  treemap: "Treemap",
+  scatter: "Scatter",
+  heatmap: "Heatmap",
+  trend: "Trend",
+  kpi: "KPI",
+  gauge: "Gauge",
+  pivot: "Pivot Table",
 };
 export const chartTypeName = (t: string) => CHART_TYPE_NAMES[t] ?? t;
 

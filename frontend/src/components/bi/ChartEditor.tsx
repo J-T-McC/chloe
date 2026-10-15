@@ -18,13 +18,17 @@ import { ChartTypeIcon } from "./icons";
 import { PALETTES } from "./theme";
 import { CHART_TYPE_NAMES, connLabel, useWorkspace } from "./WorkspaceView";
 
-type ShelfName = "dimension" | "series" | "value" | "secondary";
-const SHELVES: ShelfName[] = ["dimension", "series", "value", "secondary"];
-const SHELF_LABEL: Record<ShelfName, string> = { dimension: "Dimension", series: "Series", value: "Value", secondary: "Secondary Value" };
-const TYPE_ORDER = ["bar", "stacked_bar", "hbar", "stacked_hbar", "line", "area", "stacked_area", "bar_line", "stacked_bar_line", "pie", "donut", "value", "table"];
+type ShelfName = "dimension" | "series" | "value" | "secondary" | "target";
+const SHELVES: ShelfName[] = ["dimension", "series", "value", "target", "secondary"];
+const SHELF_LABEL: Record<ShelfName, string> = { dimension: "Dimension", series: "Series", value: "Value", secondary: "Secondary Value", target: "Target" };
+const TYPE_ORDER = ["bar", "stacked_bar", "hbar", "stacked_hbar", "waterfall", "tornado", "line", "area", "stacked_area", "bar_line", "stacked_bar_line", "pie", "donut", "treemap", "scatter", "heatmap", "value", "trend", "kpi", "gauge", "table", "pivot"];
 const STACKED = new Set(["stacked_bar", "stacked_hbar", "stacked_area", "stacked_bar_line"]);
 const LINES = new Set(["line", "area", "stacked_area", "bar_line", "stacked_bar_line"]);
-const CARTESIAN = new Set(["bar", "stacked_bar", "hbar", "stacked_hbar", "line", "area", "stacked_area", "bar_line", "stacked_bar_line"]);
+const CARTESIAN = new Set(["bar", "stacked_bar", "hbar", "stacked_hbar", "line", "area", "stacked_area", "bar_line", "stacked_bar_line", "waterfall", "tornado", "scatter", "heatmap"]);
+/** Types that draw one figure: no legend, no categories to sort. */
+const FIGURES = new Set(["value", "kpi", "gauge", "trend"]);
+/** Types whose values can take a running total or a difference. */
+const OPERABLE = new Set(["bar", "stacked_bar", "hbar", "stacked_hbar", "line", "area", "stacked_area", "bar_line", "stacked_bar_line", "trend", "table", "pivot"]);
 
 export const AGG_NAMES: Record<string, string> = {
   "": "None",
@@ -84,7 +88,7 @@ export function fitToType(c: B.Chart, t: B.ChartType, fields: B.Field[]): B.Char
   return out;
 }
 
-const queryKey = (c: B.Chart | null) => (c ? JSON.stringify([c.dataSource, c.type, c.dimension, c.series, c.value, c.secondary, cleanFilters(arr(c.filters)), c.sort, c.top, c.others]) : "");
+const queryKey = (c: B.Chart | null) => (c ? JSON.stringify([c.dataSource, c.type, c.dimension, c.series, c.value, c.secondary, c.target, cleanFilters(arr(c.filters)), c.sort, c.top, c.others]) : "");
 const comparable = (c: B.Chart | null) => (c ? JSON.stringify({ ...c, modified: undefined, filters: cleanFilters(arr(c.filters)) }) : "");
 
 export function ChartEditor({ tab }: { tab: Tab }) {
@@ -193,7 +197,7 @@ export function ChartEditor({ tab }: { tab: Tab }) {
   };
   /** Double-click: the first shelf that wants this kind of field. */
   const autoAdd = (f: B.Field) => {
-    const order: ShelfName[] = f.type === "number" && type.value.max > 0 ? ["value", "dimension", "series", "secondary"] : ["dimension", "series", "value", "secondary"];
+    const order: ShelfName[] = f.type === "number" && type.value.max > 0 ? ["value", "target", "dimension", "series", "secondary"] : ["dimension", "series", "value", "target", "secondary"];
     const shelf = order.find((s) => type[s].max > arr(draft[s]).length) ?? order.find((s) => type[s].max > 0);
     if (shelf) addField(shelf, f.name);
   };
@@ -204,7 +208,7 @@ export function ChartEditor({ tab }: { tab: Tab }) {
     const aggs = f ? allowedAggregates(cat, shelf, f, !!type.raw && shelf === "value", dialect) : [];
     const items: MenuItem[] = [];
     if (aggs.length > 1) items.push({ label: grouped(shelf) ? "Group By" : "Aggregate", submenu: aggs.map((a) => ({ label: AGG_NAMES[a] ?? a, checked: (cf.aggregate ?? "") === a, onClick: () => setField(shelf, i, { aggregate: a }) })) });
-    if (!grouped(shelf) && !type.raw && draft.type !== "value" && draft.type !== "pie" && draft.type !== "donut")
+    if (!grouped(shelf) && !type.raw && shelf === "value" && OPERABLE.has(draft.type))
       items.push({
         label: "Value Operation",
         submenu: [
@@ -436,7 +440,7 @@ function PropsPane({ draft, props, setProps, update, fields }: { draft: B.Chart;
           <input aria-label="Remarks" value={draft.remarks ?? ""} onChange={(e) => update({ remarks: e.target.value })} />
         </label>
       </Section>
-      {t !== "value" && t !== "table" && (
+      {!FIGURES.has(t) && t !== "table" && t !== "pivot" && t !== "treemap" && t !== "heatmap" && t !== "waterfall" && (
         <Section title="Legend">
           <label className="bi-prop">
             Position
@@ -450,9 +454,36 @@ function PropsPane({ draft, props, setProps, update, fields }: { draft: B.Chart;
           </label>
         </Section>
       )}
-      {t !== "value" && (
+      {(t === "kpi" || t === "gauge" || t === "trend") && (
+        <Section title={t === "gauge" ? "Range" : t === "kpi" ? "Target" : "Change"}>
+          {t === "kpi" && !arr(draft.target).length && (
+            <label className="bi-prop">
+              Target value
+              <input aria-label="Target value" type="number" value={props.goal ?? ""} onChange={(e) => setProps({ goal: e.target.value === "" ? null : Number(e.target.value) })} />
+            </label>
+          )}
+          {t === "gauge" && (
+            <div className="bi-prop-row">
+              <label className="bi-prop">
+                Minimum
+                <input aria-label="Minimum" type="number" placeholder="0" value={props.min ?? ""} onChange={(e) => setProps({ min: e.target.value === "" ? null : Number(e.target.value) })} />
+              </label>
+              <label className="bi-prop">
+                Maximum
+                <input aria-label="Maximum" type="number" placeholder={arr(draft.target).length ? "Target field" : "auto"} value={props.max ?? ""} onChange={(e) => setProps({ max: e.target.value === "" ? null : Number(e.target.value) })} />
+              </label>
+            </div>
+          )}
+          {t !== "gauge" && (
+            <label className="check">
+              <input type="checkbox" checked={!!props.lowerIsBetter} onChange={(e) => setProps({ lowerIsBetter: e.target.checked })} /> Lower is better
+            </label>
+          )}
+        </Section>
+      )}
+      {!FIGURES.has(t) && (
         <Section title="Data">
-          {t !== "table" && (
+          {t !== "table" && t !== "pivot" && (
             <label className="check">
               <input type="checkbox" aria-label="Show data labels" checked={!!props.labels} onChange={(e) => setProps({ labels: e.target.checked })} /> Show data labels
             </label>
@@ -549,7 +580,7 @@ function PropsPane({ draft, props, setProps, update, fields }: { draft: B.Chart;
           <input type="checkbox" checked={!num.noSeparator} onChange={(e) => setNum({ noSeparator: !e.target.checked })} /> Thousands separator
         </label>
       </Section>
-      {t !== "value" && (
+      {!FIGURES.has(t) && (
         <Section title="Labels">
           <label className="bi-prop">
             Category values
@@ -566,7 +597,7 @@ function PropsPane({ draft, props, setProps, update, fields }: { draft: B.Chart;
           <input aria-label="Date format" placeholder="Automatic (e.g. MMM YYYY)" value={props.dateFormat ?? ""} onChange={(e) => setProps({ dateFormat: e.target.value })} title="D DD M MM MMM MMMM YY YYYY h hh H HH m mm S SS wd Wd WD w WW q QQ p" />
         </label>
       </Section>
-      {t !== "value" && t !== "table" && (
+      {!FIGURES.has(t) && t !== "table" && t !== "pivot" && t !== "heatmap" && t !== "waterfall" && (
         <Section title="Colors">
           <label className="bi-prop">
             Palette

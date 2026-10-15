@@ -4363,6 +4363,54 @@ table.mapping select {
   border-top: 1px solid rgba(128, 128, 128, 0.35);
 }
 
+.bi-pivot td.total {
+  font-weight: 600;
+}
+
+/* KPI and Trend figures: a meter, the change with its arrow and sign, a sparkline */
+.bi-kpi {
+  width: min(320px, 80%);
+  margin: 14px auto 0;
+}
+
+.bi-meter {
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.bi-meter-fill {
+  height: 100%;
+  border-radius: 4px;
+}
+
+.bi-kpi-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.bi-delta {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.bi-delta-vs {
+  font-weight: 400;
+  opacity: 0.65;
+}
+
+.bi-spark {
+  display: block;
+  margin: 10px auto 0;
+}
+
 /* Data source designer */
 .bi-source,
 .bi-chart-editor {

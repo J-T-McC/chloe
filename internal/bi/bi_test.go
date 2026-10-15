@@ -596,7 +596,7 @@ func TestDashboards(t *testing.T) {
 		{"One line of notes.", 12, true, 2}, // the header sits beside the line
 		{"- a\n- b\n- c\n- d\n- e", 12, true, 5},
 		{strings.Repeat("line\n", 40), 12, false, 29}, // 828px + 2px spare
-		{"## Weekly check-in", 12, false, 2},           // a lone ## heading: 45px in 48
+		{"## Weekly check-in", 12, false, 2},          // a lone ## heading: 45px in 48
 	} {
 		if got := TextRowsAt(tc.md, tc.w, tc.notes); got != tc.want {
 			t.Errorf("%q at %d: %d rows, want %d", tc.md[:min(20, len(tc.md))], tc.w, got, tc.want)
@@ -734,5 +734,69 @@ func TestGridMigration(t *testing.T) {
 	again, _ := Parse(data)
 	if again.Dashboards[0].Pages[0].Items[0].H != 10 {
 		t.Errorf("converted twice: %+v", again.Dashboards[0].Pages[0].Items)
+	}
+}
+
+func TestPhase3Types(t *testing.T) {
+	src := ordersSource()
+	month := []ChartField{{Field: "placed_at", Aggregate: "month"}}
+	sum := []ChartField{{Field: "total", Aggregate: "sum"}}
+	// Scatter: X, Y (target) and size, with points named by the dimension.
+	sc := Chart{Type: "scatter", Dimension: []ChartField{{Field: "customer"}}, Value: sum,
+		Target: []ChartField{{Field: "total", Aggregate: "count"}}, Secondary: []ChartField{{Field: "total", Aggregate: "avg"}}}
+	q, cols, err := ChartQuery(SQLite, `"orders"`, src, sc, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(q.SQL, `SUM("total") AS "c1", AVG("total") AS "c2", COUNT("total") AS "c3"`) || cols[3].Role != "target" {
+		t.Fatalf("scatter: %s %+v", q.SQL, cols)
+	}
+	// Its points stay as read: no filled series, no Others point.
+	s := func(v string) *string { return &v }
+	pcols := []Column{{Role: "dimension", Type: TypeString}, {Role: "series", Type: TypeString}, {Role: "value", Type: TypeNumber}, {Role: "target", Type: TypeNumber}}
+	raw := [][]*string{{s("a"), s("x"), s("1"), s("2")}, {s("b"), s("y"), s("3"), s("4")}, {s("c"), s("y"), s("5"), s("6")}}
+	sc.Series, sc.Top, sc.Others = []ChartField{{Field: "status"}}, 2, true
+	if got := Shape(sc, pcols, raw); len(got) != 2 || got[0][0] != "c" {
+		t.Errorf("scatter shape: %v", got)
+	}
+	// A heatmap fills every cell, so the grid has no holes.
+	hm := Chart{Type: "heatmap", Dimension: []ChartField{{Field: "customer"}}, Series: []ChartField{{Field: "status"}}, Value: sum}
+	if got := Shape(hm, pcols[:3], [][]*string{{s("a"), s("x"), s("1")}, {s("b"), s("y"), s("3")}}); len(got) != 4 {
+		t.Errorf("heatmap fill: %v", got)
+	}
+	// KPI and gauge read one row; their target is an aggregate too.
+	kpi := Chart{Type: "kpi", Value: sum, Target: []ChartField{{Field: "total", Aggregate: "max"}}}
+	q, cols, err = ChartQuery(SQLite, `"orders"`, src, kpi, 100)
+	if err != nil || strings.Contains(q.SQL, "GROUP BY") || len(cols) != 2 {
+		t.Fatalf("kpi: %s %v", q.SQL, err)
+	}
+	if got := Shape(kpi, cols, [][]*string{{s("10"), s("40")}}); !reflect.DeepEqual(got, [][]any{{10.0, 40.0}}) {
+		t.Errorf("kpi shape: %v", got)
+	}
+	// Trend needs a date grouped by period.
+	if _, err := (Chart{Type: "trend", Dimension: []ChartField{{Field: "customer"}}, Value: sum}).Check(src, "sqlite"); err == nil || !strings.Contains(err.Error(), "date/time field grouped by period") {
+		t.Errorf("trend check: %v", err)
+	}
+	if _, err := (Chart{Type: "trend", Dimension: []ChartField{{Field: "placed_at", Aggregate: "month_x"}}, Value: sum}).Check(src, "sqlite"); err == nil {
+		t.Error("trend took an extracted part")
+	}
+	if ok, err := (Chart{Type: "trend", Dimension: month, Value: sum}).Check(src, "sqlite"); !ok || err != nil {
+		t.Errorf("trend: %v %v", ok, err)
+	}
+	// Shelves a type doesn't have are refused; required ones are reported.
+	if _, err := (Chart{Type: "kpi", Value: sum, Dimension: month}).Check(src, "sqlite"); err == nil || !strings.Contains(err.Error(), "no dimension shelf") {
+		t.Errorf("kpi dimension: %v", err)
+	}
+	if ok, _ := (Chart{Type: "scatter", Dimension: month, Value: sum}).Check(src, "sqlite"); ok {
+		t.Error("scatter without Y counted as complete")
+	}
+	for _, typ := range []string{"waterfall", "tornado", "treemap", "pivot"} {
+		c := Chart{Type: typ, Dimension: []ChartField{{Field: "customer"}}, Value: sum}
+		if typ == "tornado" {
+			c.Series = []ChartField{{Field: "status"}}
+		}
+		if ok, err := c.Check(src, "sqlite"); !ok || err != nil {
+			t.Errorf("%s: %v %v", typ, ok, err)
+		}
 	}
 }

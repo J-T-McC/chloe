@@ -28,7 +28,7 @@ var now = time.Now
 type Column struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`
-	// Role is dimension, series, value, secondary or column (table charts).
+	// Role is dimension, series, value, secondary, target or column (table charts).
 	Role      string `json:"role"`
 	Field     string `json:"field"`
 	Aggregate string `json:"aggregate,omitempty"`
@@ -236,6 +236,9 @@ func ChartQuery(d driver.Dialect, from string, src DataSource, c Chart, limit in
 	}
 	for _, cf := range c.Secondary {
 		add("secondary", cf, false)
+	}
+	for _, cf := range c.Target {
+		add("target", cf, false)
 	}
 	if len(sel) == 0 {
 		return Stmt{}, nil, errors.New("the chart has no fields yet")

@@ -157,7 +157,7 @@ await step("table sorted by a named column, with a relative date filter", async 
   await page.locator(".tab", { hasText: "Sales (BI)" }).click();
   await page.locator(".bi-workspace:visible").getByRole("button", { name: "New Chart" }).click();
   await editor().waitFor();
-  await editor().getByRole("radio", { name: "Table" }).click();
+  await editor().getByRole("radio", { name: "Table", exact: true }).click();
   await drag("region", "value");
   await drag("id", "value");
   await drag("total", "value");
@@ -293,6 +293,93 @@ await step("pages, report size and present", async () => {
   await ws.locator("tr", { hasText: "Revenue to date" }).click();
   await ws.locator(".bi-props").getByRole("button", { name: "Used By" }).click();
   check((await ws.locator(".bi-deps").innerText()).includes("Sales overview"), "chart used by");
+});
+
+// Phase 3 chart types, each built in a fresh chart from the workspace tab.
+const newChart = async (type) => {
+  await page.locator(".tab", { hasText: "Sales (BI)" }).click();
+  await page.locator(".bi-workspace:visible").getByRole("button", { name: "New Chart" }).click();
+  await editor().waitFor();
+  // orders is archived and filtered to North by now: Jan 120, Feb 45.5, Mar 210.
+  await editor().getByLabel("Data source").selectOption({ label: "orders" });
+  await editor().getByRole("radio", { name: type, exact: true }).click();
+};
+const svgText = async () => (await editor().locator(".bi-echart svg").innerHTML()).replace(/<[^>]+>/g, " ");
+
+await step("waterfall, treemap and heatmap", async () => {
+  await newChart("Waterfall");
+  await drag("region", "dimension");
+  await drag("total", "value");
+  await editor().locator(".bi-echart svg").waitFor();
+  await page.waitForTimeout(600);
+  check((await svgText()).includes("Total"), "waterfall total bar: " + (await svgText()).slice(0, 200));
+  await shot("bi-waterfall");
+  await newChart("Treemap");
+  await drag("region", "dimension");
+  await drag("total", "value");
+  await page.waitForTimeout(800);
+  check((await svgText()).includes("North"), "treemap labels");
+  await shot("bi-treemap");
+  await newChart("Heatmap");
+  await drag("placed_at", "dimension");
+  await drag("region", "series");
+  await drag("total", "value");
+  await page.waitForTimeout(800);
+  const t = await svgText();
+  check(t.includes("Jan 2026") && t.includes("North"), "heatmap axes: " + t.slice(0, 200));
+  await shot("bi-heatmap");
+});
+
+await step("scatter and tornado", async () => {
+  await newChart("Scatter");
+  await drag("region", "dimension");
+  await drag("total", "value");
+  check((await shelf("target").innerText()).includes("required"), "Y-axis required");
+  await drag("id", "target");
+  await page.waitForTimeout(800);
+  check((await editor().locator(".bi-echart svg path").count()) >= 1, "scatter points");
+  await shot("bi-scatter");
+  await newChart("Tornado");
+  await drag("placed_at", "dimension");
+  await drag("region", "series");
+  await drag("total", "value");
+  await editor().locator(".bi-chart-msg", { hasText: "exactly two series values" }).waitFor();
+});
+
+await step("trend, KPI and gauge figures", async () => {
+  await newChart("Trend");
+  await drag("placed_at", "dimension");
+  await drag("total", "value");
+  await editor().getByTestId("bi-value").waitFor();
+  check((await editor().getByTestId("bi-value").innerText()) === "210", "trend value: " + (await editor().getByTestId("bi-value").innerText()));
+  // March (210) against February (45.5): up 164.5.
+  check((await editor().getByTestId("bi-delta").innerText()).includes("▲ +164.5"), "trend delta: " + (await editor().getByTestId("bi-delta").innerText()));
+  await shot("bi-trend");
+  await newChart("KPI");
+  await drag("total", "value");
+  await editor().getByLabel("Target value").fill("1000");
+  await editor().locator(".bi-kpi").waitFor();
+  check((await editor().locator(".bi-kpi").innerText()).includes("37.6% of target"), "kpi: " + (await editor().locator(".bi-kpi").innerText()));
+  await shot("bi-kpi");
+  await newChart("Gauge");
+  await drag("total", "value");
+  await editor().getByLabel("Maximum").fill("1000");
+  await page.waitForTimeout(800);
+  check((await svgText()).includes("375.5"), "gauge value: " + (await svgText()).slice(0, 200));
+  await shot("bi-gauge");
+});
+
+await step("pivot table with totals", async () => {
+  await newChart("Pivot Table");
+  await drag("region", "dimension");
+  await drag("placed_at", "series");
+  await drag("total", "value");
+  const table = editor().locator(".bi-pivot");
+  await table.waitFor();
+  const head = await table.locator("thead").innerText();
+  check(head.includes("Jan 2026") && head.includes("Total"), "pivot head: " + head);
+  check((await table.locator("tfoot").innerText()).includes("375.5"), "grand total: " + (await table.locator("tfoot").innerText()));
+  await shot("bi-pivot");
 });
 
 await step("dark theme", async () => {

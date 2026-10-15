@@ -23,8 +23,14 @@ type ChartType struct {
 	Series    Shelf  `json:"series"`
 	Value     Shelf  `json:"value"`
 	Secondary Shelf  `json:"secondary"`
+	Target    Shelf  `json:"target"`
 	// Raw lets value fields go without an aggregate (table columns).
 	Raw bool `json:"raw,omitempty"`
+	// DateDimension requires the dimension to be a date/time field (Trend).
+	DateDimension bool `json:"dateDimension,omitempty"`
+	// NoFill keeps rows as read: no empty periods or series are added (points of
+	// a scatter, slices of a treemap).
+	NoFill bool `json:"noFill,omitempty"`
 }
 
 const many = 8
@@ -44,7 +50,19 @@ var ChartTypes = map[string]ChartType{
 	"donut":            {Name: "Donut", Group: "Pie / Donut", Dimension: Shelf{1, 1, "Category"}, Value: Shelf{1, 1, ""}},
 	"value":            {Name: "Value", Group: "Value", Value: Shelf{1, 1, ""}},
 	"table":            {Name: "Table", Group: "Table", Value: Shelf{1, 32, "Columns"}, Raw: true},
+	"waterfall":        {Name: "Waterfall", Group: "Bar", Dimension: Shelf{1, 1, "X-Axis"}, Value: Shelf{1, 1, "Y-Axis"}},
+	"tornado":          {Name: "Tornado", Group: "Bar", Dimension: Shelf{1, 1, "Y-Axis"}, Series: Shelf{1, 1, "Series (two values)"}, Value: Shelf{1, 1, "X-Axis"}},
+	"treemap":          {Name: "Treemap", Group: "Pie / Donut", Dimension: Shelf{1, 1, "Category"}, Value: Shelf{1, 1, "Size"}, NoFill: true},
+	"scatter":          {Name: "Scatter", Group: "Scatter", Dimension: Shelf{1, 1, "Point"}, Series: Shelf{0, 1, ""}, Value: Shelf{1, 1, "X-Axis"}, Target: Shelf{1, 1, "Y-Axis"}, Secondary: Shelf{0, 1, "Size"}, NoFill: true},
+	"heatmap":          {Name: "Heatmap", Group: "Heatmap", Dimension: Shelf{1, 1, "X-Axis"}, Series: Shelf{1, 1, "Y-Axis"}, Value: Shelf{1, 1, "Intensity"}},
+	"trend":            {Name: "Trend", Group: "Value", Dimension: Shelf{1, 1, "Date"}, Value: Shelf{1, 1, ""}, DateDimension: true},
+	"kpi":              {Name: "KPI", Group: "Value", Value: Shelf{1, 1, ""}, Target: Shelf{0, 1, ""}},
+	"gauge":            {Name: "Gauge", Group: "Value", Value: Shelf{1, 1, ""}, Target: Shelf{0, 1, "Maximum"}},
+	"pivot":            {Name: "Pivot Table", Group: "Table", Dimension: Shelf{1, 1, "Rows"}, Series: Shelf{0, 1, "Columns"}, Value: Shelf{1, many, "Values"}},
 }
+
+// Single reports whether a type draws one aggregated row (no dimension).
+func (t ChartType) Single() bool { return t.Dimension.Max == 0 && !t.Raw }
 
 // TypeNames lists the chart type keys, sorted.
 func TypeNames() []string {
@@ -214,7 +232,7 @@ func (c Chart) shelves() []struct {
 		name   string
 		fields []ChartField
 		limits Shelf
-	}{{"dimension", c.Dimension, t.Dimension}, {"series", c.Series, t.Series}, {"value", c.Value, t.Value}, {"secondary", c.Secondary, t.Secondary}}
+	}{{"dimension", c.Dimension, t.Dimension}, {"series", c.Series, t.Series}, {"value", c.Value, t.Value}, {"secondary", c.Secondary, t.Secondary}, {"target", c.Target, t.Target}}
 }
 
 // Check validates a chart against its data source's fields. Incomplete charts
@@ -260,6 +278,11 @@ func (c Chart) Check(src DataSource, dialect string) (complete bool, err error) 
 	}
 	if len(c.Series) > 0 && len(c.Value) > 1 {
 		return false, fmt.Errorf("a chart split by series takes one value field")
+	}
+	if t.DateDimension && len(c.Dimension) > 0 {
+		if f, _ := src.Field(c.Dimension[0].Field); f.Type != TypeDateTime || c.Dimension[0].Aggregate == "" || strings.HasSuffix(c.Dimension[0].Aggregate, "_x") {
+			return false, fmt.Errorf("a %s chart's dimension is a date/time field grouped by period (year, quarter, month, week, day or hour)", t.Name)
+		}
 	}
 	c.NormalizeSort()
 	if c.Sort != nil && c.Sort.By != "dimension" && c.Sort.By != "value" {
