@@ -266,6 +266,11 @@ export interface DataSource {
     "sql"?: string;
 
     /**
+     * Joins add tables of the same database to a table source.
+     */
+    "joins"?: Join[] | null;
+
+    /**
      * Mode is live (read when used) or archive (read into a snapshot on refresh).
      */
     "mode": string;
@@ -388,6 +393,35 @@ export interface Item {
      * the page that has its field.
      */
     "targets"?: string[] | null;
+}
+
+/**
+ * Join adds another table of the same database to a table data source
+ * (Navicat's joined tables). Its columns come through as "table.column", so
+ * they never clash with the first table's.
+ */
+export interface Join {
+    "table": string;
+
+    /**
+     * Type is inner, left, right or full (full on PostgreSQL only).
+     */
+    "type": string;
+    "on": JoinOn[] | null;
+
+    /**
+     * Columns are the joined table's columns, read when the source is saved.
+     */
+    "columns"?: string[] | null;
+}
+
+/**
+ * JoinOn matches a field of the tables before (Left: a first-table column, or
+ * "table.column" of an earlier join) with a column of the joined table.
+ */
+export interface JoinOn {
+    "left": string;
+    "right": string;
 }
 
 /**

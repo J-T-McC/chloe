@@ -9,7 +9,9 @@ execFileSync("sqlite3", [
   `CREATE TABLE orders (id INTEGER PRIMARY KEY, region TEXT, total REAL, placed_at TEXT);
    INSERT INTO orders (region, total, placed_at) VALUES
    ('North', 120, '2026-01-04'), ('South', 80, '2026-01-20'), ('North', 45.5, '2026-02-02'), ('East', 300, '2026-02-14'),
-   ('South', 60, '2026-03-01'), ('North', 210, '2026-03-09'), ('West', 15, '2026-03-30'), ('East', 99, '2026-04-02');`,
+   ('South', 60, '2026-03-01'), ('North', 210, '2026-03-09'), ('West', 15, '2026-03-30'), ('East', 99, '2026-04-02');
+   CREATE TABLE regions (name TEXT PRIMARY KEY, manager TEXT);
+   INSERT INTO regions VALUES ('North', 'Ann'), ('South', 'Sam'), ('East', 'Eve'), ('West', 'Wes');`,
 ]);
 
 const browser = await chromium.launch();
@@ -503,6 +505,45 @@ await step("click to filter, controls and highlight on a dashboard", async () =>
   await page.waitForTimeout(800);
   check((await value()) === "$376", "highlight changed the value: " + (await value()));
   check((await dash().getByTestId("bi-picks").innerText()).includes("Highlighting"), "highlight chip");
+});
+
+await step("joined tables and custom fields in a new data source", async () => {
+  await page.locator(".tab", { hasText: "Sales (BI)" }).click();
+  await page.locator(".bi-workspace:visible").getByRole("button", { name: "New Data Source" }).click();
+  const src = page.locator(".bi-source:visible");
+  await src.waitFor();
+  await src.getByLabel("Data source name").fill("Orders by manager");
+  await src.getByLabel("Connection").selectOption({ label: "sales" });
+  await src.getByLabel("Table", { exact: true }).selectOption("orders");
+  await src.getByRole("button", { name: "Joins" }).click();
+  await src.getByRole("button", { name: "Add Join" }).click();
+  await src.getByLabel("Joined table").selectOption("regions");
+  await src.getByLabel("Join left field").selectOption("region");
+  await src.getByLabel("Join right field").locator("option", { hasText: "name" }).waitFor({ state: "attached" });
+  await src.getByLabel("Join right field").selectOption("name");
+  await src.getByRole("button", { name: "Apply and Refresh Data" }).click();
+  await src.locator(".bi-preview th", { hasText: "regions.manager" }).waitFor();
+  await src.getByRole("button", { name: "Custom Fields" }).click();
+  await src.getByRole("button", { name: "Add Custom Field" }).click();
+  await src.getByLabel("Custom field name").fill("double");
+  await src.getByLabel("Expression").fill("total * 2");
+  await src.getByRole("button", { name: "Save" }).click();
+  await page.waitForTimeout(800);
+  check(!(await src.locator(".error-banner").count()), "save error: " + (await src.locator(".error-banner").allInnerTexts()));
+  await shot("bi-joins");
+  await page.locator(".tab", { hasText: "Sales (BI)" }).click();
+  await page.locator(".bi-workspace:visible").getByRole("button", { name: "New Chart" }).click();
+  await editor().waitFor();
+  await editor().getByLabel("Data source").selectOption({ label: "Orders by manager" });
+  await drag("regions.manager", "dimension");
+  await drag("double", "value");
+  await page.waitForTimeout(900);
+  const t = (await editor().locator(".bi-echart svg").innerHTML()).replace(/<[^>]+>/g, " ");
+  // Ann manages North: 2 × 375.5.
+  check(t.includes("Ann") && t.includes("Eve"), "managers: " + t.slice(0, 200));
+  await editor().getByRole("radio", { name: "Value", exact: true }).click();
+  await page.waitForTimeout(900);
+  check((await editor().getByTestId("bi-value").innerText()) === "1,859", "double total: " + (await editor().getByTestId("bi-value").innerText()));
 });
 
 await step("dark theme", async () => {

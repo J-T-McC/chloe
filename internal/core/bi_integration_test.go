@@ -112,3 +112,31 @@ func TestBIChartsAcrossEngines(t *testing.T) {
 		})
 	}
 }
+
+// Joined tables give the same rows on every engine.
+func TestBIJoinsAcrossEngines(t *testing.T) {
+	var results []string
+	for _, e := range engines() {
+		m, id := setup(t, e)
+		ctx := context.Background()
+		p, err := m.Store.BI().Create(bi.New("joins " + string(e.conn.Type)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		src, err := m.BISaveSource(ctx, p, bi.DataSource{Meta: bi.Meta{Name: "Orders"}, ConnID: id, Database: e.database, Schema: e.schema, Table: "orders", Mode: bi.ModeLive,
+			Joins: []bi.Join{{Table: "customers", Type: "left", On: []bi.JoinOn{{Left: "customer_id", Right: "id"}}}}})
+		if err != nil {
+			t.Fatalf("%s: %v", e.conn.Type, err)
+		}
+		w, _ := bi.Read(p)
+		data, err := m.BIChartData(ctx, w, bi.Chart{DataSource: src.ID, Type: "bar", Dimension: []bi.ChartField{{Field: "customers.full_name"}},
+			Value: []bi.ChartField{{Field: "id", Aggregate: "count"}}, Sort: &bi.ChartSort{By: "dimension"}}, nil)
+		if err != nil || len(data.Rows) == 0 {
+			t.Fatalf("%s: %v %v\n%s", e.conn.Type, data.Rows, err, data.SQL)
+		}
+		results = append(results, fmt.Sprint(data.Rows))
+	}
+	if len(results) == 2 && results[0] != results[1] {
+		t.Errorf("engines differ:\n%s\n%s", results[0], results[1])
+	}
+}

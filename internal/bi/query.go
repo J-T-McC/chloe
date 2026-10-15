@@ -196,6 +196,10 @@ type Source struct {
 // From is the FROM target of a data source: its table, or its query in
 // parentheses with its [$name] parameters bound.
 func From(d driver.Dialect, src DataSource) (Source, error) {
+	if src.Table != "" && len(src.Joins) > 0 {
+		sql, err := joined(d, src)
+		return Source{SQL: sql}, err
+	}
 	if src.Table != "" {
 		ref := model.ObjectRef{Database: src.Database, Schema: src.Schema, Name: src.Table}
 		if d.HasSchemas && ref.Schema == "" {

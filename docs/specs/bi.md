@@ -376,7 +376,7 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 2. **Dashboards and reports** ✅: pages, charts, Markdown text, refresh and auto refresh, Present, Export (PDF, PNG),
    and the MCP dashboard, notes and export tools. Snapshots were dropped; SVG/HTML export and print are not planned
    unless asked for.
-3. **The rest of Navicat's BI**: Waterfall, Tornado, Treemap, Scatter, Heatmap, Trend, KPI, Gauge, Pivot Table ✅; dynamic date filters ✅; parameters ✅; interaction and Control ✅;
+3. **The rest of Navicat's BI**: Waterfall, Tornado, Treemap, Scatter, Heatmap, Trend, KPI, Gauge, Pivot Table ✅; dynamic date filters ✅; parameters ✅; interaction and Control ✅; custom fields ✅; joined tables ✅;
    Control; interaction (cross-filter, highlight, controls); parameters; custom fields; joined tables; shapes, groups,
    lock, alignment guides; dynamic date filters.
 4. MongoDB data sources (collection, or aggregation pipeline), with charts over them.
@@ -458,4 +458,22 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
   chart on the page whose data source has its field.
 - Filters from clicks and controls are added to the chart's own when it's read; nothing is saved.
 - MCP: `create_dashboard`/`edit_dashboard` take `interaction`; agents can create Control charts like any other.
+
+## Implementation notes (phase 3, custom fields and joins)
+- **Custom fields** (Custom Fields pane of the source designer; `custom_fields` over MCP) are computed in every
+  chart and preview query, live or archived, by wrapping the source in one subquery layer per field, so each may use
+  the fields before it and filters, buckets and aggregates work on them like on columns. Their type is worked out
+  when the source is saved.
+  - **Calculated**: Chloe's own small expression language (fields by name or `[in brackets]`, `[$parameter]`,
+    `+ - * / % &`, comparisons, AND OR NOT, ROUND ABS FLOOR CEIL COALESCE NULLIF IF UPPER LOWER TRIM LENGTH YEAR
+    MONTH DAY), parsed and compiled per dialect: field names checked and quoted, literals and parameters bound,
+    division by zero NULL and never integer-truncated.
+  - **Mapped** (rules from → to, case-sensitive or not; unmapped values kept, emptied or set to Other),
+    **Concatenated** (fields with a separator; NULL as empty), **Type-Changed** (to text, number or date/time) and
+    **Custom-Sorted** (a hand-made order of values: those first, the rest after in label order). Sorting by another
+    field's values isn't built.
+- **Joined tables** (Joins pane for table sources; `joins` over MCP): more tables of the same database, each inner,
+  left, right or full (PostgreSQL) join on one or more pairs of matching fields. The first table's columns keep their
+  names; joined columns come through as `table.column` and can be matched by later joins. Their columns are read
+  when the source is saved, previewed or its fields are read. Cross-connection joins stay out.
 

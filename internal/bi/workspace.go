@@ -69,6 +69,8 @@ type DataSource struct {
 	// Table is a table or view; SQL is a query. Exactly one is set.
 	Table string `json:"table,omitempty"`
 	SQL   string `json:"sql,omitempty"`
+	// Joins add tables of the same database to a table source.
+	Joins []Join `json:"joins,omitempty"`
 	// Mode is live (read when used) or archive (read into a snapshot on refresh).
 	Mode string `json:"mode"`
 	// Timezone (IANA name) is where date/time fields are bucketed and filtered;
@@ -393,6 +395,9 @@ func (d DataSource) Validate() error {
 		if err := f.check(); err != nil {
 			return err
 		}
+	}
+	if err := d.checkJoins(); err != nil {
+		return err
 	}
 	return d.checkCustom()
 }

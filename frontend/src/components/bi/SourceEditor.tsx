@@ -1,7 +1,7 @@
 // Data source designer: a table or view, or a query, on one connection; Live or
 // Archive mode; Filter, Sort and Projection panes; and the preview grid
 // ("Apply and Refresh Data"), like Navicat's data source tab.
-import { ArrowUpDown, Calculator, Columns3, Database, Filter, Play, Plus, RefreshCw, Save, X } from "lucide-react";
+import { ArrowUpDown, Calculator, Columns3, Combine, Database, Filter, Play, Plus, RefreshCw, Save, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { B, BI, BIPreview, DBType, Explorer, ObjectKind, Query, SavedQuery, arr, errorText } from "../../api";
 import { connDialect, editorLanguage } from "../../dialect";
@@ -12,6 +12,7 @@ import { Tab, connById, useApp } from "../../store";
 import { Split } from "../Split";
 import { biChanged, openObject } from "./actions";
 import { CustomFieldsPane } from "./CustomFields";
+import { JoinsPane } from "./Joins";
 import { FilterList, cleanFilters } from "./FilterList";
 import { useWorkspace } from "./WorkspaceView";
 
@@ -44,7 +45,7 @@ export function SourceEditor({ tab }: { tab: Tab }) {
   const [preview, setPreview] = useState<BIPreview | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
-  const [panes, setPanes] = useState({ filter: false, sort: false, projection: false, custom: false });
+  const [panes, setPanes] = useState({ filter: false, sort: false, projection: false, custom: false, joins: false });
 
   // Load the source (or start one) once the workspace is read; reload it when it
   // changes elsewhere and isn't being edited here.
@@ -236,6 +237,11 @@ export function SourceEditor({ tab }: { tab: Tab }) {
           </button>
         )}
         <span className="tb-sep" />
+        {kind === "table" && (
+          <button className={panes.joins || arr(draft.joins).length ? "on" : ""} onClick={() => setPanes((p) => ({ ...p, joins: !p.joins }))}>
+            <Combine size={14} /> Joins
+          </button>
+        )}
         <button className={panes.filter || arr(draft.filters).length ? "on" : ""} onClick={() => setPanes((p) => ({ ...p, filter: !p.filter }))}>
           <Filter size={14} /> Filter
         </button>
@@ -309,7 +315,7 @@ export function SourceEditor({ tab }: { tab: Tab }) {
                     <input type="radio" checked={kind === "table"} onChange={() => (setKind("table"), update({ sql: "" }))} /> Table or view
                   </label>
                   <label className="check">
-                    <input type="radio" checked={kind === "query"} onChange={() => (setKind("query"), update({ table: "" }))} /> Query
+                    <input type="radio" checked={kind === "query"} onChange={() => (setKind("query"), update({ table: "", joins: [] }))} /> Query
                   </label>
                   {kind === "table" ? (
                     <select aria-label="Table" value={draft.table ?? ""} onChange={(e) => update({ table: e.target.value })}>
@@ -381,6 +387,12 @@ export function SourceEditor({ tab }: { tab: Tab }) {
                 onSave={() => saveRef.current()}
                 onRun={() => refreshRef.current()}
               />
+            )}
+            {panes.joins && kind === "table" && (
+              <section className="bi-pane">
+                <div className="bi-pane-title">Joins</div>
+                <JoinsPane src={draft} tables={objects.map((o) => o.name)} fields={allFields.filter((f) => !f.name.includes(".")).map((f) => f.name)} onChange={(joins) => update({ joins })} />
+              </section>
             )}
             {panes.custom && (
               <section className="bi-pane">
