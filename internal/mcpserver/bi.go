@@ -28,7 +28,7 @@ type CreateWorkspaceArgs struct {
 type FilterArg struct {
 	Field string `json:"field"`
 	Op    string `json:"op" jsonschema:"one of = != < <= > >= contains not_contains begins_with not_begins_with ends_with not_ends_with is_null is_not_null is_empty is_not_empty between not_between in not_in in_last in_period to_date"`
-	Value any    `json:"value,omitempty" jsonschema:"the value; two values for between, a list for in, [n, unit] for in_last (unit day week month quarter or year: the last n units including the current one), [this|last|next, unit] for in_period (one whole calendar period, e.g. [last, month]), [unit] for to_date (week month quarter or year to today); nothing for is_null/is_empty. Relative ranges keep charts current"`
+	Value any    `json:"value,omitempty" jsonschema:"the value; two values for between, a list for in, [n, unit] for in_last (unit day week month quarter or year: the last n units including the current one; weeks start on Sunday), [this|last|next, unit] for in_period (one whole calendar period, e.g. [last, month]), [unit] for to_date (week month quarter or year to today); nothing for is_null/is_empty. Relative ranges keep charts current"`
 	// Values is how get_workspace returns filters, accepted as well.
 	Values []any `json:"values,omitempty" jsonschema:"the values as a list, as get_workspace returns them (instead of value). Values are kept as text, the way they're bound"`
 }
@@ -51,7 +51,7 @@ type CreateSourceArgs struct {
 type FieldArg struct {
 	Field     string `json:"field"`
 	Aggregate string `json:"aggregate,omitempty" jsonschema:"for value fields: sum avg count count_distinct min max, median on PostgreSQL live sources; default sum for numbers, count otherwise. Table columns may leave it empty to group by the column, or use a bucket to group a date column. Stored as aggregate whichever name you send"`
-	Bucket    string `json:"bucket,omitempty" jsonschema:"for date/time dimensions and series: year quarter month week day hour minute second, or quarter_x month_x week_x day_x weekday_x hour_x minute_x second_x for one part (all Marches together; weekdays and months come back as Sun… and Jan…); default month. get_workspace returns it as aggregate, which is accepted too"`
+	Bucket    string `json:"bucket,omitempty" jsonschema:"for date/time dimensions and series: year quarter month week day hour minute second, or quarter_x month_x week_x day_x weekday_x hour_x minute_x second_x for one part (all Marches together; weekdays and months come back as Sun… and Jan…); default month. Weeks start on Sunday and are labelled by that date (PostgreSQL's date_trunc('week') starts on Monday). get_workspace returns it as aggregate, which is accepted too"`
 	Alias     string `json:"alias,omitempty" jsonschema:"label shown in the chart"`
 	Operation string `json:"operation,omitempty" jsonschema:"cumulative (running total) or subtract (change from the previous value)"`
 	// Op is how get_workspace returns the operation, accepted as well.
@@ -75,7 +75,7 @@ type ChartSpec struct {
 	Sort       *SortArg       `json:"sort,omitempty" jsonschema:"default: dates and numbers in order, categories by value descending"`
 	Top        *int           `json:"top,omitempty" jsonschema:"keep the first n dimension values"`
 	Others     *bool          `json:"others,omitempty" jsonschema:"with top: add the rest up as Others"`
-	Properties map[string]any `json:"properties,omitempty" jsonschema:"display settings: title, hideTitle, legend (auto top bottom right none), labels, labelPercent, stack100, smooth, number {prefix suffix unit(auto K M B) decimals noSeparator percent (0.2 shows as 20%)}, dateFormat (YYYY MMM DD…), palette, colors (hex list), xTitle, yTitle, labelCase (raw shows category values as stored; by default ended_early shows as Ended Early), goal (kpi target when there's no target field), min and max (gauge range; max defaults to the target field), lowerIsBetter (trend and kpi: a fall shows as good). Display only: get_chart_data returns unformatted numbers"`
+	Properties map[string]any `json:"properties,omitempty" jsonschema:"display settings: title, hideTitle, legend (auto top bottom right none), labels, labelPercent, stack100, smooth, number {prefix suffix unit(auto K M B) decimals noSeparator percent (0.2 shows as 20%)}, dateFormat (YYYY MMM DD…), palette, colors (hex list), xTitle, yTitle, labelCase (raw shows category values as stored; by default ended_early shows as Ended Early), goal (kpi target when there's no target field), min and max (gauge range; max defaults to the target field), lowerIsBetter (trend and kpi: a fall shows as good), sameDays (trend by week, month, quarter or year: while the latest period is still going, compare it with the same days of the one before, e.g. Sunday to Thursday last week, instead of that whole period; get_chart_data returns that value as previous). Display only: get_chart_data returns unformatted numbers"`
 	// Props is how get_workspace returns properties, accepted as well.
 	Props map[string]any `json:"props,omitempty" jsonschema:"same as properties (get_workspace's name for them)"`
 }
@@ -189,14 +189,15 @@ type ParamOut struct {
 }
 
 type ChartDataOut struct {
-	Columns   []bi.Column `json:"columns"`
-	Rows      [][]any     `json:"rows" jsonschema:"one array per group in column order: dimension and series values as text, values as numbers, null for NULL"`
-	RowCount  int         `json:"row_count"`
-	Truncated bool        `json:"truncated"`
-	Complete  bool        `json:"complete" jsonschema:"false while a shelf the chart type needs is empty"`
-	Mode      string      `json:"mode" jsonschema:"live or archive"`
-	AsOf      string      `json:"as_of" jsonschema:"when the rows were read (archive: when the snapshot was taken)"`
-	SQL       string      `json:"sql,omitempty" jsonschema:"the query Chloe built, with include_sql"`
+	Columns   []bi.Column  `json:"columns"`
+	Rows      [][]any      `json:"rows" jsonschema:"one array per group in column order: dimension and series values as text, values as numbers, null for NULL"`
+	RowCount  int          `json:"row_count"`
+	Truncated bool         `json:"truncated"`
+	Complete  bool         `json:"complete" jsonschema:"false while a shelf the chart type needs is empty"`
+	Mode      string       `json:"mode" jsonschema:"live or archive"`
+	AsOf      string       `json:"as_of" jsonschema:"when the rows were read (archive: when the snapshot was taken)"`
+	SQL       string       `json:"sql,omitempty" jsonschema:"the query Chloe built, with include_sql"`
+	Previous  *bi.Previous `json:"previous,omitempty" jsonschema:"a sameDays trend's comparison: the value over the previous period's same days, from and to (dates, both included)"`
 }
 
 func chartTypesText() string {
@@ -394,7 +395,7 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 
 	add(s, srv, ep, &mcp.Tool{Name: "create_chart", Description: "Adds a chart on one of the workspace's data sources. Chloe builds its query from the fields you place: " +
 		"dimension (categories or X axis; date fields are grouped by bucket), series (splits into colours or stacks), value (aggregated measures), secondary (bar and line charts' lines; scatter point size), target (kpi target, gauge maximum, scatter Y). " +
-		"waterfall shows each dimension value's change with a running total; tornado mirrors exactly two series values; trend shows the latest period against the one before; pivot crosses rows (dimension) with columns (series). " +
+		"waterfall shows each dimension value's change with a running total; tornado mirrors exactly two series values; trend shows the latest period against the one before (properties.sameDays: against the same days of it while the latest is still going); pivot crosses rows (dimension) with columns (series). " +
 		"Types and their shelves: " + chartTypesText() + ". The chart is saved in the workspace for the user to open; get_chart_data returns what it shows.",
 		Annotations: &mcp.ToolAnnotations{Title: "Create chart", DestructiveHint: &f, OpenWorldHint: &f}},
 		func(ctx context.Context, c *call, in CreateChartArgs) (ChartOut, error) {
@@ -475,7 +476,7 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			if err != nil {
 				return ChartDataOut{}, err
 			}
-			out := ChartDataOut{Columns: data.Columns, Rows: data.Rows, RowCount: len(data.Rows), Truncated: data.Truncated, Complete: data.Complete, Mode: data.Mode, AsOf: data.RanAt}
+			out := ChartDataOut{Columns: data.Columns, Rows: data.Rows, RowCount: len(data.Rows), Truncated: data.Truncated, Complete: data.Complete, Mode: data.Mode, AsOf: data.RanAt, Previous: data.Previous}
 			if in.IncludeSQL {
 				out.SQL = data.SQL
 			}

@@ -407,7 +407,11 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 - **Heatmap** (dimension = X, series = Y, value = intensity): every cell filled; a one-hue sequential ramp per theme,
   near the surface for small values, with the range shown under the grid.
 - **Trend** (date dimension grouped by period, one value): the latest period's value, its change from the one
-  before (arrow, sign, %, status colour) and a 12-period sparkline. Extracted parts are refused.
+  before (arrow, sign, %, status colour) and a 12-period sparkline. Extracted parts are refused. With **Compare the
+  same days of the previous period** (`sameDays`), a week, month, quarter or year that's still going compares with
+  as many days of the one before (Sunday to Thursday last week on a Thursday; a month's 31st with all of a shorter
+  month): a second query reads that value, returned as `previous` {value, from, to}, and the change reads
+  "vs Oct 4–Oct 8". Weeks start on Sunday throughout.
 - **KPI** (value, optional target field or `goal` property): the value, a meter towards the target (its track a
   lighter step of the fill), the share and the difference. **Gauge** (value, optional target as maximum; `min`/`max`
   properties): a meter arc with the value. `lowerIsBetter` turns a fall into the good direction.
@@ -497,7 +501,8 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 - Top N keeps the largest values whatever the dimension (it sorts by value unless a sort is set). Control lists,
   and split series without a date part or custom order, sort case-insensitively; date parts (Sun…Sat) and
   custom-sorted fields keep their order as series too; heatmap rows read top-down.
-- Number format `percent` shows 0.2 as 20%.
+- Number format `percent` shows 0.2 as 20%. A percentage axis (`percent`, or a suffix starting with %) whose values
+  reach past half of 100% without going over stops at 100% in quarter steps, not at a round step past it.
 - MCP: `refresh_dashboard` fills parameters into page text and returns each chart's `title`; it and
   `export_dashboard` (which takes `parameters` now) check parameter values once. `delete_parameter` deletes an
   agent's parameter that nothing uses. `edit_data_source` refuses a change that would break the source's charts,

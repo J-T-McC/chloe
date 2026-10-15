@@ -22,6 +22,7 @@ export type {
     Page,
     ParamOption,
     Parameter,
+    Previous,
     Projection,
     Props,
     Shelf,

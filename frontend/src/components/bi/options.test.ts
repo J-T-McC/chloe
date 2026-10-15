@@ -15,6 +15,16 @@ describe("phase 3 chart options", () => {
     expect(o.xAxis.data).toEqual(["A", "B", "C", "Total"]);
   });
 
+  it("a percentage axis stops at 100% when values come close to it", () => {
+    const rates = (...v: number[]) => data([col("d", "dimension", "string"), col("v", "value")], v.map((x, i) => [`d${i}`, x]));
+    const y = (props: Partial<B.Props>, d: B.Data, type = "line") => opt(chart(type, props), d).yAxis;
+    expect(y({ number: { percent: true } }, rates(0.62, 0.97))).toMatchObject({ max: 1, interval: 0.25 });
+    expect(y({ number: { percent: true } }, rates(0.01, 0.08)).max).toBeUndefined(); // small rates keep a close axis
+    expect(y({ number: { percent: true } }, rates(0.5, 1.4)).max).toBeUndefined(); // over 100% is possible
+    expect(y({ number: { suffix: "%" } }, rates(40, 96), "bar")).toMatchObject({ max: 100, interval: 25 });
+    expect(y({}, rates(0.62, 0.97)).max).toBeUndefined();
+  });
+
   it("tornado mirrors the first series to the left", () => {
     const o = opt(chart("tornado"), data([col("d", "dimension", "string"), col("s", "series", "string"), col("v", "value")], [["x", "f", 3], ["x", "m", 5]]));
     expect(o.series[0].data).toEqual([-3]);

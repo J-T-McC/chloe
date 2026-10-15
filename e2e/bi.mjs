@@ -11,7 +11,11 @@ execFileSync("sqlite3", [
    ('North', 120, '2026-01-04'), ('South', 80, '2026-01-20'), ('North', 45.5, '2026-02-02'), ('East', 300, '2026-02-14'),
    ('South', 60, '2026-03-01'), ('North', 210, '2026-03-09'), ('West', 15, '2026-03-30'), ('East', 99, '2026-04-02');
    CREATE TABLE regions (name TEXT PRIMARY KEY, manager TEXT);
-   INSERT INTO regions VALUES ('North', 'Ann'), ('South', 'Sam'), ('East', 'Eve'), ('West', 'Wes');`,
+   INSERT INTO regions VALUES ('North', 'Ann'), ('South', 'Sam'), ('East', 'Eve'), ('West', 'Wes');
+   -- Dated from this week's Sunday: last week's Sunday and Saturday, and this Sunday.
+   CREATE TABLE rates (day TEXT, rooms INTEGER, finish REAL);
+   INSERT INTO rates VALUES (date('now', 'localtime', '-6 days', 'weekday 0', '-7 days'), 10, 62),
+     (date('now', 'localtime', '-6 days', 'weekday 0', '-1 days'), 100, 80), (date('now', 'localtime', '-6 days', 'weekday 0'), 20, 97);`,
 ]);
 
 const browser = await chromium.launch();
@@ -569,6 +573,53 @@ await step("shapes and locked tiles on a dashboard", async () => {
   await page.waitForTimeout(300);
   check(!(await dash().locator(".error-banner").count()), "save error");
   await shot("bi-shapes");
+});
+
+await step("trend against the same days of last week; a percentage axis stops at 100%", async () => {
+  await page.locator(".tab", { hasText: "Sales (BI)" }).click();
+  await page.locator(".bi-workspace:visible").getByRole("button", { name: "New Data Source" }).click();
+  const src = page.locator(".bi-source:visible");
+  await src.waitFor();
+  await src.getByLabel("Data source name").fill("Rates");
+  await src.getByLabel("Connection").selectOption({ label: "sales" });
+  await src.getByLabel("Table", { exact: true }).selectOption("rates");
+  await src.getByRole("button", { name: "Save" }).click();
+  await page.waitForTimeout(800);
+  await page.locator(".tab", { hasText: "Sales (BI)" }).click();
+  await page.locator(".bi-workspace:visible").getByRole("button", { name: "New Chart" }).click();
+  await editor().waitFor();
+  await editor().getByLabel("Data source").selectOption({ label: "Rates" });
+  await editor().getByRole("radio", { name: "Trend", exact: true }).click();
+  await drag("day", "dimension");
+  await shelf("dimension").locator(".bi-pill").click();
+  await page.locator(".menu-item", { hasText: "Group By" }).hover();
+  await page.locator(".menu-item", { hasText: /^\s*Week\s*$/ }).click();
+  await drag("rooms", "value");
+  await editor().getByTestId("bi-delta").waitFor();
+  // Against the whole of last week (110), this week's 20 is down 90.
+  check((await editor().getByTestId("bi-delta").innerText()).includes("▼ -90"), "whole week: " + (await editor().getByTestId("bi-delta").innerText()));
+  await editor().getByText("Compare the same days of the previous period").click();
+  await page.waitForTimeout(900);
+  const delta = await editor().getByTestId("bi-delta").innerText();
+  // Up to today's weekday last week: just its Sunday (10), unless today is Saturday.
+  const sat = new Date().getDay() === 6;
+  check(sat ? delta.includes("▼ -90") : delta.includes("▲ +10 (+100.0%)"), "same days: " + delta);
+  check(/vs \w{3} \d+–\w{3} \d+/.test(delta), "same days span: " + delta);
+  await shot("bi-trend-same-days");
+
+  await editor().getByRole("radio", { name: "Line", exact: true }).click();
+  await shelf("value").locator(".bi-pill").first().waitFor();
+  await editor().locator(".bi-field", { hasText: /^finish$/ }).dragTo(shelf("value"));
+  await shelf("value").locator(".bi-pill", { hasText: "rooms" }).click();
+  await page.locator(".menu-item", { hasText: "Remove" }).click();
+  await shelf("dimension").locator(".bi-pill").click();
+  await page.locator(".menu-item", { hasText: "Group By" }).hover();
+  await page.locator(".menu-item", { hasText: /^\s*Day\s*$/ }).click();
+  await editor().getByLabel("Suffix").fill("%");
+  await page.waitForTimeout(900);
+  const t = await svgText();
+  check(t.includes("100%") && !t.includes("120%"), "percent axis: " + t.slice(0, 300));
+  await shot("bi-percent-axis");
 });
 
 await step("dark theme", async () => {

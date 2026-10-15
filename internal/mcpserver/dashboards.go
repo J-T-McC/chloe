@@ -103,17 +103,18 @@ type DashboardOut struct {
 }
 
 type ChartResult struct {
-	Chart     string      `json:"chart"`
-	Title     string      `json:"title,omitempty" jsonschema:"the title shown, parameters filled in"`
-	ID        string      `json:"id"`
-	Type      string      `json:"type"`
-	Columns   []bi.Column `json:"columns,omitempty"`
-	Rows      [][]any     `json:"rows,omitempty"`
-	Complete  bool        `json:"complete"`
-	Truncated bool        `json:"truncated,omitempty"`
-	Mode      string      `json:"mode,omitempty"`
-	AsOf      string      `json:"as_of,omitempty"`
-	Error     string      `json:"error,omitempty"`
+	Chart     string       `json:"chart"`
+	Title     string       `json:"title,omitempty" jsonschema:"the title shown, parameters filled in"`
+	ID        string       `json:"id"`
+	Type      string       `json:"type"`
+	Columns   []bi.Column  `json:"columns,omitempty"`
+	Rows      [][]any      `json:"rows,omitempty"`
+	Complete  bool         `json:"complete"`
+	Truncated bool         `json:"truncated,omitempty"`
+	Mode      string       `json:"mode,omitempty"`
+	AsOf      string       `json:"as_of,omitempty"`
+	Previous  *bi.Previous `json:"previous,omitempty"`
+	Error     string       `json:"error,omitempty"`
 }
 
 type NoteOut struct {
@@ -378,7 +379,7 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 							r.Error = err.Error()
 							break
 						}
-						r.Columns, r.Rows, r.Complete, r.Truncated, r.Mode, r.AsOf = data.Columns, data.Rows, data.Complete, data.Truncated, data.Mode, data.RanAt
+						r.Columns, r.Rows, r.Complete, r.Truncated, r.Mode, r.AsOf, r.Previous = data.Columns, data.Rows, data.Complete, data.Truncated, data.Mode, data.RanAt, data.Previous
 						rows += len(data.Rows)
 					}
 					read[ch.ID] = r

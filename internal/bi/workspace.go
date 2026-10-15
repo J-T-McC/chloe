@@ -194,6 +194,10 @@ type Props struct {
 	Max  *float64 `json:"max,omitempty"`
 	// LowerIsBetter colours a Trend's or KPI's change: a fall is good.
 	LowerIsBetter bool `json:"lowerIsBetter,omitempty"`
+	// SameDays has a Trend whose latest period is still going (this week on a
+	// Thursday) compare it with the same days of the period before (Sunday to
+	// Thursday last week) instead of that whole period.
+	SameDays bool `json:"sameDays,omitempty"`
 	// Control is how a Control chart picks values: list (several), combo (one)
 	// or range (numbers and dates); "" picks by the field's type.
 	Control string `json:"control,omitempty"`

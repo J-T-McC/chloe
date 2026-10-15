@@ -3,6 +3,7 @@ package bi
 import (
 	"cmp"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -27,6 +28,50 @@ type Data struct {
 	RanAt string `json:"ranAt"`
 	// Params are the parameter values the read used, for titles and text.
 	Params Values `json:"params,omitempty"`
+	// Previous is what a sameDays Trend compares its current period with.
+	Previous *Previous `json:"previous,omitempty"`
+}
+
+// Previous is the value over the first days of the period before the current
+// one, From to To (dates, both included).
+type Previous struct {
+	Value any    `json:"value"`
+	From  string `json:"from"`
+	To    string `json:"to"`
+}
+
+// SameDays is the chart that reads a sameDays Trend's comparison when its latest
+// period is the current one: its value over as many days of the previous period
+// as the current one has had, today included. ok is false when there's nothing
+// to read (the option is off, the bucket is a day or shorter, the latest period
+// has ended, or the value is cumulative).
+func SameDays(src DataSource, c Chart, cols []Column, rows [][]any) (prev Chart, span *Previous, ok bool) {
+	if c.Type != "trend" || !c.Props.SameDays || len(c.Dimension) == 0 || len(c.Value) == 0 || c.Value[0].Op != "" || len(rows) == 0 {
+		return prev, nil, false
+	}
+	unit := c.Dimension[0].Aggregate
+	dim := slices.IndexFunc(cols, func(col Column) bool { return col.Role == "dimension" })
+	if !slices.Contains([]string{"week", "month", "quarter", "year"}, unit) || dim < 0 {
+		return prev, nil, false
+	}
+	today := PeriodStart(now().In(location(src.Timezone)), "day")
+	start := PeriodStart(today, unit)
+	if last := rows[len(rows)-1]; dim >= len(last) || key(last[dim]) != PeriodLabel(unit, start) {
+		return prev, nil, false
+	}
+	from := AddPeriods(start, unit, -1)
+	days := int(math.Round(today.Sub(start).Hours() / 24)) // DST days aren't 24 hours
+	end := from.AddDate(0, 0, days+1)
+	if end.After(start) {
+		end = start // March 31st compares with all of February
+	}
+	const day = "2006-01-02"
+	prev = c
+	prev.Type, prev.Dimension, prev.Series, prev.Sort, prev.Top, prev.Others = "value", nil, nil, nil, 0, false
+	prev.Filters = append(slices.Clone(c.Filters),
+		Filter{Field: c.Dimension[0].Field, Op: ">=", Values: []string{from.Format(day)}},
+		Filter{Field: c.Dimension[0].Field, Op: "<", Values: []string{end.Format(day)}})
+	return prev, &Previous{From: from.Format(day), To: end.AddDate(0, 0, -1).Format(day)}, true
 }
 
 // Shape turns raw query cells into chart data: numbers parsed, then the chart's
