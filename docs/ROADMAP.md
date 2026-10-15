@@ -3,14 +3,16 @@
 Order reflects dependencies: later features build on the earlier ones. Specs for each area live in `docs/specs/`.
 
 ## Next up
-1. **Explain / visual explain** for MySQL and PostgreSQL, with MongoDB's explain
-2. Transfer and sync follow-ups: Data Transfer file target and per-table Advanced mode (rename, fields,
+1. **BI: charts, dashboards and agent reports** (spec: `docs/specs/bi.md`), phases 1–2 first, with the
+   MCP Reports tools so agents can build, refresh and annotate reports
+2. **Explain / visual explain** for MySQL and PostgreSQL, with MongoDB's explain
+3. Transfer and sync follow-ups: Data Transfer file target and per-table Advanced mode (rename, fields,
    filters); functions/procedures/events in transfer and structure sync; profiles for the sync tools;
    per-record exclusion in data sync; MongoDB → MongoDB; views between different
    engines (today only same-engine views are copied; the SQL needs translating)
-3. **MongoDB, second pass**: aggregation pipeline builder, GridFS buckets, saved queries in MongoDB databases
-4. **SQL Server and Oracle**, both in Docker
-5. Polish: Redis pub/sub, cluster and sentinel; Form view and hex/image cell editors; preferences window
+4. **MongoDB, second pass**: aggregation pipeline builder, GridFS buckets, saved queries in MongoDB databases
+5. **SQL Server and Oracle**, both in Docker
+6. Polish: Redis pub/sub, cluster and sentinel; Form view and hex/image cell editors; preferences window
    (history logging on/off, autosave interval)
 
 MCP server (6b): next are MongoDB and Redis tools.
@@ -72,6 +74,7 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 - [x] Monitor (sessions, status, variables, kill with approval) and saved queries / query tabs (capabilities)
 - [x] ER model tools (capability): list, read, create from a database or a copy, edit agent-created models, generate CREATE or sync SQL, open in Chloe
 - [x] Stdio bridge (`Chloe mcp`) over a user-only Unix socket, so clients need no network port; HTTP can be switched off
+- [ ] Reports tools (BI workspaces, charts, dashboards, snapshots, notes, export; `docs/specs/bi.md`)
 - [ ] MongoDB and Redis tools
 
 Access stays per group, connection and database: no table or column permissions. Without a Chloe-managed
@@ -105,3 +108,9 @@ statistics catalogs get around name checks), so share connections that log in as
 - Grammar-based (ANTLR) autocomplete layer, preferences window
 - [x] Value panel for viewing and editing cell text/JSON
 - Form view, hex/image cell editors, FK value picker
+
+## 9. BI (spec: `docs/specs/bi.md`)
+- [ ] Charts and MCP core: BI library, data sources (table/view/query, live/archive), chart designer, Create Chart from the grid
+- [ ] Dashboards and reports: pages, Markdown text, present, print/export (PDF, PNG, SVG, HTML), snapshots and history
+- [ ] The rest of Navicat's BI: remaining chart types, interaction and controls, parameters, custom fields, joins, shapes
+- [ ] MongoDB data sources
