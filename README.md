@@ -42,7 +42,7 @@ What's next is in [docs/ROADMAP.md](docs/ROADMAP.md).
 | ![ER diagram](docs/assets/screenshots/erd.png) ER diagram | ![MongoDB](docs/assets/screenshots/mongo.png) MongoDB documents |
 | ![Redis](docs/assets/screenshots/redis.png) Redis keys | |
 
-Regenerate with `wails3 task build:server && e2e/run.sh screenshots`, then copy `e2e/.out/shots/readme-*.png` to `docs/assets/screenshots/`.
+Regenerate with `make e2e SCRIPT=screenshots`, then copy `e2e/.out/shots/readme-*.png` to `docs/assets/screenshots/`.
 
 ## Build and install
 
@@ -50,13 +50,14 @@ Requires Go 1.26+, Node 22+ and the Wails CLI:
 
 ```sh
 go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.29
-export PATH=$PATH:$(go env GOPATH)/bin
 ```
 
+The Makefile finds `wails3` in `$(go env GOPATH)/bin` even when that isn't on your PATH:
+
 ```sh
-wails3 task build     # build bin/Chloe
-wails3 task install   # macOS: build a signed Chloe.app and replace /Applications/Chloe.app (rerun to update)
-wails3 dev            # run with hot reload
+make dev       # run with hot reload
+make build     # build bin/Chloe
+make install   # macOS: build a signed Chloe.app and replace /Applications/Chloe.app (rerun to update)
 ```
 
 `install` quits a running copy first; saved connections and keychain passwords carry over. Builds are signed with
@@ -66,10 +67,10 @@ keeps the keychain trusting Chloe across rebuilds.
 ## Test
 
 ```sh
-wails3 task test                  # Go unit tests (SQLite included, no Docker)
-wails3 task test:it               # start the Docker databases, seed them, run integration tests
-(cd frontend && npx vitest run)   # frontend unit tests
-wails3 task build:server && e2e/run.sh [smoke|sqlite|mongo|…]   # Playwright against the browser build
+make test                     # Go unit tests (SQLite included, no Docker)
+make test-it                  # start the Docker databases, seed them, run integration tests
+make test-frontend            # type check and frontend unit tests
+make e2e SCRIPT=sqlite        # build the browser build, then Playwright (smoke, sqlite, mongo, mcp, …)
 ```
 
 The Docker databases (`docker compose up -d`) use password `chloe`: MySQL `:33306`, PostgreSQL `:55432`, MongoDB `:37017`
