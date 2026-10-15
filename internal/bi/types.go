@@ -309,7 +309,7 @@ func (c Chart) Check(src DataSource, dialect string) (complete bool, err error) 
 		if err := f.check(); err != nil {
 			return false, err
 		}
-		if _, ok := fieldIn(src.Fields, f.Field); !ok {
+		if _, ok := fieldIn(src.allFields(), f.Field); !ok {
 			return false, fmt.Errorf("data source %q has no field %q", src.Name, f.Field)
 		}
 	}

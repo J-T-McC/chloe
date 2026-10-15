@@ -35,15 +35,16 @@ type FilterArg struct {
 
 type CreateSourceArgs struct {
 	WorkspaceArgs
-	Name       string      `json:"name"`
-	Connection string      `json:"connection"`
-	Database   string      `json:"database,omitempty"`
-	Schema     string      `json:"schema,omitempty" jsonschema:"PostgreSQL schema (default public)"`
-	Table      string      `json:"table,omitempty" jsonschema:"a table or view to read; or pass sql"`
-	SQL        string      `json:"sql,omitempty" jsonschema:"one read-only query (SELECT, WITH, VALUES, TABLE); it always runs in a read-only transaction"`
-	Mode       string      `json:"mode,omitempty" jsonschema:"live (read each time a chart is drawn, the default) or archive (read once into a snapshot)"`
-	Timezone   string      `json:"timezone,omitempty" jsonschema:"IANA time zone (e.g. America/Los_Angeles) to bucket and filter date/time fields in; values without a zone are taken as UTC. MySQL needs its time zone tables loaded"`
-	Filters    []FilterArg `json:"filters,omitempty" jsonschema:"conditions on the source's rows, joined with AND"`
+	Name         string           `json:"name"`
+	Connection   string           `json:"connection"`
+	Database     string           `json:"database,omitempty"`
+	Schema       string           `json:"schema,omitempty" jsonschema:"PostgreSQL schema (default public)"`
+	Table        string           `json:"table,omitempty" jsonschema:"a table or view to read; or pass sql"`
+	SQL          string           `json:"sql,omitempty" jsonschema:"one read-only query (SELECT, WITH, VALUES, TABLE); it always runs in a read-only transaction"`
+	Mode         string           `json:"mode,omitempty" jsonschema:"live (read each time a chart is drawn, the default) or archive (read once into a snapshot)"`
+	Timezone     string           `json:"timezone,omitempty" jsonschema:"IANA time zone (e.g. America/Los_Angeles) to bucket and filter date/time fields in; values without a zone are taken as UTC. MySQL needs its time zone tables loaded"`
+	Filters      []FilterArg      `json:"filters,omitempty" jsonschema:"conditions on the source's rows, joined with AND"`
+	CustomFields []bi.CustomField `json:"custom_fields,omitempty" jsonschema:"computed fields, in order (each may use those before it): {name, kind, …}. kind calculated: expression, e.g. ROUND([unit price] * qty, 2), IF(status = 'paid', total, 0), first & ' ' & last, total * [$rate]; operators + - * / % & = <> < > <= >= AND OR NOT; functions ROUND ABS FLOOR CEIL COALESCE NULLIF IF UPPER LOWER TRIM LENGTH YEAR MONTH DAY; division by zero gives null. kind mapped: field, rules [{from, to}], caseSensitive, unmapped keep|null|other, other. kind concatenated: fields, separator. kind type_changed: field, to string|number|datetime. kind sorted: field, order [values first in this order]"`
 }
 
 type FieldArg struct {
@@ -99,13 +100,14 @@ type ChartArgs struct {
 
 type EditSourceArgs struct {
 	WorkspaceArgs
-	DataSource string      `json:"data_source" jsonschema:"a data source name or id in the workspace"`
-	Rename     string      `json:"rename,omitempty"`
-	Table      string      `json:"table,omitempty" jsonschema:"read this table or view instead"`
-	SQL        string      `json:"sql,omitempty" jsonschema:"read this query instead"`
-	Mode       string      `json:"mode,omitempty" jsonschema:"live or archive"`
-	Timezone   *string     `json:"timezone,omitempty" jsonschema:"IANA time zone for date/time fields; empty string to clear"`
-	Filters    []FilterArg `json:"filters,omitempty" jsonschema:"replaces the source's filters"`
+	DataSource   string           `json:"data_source" jsonschema:"a data source name or id in the workspace"`
+	Rename       string           `json:"rename,omitempty"`
+	Table        string           `json:"table,omitempty" jsonschema:"read this table or view instead"`
+	SQL          string           `json:"sql,omitempty" jsonschema:"read this query instead"`
+	Mode         string           `json:"mode,omitempty" jsonschema:"live or archive"`
+	Timezone     *string          `json:"timezone,omitempty" jsonschema:"IANA time zone for date/time fields; empty string to clear"`
+	Filters      []FilterArg      `json:"filters,omitempty" jsonschema:"replaces the source's filters"`
+	CustomFields []bi.CustomField `json:"custom_fields,omitempty" jsonschema:"replaces the computed fields, in order (each may use those before it): {name, kind, …}. kind calculated: expression, e.g. ROUND([unit price] * qty, 2), IF(status = 'paid', total, 0), first & ' ' & last, total * [$rate]; operators + - * / % & = <> < > <= >= AND OR NOT; functions ROUND ABS FLOOR CEIL COALESCE NULLIF IF UPPER LOWER TRIM LENGTH YEAR MONTH DAY; division by zero gives null. kind mapped: field, rules [{from, to}], caseSensitive, unmapped keep|null|other, other. kind concatenated: fields, separator. kind type_changed: field, to string|number|datetime. kind sorted: field, order [values first in this order]"`
 }
 
 type SourceArgs struct {
@@ -294,7 +296,7 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 				return SourceOut{}, err
 			}
 			src := bi.DataSource{Meta: bi.Meta{Name: in.Name, CreatedBy: "mcp:" + c.ep.Name}, ConnID: tg.connID, Database: tg.database, Schema: tg.schema,
-				Table: in.Table, SQL: in.SQL, Mode: in.Mode, Timezone: in.Timezone}
+				Table: in.Table, SQL: in.SQL, Mode: in.Mode, Timezone: in.Timezone, CustomFields: in.CustomFields}
 			if err := c.checkSource(tg, src); err != nil {
 				return SourceOut{}, err
 			}
@@ -346,6 +348,9 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			}
 			if in.Timezone != nil {
 				src.Timezone = *in.Timezone
+			}
+			if in.CustomFields != nil {
+				src.CustomFields = in.CustomFields
 			}
 			if in.Filters != nil {
 				if src.Filters, err = filters(in.Filters); err != nil {

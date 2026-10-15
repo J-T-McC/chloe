@@ -598,6 +598,11 @@ func (m *Manager) BISaveSource(ctx context.Context, path string, src bi.DataSour
 	if src.Fields, err = m.BIFields(ctx, w, src); err != nil {
 		return src, err
 	}
+	// Custom fields are typed against the fields just read.
+	if err := src.Validate(); err != nil {
+		return src, err
+	}
+	src.TypeCustom()
 	if src.Timezone, err = canonicalZone(src.Timezone); err != nil {
 		return src, err
 	}

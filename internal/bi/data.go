@@ -213,7 +213,7 @@ func shape(c Chart, cols []Column, raw [][]*string, win *Window) [][]any {
 			return r
 		})
 	} else {
-		slices.SortStableFunc(order, func(a, b string) int { return compareLabels(a, b) })
+		slices.SortStableFunc(order, func(a, b string) int { return compareOrdered(cols[dim].Order, a, b) })
 		if sortBy.Desc {
 			slices.Reverse(order)
 		}
@@ -288,7 +288,7 @@ func shape(c Chart, cols []Column, raw [][]*string, win *Window) [][]any {
 // defaultSort keeps dates and numbers in order, and puts the biggest bars first
 // for categories.
 func defaultSort(c Chart, dim Column) *ChartSort {
-	if dim.Aggregate != "" || dim.Type == TypeDateTime || dim.Type == TypeNumber || strings.Contains(c.Type, "line") || strings.Contains(c.Type, "area") {
+	if len(dim.Order) > 0 || dim.Aggregate != "" || dim.Type == TypeDateTime || dim.Type == TypeNumber || strings.Contains(c.Type, "line") || strings.Contains(c.Type, "area") {
 		return &ChartSort{By: "dimension"}
 	}
 	return &ChartSort{By: "value", Desc: true}
@@ -344,6 +344,24 @@ func key(v any) string {
 		return s
 	}
 	return strconv.FormatFloat(v.(float64), 'g', -1, 64)
+}
+
+// compareOrdered sorts values in a custom order (values not in it after, in
+// label order), or by label when there's no order.
+func compareOrdered(order []string, a, b string) int {
+	if len(order) == 0 {
+		return compareLabels(a, b)
+	}
+	i, j := slices.Index(order, a), slices.Index(order, b)
+	switch {
+	case i >= 0 && j >= 0:
+		return cmp.Compare(i, j)
+	case i >= 0:
+		return -1
+	case j >= 0:
+		return 1
+	}
+	return compareLabels(a, b)
 }
 
 // compareLabels sorts numbers numerically and text alphabetically; NULL first.

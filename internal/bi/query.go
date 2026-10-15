@@ -35,6 +35,8 @@ type Column struct {
 	// Type is string, number or datetime; a bucketed date is a string whose
 	// Aggregate names the bucket.
 	Type string `json:"type"`
+	// Order is a custom-sorted field's order of values.
+	Order []string `json:"order,omitempty"`
 }
 
 // FilterOps are the filter operators and how many values each takes (-1: a list).
@@ -230,9 +232,13 @@ func ProbeQuery(from Source, limit int) Stmt {
 // PreviewQuery reads the data source as its preview grid shows it: projected,
 // filtered and sorted.
 func PreviewQuery(d driver.Dialect, from Source, src DataSource, limit int) (Stmt, error) {
+	from, err := withCustom(d, from, src)
+	if err != nil {
+		return Stmt{}, err
+	}
 	b := qb{d: d, tz: src.Timezone, args: slices.Clone(from.Args)}
 	cols := "*"
-	if src.Projection != nil && len(src.Projection.Fields) > 0 {
+	if src.Projection != nil && len(src.Projection.Fields) > 0 || len(src.CustomFields) > 0 {
 		vis := src.Visible()
 		if len(vis) == 0 {
 			return Stmt{}, errors.New("the projection leaves no fields")
@@ -244,7 +250,7 @@ func PreviewQuery(d driver.Dialect, from Source, src DataSource, limit int) (Stm
 		cols = strings.Join(q, ", ")
 	}
 	sql := "SELECT " + cols + " FROM " + from.SQL + " AS s"
-	w, err := b.where(src.Fields, src.Filters)
+	w, err := b.where(src.allFields(), src.Filters)
 	if err != nil {
 		return Stmt{}, err
 	}
@@ -252,7 +258,7 @@ func PreviewQuery(d driver.Dialect, from Source, src DataSource, limit int) (Stm
 	if len(src.Sorts) > 0 {
 		parts := make([]string, len(src.Sorts))
 		for i, s := range src.Sorts {
-			if _, ok := fieldIn(src.Fields, s.Field); !ok {
+			if _, ok := fieldIn(src.allFields(), s.Field); !ok {
 				return Stmt{}, fmt.Errorf("no field %q to sort by", s.Field)
 			}
 			parts[i] = d.QuoteIdent(s.Field)
@@ -273,12 +279,19 @@ func ChartQuery(d driver.Dialect, from Source, src DataSource, c Chart, limit in
 	if _, err := c.Check(src, d.Name); err != nil {
 		return Stmt{}, nil, err
 	}
+	from, err := withCustom(d, from, src)
+	if err != nil {
+		return Stmt{}, nil, err
+	}
 	b := qb{d: d, tz: src.Timezone, args: slices.Clone(from.Args)}
 	var sel, group []string
 	var cols []Column
 	add := func(role string, cf ChartField, grouped bool) {
 		f, _ := src.Field(cf.Field)
 		col := Column{Key: fmt.Sprintf("c%d", len(cols)), Label: cf.Label(), Role: role, Field: cf.Field, Aggregate: cf.Aggregate, Type: f.Type}
+		if grouped && cf.Aggregate == "" {
+			col.Order = src.sortOrder(cf.Field)
+		}
 		var expr string
 		if grouped {
 			expr = b.bucket(f, cf.Aggregate)
@@ -323,7 +336,7 @@ func ChartQuery(d driver.Dialect, from Source, src DataSource, c Chart, limit in
 		return Stmt{}, nil, errors.New("the chart has no fields yet")
 	}
 	sql := "SELECT " + strings.Join(sel, ", ") + " FROM " + from.SQL + " AS s"
-	w, err := b.where(src.Fields, append(slices.Clone(src.Filters), c.Filters...))
+	w, err := b.where(src.allFields(), append(slices.Clone(src.Filters), c.Filters...))
 	if err != nil {
 		return Stmt{}, nil, err
 	}

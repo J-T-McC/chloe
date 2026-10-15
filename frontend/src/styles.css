@@ -5254,3 +5254,26 @@ table.mapping select {
   font-weight: 600;
   padding: 0 4px;
 }
+
+/* Custom fields */
+.bi-custom {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bi-custom-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.bi-custom-field textarea,
+.bi-custom-field .bi-expr {
+  width: 100%;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+}
