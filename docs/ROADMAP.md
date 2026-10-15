@@ -65,6 +65,8 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 - [x] Data tools for MySQL, PostgreSQL and SQLite (list/describe, select_rows, read-only run_query, insert/update/delete rows)
 - [x] Approval dialog for writes, opt-in danger mode, activity log, Tools > MCP Server… and the titlebar button
 - [x] Create connections (capability), into a group whose access they inherit
+- [x] Hardening from live testing: PostgreSQL array values, index columns and row estimates before ANALYZE; an
+  unanswered approval is reported as a timeout, not a refusal; SQLite paths checked only after approval
 - [ ] Monitor, saved queries and query tabs (capabilities)
 - [ ] ER model tools
 - [ ] MongoDB and Redis tools; hidden columns; a dedicated database user with matching GRANTs

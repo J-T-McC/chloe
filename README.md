@@ -30,9 +30,28 @@ MySQL, MariaDB, PostgreSQL, SQLite, MongoDB and Redis. SQL Server and Oracle are
 - **Server monitor**: sessions, kill query, variables, status
 - **MongoDB**: grid/tree/JSON views, document editor, mongosh-style shell with completion, collection designer
 - **Redis**: key browser, typed value editors, TTL, console
+- **MCP server** for AI assistants (Claude Code, Claude Desktop…): per-endpoint tokens and Off/Read/Read-write access by
+  group, connection or database; every write is shown in an approval dialog with its SQL and row count (or runs unasked
+  in opt-in danger mode); agents can propose new connections; activity log
 - **Security**: passwords in the OS keychain; connections, queries and history encrypted with a keychain key
 
 What's next is in [docs/ROADMAP.md](docs/ROADMAP.md).
+
+## MCP server
+
+Tools > MCP Server… serves Chloe's connections to MCP clients at `http://127.0.0.1:47101/mcp` while Chloe is open. It's
+off by default, listens on loopback only, and each endpoint has its own bearer token. Create an endpoint, open up the
+groups, connections or databases it may use, and use **Copy Config** to get the client snippet, for example for Claude
+Code:
+
+```sh
+claude mcp add --transport http chloe-local-testing http://127.0.0.1:47101/mcp --header "Authorization: Bearer chloe_…"
+```
+
+Agents get tools to list and describe objects, select rows, run one read-only query, and insert, update or delete rows.
+Chloe builds the write SQL itself from checked column names and bound values, and there's no DDL. Writes wait for your
+approval unless the endpoint is in danger mode; connections an agent proposes always do, and you can type the password
+into the dialog so it never passes through the conversation. Details: [docs/specs/mcp-server.md](docs/specs/mcp-server.md).
 
 ## Screenshots
 

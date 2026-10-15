@@ -27,7 +27,10 @@ const (
 	statementTimeout = 30 * time.Second
 )
 
-var errDenied = errors.New("declined by the user in Chloe")
+var (
+	errDenied   = errors.New("declined by the user in Chloe")
+	errNoAnswer = errors.New("nobody answered in Chloe before the request timed out, so nothing was done; check with the user before trying again")
+)
 
 // call is one tool invocation: the endpoint it came through and its log entry.
 type call struct {
@@ -43,6 +46,8 @@ func (c *call) finish(err error) {
 	switch {
 	case errors.Is(err, errDenied):
 		c.act.Outcome = "denied"
+	case errors.Is(err, errNoAnswer):
+		c.act.Outcome = "timeout"
 	case err != nil:
 		c.act.Outcome, c.act.Error = "error", err.Error()
 	case c.act.Outcome == "":
@@ -91,6 +96,12 @@ func (c *call) ask(ctx context.Context, req ApprovalRequest) (Answer, error) {
 		a = c.s.approver.Approve(actx, req)
 	}
 	if !a.OK {
+		switch {
+		case ctx.Err() != nil:
+			return a, ctx.Err() // the agent went away
+		case actx.Err() != nil:
+			return a, errNoAnswer
+		}
 		return a, errDenied
 	}
 	c.act.Outcome, c.asked = "approved", true

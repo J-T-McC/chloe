@@ -27,7 +27,7 @@ func TestIntegrationEngines(t *testing.T) {
 			"CREATE DATABASE IF NOT EXISTS chloe_mcp_it; USE chloe_mcp_it; DROP TABLE IF EXISTS mcp_it; CREATE TABLE mcp_it (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(50), qty INT, ok BOOLEAN DEFAULT FALSE);" +
 				"INSERT INTO mcp_it (name, qty) VALUES ('a', 1), ('b', 2), ('c', 3);"},
 		{model.Connection{Name: "pg", Type: model.PostgreSQL, Host: "127.0.0.1", Port: 55432, User: "postgres", Password: "chloe", SavePassword: true, InitialDatabase: "postgres"}, "postgres", "chloe_mcp_it", "postgres",
-			"CREATE SCHEMA IF NOT EXISTS chloe_mcp_it; DROP TABLE IF EXISTS chloe_mcp_it.mcp_it; CREATE TABLE chloe_mcp_it.mcp_it (id SERIAL PRIMARY KEY, name VARCHAR(50), qty INT, ok BOOLEAN DEFAULT FALSE);" +
+			"CREATE SCHEMA IF NOT EXISTS chloe_mcp_it; DROP TABLE IF EXISTS chloe_mcp_it.mcp_it; CREATE TABLE chloe_mcp_it.mcp_it (id SERIAL PRIMARY KEY, name VARCHAR(50), qty INT, ok BOOLEAN DEFAULT FALSE, tags TEXT[]);" +
 				"INSERT INTO chloe_mcp_it.mcp_it (name, qty) VALUES ('a', 1), ('b', 2), ('c', 3);"},
 	} {
 		t.Run(e.conn.Name, func(t *testing.T) {
@@ -73,6 +73,13 @@ func TestIntegrationEngines(t *testing.T) {
 				t.Fatalf("sum: %v", out)
 			}
 			if e.conn.Type == model.PostgreSQL {
+				// JSON lists become arrays.
+				f.call(t, "update_rows", at(map[string]any{"where": []any{map[string]any{"column": "name", "op": "=", "value": "c"}},
+					"set": map[string]any{"tags": []any{"x", `say "hi"`, nil}}}), "")
+				q["sql"] = "SELECT tags[2], array_length(tags, 1), tags[3] IS NULL FROM mcp_it WHERE name = 'c'"
+				if r := rows(f.call(t, "run_query", q, "")); fmt.Sprint(r[0]) != `[say "hi" 3 true]` {
+					t.Fatalf("array: %v", r)
+				}
 				q["sql"] = "WITH d AS (DELETE FROM mcp_it RETURNING *) SELECT count(*) FROM d"
 				f.call(t, "run_query", q, "read-only transaction")
 				schemas := f.call(t, "list_schemas", map[string]any{"connection": "pg", "database": "postgres"}, "")

@@ -20,11 +20,11 @@ make dev                               # hot reload
 make build                             # desktop app -> bin/Chloe
 make install                           # signed Chloe.app -> /Applications (quits a running copy)
 make server                            # browser build on :8080 -> bin/Chloe-server (used by e2e; needs CHLOE_SECRETS=memory)
-docker compose up -d                   # MySQL :33306, Postgres :55432, Redis :63790, MongoDB :37017 (root), sshd :2222 (password "chloe")
-go test ./...                          # unit tests plus SQLite (no Docker needed)
-CHLOE_IT=1 go test ./internal/...      # integration tests against the Docker databases
-(cd frontend && npx tsc --noEmit && npx vitest run)
-e2e/run.sh [smoke|sqlite|mongo|joins|...] # Playwright against bin/Chloe-server; reseeds the databases first
+make db                                # MySQL :33306, Postgres :55432, Redis :63790, MongoDB :37017 (root), sshd :2222 (password "chloe")
+make test                              # unit tests plus SQLite (no Docker needed)
+make test-it                           # start and seed the Docker databases, run integration tests
+make test-frontend                     # type check and frontend unit tests
+make e2e SCRIPT=smoke                  # Playwright against the browser build (smoke|sqlite|mongo|joins|mcp|...); reseeds first
 ```
 Sample data lives in `testdata/seed_*` (`seed_mongo.js` runs in mongosh). To rebuild `testdata/shop.db`, run
 `rm -f testdata/shop.db && sqlite3 testdata/shop.db < testdata/seed_sqlite.sql`.

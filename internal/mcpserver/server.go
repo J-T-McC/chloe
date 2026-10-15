@@ -68,7 +68,7 @@ type Activity struct {
 	Database   string `json:"database,omitempty"`
 	SQL        string `json:"sql,omitempty"`
 	Rows       int64  `json:"rows"`
-	// Outcome is ok, error, approved, denied or unasked (danger mode).
+	// Outcome is ok, error, approved, denied, timeout (no answer) or unasked (danger mode).
 	Outcome    string `json:"outcome"`
 	Error      string `json:"error,omitempty"`
 	DurationMs int64  `json:"durationMs"`
@@ -94,7 +94,7 @@ type Events interface {
 }
 
 // ApprovalTimeout is how long a write waits for the user.
-const ApprovalTimeout = 2 * time.Minute
+var ApprovalTimeout = 2 * time.Minute
 
 const maxActivity = 1000
 

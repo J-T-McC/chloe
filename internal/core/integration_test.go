@@ -93,6 +93,25 @@ func TestIntegration(t *testing.T) {
 			if len(td.Columns) != 3 || !td.Columns[0].PrimaryKey || len(td.ForeignKeys) != 2 {
 				t.Fatalf("detail %+v", td)
 			}
+			// Index columns are names (or expressions), even before the table is analyzed.
+			td, err = m.TableDetail(ctx, id, ref("products", model.KindTable))
+			if err != nil || len(td.Indexes) != 2 {
+				t.Fatalf("products indexes %+v %v", td.Indexes, err)
+			}
+			for _, ix := range td.Indexes {
+				want := "sku" // PostgreSQL: lower(sku)
+				if ix.Primary {
+					want = "id"
+				}
+				if len(ix.Columns) != 1 || strings.Contains(ix.Columns[0], "CREATE") || !strings.Contains(ix.Columns[0], want) {
+					t.Fatalf("%s columns %q", ix.Name, ix.Columns)
+				}
+			}
+			for _, tb := range tables {
+				if tb.Name == "products" && tb.Rows != 2 {
+					t.Errorf("products estimated rows %d, want 2", tb.Rows)
+				}
+			}
 
 			cat, err := m.Catalog(ctx, id, e.database)
 			if err != nil {

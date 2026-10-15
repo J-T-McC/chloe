@@ -226,9 +226,12 @@ var objectQueries = map[model.ObjectKind]string{
 		  AND ($1 = '' OR n.nspname = $1) ORDER BY 2`,
 }
 
+// relQuery estimates rows from reltuples, which is -1 until a table is first
+// vacuumed or analyzed; the statistics' live tuple count covers that gap.
 func relQuery(kinds string) string {
 	return `SELECT n.nspname, c.relname, COALESCE(obj_description(c.oid,'pg_class'),''),
-		GREATEST(c.reltuples,0)::bigint, CASE WHEN c.relkind IN ('r','p','m') THEN pg_total_relation_size(c.oid) ELSE 0 END,
+		CASE WHEN c.reltuples >= 0 THEN c.reltuples::bigint ELSE COALESCE(pg_stat_get_live_tuples(c.oid), 0) END,
+		CASE WHEN c.relkind IN ('r','p','m') THEN pg_total_relation_size(c.oid) ELSE 0 END,
 		pg_get_userbyid(c.relowner), '', ''
 		FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 		WHERE c.relkind IN (` + kinds + `) AND ($1 = '' OR n.nspname = $1) AND NOT c.relispartition ORDER BY c.relname`
@@ -304,7 +307,7 @@ func (c *Conn) TableDetail(ctx context.Context, ref model.ObjectRef) (model.Tabl
 	}
 
 	idx, err := sqlcommon.QueryStrings(ctx, db, `SELECT ic.relname, i.indisunique, i.indisprimary, am.amname,
-		array_to_string(ARRAY(SELECT pg_get_indexdef(i.indexrelid, k, true) FROM generate_subscripts(i.indkey, 1) k ORDER BY k), E'\x1f')
+		array_to_string(ARRAY(SELECT pg_get_indexdef(i.indexrelid, k + 1, true) FROM generate_subscripts(i.indkey, 1) k ORDER BY k), E'\x1f')
 		FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid JOIN pg_class c ON c.oid = i.indrelid
 		JOIN pg_namespace n ON n.oid = c.relnamespace JOIN pg_am am ON am.oid = ic.relam
 		WHERE n.nspname = $1 AND c.relname = $2 ORDER BY i.indisprimary DESC, ic.relname`, schema, ref.Name)

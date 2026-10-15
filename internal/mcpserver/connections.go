@@ -78,6 +78,12 @@ func (s *Server) addConnectionTools(srv *mcp.Server, ep string) {
 				conn.Password = a.Password
 			}
 			conn.SavePassword = conn.Password != ""
+			// Opening a missing SQLite file would create it.
+			if conn.Type == model.SQLite {
+				if st, err := os.Stat(conn.SQLite.Path); err != nil || st.IsDir() {
+					return CreatedConnectionOut{}, fmt.Errorf("no SQLite file at %s, so the connection wasn't saved", conn.SQLite.Path)
+				}
+			}
 			tctx, cancel := context.WithTimeout(ctx, connectTimeout)
 			_, err = c.s.m.TestConnection(tctx, conn)
 			cancel()
@@ -149,11 +155,10 @@ func connectionFrom(in CreateConnectionArgs) (model.Connection, error) {
 		if path == "" {
 			path = c.SQLite.Path
 		}
+		// The file is only looked at once the user has approved: checking it here
+		// would tell the agent whether any path exists.
 		if path == "" || !filepath.IsAbs(path) {
 			return c, errors.New("path must be the absolute path of an existing SQLite file")
-		}
-		if st, err := os.Stat(path); err != nil || st.IsDir() {
-			return c, fmt.Errorf("no SQLite file at %s", path)
 		}
 		c.SQLite = model.SQLiteConfig{Path: path}
 		c.Host, c.Port, c.User, c.Password = "", 0, "", ""
