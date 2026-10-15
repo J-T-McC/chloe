@@ -115,4 +115,14 @@ await page.locator(".model-table-dialog").getByRole("button", { name: "OK" }).cl
 await page.waitForTimeout(400);
 console.log("pg model:", await page.locator(".model-editor:visible .statusbar").innerText());
 await page.screenshot({ path: `${out}/m4.png` });
+
+// With model tabs open (they stay mounted), typing in a query editor keeps its spaces.
+await page.locator(".tree-row", { hasText: /^\s*shop\s*$/ }).first().click();
+await page.getByRole("button", { name: "New Query" }).first().click();
+await page.locator(".tab-pane:visible .monaco-editor .view-lines").click();
+await page.keyboard.type("SELECT 1 AS answer", { delay: 5 });
+await page.waitForTimeout(300);
+const typed = (await page.locator(".tab-pane:visible .monaco-editor .view-lines").innerText()).replace(/\u00a0/g, " ");
+console.log("typed with a model open:", JSON.stringify(typed));
+check(typed.includes("SELECT 1 AS answer"), "spaces swallowed: " + typed);
 await browser.close();

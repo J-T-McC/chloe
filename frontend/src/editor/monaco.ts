@@ -10,6 +10,11 @@ import { language as sqlLanguage } from "monaco-esm/languages/definitions/sql/sq
 export const monaco = core as unknown as typeof Monaco;
 export type { Monaco };
 
+// Where the browser has EditContext, Monaco types into a div rather than a textarea, so
+// React Flow (diagram tabs stay mounted) takes Space for panning and swallows it. "nokey"
+// tells React Flow to leave keys typed in an editor alone.
+monaco.editor.onDidCreateEditor((ed) => ed.getContainerDomNode().classList.add("nokey"));
+
 (self as unknown as { MonacoEnvironment: Monaco.Environment }).MonacoEnvironment = {
   getWorker: () => new EditorWorker(),
 };
