@@ -16,13 +16,14 @@ import { alert, confirm, prompt } from "../Dialogs";
 import { createdByLabel } from "../model/ModelsList";
 import { Split } from "../Split";
 import { biChanged, openObject } from "./actions";
-import { ChartView } from "./ChartView";
+import { ChartInteraction, ChartView } from "./ChartView";
 import { ChartTypeIcon } from "./icons";
 import { Markdown } from "./Markdown";
 import { ChartTheme, TOKENS } from "./theme";
 import { useWorkspace } from "./WorkspaceView";
 import { renderPages } from "./ExportHost";
 import { ParamBar, ParamValues, dashboardParams, expandParams, paramValues } from "./Parameters";
+import { Pick, controlFilter, controlStyle, reach } from "./interaction";
 
 const COLS = 12;
 const SLIDE_ROWS = 24;
@@ -279,6 +280,8 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
                   tick={tick}
                   overrides={overrides}
                   values={values}
+                  sources={arr(w?.dataSources)}
+                  interaction={draft.interaction}
                   editable
                   selected={selected}
                   onSelect={setSelected}
@@ -314,7 +317,7 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
         }
       />
       {present && (
-        <PresentDashboard pages={pages} start={pageIdx} charts={charts} path={path} theme={theme} tick={tick} onClose={() => setPresent(false)} overrides={overrides} values={values}>
+        <PresentDashboard pages={pages} start={pageIdx} charts={charts} path={path} theme={theme} tick={tick} onClose={() => setPresent(false)} overrides={overrides} values={values} sources={arr(w?.dataSources)} interaction={draft.interaction}>
           {() => <ParamBar params={usedParams} values={values} onChange={setParam} />}
         </PresentDashboard>
       )}
@@ -340,6 +343,10 @@ interface CanvasProps {
   overrides?: ParamValues;
   /** Every parameter's value, for [$name] in text. */
   values?: ParamValues;
+  /** The workspace's data sources (their fields decide what a Control reaches). */
+  sources?: B.DataSource[];
+  /** What a click on a point does: filter (default), highlight or none. */
+  interaction?: string;
 }
 
 /** The width of an element, kept current; 0 until it has been laid out (a hidden
@@ -367,7 +374,37 @@ const REPORT_ROW = 18;
 const SLIDE_ROW = (SLIDE_HEIGHT - 2 * MARGIN - (SLIDE_ROWS - 1) * MARGIN) / SLIDE_ROWS;
 
 /** A page's tiles on the grid, scaled to fit: a slide within the space given. */
-export function PageCanvas({ page, charts, path, theme, tick, editable, selected, onSelect, onLayout, maxHeight, still, overrides, values }: CanvasProps) {
+export function PageCanvas({ page, charts, path, theme, tick, editable, selected, onSelect, onLayout, maxHeight, still, overrides, values, sources, interaction }: CanvasProps) {
+  // Clicked points and Control values, for this page while it's shown.
+  const [picks, setPicks] = useState<Pick[]>([]);
+  const [controlValues, setControlValues] = useState<Record<string, string[] | null>>({});
+  useEffect(() => (setPicks([]), setControlValues({})), [page.id]);
+  useEffect(() => {
+    if (!picks.length) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPicks([]);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [picks.length]);
+  const mode = interaction || "filter";
+  const fieldsOf = (id: string) => arr(sources?.find((s) => s.id === id)?.fields).map((f) => f.name);
+  const controls = arr(page.items).flatMap((it) => {
+    const c = charts.find((x) => x.id === it.chart);
+    const field = c?.type === "control" ? arr(c.dimension)[0]?.field : undefined;
+    if (!c || !field) return [];
+    const type = arr(sources?.find((s) => s.id === c.dataSource)?.fields).find((f) => f.name === field)?.type;
+    return [{ item: it.id, field, targets: arr(it.targets), filter: controlFilter(field, controlStyle(c, type), controlValues[it.id] ?? null) }];
+  });
+  const pick = (it: B.Item, c: B.Chart) => (key: unknown, label: string) => {
+    const dim = arr(c.dimension)[0];
+    if (!dim || still) return;
+    setPicks((ps) => {
+      const same = ps.find((p) => p.item === it.id);
+      const rest = ps.filter((p) => p.item !== it.id);
+      // Clicking the selected point again clears it.
+      if (same && JSON.stringify(same.key) === JSON.stringify(key)) return rest;
+      return [...rest, { item: it.id, chart: c.id, source: c.dataSource, field: dim.field, bucket: dim.aggregate ?? "", key, label }];
+    });
+  };
   const outer = useSize();
   const inner = useSize();
   const slide = page.size === "16:9";
@@ -402,7 +439,35 @@ export function PageCanvas({ page, charts, path, theme, tick, editable, selected
                       <GripVertical size={13} />
                     </div>
                   )}
-                  {it.kind === "chart" ? <ChartTile chartId={it.chart ?? ""} charts={charts} path={path} theme={theme} tick={tick} still={still} overrides={overrides} /> : <TextTile item={it} theme={theme} values={values} />}
+                  {it.kind === "chart" ? (
+                    (() => {
+                      const c = charts.find((x) => x.id === it.chart);
+                      const r = c ? reach({ item: it.id, chart: c }, picks, controls, mode, fieldsOf) : { filters: [] };
+                      return (
+                        <ChartTile
+                          chartId={it.chart ?? ""}
+                          charts={charts}
+                          path={path}
+                          theme={theme}
+                          tick={tick}
+                          still={still}
+                          overrides={overrides}
+                          extra={r.filters}
+                          interaction={
+                            c
+                              ? {
+                                  selected: r.highlight,
+                                  onPick: pick(it, c),
+                                  control: c.type === "control" ? { value: controlValues[it.id] ?? null, onChange: (v) => setControlValues((m) => ({ ...m, [it.id]: v })) } : undefined,
+                                }
+                              : undefined
+                          }
+                        />
+                      );
+                    })()
+                  ) : (
+                    <TextTile item={it} theme={theme} values={values} />
+                  )}
                 </div>
               ))}
             </ReactGridLayout>
@@ -410,21 +475,54 @@ export function PageCanvas({ page, charts, path, theme, tick, editable, selected
           </div>
         </div>
       )}
+      {!!picks.length && (
+        <div className="bi-picks" data-testid="bi-picks">
+          {picks.map((p) => (
+            <span key={p.item} className="bi-pick">
+              {mode === "highlight" ? "Highlighting" : "Filtered by"} {p.label}
+              <button className="bi-pick-x" title="Clear" aria-label={`Clear ${p.label}`} onClick={() => setPicks((ps) => ps.filter((x) => x.item !== p.item))}>
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function ChartTile({ chartId, charts, path, theme, tick, still, overrides }: { chartId: string; charts: B.Chart[]; path: string; theme: ChartTheme; tick: number; still?: boolean; overrides?: ParamValues }) {
+function ChartTile({
+  chartId,
+  charts,
+  path,
+  theme,
+  tick,
+  still,
+  overrides,
+  extra,
+  interaction,
+}: {
+  chartId: string;
+  charts: B.Chart[];
+  path: string;
+  theme: ChartTheme;
+  tick: number;
+  still?: boolean;
+  overrides?: ParamValues;
+  /** Filters from clicks and controls elsewhere on the page. */
+  extra?: B.Filter[];
+  interaction?: ChartInteraction;
+}) {
   const chart = charts.find((c) => c.id === chartId);
   const [data, setData] = useState<B.Data | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const key = chart ? JSON.stringify({ ...chart, props: undefined, name: undefined, modified: undefined, overrides }) : "";
+  const key = chart ? JSON.stringify({ ...chart, props: undefined, name: undefined, modified: undefined, overrides, extra }) : "";
   useEffect(() => {
     if (!chart) return;
     let live = true;
     setLoading(true);
-    BI.ChartData(path, chart, overrides && Object.keys(overrides).length ? overrides : null)
+    BI.ChartData(path, extra?.length ? { ...chart, filters: [...arr(chart.filters), ...extra] } : chart, overrides && Object.keys(overrides).length ? overrides : null)
       .then((d) => live && (setData(d), setError("")))
       .catch((e) => live && setError(errorText(e)))
       .finally(() => live && setLoading(false));
@@ -435,7 +533,7 @@ function ChartTile({ chartId, charts, path, theme, tick, still, overrides }: { c
   if (!chart) return <div className="bi-chart-msg" data-state="ready">The chart was deleted.</div>;
   return (
     <div className="bi-tile-chart" data-state={loading || (!data && !error) ? "loading" : "ready"}>
-      <ChartView chart={chart} data={data} theme={theme} error={error} loading={loading} hint="The chart has no fields yet." still={still} />
+      <ChartView chart={chart} data={data} theme={theme} error={error} loading={loading} hint="The chart has no fields yet." still={still} interaction={interaction} />
     </div>
   );
 }
@@ -496,6 +594,26 @@ function DashProps(p: {
                 <ChartTypeIcon type={chart.type} size={13} /> Design Chart
               </button>
             )}
+            {chart?.type === "control" && (
+              <fieldset className="bi-targets">
+                <legend>Target charts</legend>
+                <div className="muted">None picked: every chart on the page with the field {arr(chart.dimension)[0]?.field ?? ""}.</div>
+                {arr(page.items)
+                  .filter((x) => x.kind === "chart" && x.id !== item.id)
+                  .map((x) => p.charts.find((c) => c.id === x.chart))
+                  .filter((c): c is B.Chart => !!c && c.type !== "control")
+                  .map((c) => (
+                    <label key={c.id} className="check">
+                      <input
+                        type="checkbox"
+                        checked={arr(item.targets).includes(c.id)}
+                        onChange={(e) => p.setItem(item.id, { targets: e.target.checked ? [...arr(item.targets), c.id] : arr(item.targets).filter((t) => t !== c.id) })}
+                      />
+                      {c.name}
+                    </label>
+                  ))}
+              </fieldset>
+            )}
           </section>
         ) : (
           <section className="bi-prop-section">
@@ -535,6 +653,14 @@ function DashProps(p: {
             ))}
           </select>
         </label>
+        <label className="bi-prop">
+          Clicking a point
+          <select aria-label="Chart interaction" value={draft.interaction || "filter"} onChange={(e) => p.setDraft({ ...draft, interaction: e.target.value === "filter" ? "" : e.target.value })}>
+            <option value="filter">Filters charts on the same data source</option>
+            <option value="highlight">Highlights it in charts on the same data source</option>
+            <option value="none">Does nothing</option>
+          </select>
+        </label>
         {draft.createdBy && <div className="muted">Created by {createdByLabel(draft.createdBy)}</div>}
       </section>
       <div className="pane-title">Page</div>
@@ -562,6 +688,8 @@ function PresentDashboard({
   onClose,
   overrides,
   values,
+  sources,
+  interaction,
   children,
 }: {
   pages: B.Page[];
@@ -573,6 +701,8 @@ function PresentDashboard({
   onClose(): void;
   overrides?: ParamValues;
   values?: ParamValues;
+  sources?: B.DataSource[];
+  interaction?: string;
   /** Parameter controls, shown above the page. */
   children?: (o?: ParamValues) => React.ReactNode;
 }) {
@@ -593,7 +723,7 @@ function PresentDashboard({
   return (
     <div className={"bi-present dash theme-" + theme} data-testid="bi-present">
       {children?.(overrides)}
-      <PageCanvas page={page} charts={charts} path={path} theme={theme} tick={tick} maxHeight={h - 70 - (children ? 48 : 0)} overrides={overrides} values={values} />
+      <PageCanvas page={page} charts={charts} path={path} theme={theme} tick={tick} maxHeight={h - 70 - (children ? 48 : 0)} overrides={overrides} values={values} sources={sources} interaction={interaction} />
       <div className="bi-present-hint">
         Page {i + 1} of {pages.length} · ← → to change page · Esc to exit
       </div>

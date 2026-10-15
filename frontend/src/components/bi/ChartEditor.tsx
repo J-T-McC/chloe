@@ -21,12 +21,12 @@ import { CHART_TYPE_NAMES, connLabel, useWorkspace } from "./WorkspaceView";
 type ShelfName = "dimension" | "series" | "value" | "secondary" | "target";
 const SHELVES: ShelfName[] = ["dimension", "series", "value", "target", "secondary"];
 const SHELF_LABEL: Record<ShelfName, string> = { dimension: "Dimension", series: "Series", value: "Value", secondary: "Secondary Value", target: "Target" };
-const TYPE_ORDER = ["bar", "stacked_bar", "hbar", "stacked_hbar", "waterfall", "tornado", "line", "area", "stacked_area", "bar_line", "stacked_bar_line", "pie", "donut", "treemap", "scatter", "heatmap", "value", "trend", "kpi", "gauge", "table", "pivot"];
+const TYPE_ORDER = ["bar", "stacked_bar", "hbar", "stacked_hbar", "waterfall", "tornado", "line", "area", "stacked_area", "bar_line", "stacked_bar_line", "pie", "donut", "treemap", "scatter", "heatmap", "value", "trend", "kpi", "gauge", "table", "pivot", "control"];
 const STACKED = new Set(["stacked_bar", "stacked_hbar", "stacked_area", "stacked_bar_line"]);
 const LINES = new Set(["line", "area", "stacked_area", "bar_line", "stacked_bar_line"]);
 const CARTESIAN = new Set(["bar", "stacked_bar", "hbar", "stacked_hbar", "line", "area", "stacked_area", "bar_line", "stacked_bar_line", "waterfall", "tornado", "scatter", "heatmap"]);
 /** Types that draw one figure: no legend, no categories to sort. */
-const FIGURES = new Set(["value", "kpi", "gauge", "trend"]);
+const FIGURES = new Set(["value", "kpi", "gauge", "trend", "control"]);
 /** Types whose values can take a running total or a difference. */
 const OPERABLE = new Set(["bar", "stacked_bar", "hbar", "stacked_hbar", "line", "area", "stacked_area", "bar_line", "stacked_bar_line", "trend", "table", "pivot"]);
 
@@ -452,6 +452,20 @@ function PropsPane({ draft, props, setProps, update, fields }: { draft: B.Chart;
               <option value="none">Hidden</option>
             </select>
           </label>
+        </Section>
+      )}
+      {t === "control" && (
+        <Section title="Control">
+          <label className="bi-prop">
+            Style
+            <select aria-label="Control style" value={props.control ?? ""} onChange={(e) => setProps({ control: e.target.value })}>
+              <option value="">Automatic (a range for numbers and dates)</option>
+              <option value="list">List (pick several)</option>
+              <option value="combo">Drop-down (pick one)</option>
+              <option value="range">Range</option>
+            </select>
+          </label>
+          <p className="hint">On a dashboard, a Control filters the charts it targets (set on its tile), or every chart on the page with its field.</p>
         </Section>
       )}
       {(t === "kpi" || t === "gauge" || t === "trend") && (

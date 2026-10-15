@@ -59,6 +59,7 @@ var ChartTypes = map[string]ChartType{
 	"kpi":              {Name: "KPI", Group: "Value", Value: Shelf{1, 1, ""}, Target: Shelf{0, 1, ""}},
 	"gauge":            {Name: "Gauge", Group: "Value", Value: Shelf{1, 1, ""}, Target: Shelf{0, 1, "Maximum"}},
 	"pivot":            {Name: "Pivot Table", Group: "Table", Dimension: Shelf{1, 1, "Rows"}, Series: Shelf{0, 1, "Columns"}, Value: Shelf{1, many, "Values"}},
+	"control":          {Name: "Control", Group: "Control", Dimension: Shelf{1, 1, "Field"}, NoFill: true},
 }
 
 // Single reports whether a type draws one aggregated row (no dimension).

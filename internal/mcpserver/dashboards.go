@@ -39,14 +39,17 @@ type CreateDashboardArgs struct {
 	Name    string    `json:"name"`
 	Pages   []PageArg `json:"pages" jsonschema:"each page is rows of tiles across 12 columns; Chloe places them"`
 	Refresh int       `json:"refresh,omitempty" jsonschema:"reload the charts every n minutes while the dashboard is open in Chloe (0 = off)"`
+	// Interaction is what a click on a chart's point does for the user.
+	Interaction string `json:"interaction,omitempty" jsonschema:"what clicking a chart's point does to the page's other charts on the same data source: filter (default), highlight or none. Control charts on the page filter the charts with their field"`
 }
 
 type EditDashboardArgs struct {
 	WorkspaceArgs
-	Dashboard string    `json:"dashboard" jsonschema:"a dashboard name or id in the workspace"`
-	Rename    string    `json:"rename,omitempty"`
-	Pages     []PageArg `json:"pages,omitempty" jsonschema:"replaces every page"`
-	Refresh   *int      `json:"refresh,omitempty"`
+	Dashboard   string    `json:"dashboard" jsonschema:"a dashboard name or id in the workspace"`
+	Rename      string    `json:"rename,omitempty"`
+	Pages       []PageArg `json:"pages,omitempty" jsonschema:"replaces every page"`
+	Refresh     *int      `json:"refresh,omitempty"`
+	Interaction *string   `json:"interaction,omitempty" jsonschema:"filter, highlight or none"`
 }
 
 type DashboardArgs struct {
@@ -159,7 +162,7 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 			if err != nil {
 				return DashboardOut{}, err
 			}
-			d := bi.Dashboard{Meta: bi.Meta{Name: in.Name, CreatedBy: "mcp:" + c.ep.Name}, Pages: pages, Refresh: in.Refresh}
+			d := bi.Dashboard{Meta: bi.Meta{Name: in.Name, CreatedBy: "mcp:" + c.ep.Name}, Pages: pages, Refresh: in.Refresh, Interaction: in.Interaction}
 			saved, err := c.putDashboard(p, d)
 			return DashboardOut{Dashboard: saved, Editable: true}, err
 		})
@@ -183,6 +186,9 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 			edited := *d
 			if r := strings.TrimSpace(in.Rename); r != "" {
 				edited.Name = r
+			}
+			if in.Interaction != nil {
+				edited.Interaction = *in.Interaction
 			}
 			if in.Refresh != nil {
 				edited.Refresh = *in.Refresh

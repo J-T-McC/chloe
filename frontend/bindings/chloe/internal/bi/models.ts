@@ -148,6 +148,12 @@ export interface Dashboard {
      * Refresh reloads every chart on the open page this often (minutes; 0 = off).
      */
     "refresh"?: number;
+
+    /**
+     * Interaction is what clicking a point does to the page's other charts on the
+     * same data source: filter ("" too), highlight or none.
+     */
+    "interaction"?: string;
 }
 
 /**
@@ -316,6 +322,12 @@ export interface Item {
      * Updated is when an agent last wrote its notes.
      */
     "updated"?: string;
+
+    /**
+     * Targets are the charts a Control chart filters; empty means every chart on
+     * the page that has its field.
+     */
+    "targets"?: string[] | null;
 }
 
 export interface NumberFormat {
@@ -463,6 +475,12 @@ export interface Props {
      * LowerIsBetter colours a Trend's or KPI's change: a fall is good.
      */
     "lowerIsBetter"?: boolean;
+
+    /**
+     * Control is how a Control chart picks values: list (several), combo (one)
+     * or range (numbers and dates); "" picks by the field's type.
+     */
+    "control"?: string;
 }
 
 /**

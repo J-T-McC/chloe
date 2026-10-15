@@ -453,6 +453,58 @@ await step("parameters in a filter, a title and dashboard text", async () => {
   await shot("bi-parameters");
 });
 
+await step("click to filter, controls and highlight on a dashboard", async () => {
+  await newChart("Bar");
+  await drag("placed_at", "dimension");
+  await drag("total", "value");
+  await editor().getByLabel("Chart name").fill("Monthly");
+  await editor().getByRole("button", { name: "Save" }).click();
+  await page.locator(".tab.active", { hasText: "Monthly" }).waitFor();
+  await newChart("Control");
+  await drag("placed_at", "dimension");
+  await editor().getByLabel("Chart name").fill("Date control");
+  await editor().getByRole("button", { name: "Save" }).click();
+  await page.locator(".tab.active", { hasText: "Date control" }).waitFor();
+  await page.locator(".tab", { hasText: "Sales (BI)" }).click();
+  await page.locator(".bi-workspace:visible").getByRole("button", { name: "New Dashboard" }).click();
+  await dash().waitFor();
+  for (const c of [/^\s*Monthly\s*$/, /^\s*orders\s*$/, /^\s*Date control\s*$/]) {
+    await dash().getByRole("button", { name: "Add Chart" }).click();
+    await page.locator(".menu-item", { hasText: c }).click();
+  }
+  // The "orders" value chart shows dollars with no decimals (set earlier).
+  const value = () => dash().getByTestId("bi-value").innerText();
+  await dash().getByTestId("bi-value").waitFor();
+  await dash().getByTestId("bi-control").waitFor();
+  check((await value()) === "$376", "before: " + (await value()));
+  // Click February's bar: the value chart on the same source shows February.
+  const monthly = dash().locator(".bi-tile", { has: page.locator(".bi-chart-title", { hasText: "Monthly" }) });
+  await monthly.locator(".bi-echart svg").waitFor();
+  await page.waitForTimeout(600);
+  await monthly.locator(".bi-echart svg path[fill]:not([fill='none'])").nth(1).click({ force: true });
+  await dash().getByTestId("bi-picks").waitFor();
+  await page.waitForTimeout(800);
+  check((await value()) === "$46", "after click: " + (await value()));
+  check((await dash().getByTestId("bi-picks").innerText()).includes("Feb 2026"), "chip: " + (await dash().getByTestId("bi-picks").innerText()));
+  await shot("bi-cross-filter");
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(800);
+  check((await value()) === "$376", "cleared: " + (await value()));
+  // The control (a date range here) filters every chart with its field.
+  await dash().getByLabel("Control from").fill("2026-02-01");
+  await page.waitForTimeout(900);
+  check((await value()) === "$256", "control: " + (await value()));
+  // Highlight leaves the value alone.
+  await dash().locator(".bi-dash-canvas-wrap").click({ position: { x: 4, y: 4 } });
+  await dash().getByLabel("Chart interaction").selectOption("highlight");
+  await dash().getByLabel("Control from").fill("");
+  await page.waitForTimeout(600);
+  await monthly.locator(".bi-echart svg path[fill]:not([fill='none'])").nth(0).click({ force: true });
+  await page.waitForTimeout(800);
+  check((await value()) === "$376", "highlight changed the value: " + (await value()));
+  check((await dash().getByTestId("bi-picks").innerText()).includes("Highlighting"), "highlight chip");
+});
+
 await step("dark theme", async () => {
   await page.locator(".tab", { hasText: "Sales (BI)" }).click();
   await page.locator(".bi-workspace:visible").getByLabel("Theme").selectOption("dark");

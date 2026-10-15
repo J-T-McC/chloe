@@ -16,6 +16,7 @@ import {
   Hash,
   LayoutGrid,
   LucideProps,
+  SlidersHorizontal,
   Table2,
   TableProperties,
   Target,
@@ -45,6 +46,7 @@ const ICONS: Record<string, React.ComponentType<LucideProps>> = {
   kpi: Target,
   gauge: Gauge,
   pivot: TableProperties,
+  control: SlidersHorizontal,
 };
 
 export function ChartTypeIcon({ type, ...p }: { type: string } & LucideProps) {

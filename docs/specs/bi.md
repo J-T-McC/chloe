@@ -376,7 +376,7 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 2. **Dashboards and reports** ✅: pages, charts, Markdown text, refresh and auto refresh, Present, Export (PDF, PNG),
    and the MCP dashboard, notes and export tools. Snapshots were dropped; SVG/HTML export and print are not planned
    unless asked for.
-3. **The rest of Navicat's BI**: Waterfall, Tornado, Treemap, Scatter, Heatmap, Trend, KPI, Gauge, Pivot Table ✅; dynamic date filters ✅; parameters ✅;
+3. **The rest of Navicat's BI**: Waterfall, Tornado, Treemap, Scatter, Heatmap, Trend, KPI, Gauge, Pivot Table ✅; dynamic date filters ✅; parameters ✅; interaction and Control ✅;
    Control; interaction (cross-filter, highlight, controls); parameters; custom fields; joined tables; shapes, groups,
    lock, alignment guides; dynamic date filters.
 4. MongoDB data sources (collection, or aggregation pipeline), with charts over them.
@@ -442,4 +442,20 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
   and exports, without saving them. Values are checked against the type and allowed values.
 - MCP: `create_parameter` and `edit_parameter` (agent-made only); `get_workspace` lists parameters;
   `get_chart_data` and `refresh_dashboard` take `parameters` (by name) for one read.
+
+## Implementation notes (phase 3, interaction)
+- **Click a point** on a dashboard (bar, line point, slice, tile, cell, scatter point): the page's other charts on the
+  same data source are filtered to that dimension value, or with **Highlight** the charts with the same dimension dim
+  every other category; the clicked chart keeps its point highlighted. Dashboard Properties › "Clicking a point"
+  sets filter (default), highlight or none (`interaction`).
+  - A date bucket filters to its whole period (`between` its first and last day; an hour to its 60 minutes);
+    extracted parts (all Marches) and Others don't filter. NULL filters `is null`.
+  - A chip names each selection; clicking it, clicking the point again, or Esc clears it. Selections belong to the
+    page while it's shown (designer and Present), not to the saved dashboard or to exports.
+- **Control** charts (dimension only: the field's distinct values) filter other charts: a list (several values),
+  a drop-down (one) or a range (numbers and dates, from and to); by default a range for numbers and dates and a
+  list otherwise. A control filters the charts picked as its tile's **Target charts**, or with none picked every
+  chart on the page whose data source has its field.
+- Filters from clicks and controls are added to the chart's own when it's read; nothing is saved.
+- MCP: `create_dashboard`/`edit_dashboard` take `interaction`; agents can create Control charts like any other.
 
