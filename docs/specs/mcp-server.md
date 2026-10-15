@@ -235,7 +235,7 @@ Offered to endpoints that can see a MongoDB connection. Access is per database, 
 - Results are relaxed Extended JSON, default 100 documents, at most 1000 and ~256 KB; strings and binary over 4 KB
   are cut and the result says `truncated`. `mongo_describe` samples 100 documents for field paths (inside arrays of
   documents too), the type seen most, how many documents have each field and, for fields of several types, a count
-  per type; it adds indexes, options, the validator, or a view's pipeline.
+  per type (the type is `mixed` when none is in the majority); it adds indexes, options, the validator, or a view's pipeline.
 - Guards keep Chloe's own settings true and nothing more (see "Who decides what" below). Checked at every depth
   before anything is sent:
   - Reads never write: `$out` and `$merge` are refused anywhere, so also inside `$facet`, `$lookup` and `$unionWith`
