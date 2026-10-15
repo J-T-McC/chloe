@@ -358,7 +358,8 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
   it). It needs Read on every source the pages' charts use, and Chloe's window open (the server asks the window to draw
   and waits up to a minute).
 - Notes headers are a caption beside the first line. Headings in tiles are tight (# 22px at 1.2, ## 18px at 1.3), so a
-  lone heading fits two grid rows. Notes go on top of slides too (the slide's tiles move down) when there's room.
+  lone heading fits two grid rows. Notes go on top of slides too (the slide's tiles move down) when there's room, and
+  sit centred in their tile so the grid's leftover space splits above and below (text tiles stay top-aligned).
 - Notes on a slide are never cut off: set_notes (and an edit_dashboard that would squeeze them) is refused with the
   rows the notes need and the rows free. Notes follow their page by name when pages move. Slide rows that don't fit
   are reported first, with each row's height.
