@@ -65,6 +65,10 @@ func FilterWindow(src DataSource, c Chart) *Window {
 			today := now().In(location(src.Timezone))
 			from(Since(today, n, f.Values[1]))
 			to(today)
+		case "in_period", "to_date":
+			a, b, _ := DynamicRange(f, now().In(location(src.Timezone)))
+			from(a)
+			to(b.AddDate(0, 0, -1)) // the range's last day
 		case "between":
 			if a, ok := date(f.Values[0]); ok {
 				from(a)

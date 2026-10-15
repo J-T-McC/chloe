@@ -63,7 +63,8 @@ function EChart({ chart, data, theme, still }: { chart: B.Chart; data: B.Data; t
 function ValueFigure({ chart, data }: { chart: B.Chart; data: B.Data }) {
   const col = (data.columns ?? [])[0];
   const v = (data.rows ?? [])[0]?.[0];
-  const text = typeof v === "number" ? formatNumber(v, chart.props?.number ?? {}) : formatLabel(v, col, chart.props?.dateFormat, { raw: chart.props?.labelCase === "raw" });
+  // No rows for the aggregate (e.g. a filter that matches nothing) reads as a dash.
+  const text = v === null || v === undefined ? "—" : typeof v === "number" ? formatNumber(v, chart.props?.number ?? {}) : formatLabel(v, col, chart.props?.dateFormat, { raw: chart.props?.labelCase === "raw" });
   return (
     <div className="bi-value">
       <div className="bi-value-figure" data-testid="bi-value">
@@ -151,7 +152,7 @@ function KPIFigure({ chart, data, theme }: { chart: B.Chart; data: B.Data; theme
   return (
     <div className="bi-value">
       <div className="bi-value-figure" data-testid="bi-value">
-        {formatNumber(v, fmt)}
+        {v === null ? "—" : formatNumber(v, fmt)}
       </div>
       <div className="bi-value-label">{cols[vi]?.label}</div>
       {target !== null && v !== null && (

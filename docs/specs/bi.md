@@ -376,7 +376,7 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 2. **Dashboards and reports** ✅: pages, charts, Markdown text, refresh and auto refresh, Present, Export (PDF, PNG),
    and the MCP dashboard, notes and export tools. Snapshots were dropped; SVG/HTML export and print are not planned
    unless asked for.
-3. **The rest of Navicat's BI**: Waterfall, Tornado, Treemap, Scatter, Heatmap, Trend, KPI, Gauge, Pivot Table ✅;
+3. **The rest of Navicat's BI**: Waterfall, Tornado, Treemap, Scatter, Heatmap, Trend, KPI, Gauge, Pivot Table ✅; dynamic date filters ✅;
    Control; interaction (cross-filter, highlight, controls); parameters; custom fields; joined tables; shapes, groups,
    lock, alignment guides; dynamic date filters.
 4. MongoDB data sources (collection, or aggregation pipeline), with charts over them.
@@ -414,3 +414,14 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 - **Pivot Table** (rows = dimension, columns = series or value fields, values): totals per column, and per row when
   split by series, for sums and counts.
 - MCP: `create_chart`/`edit_chart` take `target`, and the properties `goal`, `min`, `max`, `lowerIsBetter`.
+
+## Implementation notes (phase 3, dynamic dates)
+- Filters on dates take three relative operators, worked out from the machine's date in the source's time zone each
+  time a chart is read, so reports stay current:
+  - `in_last` [n, unit]: the last n days, weeks, months, quarters or years, the current one included.
+  - `in_period` [this | last | next, unit]: one whole calendar period, e.g. last month or next quarter.
+  - `to_date` [unit]: week, month, quarter or year to date (through today).
+- Weeks start on Sunday, quarters in January, April, July and October. Ranges are bound as dates (`>= from AND <
+  to`), and a date axis is filled across the whole period.
+- Figures (Value, KPI) show "—" when the filter matches no rows.
+
