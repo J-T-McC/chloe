@@ -142,7 +142,7 @@ export function ChartEditor({ tab }: { tab: Tab }) {
     let live = true;
     setLoading(true);
     const t = setTimeout(() => {
-      BI.ChartData(path, { ...draft, filters: cleanFilters(arr(draft.filters)) })
+      BI.ChartData(path, { ...draft, filters: cleanFilters(arr(draft.filters)) }, null)
         .then((d) => live && (setData(d), setError("")))
         .catch((e) => live && (setError(errorText(e)), setData(null)))
         .finally(() => live && setLoading(false));

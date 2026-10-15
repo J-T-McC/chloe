@@ -3,7 +3,7 @@
 Order reflects dependencies: later features build on the earlier ones. Specs for each area live in `docs/specs/`.
 
 ## Next up
-1. **BI, phase 3** (spec: `docs/specs/bi.md`): the remaining chart types ✅, dynamic dates ✅, then parameters,
+1. **BI, phase 3** (spec: `docs/specs/bi.md`): the remaining chart types ✅, dynamic dates ✅, parameters ✅, then
    interaction and Control charts, custom fields, joined tables
 2. **Explain / visual explain** for MySQL and PostgreSQL, with MongoDB's explain
 3. Transfer and sync follow-ups: Data Transfer file target and per-table Advanced mode (rename, fields,
@@ -123,5 +123,6 @@ statistics catalogs get around name checks), so share connections that log in as
 - [x] Reports: PNG/PDF export (snapshots dropped; HTML export and print only if asked for)
 - [x] Chart types: Waterfall, Tornado, Treemap, Scatter, Heatmap, Trend, KPI, Gauge, Pivot Table
 - [x] Dynamic date filters (this/last/next period, period to date, last n quarters)
-- [ ] The rest of Navicat's BI: interaction and controls, parameters, custom fields, joins, shapes
+- [x] Parameters ([$name] in queries as bound values, filters, titles and text; dashboard controls; MCP)
+- [ ] The rest of Navicat's BI: interaction and controls, custom fields, joins, shapes
 - [ ] MongoDB data sources

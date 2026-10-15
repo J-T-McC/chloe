@@ -174,6 +174,11 @@ export interface Data {
      */
     "mode": string;
     "ranAt": string;
+
+    /**
+     * Params are the parameter values the read used, for titles and text.
+     */
+    "params"?: Values;
 }
 
 /**
@@ -346,6 +351,55 @@ export interface Page {
 }
 
 /**
+ * ParamOption is one value of a list parameter, with an optional description.
+ */
+export interface ParamOption {
+    "value": string;
+    "label"?: string;
+}
+
+/**
+ * Parameter is a named value, global to its workspace, that data source queries,
+ * filters, chart titles and dashboard text refer to as [$name]. In a query it is
+ * always a bound value, never pasted into the SQL.
+ */
+export interface Parameter {
+    "id": string;
+    "name": string;
+
+    /**
+     * CreatedBy is "mcp:<endpoint>" for objects an agent created; agents may edit only those.
+     */
+    "createdBy"?: string;
+    "created"?: string;
+    "modified"?: string;
+    "remarks"?: string;
+
+    /**
+     * Type is string, number or datetime.
+     */
+    "type": string;
+
+    /**
+     * Allowed is "" (any value), list or range.
+     */
+    "allowed"?: string;
+    "list"?: ParamOption[] | null;
+
+    /**
+     * Min, Max and Step bound a range parameter (numbers).
+     */
+    "min"?: string;
+    "max"?: string;
+    "step"?: string;
+
+    /**
+     * Value is the current value.
+     */
+    "value": string;
+}
+
+/**
  * Projection keeps or drops fields of the data source.
  */
 export interface Projection {
@@ -432,6 +486,11 @@ export interface Sort {
     "desc"?: boolean;
 }
 
+/**
+ * Values are parameter values by lower-case name.
+ */
+export type Values = { [_ in string]?: string } | null;
+
 export interface Workspace {
     "format": string;
     "version": number;
@@ -450,4 +509,5 @@ export interface Workspace {
     "dataSources": DataSource[] | null;
     "charts": Chart[] | null;
     "dashboards": Dashboard[] | null;
+    "parameters"?: Parameter[] | null;
 }

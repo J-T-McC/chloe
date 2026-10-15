@@ -81,14 +81,14 @@ func TestChartQueryChecksFields(t *testing.T) {
 		{Chart{Type: "bar", Dimension: []ChartField{{Field: "status"}}, Value: []ChartField{{Field: "total", Aggregate: "median"}}}, `can't use aggregate "median"`},
 		{Chart{Type: "pyramid"}, "unknown chart type"},
 	} {
-		_, _, err := ChartQuery(mysql, "`t`", src, tc.c, 10)
+		_, _, err := ChartQuery(mysql, Table("`t`"), src, tc.c, 10)
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%+v: got %v, want %q", tc.c, err, tc.want)
 		}
 	}
 	// Median is PostgreSQL's.
 	c := Chart{Type: "bar", Dimension: []ChartField{{Field: "status"}}, Value: []ChartField{{Field: "total", Aggregate: "median"}}}
-	if q, _, err := ChartQuery(pg, `"t"`, src, c, 10); err != nil || !strings.Contains(q.SQL, "percentile_cont(0.5) WITHIN GROUP (ORDER BY CAST(\"total\" AS numeric))") {
+	if q, _, err := ChartQuery(pg, Table(`"t"`), src, c, 10); err != nil || !strings.Contains(q.SQL, "percentile_cont(0.5) WITHIN GROUP (ORDER BY CAST(\"total\" AS numeric))") {
 		t.Errorf("median: %v %s", err, q.SQL)
 	}
 }
@@ -104,12 +104,12 @@ func TestIncompleteChart(t *testing.T) {
 func TestTableChart(t *testing.T) {
 	src := ordersSource()
 	raw := Chart{Type: "table", Value: []ChartField{{Field: "status"}, {Field: "total"}}}
-	q, _, err := ChartQuery(SQLite, `"data"`, src, raw, 50)
+	q, _, err := ChartQuery(SQLite, Table(`"data"`), src, raw, 50)
 	if err != nil || q.SQL != `SELECT "status" AS "c0", "total" AS "c1" FROM "data" AS s ORDER BY 1, 2 LIMIT 50` {
 		t.Errorf("raw table: %v %s", err, q.SQL)
 	}
 	grouped := Chart{Type: "table", Value: []ChartField{{Field: "status"}, {Field: "total", Aggregate: "sum"}}}
-	q, _, err = ChartQuery(SQLite, `"data"`, src, grouped, 50)
+	q, _, err = ChartQuery(SQLite, Table(`"data"`), src, grouped, 50)
 	if err != nil || q.SQL != `SELECT "status" AS "c0", SUM("total") AS "c1" FROM "data" AS s GROUP BY 1 ORDER BY 1 LIMIT 50` {
 		t.Errorf("grouped table: %v %s", err, q.SQL)
 	}
@@ -124,7 +124,7 @@ func TestFilters(t *testing.T) {
 		{Field: "customer", Op: "is_null", Disabled: true},
 		{Field: "customer", Op: "not_begins_with", Values: []string{"x"}},
 	}
-	q, err := PreviewQuery(SQLite, `"data"`, src, 10)
+	q, err := PreviewQuery(SQLite, Table(`"data"`), src, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestFilters(t *testing.T) {
 	}
 	for _, f := range []Filter{{Field: "total", Op: "between", Values: []string{"1"}}, {Field: "total", Op: "~"}, {Field: "nope", Op: "is_null"}} {
 		src.Filters = []Filter{f}
-		if _, err := PreviewQuery(SQLite, `"data"`, src, 10); err == nil {
+		if _, err := PreviewQuery(SQLite, Table(`"data"`), src, 10); err == nil {
 			t.Errorf("%+v: no error", f)
 		}
 	}
@@ -157,7 +157,7 @@ func TestCheckSQL(t *testing.T) {
 	}
 	src := ordersSource()
 	src.Table, src.SQL = "", "SELECT * FROM orders;"
-	if from, err := From(pg, src); err != nil || from != "(SELECT * FROM orders)" {
+	if from, err := From(pg, src); err != nil || from.SQL != "(SELECT * FROM orders)" {
 		t.Errorf("from: %q %v", from, err)
 	}
 }
@@ -366,13 +366,13 @@ func TestInLast(t *testing.T) {
 	now = func() time.Time { return sat }
 	src := ordersSource()
 	src.Filters = []Filter{{Field: "placed_at", Op: "in_last", Values: []string{"30", "day"}}}
-	q, err := PreviewQuery(pg, `"t"`, src, 5)
+	q, err := PreviewQuery(pg, Table(`"t"`), src, 5)
 	if err != nil || !strings.Contains(q.SQL, `"placed_at" >= $1`) || q.Args[0] != "2026-09-18" {
 		t.Errorf("%v %s %v", err, q.SQL, q.Args)
 	}
 	for _, bad := range [][]string{{"0", "day"}, {"x", "day"}, {"3", "fortnight"}} {
 		src.Filters[0].Values = bad
-		if _, err := PreviewQuery(pg, `"t"`, src, 5); err == nil {
+		if _, err := PreviewQuery(pg, Table(`"t"`), src, 5); err == nil {
 			t.Errorf("%v accepted", bad)
 		}
 	}
@@ -428,7 +428,7 @@ func TestWindowAndNames(t *testing.T) {
 	// Tables can bucket a date column.
 	tbl := Chart{Type: "table", Value: []ChartField{{Field: "placed_at", Aggregate: "weekday_x"}, {Field: "id", Aggregate: "count"}}}
 	src.Fields = append(src.Fields, Field{Name: "id", Type: TypeNumber})
-	q, tc, err := ChartQuery(SQLite, `"data"`, src, tbl, 10)
+	q, tc, err := ChartQuery(SQLite, Table(`"data"`), src, tbl, 10)
 	if err != nil || !strings.Contains(q.SQL, `strftime('%w', "placed_at") AS "c0"`) || !strings.Contains(q.SQL, "GROUP BY 1") || tc[0].Aggregate != "weekday_x" {
 		t.Errorf("table bucket: %v %s", err, q.SQL)
 	}
@@ -436,7 +436,7 @@ func TestWindowAndNames(t *testing.T) {
 		t.Errorf("table weekday name: %v", rows)
 	}
 	tbl.Value[0].Aggregate = "sum"
-	if _, _, err := ChartQuery(SQLite, `"data"`, src, tbl, 10); err == nil || !strings.Contains(err.Error(), "placed_at (datetime) on the value shelf can't use aggregate \"sum\"") {
+	if _, _, err := ChartQuery(SQLite, Table(`"data"`), src, tbl, 10); err == nil || !strings.Contains(err.Error(), "placed_at (datetime) on the value shelf can't use aggregate \"sum\"") {
 		t.Errorf("message: %v", err)
 	}
 }
@@ -453,16 +453,16 @@ func TestTimezone(t *testing.T) {
 		{Name: "day", Type: TypeDateTime, DBType: "DATE"}, {Name: "total", Type: TypeNumber}}
 	c := Chart{Type: "bar", Dimension: []ChartField{{Field: "placed_at", Aggregate: "day"}}, Value: []ChartField{{Field: "total", Aggregate: "sum"}},
 		Filters: []Filter{{Field: "made", Op: ">=", Values: []string{"2026-01-01"}}, {Field: "day", Op: "=", Values: []string{"2026-01-02"}}}}
-	q, _, err := ChartQuery(pg, `"t"`, src, c, 10)
+	q, _, err := ChartQuery(pg, Table(`"t"`), src, c, 10)
 	if err != nil || !strings.Contains(q.SQL, `to_char(CAST(("placed_at" AT TIME ZONE 'America/Los_Angeles') AS timestamp), 'YYYY-MM-DD')`) ||
 		!strings.Contains(q.SQL, `(CAST("made" AS timestamp) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles') >= $1`) || !strings.Contains(q.SQL, `"day" = $2`) {
 		t.Errorf("postgres: %v\n%s", err, q.SQL)
 	}
 	src.Fields[0].DBType = "TIMESTAMP"
-	if q, _, _ := ChartQuery(mysql, "`t`", src, c, 10); !strings.Contains(q.SQL, "CONVERT_TZ(`placed_at`, @@session.time_zone, 'America/Los_Angeles')") || !strings.Contains(q.SQL, "CONVERT_TZ(`made`, '+00:00', 'America/Los_Angeles') >= ?") {
+	if q, _, _ := ChartQuery(mysql, Table("`t`"), src, c, 10); !strings.Contains(q.SQL, "CONVERT_TZ(`placed_at`, @@session.time_zone, 'America/Los_Angeles')") || !strings.Contains(q.SQL, "CONVERT_TZ(`made`, '+00:00', 'America/Los_Angeles') >= ?") {
 		t.Errorf("mysql: %s", q.SQL)
 	}
-	if q, _, _ := ChartQuery(SQLite, `"data"`, src, c, 10); !strings.Contains(q.SQL, `strftime('%Y-%m-%d', chloe_tz("placed_at", 'America/Los_Angeles'))`) {
+	if q, _, _ := ChartQuery(SQLite, Table(`"data"`), src, c, 10); !strings.Contains(q.SQL, `strftime('%Y-%m-%d', chloe_tz("placed_at", 'America/Los_Angeles'))`) {
 		t.Errorf("sqlite: %s", q.SQL)
 	}
 	if got, _ := InZone("2026-09-16 05:30:00", "America/Los_Angeles"); got != "2026-09-15 22:30:00" {
@@ -509,7 +509,7 @@ func TestPlainDateBounds(t *testing.T) {
 		{Filter{Field: "status", Op: "between", Values: []string{"2026-10-10", "2026-10-14"}}, `"status" BETWEEN ? AND ?`, []any{"2026-10-10", "2026-10-14"}},
 	} {
 		src.Filters = []Filter{tc.f}
-		q, err := PreviewQuery(SQLite, `"t"`, src, 5)
+		q, err := PreviewQuery(SQLite, Table(`"t"`), src, 5)
 		if err != nil || !strings.Contains(q.SQL, "WHERE "+tc.sql+" LIMIT") || !reflect.DeepEqual(q.Args, tc.args) {
 			t.Errorf("%s %v: %v\n%s %v", tc.f.Op, tc.f.Values, err, q.SQL, q.Args)
 		}
@@ -698,7 +698,7 @@ func TestTiesAlphabetical(t *testing.T) {
 	}
 	src := ordersSource()
 	src.Filters = []Filter{{Field: "placed_at", Op: "in_last", Values: []string{"7", "Days"}}}
-	if _, err := PreviewQuery(SQLite, `"t"`, src, 5); err != nil {
+	if _, err := PreviewQuery(SQLite, Table(`"t"`), src, 5); err != nil {
 		t.Errorf("plural unit: %v", err)
 	}
 }
@@ -744,7 +744,7 @@ func TestPhase3Types(t *testing.T) {
 	// Scatter: X, Y (target) and size, with points named by the dimension.
 	sc := Chart{Type: "scatter", Dimension: []ChartField{{Field: "customer"}}, Value: sum,
 		Target: []ChartField{{Field: "total", Aggregate: "count"}}, Secondary: []ChartField{{Field: "total", Aggregate: "avg"}}}
-	q, cols, err := ChartQuery(SQLite, `"orders"`, src, sc, 100)
+	q, cols, err := ChartQuery(SQLite, Table(`"orders"`), src, sc, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -766,7 +766,7 @@ func TestPhase3Types(t *testing.T) {
 	}
 	// KPI and gauge read one row; their target is an aggregate too.
 	kpi := Chart{Type: "kpi", Value: sum, Target: []ChartField{{Field: "total", Aggregate: "max"}}}
-	q, cols, err = ChartQuery(SQLite, `"orders"`, src, kpi, 100)
+	q, cols, err = ChartQuery(SQLite, Table(`"orders"`), src, kpi, 100)
 	if err != nil || strings.Contains(q.SQL, "GROUP BY") || len(cols) != 2 {
 		t.Fatalf("kpi: %s %v", q.SQL, err)
 	}
@@ -841,7 +841,7 @@ func TestDynamicDates(t *testing.T) {
 	src := ordersSource()
 	c := Chart{Type: "bar", Dimension: []ChartField{{Field: "placed_at", Aggregate: "day"}}, Value: []ChartField{{Field: "total", Aggregate: "sum"}},
 		Filters: []Filter{{Field: "placed_at", Op: "in_period", Values: []string{"last", "month"}}}}
-	q, cols, err := ChartQuery(SQLite, `"orders"`, src, c, 100)
+	q, cols, err := ChartQuery(SQLite, Table(`"orders"`), src, c, 100)
 	if err != nil || !strings.Contains(q.SQL, `"placed_at" >= ? AND "placed_at" < ?`) || !reflect.DeepEqual(q.Args, []any{"2026-04-01", "2026-05-01"}) {
 		t.Fatalf("query: %s %v %v", q.SQL, q.Args, err)
 	}

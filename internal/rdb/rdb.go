@@ -62,7 +62,9 @@ func Open(ctx context.Context, c model.Connection, d tunnel.Dialer) (*Client, er
 		Password:     c.Password,
 		PoolSize:     4,
 		MinIdleConns: 0,
-		Dialer:       func(ctx context.Context, network, addr string) (net.Conn, error) { return d.DialContext(ctx, network, addr) },
+		Dialer: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return d.DialContext(ctx, network, addr)
+		},
 		DialTimeout:  secs(c.Advanced.ConnectTimeoutSec, 15),
 		ReadTimeout:  secs(c.Advanced.ReadTimeoutSec, 30),
 		WriteTimeout: secs(c.Advanced.WriteTimeoutSec, 30),

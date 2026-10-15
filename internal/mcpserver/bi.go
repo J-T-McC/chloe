@@ -119,7 +119,30 @@ type DeletedOut struct {
 
 type ChartDataArgs struct {
 	ChartArgs
-	IncludeSQL bool `json:"include_sql,omitempty" jsonschema:"also return the query Chloe built (it repeats the data source's query)"`
+	IncludeSQL bool              `json:"include_sql,omitempty" jsonschema:"also return the query Chloe built (it repeats the data source's query)"`
+	Parameters map[string]string `json:"parameters,omitempty" jsonschema:"parameter values for this read only, by name (see get_workspace); the saved values don't change"`
+}
+
+type ParameterSpec struct {
+	Type    string           `json:"type,omitempty" jsonschema:"string (default), number or datetime"`
+	Allowed string           `json:"allowed,omitempty" jsonschema:"any (default), list or range"`
+	List    []bi.ParamOption `json:"list,omitempty" jsonschema:"with allowed list: the values, each with an optional label"`
+	Min     string           `json:"min,omitempty" jsonschema:"with allowed range: the lowest number"`
+	Max     string           `json:"max,omitempty" jsonschema:"with allowed range: the highest number"`
+	Step    string           `json:"step,omitempty" jsonschema:"with allowed range: the slider's step"`
+	Value   *string          `json:"value,omitempty" jsonschema:"the current value"`
+}
+
+type CreateParameterArgs struct {
+	WorkspaceArgs
+	Name string `json:"name" jsonschema:"letters, digits and _; data source queries, filter values, chart titles and dashboard text refer to it as [$name]"`
+	ParameterSpec
+}
+
+type EditParameterArgs struct {
+	WorkspaceArgs
+	Parameter string `json:"parameter" jsonschema:"a parameter name or id in the workspace"`
+	ParameterSpec
 }
 
 type WorkspaceInfo struct {
@@ -153,6 +176,12 @@ type WorkspaceOut struct {
 	Sources   []SourceOut    `json:"data_sources"`
 	ChartList []ChartOut     `json:"charts"`
 	Boards    []DashboardOut `json:"dashboards"`
+	Params    []ParamOut     `json:"parameters,omitempty"`
+}
+
+type ParamOut struct {
+	bi.Parameter
+	Editable bool `json:"editable" jsonschema:"created over MCP, so edit_parameter may change it"`
 }
 
 type ChartDataOut struct {
@@ -210,6 +239,9 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			out := WorkspaceOut{WorkspaceInfo: workspaceInfo(p, w), Theme: w.Theme, Sources: []SourceOut{}, ChartList: []ChartOut{}, Boards: []DashboardOut{}}
 			for _, d := range w.Dashboards {
 				out.Boards = append(out.Boards, DashboardOut{Dashboard: d, Editable: agentMade(d.CreatedBy)})
+			}
+			for _, prm := range w.Parameters {
+				out.Params = append(out.Params, ParamOut{Parameter: prm, Editable: agentMade(prm.CreatedBy)})
 			}
 			hidden := map[string]bool{}
 			for _, d := range w.DataSources {
@@ -413,7 +445,7 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			if err := c.canRead(ctx, *src); err != nil {
 				return ChartDataOut{}, err
 			}
-			data, err := c.s.m.BIChartData(ctx, w, *ch)
+			data, err := c.s.m.BIChartData(ctx, w, *ch, in.Parameters)
 			c.act.SQL = data.SQL
 			c.act.Rows = int64(len(data.Rows))
 			if err != nil {
@@ -424,6 +456,40 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 				out.SQL = data.SQL
 			}
 			return out, nil
+		})
+
+	add(s, srv, ep, &mcp.Tool{Name: "create_parameter", Description: "Adds a parameter to a workspace: a named value that data source queries ([$name] where a value goes; it is bound, never pasted into the SQL), " +
+		"filter values (a whole value of [$name]), chart titles and dashboard text refer to. The user can change it on dashboards; get_chart_data and refresh_dashboard take parameters to read with other values.",
+		Annotations: &mcp.ToolAnnotations{Title: "Create parameter", DestructiveHint: &f, OpenWorldHint: &f}},
+		func(ctx context.Context, c *call, in CreateParameterArgs) (ParamOut, error) {
+			p, _, err := c.workspace(in.Workspace)
+			if err != nil {
+				return ParamOut{}, err
+			}
+			prm := bi.Parameter{Meta: bi.Meta{Name: in.Name, CreatedBy: "mcp:" + c.ep.Name}}
+			in.ParameterSpec.apply(&prm)
+			saved, err := c.putParam(p, prm)
+			return ParamOut{Parameter: saved, Editable: true}, err
+		})
+
+	add(s, srv, ep, &mcp.Tool{Name: "edit_parameter", Description: "Changes a parameter created over MCP: its type, allowed values or current value (each replaced when given).",
+		Annotations: &mcp.ToolAnnotations{Title: "Edit parameter", DestructiveHint: &f, OpenWorldHint: &f}},
+		func(ctx context.Context, c *call, in EditParameterArgs) (ParamOut, error) {
+			p, w, err := c.workspace(in.Workspace)
+			if err != nil {
+				return ParamOut{}, err
+			}
+			prm := w.Param(in.Parameter)
+			if prm == nil {
+				return ParamOut{}, fmt.Errorf("no parameter %q in the workspace (see get_workspace)", in.Parameter)
+			}
+			if !agentMade(prm.CreatedBy) {
+				return ParamOut{}, fmt.Errorf("parameter %q belongs to the user; agents edit only parameters they created", prm.Name)
+			}
+			next := *prm
+			in.ParameterSpec.apply(&next)
+			saved, err := c.putParam(p, next)
+			return ParamOut{Parameter: saved, Editable: true}, err
 		})
 
 	add(s, srv, ep, &mcp.Tool{Name: "delete_chart", Description: "Deletes a chart created over MCP (scratch work, a chart you replaced). The user's own charts can't be deleted.",
@@ -584,6 +650,49 @@ func findChart(w *bi.Workspace, ref string) *bi.Chart {
 		}
 	}
 	return nil
+}
+
+// putParam stores a parameter created or edited over MCP.
+func (c *call) putParam(p string, prm bi.Parameter) (bi.Parameter, error) {
+	var saved bi.Parameter
+	_, err := c.s.m.Store.BI().Update(p, func(w *bi.Workspace) error {
+		var err error
+		saved, err = w.PutParameter(prm)
+		return err
+	})
+	if err != nil {
+		return saved, err
+	}
+	c.act.SQL = p + " › $" + saved.Name
+	c.biChanged(p)
+	return saved, nil
+}
+
+func (in ParameterSpec) apply(p *bi.Parameter) {
+	if in.Type != "" {
+		p.Type = in.Type
+	}
+	if in.Allowed != "" {
+		p.Allowed = in.Allowed
+		if in.Allowed == "any" {
+			p.Allowed = ""
+		}
+	}
+	if in.List != nil {
+		p.List = in.List
+	}
+	if in.Min != "" {
+		p.Min = in.Min
+	}
+	if in.Max != "" {
+		p.Max = in.Max
+	}
+	if in.Step != "" {
+		p.Step = in.Step
+	}
+	if in.Value != nil {
+		p.Value = *in.Value
+	}
 }
 
 func (c *call) putChart(p string, ch bi.Chart) (bi.Chart, error) {

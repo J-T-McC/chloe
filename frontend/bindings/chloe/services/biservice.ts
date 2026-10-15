@@ -28,8 +28,8 @@ export function Catalog(): $CancellablePromise<$models.Catalog> {
 /**
  * ChartData reads what a (draft) chart of a workspace draws.
  */
-export function ChartData(path: string, c: bi$0.Chart): $CancellablePromise<bi$0.Data> {
-    return $Call.ByID(986314243, path, c);
+export function ChartData(path: string, c: bi$0.Chart, params: { [_ in string]?: string } | null): $CancellablePromise<bi$0.Data> {
+    return $Call.ByID(986314243, path, c, params);
 }
 
 /**
@@ -63,10 +63,11 @@ export function Duplicate(path: string): $CancellablePromise<string> {
 }
 
 /**
- * Fields reads a draft data source's columns.
+ * Fields reads a draft data source's columns; its query's parameters take the
+ * workspace's values.
  */
-export function Fields(src: bi$0.DataSource): $CancellablePromise<bi$0.Field[] | null> {
-    return $Call.ByID(1072873964, src);
+export function Fields(path: string, src: bi$0.DataSource): $CancellablePromise<bi$0.Field[] | null> {
+    return $Call.ByID(1072873964, path, src);
 }
 
 /**
@@ -149,6 +150,13 @@ export function SaveExport(name: string, format: string, pages: string[] | null)
  */
 export function SaveExternal(path: string): $CancellablePromise<string> {
     return $Call.ByID(2921346479, path);
+}
+
+/**
+ * SaveParameter adds or replaces a parameter of a workspace.
+ */
+export function SaveParameter(path: string, p: bi$0.Parameter): $CancellablePromise<bi$0.Parameter> {
+    return $Call.ByID(1412262343, path, p);
 }
 
 /**

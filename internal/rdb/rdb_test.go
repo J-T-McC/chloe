@@ -13,11 +13,11 @@ import (
 
 func TestSplitArgs(t *testing.T) {
 	cases := map[string][]string{
-		`SET k v`:                     {"SET", "k", "v"},
+		`SET k v`:                      {"SET", "k", "v"},
 		`  set  "hello world"  'a b' `: {"set", "hello world", "a b"},
-		`SET k "a\nb\x41"`:            {"SET", "k", "a\nbA"},
-		`SET k 'it\'s'`:               {"SET", "k", "it's"},
-		``:                            nil,
+		`SET k "a\nb\x41"`:             {"SET", "k", "a\nbA"},
+		`SET k 'it\'s'`:                {"SET", "k", "it's"},
+		``:                             nil,
 	}
 	for in, want := range cases {
 		got, err := SplitArgs(in)

@@ -65,7 +65,7 @@ func TestBIChartsAcrossEngines(t *testing.T) {
 				w, _ := bi.Read(p)
 				c := bi.Chart{DataSource: src.ID, Type: "bar", Dimension: []bi.ChartField{{Field: "placed_at", Aggregate: "weekday_x"}}, Value: []bi.ChartField{{Field: "region", Aggregate: "count"}},
 					Filters: []bi.Filter{{Field: "placed_at", Op: "<", Values: []string{"2026-01-31"}}}}
-				data, err := m.BIChartData(ctx, w, c)
+				data, err := m.BIChartData(ctx, w, c, nil)
 				if want := [][]any{{"Sun", 1.0}, {"Mon", 1.0}}; err != nil || !reflect.DeepEqual(data.Rows, want) {
 					t.Errorf("%s zoned: %v %v\n%s", mode, err, data.Rows, data.SQL)
 				}
@@ -79,7 +79,7 @@ func TestBIChartsAcrossEngines(t *testing.T) {
 				for _, tc := range charts {
 					c := tc.c
 					c.DataSource = src.ID
-					data, err := m.BIChartData(ctx, w, c)
+					data, err := m.BIChartData(ctx, w, c, nil)
 					if err != nil {
 						t.Errorf("%s %s: %v", mode, tc.name, err)
 						continue

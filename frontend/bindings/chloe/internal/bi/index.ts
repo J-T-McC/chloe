@@ -16,9 +16,12 @@ export type {
     Item,
     NumberFormat,
     Page,
+    ParamOption,
+    Parameter,
     Projection,
     Props,
     Shelf,
     Sort,
+    Values,
     Workspace
 } from "./models.js";

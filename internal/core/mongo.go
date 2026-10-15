@@ -13,8 +13,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"chloe/internal/mdb"
-	"chloe/internal/store"
 	"chloe/internal/model"
+	"chloe/internal/store"
 )
 
 // MongoDB connections are served by mdb.Client rather than a SQL driver.

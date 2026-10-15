@@ -56,7 +56,8 @@ type DashboardArgs struct {
 
 type RefreshArgs struct {
 	DashboardArgs
-	Page string `json:"page,omitempty" jsonschema:"a page number (1 = first) or name; default every page"`
+	Page       string            `json:"page,omitempty" jsonschema:"a page number (1 = first) or name; default every page"`
+	Parameters map[string]string `json:"parameters,omitempty" jsonschema:"parameter values for this read only, by name (see get_workspace); the saved values don't change"`
 }
 
 type NotesArgs struct {
@@ -355,7 +356,7 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 							r.Error = err.Error()
 							break
 						}
-						data, err := c.s.m.BIChartData(ctx, w, *ch)
+						data, err := c.s.m.BIChartData(ctx, w, *ch, in.Parameters)
 						if err != nil {
 							r.Error = err.Error()
 							break

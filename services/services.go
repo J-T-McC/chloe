@@ -438,7 +438,9 @@ func (s *TransferService) CompareStructure(ctx context.Context, req core.Structu
 }
 
 // StructureScript orders the chosen comparison items into a deployment script.
-func (s *TransferService) StructureScript(items []core.StructItem) []string { return core.StructureScript(items) }
+func (s *TransferService) StructureScript(items []core.StructItem) []string {
+	return core.StructureScript(items)
+}
 
 // Deploy runs a deployment script on the target as a job.
 func (s *TransferService) Deploy(req core.DeployRequest) (core.Job, error) { return s.M.Deploy(req) }
@@ -471,7 +473,9 @@ func (s *TransferService) DeployDataSync(req core.DataSyncDeployRequest) (core.J
 func (s *TransferService) DiscardDataSync(id string) { s.M.DiscardDataSync(id) }
 
 // DefaultTransferOptions are the Data Transfer options a new transfer starts with.
-func (s *TransferService) DefaultTransferOptions() core.TransferOptions { return core.DefaultTransferOptions() }
+func (s *TransferService) DefaultTransferOptions() core.TransferOptions {
+	return core.DefaultTransferOptions()
+}
 
 func (s *TransferService) Jobs() []core.Job    { return s.M.Jobs() }
 func (s *TransferService) CancelJob(id string) { s.M.CancelJob(id) }

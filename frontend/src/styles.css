@@ -5128,3 +5128,55 @@ table.mapping select {
   border-radius: 0;
   box-shadow: none;
 }
+
+/* Dashboard parameter controls */
+.bi-param-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  align-items: center;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 12px;
+}
+
+.bi-param {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bi-param-name {
+  font-weight: 600;
+}
+
+.bi-param input[type="text"],
+.bi-param input[type="number"],
+.bi-param input[type="date"] {
+  width: 120px;
+}
+
+.bi-param input[type="range"] {
+  width: 140px;
+}
+
+.bi-param-value {
+  min-width: 2.5em;
+  font-variant-numeric: tabular-nums;
+}
+
+.bi-present .bi-param-bar {
+  position: relative;
+  z-index: 1;
+  border: none;
+  justify-content: center;
+}
+
+.bi-param-dialog {
+  width: 460px;
+}
+
+.bi-param-dialog .bi-prop {
+  margin-bottom: 10px;
+}
