@@ -41,7 +41,8 @@ An endpoint is a named access profile (e.g. "Claude Code – dev"):
   Renaming a group keeps its access; deleting it removes it (its connections move to the top level, which is Off).
 - **Danger mode** ("Run writes without asking"): writes run without the approval dialog. Every other rule still
   applies. Turning it on asks for confirmation; a titlebar indicator shows while any endpoint has it on.
-- **Capabilities** (each opt-in): Create connections, Saved queries and query tabs, Monitor, ER models.
+- **Capabilities** (each opt-in): Create connections, Saved queries and query tabs, Monitor, ER models, Reports
+  (BI workspaces, charts and dashboards; tools in `docs/specs/bi.md`).
 
 ## Approval
 Without danger mode, every write shows a dialog in Chloe: endpoint, connection/database, the exact SQL (with values),
@@ -165,3 +166,4 @@ A tab like the History Log:
 1. Server, endpoints, data tools, approval, danger mode, activity, window.
 2. Monitor, saved queries / query tabs, create connections. ✅
 3. ER models. ✅
+4. Reports (`docs/specs/bi.md`).
