@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -67,7 +68,7 @@ func (c *call) server(ctx context.Context, name string, need store.MCPLevel) (mo
 	}
 	c.act.Connection = conn.Name
 	if conn.Type == model.SQLite {
-		return conn, fmt.Errorf("%s is a SQLite file; there's no server to monitor", conn.Name)
+		return conn, errors.New("SQLite connections have no server to monitor")
 	}
 	ok := atLeast(a.level, need)
 	for _, l := range a.dbs {
