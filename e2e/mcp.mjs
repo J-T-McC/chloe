@@ -143,8 +143,10 @@ await step("danger mode skips the dialog", async () => {
 await step("read-only access refuses writes", async () => {
   await page.getByLabel("Access to big", { exact: true }).selectOption("read");
   await page.waitForTimeout(200);
-  const r = await tool("insert_rows", { connection: "big", table: "n", rows: [{ v: "x" }] });
-  if (!r.isError || !text(r).includes("can only read")) throw new Error(text(r));
+  const names = (await rpc("tools/list", {})).result.tools.map((t) => t.name);
+  if (names.includes("insert_rows") || !names.includes("select_rows")) throw new Error("tools: " + names.join(", "));
+  const r = await rpc("tools/call", { name: "insert_rows", arguments: { connection: "big", table: "n", rows: [{ v: "x" }] } });
+  if (!r.error) throw new Error("insert_rows ran: " + JSON.stringify(r.result));
 });
 
 await step("activity log", async () => {

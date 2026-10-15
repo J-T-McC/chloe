@@ -152,8 +152,7 @@ func (s *Server) apply(st store.MCPSettings) error {
 	restart := s.http != nil && (!st.Enabled || st.Port != s.settings.Port)
 	start := st.Enabled && (s.http == nil || restart)
 	s.settings = st
-	// Tools are the same for every endpoint; servers are rebuilt so a changed
-	// endpoint never keeps a stale one.
+	// Servers are rebuilt so a changed endpoint never keeps a stale tool list.
 	s.servers = map[string]*mcp.Server{}
 	old := s.http
 	if restart {
@@ -317,7 +316,13 @@ func (s *Server) serverFor(id string) *mcp.Server {
 		Instructions: "Chloe is a database client. These tools reach the connections the user has shared with this endpoint. " +
 			"Start with list_connections. Writes may wait for the user to approve them in Chloe.",
 	})
-	s.addTools(srv, id)
+	var ep store.MCPEndpoint
+	for _, e := range s.settings.Endpoints {
+		if e.ID == id {
+			ep = e
+		}
+	}
+	s.addTools(srv, id, canWrite(ep))
 	s.servers[id] = srv
 	return srv
 }

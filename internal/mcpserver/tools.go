@@ -401,7 +401,23 @@ func writeTool(name, title, desc string, destructive bool) *mcp.Tool {
 	return &mcp.Tool{Name: name, Description: desc, Annotations: &mcp.ToolAnnotations{Title: title, DestructiveHint: &destructive, OpenWorldHint: &f}}
 }
 
-func (s *Server) addTools(srv *mcp.Server, ep string) {
+// canWrite reports whether an endpoint has write access anywhere; endpoints
+// that don't aren't offered the write tools at all.
+func canWrite(e store.MCPEndpoint) bool {
+	for _, a := range e.Access {
+		if a.Level == store.MCPWrite {
+			return true
+		}
+		for _, l := range a.Databases {
+			if l == store.MCPWrite {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 	add(s, srv, ep, readOnlyTool("list_connections", "List connections",
 		"Lists the database connections shared with this endpoint and what it may do with each."),
 		func(ctx context.Context, c *call, _ NoArgs) (ConnectionsOut, error) {
@@ -584,6 +600,9 @@ func (s *Server) addTools(srv *mcp.Server, ep string) {
 			return out, err
 		})
 
+	if !writes {
+		return
+	}
 	add(s, srv, ep, writeTool("insert_rows", "Insert rows", "Inserts rows into a table in one transaction. The user approves it in Chloe unless they've turned on danger mode.", false),
 		func(ctx context.Context, c *call, in InsertArgs) (InsertOut, error) {
 			if len(in.Rows) == 0 {
