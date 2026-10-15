@@ -322,3 +322,72 @@ func (p Page) Bottom() int {
 	}
 	return b
 }
+
+// FitText sizes a page's text rows to their text, moving the rows below: a row
+// of only text becomes exactly as tall as its text; a row with a chart grows
+// when its text needs more. It works on pages laid out in rows (tiles of a row
+// share their top, rows don't interleave), as agents' are, and leaves other
+// pages alone. A slide never grows past its 12 rows. It reports whether
+// anything moved.
+func (p *Page) FitText() bool {
+	if len(p.Items) == 0 {
+		return false
+	}
+	byY := map[int][]int{}
+	var ys []int
+	for i, it := range p.Items {
+		if _, ok := byY[it.Y]; !ok {
+			ys = append(ys, it.Y)
+		}
+		byY[it.Y] = append(byY[it.Y], i)
+	}
+	slices.Sort(ys)
+	// Rows must not interleave: each row ends before the next begins.
+	for k, y := range ys {
+		end := 0
+		for _, i := range byY[y] {
+			end = max(end, y+p.Items[i].H)
+		}
+		if k+1 < len(ys) && end > ys[k+1] {
+			return false
+		}
+	}
+	items := slices.Clone(p.Items)
+	shift := 0
+	for _, y := range ys {
+		row := byY[y]
+		cur, need, textOnly := 0, 0, true
+		for _, i := range row {
+			it := items[i]
+			cur = max(cur, it.H)
+			if it.Kind == ItemText {
+				need = max(need, TextRowsAt(it.Text, it.W, it.CreatedBy != ""))
+			} else {
+				textOnly = false
+			}
+		}
+		h := cur
+		if textOnly || need > cur {
+			h = need
+		}
+		for _, i := range row {
+			items[i].Y = y + shift
+			if items[i].H == cur || textOnly {
+				items[i].H = h
+			}
+		}
+		shift += h - cur
+	}
+	if p.Size == SizeSlide {
+		for _, it := range items {
+			if it.Y+it.H > PageRows {
+				return false
+			}
+		}
+	}
+	if slices.Equal(items, p.Items) {
+		return false
+	}
+	p.Items = items
+	return true
+}

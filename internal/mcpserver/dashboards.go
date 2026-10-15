@@ -186,6 +186,10 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 					}
 				}
 			}
+			// Text rows fit their text, also on pages laid out before.
+			for i := range edited.Pages {
+				edited.Pages[i].FitText()
+			}
 			saved, err := c.putDashboard(p, edited)
 			return DashboardOut{Dashboard: saved, Editable: true}, err
 		})
@@ -220,7 +224,13 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 					return errors.New("the dashboard was deleted")
 				}
 				if err := setNotes(&d.Pages[pi], "mcp:"+c.ep.Name, in.Markdown, in.Place); err != nil {
+					if agentMade(d.CreatedBy) && strings.Contains(err.Error(), "no room") {
+						return errors.New("this page is a full 16:9 slide with no room for notes; it's your dashboard, so make room with edit_dashboard (smaller rows) or switch the page to report")
+					}
 					return err
+				}
+				if agentMade(d.CreatedBy) {
+					d.Pages[pi].FitText()
 				}
 				var err error
 				saved, err = w.PutDashboard(*d)

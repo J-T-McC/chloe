@@ -118,6 +118,32 @@ func TestDashboardTools(t *testing.T) {
 	if last := f.events.opened[len(f.events.opened)-1]; !strings.HasPrefix(last, p+"#") {
 		t.Errorf("open: %v", f.events.opened)
 	}
+	// An agent's page laid out by an older Chloe (a one-line heading 3 rows tall)
+	// is fitted the next time the agent touches it.
+	f.call(t, "create_dashboard", map[string]any{"workspace": "Ops", "name": "Old", "pages": []any{map[string]any{"size": "16:9", "rows": []any{
+		map[string]any{"tiles": []any{map[string]any{"text": "# Rooms by game"}}},
+		map[string]any{"height": "M", "tiles": []any{map[string]any{"chart": "Count"}}},
+		map[string]any{"tiles": []any{map[string]any{"text": "One more line."}}}}}}}, "")
+	if _, err := lib.Update(p, func(w *bi.Workspace) error {
+		for i := range w.Dashboards {
+			if w.Dashboards[i].Name == "Old" {
+				it := w.Dashboards[i].Pages[0].Items
+				it[0].H, it[1].Y, it[2].Y, it[2].H = 3, 3, 8, 4 // fills the slide
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Old", "markdown": "x"}, "it's your dashboard, so make room with edit_dashboard")
+	f.call(t, "edit_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Old", "rename": "Old layout"}, "")
+	if its := itemsOf(t, f, "Old layout"); its[0].H != 2 || its[1].Y != 2 || its[2].Y != 7 || its[2].H != 2 {
+		t.Errorf("refit: %+v", its)
+	}
+	if n := f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Old layout", "markdown": "Fits now."}, ""); n["y"] != 9.0 {
+		t.Errorf("notes in the freed rows: %v", n)
+	}
+
 	// A deleted chart leaves its dashboards.
 	f.call(t, "delete_chart", map[string]any{"workspace": "Ops", "chart": "Count"}, "")
 	if r := f.call(t, "refresh_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly report"}, ""); len(r["pages"].([]any)[0].(map[string]any)["charts"].([]any)) != 0 {

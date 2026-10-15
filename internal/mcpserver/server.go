@@ -112,6 +112,10 @@ type Events interface {
 	OpenBI(path, id string)
 }
 
+// Build is the commit Chloe was built from (set by the build; "dev" otherwise),
+// shown to MCP clients so testers can tell which build they're talking to.
+var Build = "dev"
+
 // ApprovalTimeout is how long a write waits for the user.
 var ApprovalTimeout = 2 * time.Minute
 
@@ -390,9 +394,9 @@ func (s *Server) serverFor(id string) *mcp.Server {
 	if srv, ok := s.servers[id]; ok {
 		return srv
 	}
-	srv := mcp.NewServer(&mcp.Implementation{Name: "chloe", Title: "Chloe", Version: "1"}, &mcp.ServerOptions{
+	srv := mcp.NewServer(&mcp.Implementation{Name: "chloe", Title: "Chloe", Version: Build}, &mcp.ServerOptions{
 		Instructions: "Chloe is a database client. These tools reach the connections the user has shared with this endpoint. " +
-			"Start with list_connections. Writes may wait for the user to approve them in Chloe.",
+			"Start with list_connections. Writes may wait for the user to approve them in Chloe. (Chloe build " + Build + ")",
 	})
 	var ep store.MCPEndpoint
 	for _, e := range s.settings.Endpoints {
