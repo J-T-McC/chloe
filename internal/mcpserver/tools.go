@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -81,6 +82,7 @@ func addRich[In, Out any](s *Server, srv *mcp.Server, epID string, t *mcp.Tool, 
 		if err != nil {
 			return nil, zero, err
 		}
+		c.stamp(&out)
 		if len(content) == 0 {
 			return nil, out, nil
 		}
@@ -90,6 +92,27 @@ func addRich[In, Out any](s *Server, srv *mcp.Server, epID string, t *mcp.Tool, 
 		}
 		return &mcp.CallToolResult{Content: append([]mcp.Content{&mcp.TextContent{Text: string(text)}}, content...)}, out, nil
 	})
+}
+
+// stamp fills a write result's Approval field with how the write was cleared,
+// so the agent can tell the user whether they approved it or danger mode let it
+// through.
+func (c *call) stamp(out any) {
+	var note string
+	switch c.act.Outcome {
+	case "approved":
+		note = "approved by the user in Chloe"
+	case "unasked":
+		note = "ran without asking (danger mode is on)"
+	default:
+		return
+	}
+	v := reflect.ValueOf(out).Elem()
+	if v.Kind() == reflect.Struct {
+		if f := v.FieldByName("Approval"); f.IsValid() && f.Kind() == reflect.String {
+			f.SetString(note)
+		}
+	}
 }
 
 // approve asks the user unless the endpoint is in danger mode.
@@ -184,7 +207,7 @@ func (a access) hidesDatabases() bool {
 var (
 	sqlEngines = []model.DBType{model.MySQL, model.MariaDB, model.PostgreSQL, model.SQLite}
 	// mcpEngines are the engines list_connections shows.
-	mcpEngines = append(slices.Clone(sqlEngines), model.Redis)
+	mcpEngines = append(slices.Clone(sqlEngines), model.Redis, model.MongoDB)
 )
 
 // target is a resolved connection/database the call may use.
@@ -231,8 +254,10 @@ func (c *call) connectionOf(name string, engines []model.DBType) (model.Connecti
 		switch {
 		case typ == model.Redis:
 			return model.Connection{}, a, fmt.Errorf("%s is a Redis connection; use the redis_ tools", match[0].Name)
+		case typ == model.MongoDB:
+			return model.Connection{}, a, fmt.Errorf("%s is a MongoDB connection; use the mongo_ tools", match[0].Name)
 		case slices.Contains(sqlEngines, typ):
-			return model.Connection{}, a, fmt.Errorf("%s is a %s connection; this tool is for Redis", match[0].Name, typ)
+			return model.Connection{}, a, fmt.Errorf("%s is a %s connection; use the SQL tools (list_tables, select_rows…)", match[0].Name, typ)
 		}
 		return model.Connection{}, a, fmt.Errorf("%s connections aren't available over MCP yet", typ)
 	}
@@ -443,6 +468,7 @@ type InsertArgs struct {
 }
 
 type InsertOut struct {
+	Approval string           `json:"approval,omitempty" jsonschema:"how the change was cleared: approved by the user in Chloe, or ran without asking because danger mode is on"`
 	Inserted int64            `json:"inserted"`
 	Keys     []map[string]any `json:"keys,omitempty" jsonschema:"primary key of each inserted row"`
 }
@@ -459,7 +485,8 @@ type DeleteArgs struct {
 }
 
 type ChangedOut struct {
-	Rows int64 `json:"rows" jsonschema:"rows changed"`
+	Approval string `json:"approval,omitempty" jsonschema:"how the change was cleared: approved by the user in Chloe, or ran without asking because danger mode is on"`
+	Rows     int64  `json:"rows" jsonschema:"rows changed"`
 }
 
 type NoArgs struct{}

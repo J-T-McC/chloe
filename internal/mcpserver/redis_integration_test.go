@@ -207,6 +207,17 @@ func TestIntegrationRedisTools(t *testing.T) {
 		t.Fatal("big string not marked truncated")
 	}
 	f.call(t, "redis_set", map[string]any{"connection": "cache", "db": 8, "key": "x", "type": "string", "value": "1"}, "can only read")
+
+	// The overview groups keys by prefix and type; bulk:* came from the checks above.
+	ov := f.call(t, "redis_overview", at(nil), "")
+	groups := fmt.Sprint(ov["groups"])
+	if ov["complete"] != true || !strings.Contains(groups, "count:300 example:bulk:") || !strings.Contains(groups, "pattern:greeting") && !strings.Contains(groups, "pattern:hits") {
+		t.Fatalf("overview: %v", ov)
+	}
+	// Write results say how they were cleared.
+	if out := f.call(t, "redis_expire", at(map[string]any{"key": "hits", "ttl": 0}), ""); out["approval"] != "approved by the user in Chloe" {
+		t.Fatalf("approval: %v", out)
+	}
 }
 
 func TestIntegrationRedisMonitor(t *testing.T) {

@@ -15,7 +15,7 @@ Order reflects dependencies: later features build on the earlier ones. Specs for
 6. Polish: Redis pub/sub, cluster and sentinel; Form view and hex/image cell editors; preferences window
    (history logging on/off, autosave interval)
 
-MCP server (6b): Redis tools are done; MongoDB tools are next.
+MCP server (6b): Redis and MongoDB tools are done.
 
 ## 1. Foundation ✅
 Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, table viewer, query editor with autocomplete.
@@ -79,7 +79,7 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 - [x] export_dashboard: PNGs returned to the agent and saved, or a PDF
 - [ ] Reports tools: snapshots and history
 - [x] Redis tools (scan, get, read-only commands; set, edit, delete, expire with approval; Monitor)
-- [ ] MongoDB tools
+- [x] MongoDB tools (find, aggregate, describe; insert, update, delete limited to approved `_id`s; Monitor)
 
 Access stays per group, connection and database: no table or column permissions. Without a Chloe-managed
 database user there's no complete way to enforce them while keeping `run_query` (views, functions, run-time SQL and

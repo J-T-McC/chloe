@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -58,7 +59,8 @@ type VarsOut struct {
 }
 
 type KilledOut struct {
-	Killed string `json:"killed"`
+	Approval string `json:"approval,omitempty" jsonschema:"how the change was cleared: approved by the user in Chloe, or ran without asking because danger mode is on"`
+	Killed   string `json:"killed"`
 }
 
 // server finds a connection for the monitor tools. Sessions and server status
@@ -103,7 +105,7 @@ func (c *call) processes(ctx context.Context, conn model.Connection) ([]model.Pr
 
 func (s *Server) addMonitorTools(srv *mcp.Server, ep string, writes bool) {
 	add(s, srv, ep, readOnlyTool("list_sessions", "List sessions",
-		"Lists the server's sessions (MySQL processlist, PostgreSQL pg_stat_activity, Redis CLIENT LIST) with their state and running query."),
+		"Lists the server's sessions (MySQL processlist, PostgreSQL pg_stat_activity, Redis CLIENT LIST, MongoDB currentOp) with their state and running query."),
 		func(ctx context.Context, c *call, in ServerArgs) (SessionsOut, error) {
 			conn, err := c.server(ctx, in.Connection, store.MCPRead)
 			if err != nil {
@@ -157,7 +159,10 @@ func (s *Server) addMonitorTools(srv *mcp.Server, ep string, writes bool) {
 						break
 					}
 					o := VarOut{Name: v.Name, Value: cut(v.Value)}
-					if conn.Type == model.Redis {
+					if secretName.MatchString(v.Name) && o.Value != "" {
+						o.Value = "(hidden)"
+					}
+					if conn.Type == model.Redis || conn.Type == model.MongoDB {
 						o.Section = v.Description
 					}
 					out.Values = append(out.Values, o)
@@ -166,8 +171,8 @@ func (s *Server) addMonitorTools(srv *mcp.Server, ep string, writes bool) {
 				return out, nil
 			})
 	}
-	vars("server_status", "Server status", "Returns the server's status counters (MySQL SHOW GLOBAL STATUS; PostgreSQL database and server statistics; Redis INFO, with the section as description).", s.m.ServerStatus, redisStatus)
-	vars("server_variables", "Server variables", "Returns the server's configuration variables (MySQL SHOW VARIABLES, PostgreSQL pg_settings, Redis CONFIG GET; passwords are hidden).", s.m.Variables, redisConfig)
+	vars("server_status", "Server status", "Returns the server's status counters (MySQL SHOW GLOBAL STATUS; PostgreSQL database and server statistics; Redis INFO and MongoDB serverStatus, with each entry's section).", s.m.ServerStatus, redisStatus)
+	vars("server_variables", "Server variables", "Returns the server's configuration variables (MySQL SHOW VARIABLES, PostgreSQL pg_settings, Redis CONFIG GET, MongoDB getParameter; passwords are hidden).", s.m.Variables, redisConfig)
 
 	if !writes {
 		return
@@ -223,6 +228,10 @@ func (s *Server) addMonitorTools(srv *mcp.Server, ep string, writes bool) {
 			return KilledOut{Killed: done}, nil
 		})
 }
+
+// secretName matches variables that may hold credentials (MongoDB
+// getParameter has a few, e.g. ldapQueryPassword).
+var secretName = regexp.MustCompile(`(?i)password|passwd|secret|passphrase`)
 
 // describeSession lists a session for the approval dialog and the log.
 func describeSession(p model.Process) string {

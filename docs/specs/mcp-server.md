@@ -88,7 +88,9 @@ parameters. A connection the endpoint can use is opened on demand (it needs a sa
 - Endpoints with no Read-write access anywhere aren't offered the write tools; calling one is an unknown-tool error.
   The list follows the settings on the next request, so a client sees the change when it reconnects.
 - No DDL, no raw write SQL in v1.
-- MySQL, PostgreSQL and SQLite; Redis has its own tools (below); MongoDB later.
+- MySQL, PostgreSQL and SQLite; Redis and MongoDB have their own tools (below).
+- Every write result has `approval`: "approved by the user in Chloe" or "ran without asking (danger mode is on)",
+  so the agent can tell the user which happened.
 
 ### Redis (per connection access)
 Offered to endpoints that can see a Redis connection. Access is per logical database, keyed by its number
@@ -98,6 +100,7 @@ refuse them.
 | Tool | Access | Arguments |
 |---|---|---|
 | `redis_databases` | any | `connection` |
+| `redis_overview` | Read | `connection, db?, pattern?` |
 | `redis_scan` | Read | `connection, db?, pattern?, type?, cursor?, count?` |
 | `redis_get` | Read | `connection, db?, key, cursor?, count?` |
 | `redis_command` | Read | `connection, db?, args` |
@@ -109,7 +112,10 @@ refuse them.
 - `db` defaults to 0. Keys that aren't UTF-8 come back as base64 with `key_base64`, which the agent passes back;
   values that aren't UTF-8 are shown as `0x…` hex. Strings are cut at 64 KB and collection elements at 4 KB, and
   the result says `truncated` so an agent doesn't write a cut value back. Approvals show binary bytes as `\xNN`.
-- `redis_scan` and `redis_get` page with a cursor (default 100, at most 1000 keys or elements; Redis treats the
+- `redis_overview` scans the database (up to 200,000 keys or 10 s; `complete` says whether it finished) and counts
+  keys per prefix (up to the last `:`, `/`, `.` or `|`) and type, with an example key and how many expire, largest
+  group first (200 groups). It's the first call for an unfamiliar database.
+- `redis_scan` (default 50 keys) and `redis_get` (default 100 elements) page with a cursor (at most 1000; Redis treats the
   count as a hint, so small hashes and sets come whole). A cursor that isn't one the tool returned is refused.
 - `redis_command` runs one command from a fixed list of read commands (GET, HGETALL, ZRANGEBYSCORE, XRANGE,
   PFCOUNT, GEOSEARCH, OBJECT ENCODING, JSON.GET…). Nothing that writes, blocks, switches database or runs a script;
@@ -140,7 +146,7 @@ refuse them.
 | `server_variables` | Read | `connection, filter?` |
 | `kill_session` | Read-write | `connection, id, query_only?` |
 
-- MySQL/MariaDB, PostgreSQL and Redis. Sessions and status span the whole server, so the endpoint needs the level on every
+- MySQL/MariaDB, PostgreSQL, Redis and MongoDB. Sessions and status span the whole server, so the endpoint needs the level on every
   database of the connection; one hidden or read-only database makes the tools refuse.
 - `filter` keeps names containing the text (case-insensitive). Session queries are cut like result cells.
 - `kill_session` asks unless danger mode is on, showing the session's user, host, database, state, time and query.
@@ -194,21 +200,50 @@ There's no separate `test_connection` tool: it would let an agent probe hosts an
   stays a manual Synchronize to Database or a query tab.
 - MySQL, MariaDB and PostgreSQL; models don't support SQLite.
 
-### MongoDB (planned)
-Filters, sorts, projections, pipelines and documents arrive as JSON (Extended JSON for `$oid`, `$date`…) and are
-never evaluated as JavaScript in Chloe. Guards, checked recursively before anything is sent:
-- No server-side JavaScript: `$where`, `$function` and `$accumulator` are refused anywhere in a filter, pipeline or
-  update.
-- Updates take operator documents only (`$set`, `$inc`…); pipeline-style updates and whole-document replacement
-  through the update tool are refused.
-- Read tools refuse the writing stages `$out` and `$merge`, also inside `$facet`, `$lookup` and `$unionWith`
-  pipelines; the admin stages `$currentOp`, `$listSessions` and `$listLocalSessions`; and a `$lookup`,
-  `$graphLookup` or `$unionWith` whose source names another database.
-- Every command carries `maxTimeMS` (30 s), so the server stops it rather than only Chloe giving up.
-- Update and delete first collect the matching `_id`s (capped), the user approves that count, and the write runs
-  with `{$and: [filter, {_id: {$in: approved}}]}`, so it can never touch a document that wasn't approved.
+### MongoDB (per connection access)
+Offered to endpoints that can see a MongoDB connection. Access is per database, like the SQL engines.
+`list_connections` lists MongoDB connections with engine `mongodb`; the SQL tools refuse them.
 
+| Tool | Access | Arguments |
+|---|---|---|
+| `mongo_databases` | any | `connection` |
+| `mongo_collections` | Read | `connection, database` |
+| `mongo_describe` | Read | `connection, database, collection` |
+| `mongo_find` | Read | `connection, database, collection, filter?, projection?, sort?, skip?, limit?, count?` |
+| `mongo_aggregate` | Read | `connection, database, collection, pipeline, limit?` |
+| `mongo_insert` | Read-write | `connection, database, collection, documents` |
+| `mongo_update` | Read-write | `connection, database, collection, filter, update, many?, upsert?` |
+| `mongo_delete` | Read-write | `connection, database, collection, filter, many?` |
 
+- Filters, projections, updates, pipeline stages and documents are JSON objects (Extended JSON for `$oid`, `$date`…),
+  never evaluated as JavaScript in Chloe. Their key order is kept: the SDK's typed arguments go through a Go map,
+  which sorts keys, so these tools decode the raw arguments themselves (`$sort` stages and inserted field order
+  depend on it). `sort` in `mongo_find` is a list of `{field, desc}`.
+- Results are relaxed Extended JSON, default 100 documents, at most 1000 and ~256 KB; strings and binary over 4 KB
+  are cut and the result says `truncated`. `mongo_describe` samples 100 documents for field paths and types and adds
+  indexes, the validator, or a view's pipeline.
+- Guards, checked at every depth before anything is sent:
+  - No server-side JavaScript: `$where`, `$function` and `$accumulator` are refused in filters, pipelines and updates.
+  - Updates take the operators `$set $unset $inc $mul $rename $min $max $currentDate $push $pull $pullAll $addToSet
+    $pop $setOnInsert $bit` only; no pipeline-style updates or replacement documents.
+  - `$out` and `$merge` are refused anywhere (so also inside `$facet`, `$lookup` and `$unionWith` pipelines), as are
+    `$currentOp`, `$listSessions`, `$listLocalSessions`, `$changeStream` and `$listSampledQueries`, and any
+    `$lookup`, `$graphLookup` or `$unionWith` whose source names a database or isn't a plain collection name.
+  - `system.*` collections (`system.users` and `system.roles` hold credentials, `system.js` stored JavaScript) are
+    refused for every tool and as lookup sources, and aren't listed.
+  - `admin`, `config` and `local` are never written, whatever the access setting.
+  - Every command runs under a 30 s context deadline, which the driver sends to the server as `maxTimeMS`, so the
+    server stops the work rather than only Chloe giving up.
+- Update and delete need a non-empty filter (`{"_id": {"$exists": true}}` matches everything). Chloe first collects
+  the `_id`s of the documents they'd touch (the first match, or with `many` up to 1000; more is an error), the user
+  approves that count with the `_id`s listed, and the write runs with `{$and: [filter, {_id: {$in: approved}}]}`, so a
+  document that starts matching while the dialog is open is never touched. Nothing matching means no write and no
+  dialog, except an `upsert`, which asks to insert one document.
+- Monitor covers MongoDB: `list_sessions` (currentOp), `server_status` (serverStatus, each entry with its
+  `section`), `server_variables` (getParameter; names containing password or secret are hidden), `kill_session`
+  (killOp).
+
+## Window (Tools > MCP Server…, and the titlebar MCP button)
 A tab like the History Log:
 - Toolbar: **Run MCP server**, **HTTP on port** (with the port), and the status (HTTP URL and/or the bridge).
 - **Copy Config** per client: Claude Code (bridge or HTTP), JSON with the bridge (Claude Desktop, `.mcp.json`,
@@ -223,4 +258,4 @@ A tab like the History Log:
 2. Monitor, saved queries / query tabs, create connections. ✅
 3. ER models. ✅
 4. Reports (`docs/specs/bi.md`): workspaces, data sources and charts ✅; dashboards ✅.
-5. Redis ✅; MongoDB next.
+5. Redis and MongoDB ✅.

@@ -194,7 +194,27 @@ type RedisScanArgs struct {
 	Pattern string `json:"pattern,omitempty" jsonschema:"glob pattern such as user:* (default *)"`
 	Type    string `json:"type,omitempty" jsonschema:"only keys of this type: string, hash, list, set, zset or stream"`
 	Cursor  string `json:"cursor,omitempty" jsonschema:"continue a scan with the cursor the last call returned"`
-	Count   int    `json:"count,omitempty" jsonschema:"about how many keys to return (default 100, at most 1000)"`
+	Count   int    `json:"count,omitempty" jsonschema:"about how many keys to return (default 50, at most 1000)"`
+}
+
+type RedisOverviewArgs struct {
+	RedisDBArgs
+	Pattern string `json:"pattern,omitempty" jsonschema:"only keys matching this glob pattern (default *)"`
+}
+
+type RedisGroupOut struct {
+	Pattern  string `json:"pattern" jsonschema:"the keys' common prefix, e.g. user:*, or a whole key that shares no prefix"`
+	Type     string `json:"type"`
+	Count    int64  `json:"count"`
+	Expiring int64  `json:"expiring,omitempty" jsonschema:"how many of them have a TTL"`
+	Example  string `json:"example"`
+}
+
+type RedisOverviewOut struct {
+	Groups   []RedisGroupOut `json:"groups" jsonschema:"largest first"`
+	Scanned  int64           `json:"scanned" jsonschema:"keys looked at"`
+	Complete bool            `json:"complete" jsonschema:"false when the scan stopped early (time or key limit): counts cover only the keys scanned"`
+	Other    int64           `json:"other,omitempty" jsonschema:"keys in groups beyond the first 200, not listed"`
 }
 
 type RedisKeyOut struct {
@@ -286,7 +306,8 @@ type RedisExpireArgs struct {
 }
 
 type RedisChangedOut struct {
-	Changed int64 `json:"changed" jsonschema:"what actually changed: elements written, fields set, values pushed, members added, rescored or removed, entries appended, keys deleted; 0 when nothing matched"`
+	Approval string `json:"approval,omitempty" jsonschema:"how the change was cleared: approved by the user in Chloe, or ran without asking because danger mode is on"`
+	Changed  int64  `json:"changed" jsonschema:"what actually changed: elements written, fields set, values pushed, members added, rescored or removed, entries appended, keys deleted; 0 when nothing matched"`
 }
 
 // --- read-only commands -------------------------------------------------------------
@@ -415,8 +436,25 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 			return out, nil
 		})
 
+	add(s, srv, ep, readOnlyTool("redis_overview", "Summarise Redis keys",
+		"Summarises a database's keys: how many there are of each prefix and type (e.g. user:* — 120 hashes), with an example key and how many expire. "+
+			"Start here to see what a database holds; then list keys of one prefix with redis_scan."),
+		func(ctx context.Context, c *call, in RedisOverviewArgs) (RedisOverviewOut, error) {
+			t, err := c.redisDB(ctx, in.Connection, in.DB, store.MCPRead)
+			if err != nil {
+				return RedisOverviewOut{}, err
+			}
+			c.act.SQL = quoteArgs("SCAN", "0", "MATCH", cmp(in.Pattern, "*"))
+			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
+			defer cancel()
+			out, err := overview(ctx, t.cl, cmp(in.Pattern, "*"))
+			c.act.Rows = out.Scanned
+			return out, err
+		})
+
 	add(s, srv, ep, readOnlyTool("redis_scan", "Scan Redis keys",
-		"Finds keys matching a pattern (SCAN), with their type and expiry. Large databases take several calls: pass back the cursor until it's empty."),
+		"Lists keys matching a pattern (SCAN), with their type and expiry, a page at a time: pass back the cursor until it's absent. "+
+			"To see what a database holds, use redis_overview first."),
 		func(ctx context.Context, c *call, in RedisScanArgs) (RedisScanOut, error) {
 			t, err := c.redisDB(ctx, in.Connection, in.DB, store.MCPRead)
 			if err != nil {
@@ -431,7 +469,11 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 			c.act.SQL = quoteArgs("SCAN", cmp(in.Cursor, "0"), "MATCH", cmp(in.Pattern, "*"))
 			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
 			defer cancel()
-			res, err := t.kv.ScanKeys(ctx, t.db, in.Cursor, in.Pattern, in.Type, clampLimit(in.Count))
+			count := 50
+			if in.Count > 0 {
+				count = clampLimit(in.Count)
+			}
+			res, err := t.kv.ScanKeys(ctx, t.db, in.Cursor, in.Pattern, in.Type, count)
 			if err != nil {
 				return RedisScanOut{}, err
 			}
@@ -730,6 +772,90 @@ func humanDuration(secs int64) string {
 		}
 	}
 	return plural(secs, "second")
+}
+
+const (
+	overviewKeys   = 200_000
+	overviewGroups = 200
+	overviewTime   = 10 * time.Second
+)
+
+// keyPrefix is the pattern a key is grouped under: everything up to its last
+// ':' (or '/', '.', '|') followed by *, or the key itself when it has none.
+func keyPrefix(k string) string {
+	if i := strings.LastIndexAny(k, ":/.|"); i > 0 && i < len(k)-1 {
+		return k[:i+1] + "*"
+	}
+	return k
+}
+
+// overview scans a database and counts keys per prefix and type.
+func overview(ctx context.Context, cl *redis.Client, pattern string) (RedisOverviewOut, error) {
+	type group struct{ RedisGroupOut }
+	groups := map[string]*group{}
+	out := RedisOverviewOut{Groups: []RedisGroupOut{}}
+	deadline := time.Now().Add(overviewTime)
+	var cur uint64
+	for {
+		keys, next, err := cl.Scan(ctx, cur, pattern, 1000).Result()
+		if err != nil {
+			return out, err
+		}
+		if len(keys) > 0 {
+			pipe := cl.Pipeline()
+			types := make([]*redis.StatusCmd, len(keys))
+			ttls := make([]*redis.DurationCmd, len(keys))
+			for i, k := range keys {
+				types[i], ttls[i] = pipe.Type(ctx, k), pipe.PTTL(ctx, k)
+			}
+			if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
+				return out, err
+			}
+			for i, k := range keys {
+				typ := types[i].Val()
+				if typ == "none" {
+					continue // expired or deleted since the scan
+				}
+				p := keyPrefix(k)
+				g := groups[p+"\x00"+typ]
+				if g == nil {
+					g = &group{RedisGroupOut: RedisGroupOut{Pattern: redisText(p, 200), Type: typ, Example: redisText(k, 200)}}
+					groups[p+"\x00"+typ] = g
+				}
+				g.Count++
+				if ttls[i].Val() > 0 {
+					g.Expiring++
+				}
+			}
+			out.Scanned += int64(len(keys))
+		}
+		cur = next
+		if cur == 0 {
+			out.Complete = true
+			break
+		}
+		if out.Scanned >= overviewKeys || time.Now().After(deadline) {
+			break
+		}
+	}
+	all := make([]*group, 0, len(groups))
+	for _, g := range groups {
+		all = append(all, g)
+	}
+	slices.SortFunc(all, func(a, b *group) int {
+		if a.Count != b.Count {
+			return int(b.Count - a.Count)
+		}
+		return strings.Compare(a.Pattern, b.Pattern)
+	})
+	for i, g := range all {
+		if i >= overviewGroups {
+			out.Other += g.Count
+			continue
+		}
+		out.Groups = append(out.Groups, g.RedisGroupOut)
+	}
+	return out, nil
 }
 
 func cmp(s, def string) string {

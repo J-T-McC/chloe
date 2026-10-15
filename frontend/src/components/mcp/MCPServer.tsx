@@ -3,7 +3,7 @@
 import { Bot, ChevronDown, ChevronRight, Copy, Folder, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { create } from "zustand";
-import { DBType, Events, Explorer, MCP, Redis, MCPLevel, arr, errorText, type MCPActivity, type MCPEndpoint, type MCPSettings, type MCPStatus, copyText } from "../../api";
+import { DBType, Events, Explorer, MCP, Mongo, Redis, MCPLevel, arr, errorText, type MCPActivity, type MCPEndpoint, type MCPSettings, type MCPStatus, copyText } from "../../api";
 import { openAgentQuery, refreshFolder } from "../../queries";
 import { openModel } from "../model/actions";
 import { useApp } from "../../store";
@@ -11,8 +11,8 @@ import { alert, confirm } from "../Dialogs";
 import { ConnIcon } from "../icons";
 import { Split } from "../Split";
 
-/** Engines MCP serves; MongoDB isn't there yet. */
-const MCP_ENGINES: string[] = [DBType.MySQL, DBType.MariaDB, DBType.PostgreSQL, DBType.SQLite, DBType.Redis];
+/** Engines MCP serves. */
+const MCP_ENGINES: string[] = [DBType.MySQL, DBType.MariaDB, DBType.PostgreSQL, DBType.SQLite, DBType.Redis, DBType.MongoDB];
 
 interface MCPState {
   settings: MCPSettings | null;
@@ -275,12 +275,12 @@ function EndpointDetail({ ep, url, update }: { ep: MCPEndpoint; url: string; upd
           <input type="checkbox" aria-label="Danger mode" checked={ep.danger} onChange={(e) => setDanger(e.target.checked)} />
           Danger mode: run writes without asking
         </label>
-        <p className="hint">{ep.danger ? "Writes run as soon as the agent asks. Read-only access and hidden databases still apply." : "Each insert, update or delete waits for you to approve it in Chloe."}</p>
+        <p className="hint">{ep.danger ? "Writes run as soon as the agent asks. Read-only access and hidden databases still apply." : "Each change an agent makes waits for you to approve it in Chloe."}</p>
       </div>
       <div className="pane-title mcp-access-title">Connection Access</div>
       <div className="mcp-access">
         <AccessTable ep={ep} update={update} />
-        <p className="hint">Connections take their group's access unless set otherwise. MongoDB connections aren't available over MCP yet.</p>
+        <p className="hint">Connections take their group's access unless set otherwise.</p>
       </div>
       <div className="pane-title mcp-access-title">Capabilities</div>
       <div className="form mcp-form">
@@ -394,7 +394,7 @@ function AccessTable({ ep, update }: { ep: MCPEndpoint; update(e: MCPEndpoint): 
   // Groups set on the endpoint show even when empty (e.g. the new-connection group).
   const allGroups = [...new Set([...groups, ...Object.keys(ep.groups ?? {})])];
   const top = shared.filter((c) => !c.group);
-  if (!shared.length && !allGroups.length) return <div className="empty-hint">No MySQL, PostgreSQL, SQLite or Redis connections yet.</div>;
+  if (!shared.length && !allGroups.length) return <div className="empty-hint">No database connections yet.</div>;
   return (
     <table>
       <thead>
@@ -470,7 +470,12 @@ function AccessRows({ connId, ep, update, groupLevel }: { connId: string; ep: MC
       return;
     }
     // Redis databases are numbers; access is keyed by the number, shown as db0, db1…
-    const list = conn.type === DBType.Redis ? Redis.Databases(connId).then((d) => arr(d).map((x) => String(x.index))) : Explorer.ListDatabases(connId).then(arr);
+    const list =
+      conn.type === DBType.Redis
+        ? Redis.Databases(connId).then((d) => arr(d).map((x) => String(x.index)))
+        : conn.type === DBType.MongoDB
+          ? Mongo.Databases(connId).then((d) => arr(d).map((x) => x.name))
+          : Explorer.ListDatabases(connId).then(arr);
     list
       .then((d) => setDbs(d))
       .catch((e) => setError(errorText(e)));
