@@ -91,6 +91,9 @@ func TestModels(t *testing.T) {
 	if a := f.call(t, "create_model", map[string]any{"name": "../../etc/x", "dialect": "mysql"}, ""); filepath.Dir(a["path"].(string)) != f.m.Store.AgentModelDir() {
 		t.Fatalf("escaped: %v", a)
 	}
+	if c := f.call(t, "create_model", map[string]any{"name": "Shop – copy (2)", "dialect": "mysql"}, "")["path"].(string); filepath.Base(c) != "Shop – copy (2).chloemodel" {
+		t.Fatalf("readable name: %s", c)
+	}
 	b := f.call(t, "create_model", map[string]any{"name": "Shop v2", "dialect": "mysql"}, "")["path"].(string)
 	if filepath.Base(b) != "Shop v2 2.chloemodel" {
 		t.Fatalf("unique: %s", b)

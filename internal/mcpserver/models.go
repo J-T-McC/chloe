@@ -306,7 +306,7 @@ func (c *call) modelInfo(p string, m datamodel.Model) ModelInfo {
 	return ModelInfo{Path: p, Name: m.Name, Dialect: m.Dialect, Tables: len(m.Tables), Editable: c.agentModel(p)}
 }
 
-var unsafeName = regexp.MustCompile(`[^\pL\pN ._-]+`)
+var unsafeName = regexp.MustCompile(`[^\pL\pN\p{Pd} ._()]+`)
 
 // saveNewModel writes m under a new file name in the agent model folder.
 func (c *call) saveNewModel(m datamodel.Model) (string, error) {
