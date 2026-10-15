@@ -174,6 +174,13 @@ func testMonitor(t *testing.T, f *fixture, conn model.Connection) {
 	if st := f.call(t, "server_status", map[string]any{"connection": conn.Name}, "")["values"].([]any); len(st) == 0 {
 		t.Fatal("no status")
 	}
+	if conn.Type == model.PostgreSQL {
+		// The filter matches PostgreSQL's own counter names, given in the descriptions.
+		st := f.call(t, "server_status", map[string]any{"connection": conn.Name, "filter": "numbackends"}, "")["values"].([]any)
+		if len(st) != 1 || st[0].(map[string]any)["name"] != "connections" {
+			t.Fatalf("numbackends: %v", st)
+		}
+	}
 
 	f.call(t, "kill_session", map[string]any{"connection": conn.Name, "id": own}, "Chloe's own")
 	f.appr.answer = false

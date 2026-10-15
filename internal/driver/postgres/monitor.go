@@ -94,22 +94,22 @@ func (c *Conn) Status(ctx context.Context) ([]model.ServerVar, error) {
 		return nil, err
 	}
 	recs, err := sqlcommon.QueryStrings(ctx, db, `
-		SELECT 'uptime', date_trunc('second', now() - pg_postmaster_start_time())::text, 'Time since the server started'
-		UNION ALL SELECT 'connections', count(*)::text, 'Client backends' FROM pg_stat_activity WHERE backend_type = 'client backend'
-		UNION ALL SELECT 'active_connections', count(*)::text, 'Client backends running a query' FROM pg_stat_activity WHERE state = 'active'
-		UNION ALL SELECT 'max_connections', current_setting('max_connections'), 'Configured connection limit'
-		UNION ALL SELECT 'xact_commit', sum(xact_commit)::text, 'Committed transactions (all databases)' FROM pg_stat_database
-		UNION ALL SELECT 'xact_rollback', sum(xact_rollback)::text, 'Rolled back transactions' FROM pg_stat_database
-		UNION ALL SELECT 'blks_hit', sum(blks_hit)::text, 'Buffer cache hits' FROM pg_stat_database
-		UNION ALL SELECT 'blks_read', sum(blks_read)::text, 'Blocks read from disk' FROM pg_stat_database
-		UNION ALL SELECT 'cache_hit_ratio', round(100.0 * sum(blks_hit) / NULLIF(sum(blks_hit) + sum(blks_read), 0), 2)::text || ' %', 'Buffer cache hit ratio' FROM pg_stat_database
-		UNION ALL SELECT 'tup_returned', sum(tup_returned)::text, 'Rows returned' FROM pg_stat_database
-		UNION ALL SELECT 'tup_inserted', sum(tup_inserted)::text, 'Rows inserted' FROM pg_stat_database
-		UNION ALL SELECT 'tup_updated', sum(tup_updated)::text, 'Rows updated' FROM pg_stat_database
-		UNION ALL SELECT 'tup_deleted', sum(tup_deleted)::text, 'Rows deleted' FROM pg_stat_database
-		UNION ALL SELECT 'deadlocks', sum(deadlocks)::text, 'Deadlocks detected' FROM pg_stat_database
-		UNION ALL SELECT 'temp_bytes', pg_size_pretty(sum(temp_bytes)::bigint), 'Temporary file usage' FROM pg_stat_database
-		UNION ALL SELECT 'database_size', pg_size_pretty(sum(pg_database_size(datname))::bigint), 'Total size of all databases' FROM pg_database WHERE datallowconn`)
+		SELECT 'uptime', date_trunc('second', now() - pg_postmaster_start_time())::text, 'Time since the server started (pg_postmaster_start_time)'
+		UNION ALL SELECT 'connections', count(*)::text, 'Client backends (pg_stat_activity; like numbackends in pg_stat_database)' FROM pg_stat_activity WHERE backend_type = 'client backend'
+		UNION ALL SELECT 'active_connections', count(*)::text, 'Client backends running a query (pg_stat_activity state active)' FROM pg_stat_activity WHERE state = 'active'
+		UNION ALL SELECT 'max_connections', current_setting('max_connections'), 'Configured connection limit (max_connections)'
+		UNION ALL SELECT 'xact_commit', sum(xact_commit)::text, 'Committed transactions, all databases (pg_stat_database.xact_commit)' FROM pg_stat_database
+		UNION ALL SELECT 'xact_rollback', sum(xact_rollback)::text, 'Rolled back transactions (pg_stat_database.xact_rollback)' FROM pg_stat_database
+		UNION ALL SELECT 'blks_hit', sum(blks_hit)::text, 'Buffer cache hits (pg_stat_database.blks_hit)' FROM pg_stat_database
+		UNION ALL SELECT 'blks_read', sum(blks_read)::text, 'Blocks read from disk (pg_stat_database.blks_read)' FROM pg_stat_database
+		UNION ALL SELECT 'cache_hit_ratio', round(100.0 * sum(blks_hit) / NULLIF(sum(blks_hit) + sum(blks_read), 0), 2)::text || ' %', 'Buffer cache hit ratio (blks_hit / (blks_hit + blks_read))' FROM pg_stat_database
+		UNION ALL SELECT 'tup_returned', sum(tup_returned)::text, 'Rows returned (pg_stat_database.tup_returned)' FROM pg_stat_database
+		UNION ALL SELECT 'tup_inserted', sum(tup_inserted)::text, 'Rows inserted (pg_stat_database.tup_inserted)' FROM pg_stat_database
+		UNION ALL SELECT 'tup_updated', sum(tup_updated)::text, 'Rows updated (pg_stat_database.tup_updated)' FROM pg_stat_database
+		UNION ALL SELECT 'tup_deleted', sum(tup_deleted)::text, 'Rows deleted (pg_stat_database.tup_deleted)' FROM pg_stat_database
+		UNION ALL SELECT 'deadlocks', sum(deadlocks)::text, 'Deadlocks detected (pg_stat_database.deadlocks)' FROM pg_stat_database
+		UNION ALL SELECT 'temp_bytes', pg_size_pretty(sum(temp_bytes)::bigint), 'Temporary file bytes written since the stats were reset (pg_stat_database.temp_bytes)' FROM pg_stat_database
+		UNION ALL SELECT 'database_size', pg_size_pretty(sum(pg_database_size(datname))::bigint), 'Total size of all databases (pg_database_size)' FROM pg_database WHERE datallowconn`)
 	if err != nil {
 		return nil, err
 	}

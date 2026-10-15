@@ -18,7 +18,7 @@ type ServerArgs struct {
 
 type VarsArgs struct {
 	ServerArgs
-	Filter string `json:"filter,omitempty" jsonschema:"only names containing this text (case-insensitive)"`
+	Filter string `json:"filter,omitempty" jsonschema:"only entries whose name or description contains this text (case-insensitive); descriptions name the server's own counters, e.g. numbackends"`
 }
 
 type KillArgs struct {
@@ -126,7 +126,8 @@ func (s *Server) addMonitorTools(srv *mcp.Server, ep string, writes bool) {
 				out := VarsOut{Values: []VarOut{}}
 				f := strings.ToLower(in.Filter)
 				for _, v := range vs {
-					if !strings.Contains(strings.ToLower(v.Name), f) {
+					// The description names the server's own counter (numbackends…), which matches too.
+					if !strings.Contains(strings.ToLower(v.Name), f) && !strings.Contains(strings.ToLower(v.Description), f) {
 						continue
 					}
 					if len(out.Values) == maxLimit {
