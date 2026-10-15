@@ -31,6 +31,8 @@ type RenderRequest struct {
 	Dashboard string  `json:"dashboard"`
 	Pages     []int   `json:"pages"`
 	Scale     float64 `json:"scale"`
+	// Params are parameter values to draw with (not saved).
+	Params map[string]string `json:"params,omitempty"`
 }
 
 func init() { application.RegisterEvent[RenderRequest](EventBIRender) }
@@ -49,12 +51,12 @@ var renders = struct {
 }{pending: map[string]chan renderResult{}}
 
 // Render has the window draw dashboard pages and returns them as PNGs.
-func (MCPEvents) Render(ctx context.Context, path, dashboard string, pages []int, scale float64) ([][]byte, error) {
+func (MCPEvents) Render(ctx context.Context, path, dashboard string, pages []int, scale float64, params map[string]string) ([][]byte, error) {
 	app := application.Get()
 	if app == nil {
 		return nil, errors.New("Chloe's window isn't available to draw the dashboard")
 	}
-	req := RenderRequest{ID: uuid.NewString(), Path: path, Dashboard: dashboard, Pages: pages, Scale: scale}
+	req := RenderRequest{ID: uuid.NewString(), Path: path, Dashboard: dashboard, Pages: pages, Scale: scale, Params: params}
 	ch := make(chan renderResult, 1)
 	renders.Lock()
 	renders.pending[req.ID] = ch

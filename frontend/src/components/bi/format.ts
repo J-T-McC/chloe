@@ -16,6 +16,7 @@ const UNITS: [number, string][] = [
  *  even when no unit is set. */
 export function formatNumber(x: number | null | undefined, fmt: B.NumberFormat = {}, compact = false): string {
   if (x === null || x === undefined || Number.isNaN(x)) return "";
+  if (fmt.percent) return formatNumber(x * 100, { ...fmt, percent: false, unit: "", suffix: "%" + (fmt.suffix ?? "") }, false);
   let v = x;
   let unit = "";
   const want = fmt.unit || (compact ? "auto" : "");

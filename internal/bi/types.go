@@ -309,9 +309,16 @@ func (c Chart) Check(src DataSource, dialect string) (complete bool, err error) 
 		if err := f.check(); err != nil {
 			return false, err
 		}
-		if _, ok := fieldIn(src.allFields(), f.Field); !ok {
+		fd, ok := fieldIn(src.allFields(), f.Field)
+		if !ok {
 			return false, fmt.Errorf("data source %q has no field %q", src.Name, f.Field)
 		}
+		if err := checkFieldFilter(f, fd); err != nil {
+			return false, err
+		}
+	}
+	if p := c.Props; p.Min != nil && p.Max != nil && *p.Min >= *p.Max {
+		return false, fmt.Errorf("a gauge's minimum (%g) must be below its maximum (%g)", *p.Min, *p.Max)
 	}
 	return complete, nil
 }

@@ -202,3 +202,43 @@ func TestBIJoinedTables(t *testing.T) {
 		}
 	}
 }
+
+func TestBIFieldTypesWithoutRows(t *testing.T) {
+	m, id := biSetup(t)
+	ctx := context.Background()
+	p, _ := m.Store.BI().Create(bi.New("types"))
+	if _, err := m.Store.BI().Update(p, func(w *bi.Workspace) error {
+		_, err := w.PutParameter(bi.Parameter{Meta: bi.Meta{Name: "min"}, Type: bi.TypeNumber, Value: "0"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	src, err := m.BISaveSource(ctx, p, bi.DataSource{Meta: bi.Meta{Name: "Q"}, ConnID: id, Database: "main", SQL: "SELECT id, total, placed_at FROM orders WHERE total >= [$min]", Mode: bi.ModeLive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// With a value that matches nothing, a date column keeps its type.
+	if _, err := m.Store.BI().Update(p, func(w *bi.Workspace) error { w.Param("min").Value = "100000"; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	w, _ := bi.Read(p)
+	if src, err = m.BISaveSource(ctx, p, *w.Source(src.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if f, _ := src.Field("placed_at"); f.Type != bi.TypeDateTime {
+		t.Errorf("placed_at became %s", f.Type)
+	}
+	// A join that matches nothing types its columns from the table; columns can be picked.
+	src2, err := m.BISaveSource(ctx, p, bi.DataSource{Meta: bi.Meta{Name: "J"}, ConnID: id, Database: "main", Table: "orders", Mode: bi.ModeLive,
+		Joins: []bi.Join{{Table: "customers", Type: "inner", On: []bi.JoinOn{{Left: "placed_at", Right: "email"}}, Columns: []string{"email"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f, _ := src2.Field("placed_at"); f.Type != bi.TypeDateTime || len(src2.Joins[0].Columns) != 1 {
+		t.Errorf("join typing: %+v %v", f, src2.Joins[0].Columns)
+	}
+	if _, err := m.BISaveSource(ctx, p, bi.DataSource{Meta: bi.Meta{Name: "Bad"}, ConnID: id, Database: "main", Table: "orders", Mode: bi.ModeLive,
+		Joins: []bi.Join{{Table: "customers", Type: "left", On: []bi.JoinOn{{Left: "nosuch", Right: "id"}}}}}); err == nil || strings.Contains(err.Error(), "t0.") {
+		t.Errorf("bad left column: %v", err)
+	}
+}

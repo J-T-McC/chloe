@@ -245,6 +245,14 @@ func (w *Workspace) Resolve(src DataSource, c Chart, overrides map[string]string
 	if err != nil {
 		return src, c, err
 	}
+	// An archive's query ran when its snapshot was taken, with the values then.
+	if src.Mode == ModeArchive {
+		for name := range overrides {
+			if slices.ContainsFunc(Refs(src.SQL), func(r string) bool { return strings.EqualFold(r, strings.TrimPrefix(name, "$")) }) {
+				return src, c, fmt.Errorf("$%s is used in archive data source %q's query, which was read with the value it had when the snapshot was taken; change the parameter and refresh the data, or make the source live", strings.TrimPrefix(name, "$"), src.Name)
+			}
+		}
+	}
 	if src.Filters, err = v.filters(src.Filters); err != nil {
 		return src, c, err
 	}
@@ -257,6 +265,69 @@ func (w *Workspace) Resolve(src DataSource, c Chart, overrides map[string]string
 		src.paramTypes[strings.ToLower(p.Name)] = p.Type
 	}
 	return src, c, nil
+}
+
+// CheckRefs refuses a data source that names a parameter the workspace doesn't
+// have: in its query, its filters' values or its custom fields' expressions.
+func (w *Workspace) CheckRefs(src DataSource) error {
+	texts := []string{src.SQL}
+	for _, f := range src.Filters {
+		texts = append(texts, f.Values...)
+	}
+	for _, cf := range src.CustomFields {
+		texts = append(texts, cf.Expression)
+	}
+	for _, t := range texts {
+		for _, name := range Refs(t) {
+			if w.Param(name) == nil {
+				return fmt.Errorf("no parameter $%s in the workspace (parameters: %s)", name, strings.Join(w.paramNames(), ", "))
+			}
+		}
+	}
+	return nil
+}
+
+// ParamUsers names the objects that refer to a parameter: "data source X", "chart Y", "dashboard Z".
+func (w *Workspace) ParamUsers(name string) []string {
+	uses := func(texts ...string) bool {
+		for _, t := range texts {
+			if slices.ContainsFunc(Refs(t), func(r string) bool { return strings.EqualFold(r, name) }) {
+				return true
+			}
+		}
+		return false
+	}
+	filterTexts := func(fs []Filter) []string {
+		var out []string
+		for _, f := range fs {
+			out = append(out, f.Values...)
+		}
+		return out
+	}
+	var out []string
+	for _, s := range w.DataSources {
+		texts := append([]string{s.SQL}, filterTexts(s.Filters)...)
+		for _, cf := range s.CustomFields {
+			texts = append(texts, cf.Expression)
+		}
+		if uses(texts...) {
+			out = append(out, "data source "+strconv.Quote(s.Name))
+		}
+	}
+	for _, c := range w.Charts {
+		if uses(append([]string{c.Props.Title}, filterTexts(c.Filters)...)...) {
+			out = append(out, "chart "+strconv.Quote(c.Name))
+		}
+	}
+	for _, d := range w.Dashboards {
+		for _, p := range d.Pages {
+			if slices.ContainsFunc(p.Items, func(it Item) bool { return uses(it.Text) }) {
+				out = append(out, "dashboard "+strconv.Quote(d.Name))
+				break
+			}
+		}
+	}
+	return out
 }
 
 // ResolveSource is Resolve for a data source alone (its fields and preview).

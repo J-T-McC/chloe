@@ -80,7 +80,7 @@ func (e *events) OpenBI(p, id string) {
 }
 
 // Render draws each page as a 4x2 PNG; the page number is the first pixel's red.
-func (e *events) Render(_ context.Context, path, id string, pages []int, scale float64) ([][]byte, error) {
+func (e *events) Render(_ context.Context, path, id string, pages []int, scale float64, _ map[string]string) ([][]byte, error) {
 	e.mu.Lock()
 	e.rendered = append(e.rendered, fmt.Sprintf("%v@%v", pages, scale))
 	e.mu.Unlock()

@@ -112,7 +112,7 @@ type Events interface {
 	// OpenBI asks the UI to open an object (a chart) of a BI workspace.
 	OpenBI(path, id string)
 	// Render has the UI draw dashboard pages (0-based) and returns them as PNGs.
-	Render(ctx context.Context, path, dashboard string, pages []int, scale float64) ([][]byte, error)
+	Render(ctx context.Context, path, dashboard string, pages []int, scale float64, params map[string]string) ([][]byte, error)
 }
 
 // Build is the commit Chloe was built from (set by the build; "dev" otherwise),

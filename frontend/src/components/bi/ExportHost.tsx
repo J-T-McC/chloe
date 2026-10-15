@@ -60,7 +60,7 @@ export function ExportHost() {
     () =>
       Events.On("bi:render", (ev) => {
         const r = ev.data;
-        renderPages(r.path, r.dashboard, arr(r.pages), r.scale || 1)
+        renderPages(r.path, r.dashboard, arr(r.pages), r.scale || 1, (r.params ?? {}) as Record<string, string>)
           .then((pngs) => BI.Rendered(r.id, pngs, ""))
           .catch((e) => BI.Rendered(r.id, [], errorText(e)));
       }),

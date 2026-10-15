@@ -107,6 +107,8 @@ func lexExpr(s string) ([]token, error) {
 			case c == '(' || c == ')' || c == ',':
 				out = append(out, token{string(c), string(c), i})
 				i++
+			case c == '"':
+				return nil, fmt.Errorf("text goes in single quotes ('like this'), not double quotes (at %d)", i+1)
 			default:
 				return nil, fmt.Errorf("unexpected %q at %d", c, i+1)
 			}

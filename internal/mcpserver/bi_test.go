@@ -233,4 +233,14 @@ INSERT INTO orders VALUES (1, 10, 'N'), (2, 15, 'S'), (3, 5, 'N'), (4, 30, 'S');
 		t.Fatal(err)
 	}
 	f.call(t, "edit_parameter", map[string]any{"workspace": "P", "parameter": "mine", "value": "y"}, "belongs to the user")
+	// Friendly property errors, refresh fills titles, and parameters in use can't go.
+	f.call(t, "edit_chart", map[string]any{"workspace": "P", "chart": "Sum", "properties": map[string]any{"goal": "high"}}, "properties.goal is a number")
+	f.call(t, "create_dashboard", map[string]any{"workspace": "P", "name": "D", "pages": []any{map[string]any{"rows": []any{map[string]any{"tiles": []any{map[string]any{"chart": "Sum", "span": 6}, map[string]any{"text": "For [$region]", "span": 6}}}}}}}, "")
+	r := f.call(t, "refresh_dashboard", map[string]any{"workspace": "P", "dashboard": "D", "parameters": map[string]any{"region": "N"}}, "")
+	page := r["pages"].([]any)[0].(map[string]any)
+	if page["charts"].([]any)[0].(map[string]any)["title"] != "Over 1 in N" || fmt.Sprint(page["text"]) != "[For N]" {
+		t.Fatalf("refresh: %v", page)
+	}
+	f.call(t, "refresh_dashboard", map[string]any{"workspace": "P", "dashboard": "D", "parameters": map[string]any{"region": "W"}}, `is one of "N", "S"`)
+	f.call(t, "delete_parameter", map[string]any{"workspace": "P", "parameter": "region"}, "still used by")
 }

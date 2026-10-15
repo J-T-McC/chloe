@@ -158,6 +158,29 @@ func (f Filter) check() error {
 	return nil
 }
 
+// relativeOps are the filters that count back from today; they need a date field.
+var relativeOps = []string{"in_last", "in_period", "to_date"}
+
+// checkFieldFilter checks a filter against its field's type: relative dates on
+// dates, and numbers compared with numbers (a value that's a [$parameter] is
+// checked once it's filled in).
+func checkFieldFilter(f Filter, fd Field) error {
+	if slices.Contains(relativeOps, f.Op) && fd.Type != TypeDateTime {
+		return fmt.Errorf("%s needs a date/time field; %s is %s", f.Op, f.Field, fd.Type)
+	}
+	if fd.Type == TypeNumber && slices.Contains([]string{"=", "!=", "<", "<=", ">", ">=", "between", "not_between", "in", "not_in"}, f.Op) {
+		for _, v := range f.Values {
+			if isRef(v) {
+				continue
+			}
+			if _, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err != nil {
+				return fmt.Errorf("%s is a number, so %s compares it with numbers, not %q", f.Field, f.Op, v)
+			}
+		}
+	}
+	return nil
+}
+
 // sourceStart lists the statements a query data source may be, per engine:
 // ones that can sit in FROM (…) and read data.
 var sourceStart = map[string][]string{
@@ -399,6 +422,9 @@ func (b *qb) where(fields []Field, filters []Filter) (string, error) {
 		fd, ok := fieldIn(fields, f.Field)
 		if !ok {
 			return "", fmt.Errorf("no field %q to filter on", f.Field)
+		}
+		if err := checkFieldFilter(f, fd); err != nil {
+			return "", err
 		}
 		col := b.col(fd)
 		like := "LIKE"

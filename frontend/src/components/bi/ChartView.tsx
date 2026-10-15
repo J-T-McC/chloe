@@ -5,7 +5,7 @@ import { BarChart, CustomChart, GaugeChart, HeatmapChart, LineChart, PieChart, S
 import { GridComponent, LegendComponent, TooltipComponent, VisualMapComponent } from "echarts/components";
 import * as echarts from "echarts/core";
 import { SVGRenderer } from "echarts/renderers";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { B } from "../../api";
 import { formatLabel, formatNumber, oneYear } from "./format";
 import { controlStyle } from "./interaction";
@@ -71,7 +71,9 @@ export function ChartView({
 function EChart({ chart, data, theme, still, selected, onPick }: { chart: B.Chart; data: B.Data; theme: ChartTheme; still?: boolean; selected?: unknown; onPick?(key: unknown, label: string): void }) {
   const host = useRef<HTMLDivElement>(null);
   const inst = useRef<echarts.ECharts | null>(null);
-  const option = useMemo(() => ({ ...buildOption(chart, data, theme, selected), ...(still ? { animation: false } : {}) }), [chart, data, theme, still, selected]);
+  // The tile's height, so a gauge's text fits small tiles.
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  const option = useMemo(() => fitGauge({ ...buildOption(chart, data, theme, selected), ...(still ? { animation: false } : {}) }, chart.type, size.w, size.h), [chart, data, theme, still, selected, size]);
   // The click handler reads the latest props, so it's registered once.
   const pick = useRef({ chart, data, onPick });
   pick.current = { chart, data, onPick };
@@ -85,7 +87,10 @@ function EChart({ chart, data, theme, still, selected, onPick }: { chart: B.Char
       const key = pickKey(chart, data, ev);
       if (key !== undefined) onPick(key, ev.name ?? String(key));
     });
-    const ro = new ResizeObserver(() => c.resize());
+    const ro = new ResizeObserver(() => {
+      c.resize();
+      setSize({ w: host.current?.clientWidth ?? 0, h: host.current?.clientHeight ?? 0 });
+    });
     ro.observe(host.current);
     return () => {
       ro.disconnect();
@@ -382,4 +387,28 @@ function ControlView({ chart, data, control }: { chart: B.Chart; data: B.Data; c
       })}
     </div>
   );
+}
+
+/** Scale a gauge's figure, title, ticks and arc to the space it has. */
+function fitGauge<T extends object>(option: T, type: string, w: number, h: number): T {
+  if (type !== "gauge" || !h) return option;
+  const o = option as unknown as { series: Record<string, Record<string, unknown>>[] };
+  const g = o.series?.[0];
+  if (!g) return option;
+  const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
+  const width = clamp(h * 0.06, 6, 14);
+  return {
+    ...option,
+    series: [
+      {
+        ...g,
+        progress: { ...g.progress, width },
+        axisLine: { ...g.axisLine, lineStyle: { ...(g.axisLine?.lineStyle as object), width } },
+        // The figure sits inside the arc, whose width follows the smaller side.
+        detail: { ...g.detail, fontSize: clamp(Math.min(h * 0.13, Math.min(w, h * 1.4) * 0.075), 12, 32) },
+        title: { ...g.title, show: h >= 140, fontSize: clamp(h * 0.05, 10, 12) },
+        axisLabel: { ...g.axisLabel, show: h >= 110 },
+      },
+    ],
+  };
 }

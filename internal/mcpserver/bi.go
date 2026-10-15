@@ -75,7 +75,7 @@ type ChartSpec struct {
 	Sort       *SortArg       `json:"sort,omitempty" jsonschema:"default: dates and numbers in order, categories by value descending"`
 	Top        *int           `json:"top,omitempty" jsonschema:"keep the first n dimension values"`
 	Others     *bool          `json:"others,omitempty" jsonschema:"with top: add the rest up as Others"`
-	Properties map[string]any `json:"properties,omitempty" jsonschema:"display settings: title, hideTitle, legend (auto top bottom right none), labels, labelPercent, stack100, smooth, number {prefix suffix unit(auto K M B) decimals noSeparator}, dateFormat (YYYY MMM DD…), palette, colors (hex list), xTitle, yTitle, labelCase (raw shows category values as stored; by default ended_early shows as Ended Early), goal (kpi target when there's no target field), min and max (gauge range; max defaults to the target field), lowerIsBetter (trend and kpi: a fall shows as good). Display only: get_chart_data returns unformatted numbers"`
+	Properties map[string]any `json:"properties,omitempty" jsonschema:"display settings: title, hideTitle, legend (auto top bottom right none), labels, labelPercent, stack100, smooth, number {prefix suffix unit(auto K M B) decimals noSeparator percent (0.2 shows as 20%)}, dateFormat (YYYY MMM DD…), palette, colors (hex list), xTitle, yTitle, labelCase (raw shows category values as stored; by default ended_early shows as Ended Early), goal (kpi target when there's no target field), min and max (gauge range; max defaults to the target field), lowerIsBetter (trend and kpi: a fall shows as good). Display only: get_chart_data returns unformatted numbers"`
 	// Props is how get_workspace returns properties, accepted as well.
 	Props map[string]any `json:"props,omitempty" jsonschema:"same as properties (get_workspace's name for them)"`
 }
@@ -218,7 +218,7 @@ func chartTypesText() string {
 		}
 		parts = append(parts, k+" ("+strings.Join(sh, ", ")+")")
 	}
-	return strings.Join(parts, "; ")
+	return strings.Join(parts, "; ") + ". A chart split by series takes one value field"
 }
 
 func (s *Server) addBITools(srv *mcp.Server, ep string) {
@@ -370,6 +370,20 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 				return SourceOut{}, err
 			}
 			c.act.SQL = src.SQL
+			// Charts on the source must still work: removing a custom field or a filter's
+			// field they use is refused, naming them (the fields stay as they were
+			// unless the table or query changed, which re-reads them).
+			if src.Table == found.Table && src.SQL == found.SQL {
+				var broken []string
+				for _, ch := range w.ChartsUsing(src.ID) {
+					if _, err := ch.Check(src, c.dialectName(src.ConnID)); err != nil {
+						broken = append(broken, fmt.Sprintf("%q (%v)", ch.Name, err))
+					}
+				}
+				if len(broken) > 0 {
+					return SourceOut{}, fmt.Errorf("this change would break charts on the data source: %s", strings.Join(broken, "; "))
+				}
+			}
 			saved, err := c.s.m.BISaveSource(ctx, p, src)
 			if err != nil {
 				return SourceOut{}, err
@@ -500,6 +514,31 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			in.ParameterSpec.apply(&next)
 			saved, err := c.putParam(p, next)
 			return ParamOut{Parameter: saved, Editable: true}, err
+		})
+
+	add(s, srv, ep, &mcp.Tool{Name: "delete_parameter", Description: "Deletes a parameter created over MCP. Refused while a data source, chart or dashboard text still refers to it.",
+		Annotations: &mcp.ToolAnnotations{Title: "Delete parameter", DestructiveHint: &t, OpenWorldHint: &f}},
+		func(ctx context.Context, c *call, in EditParameterArgs) (DeletedOut, error) {
+			p, w, err := c.workspace(in.Workspace)
+			if err != nil {
+				return DeletedOut{}, err
+			}
+			prm := w.Param(in.Parameter)
+			if prm == nil {
+				return DeletedOut{}, fmt.Errorf("no parameter %q in the workspace (see get_workspace)", in.Parameter)
+			}
+			if !agentMade(prm.CreatedBy) {
+				return DeletedOut{}, fmt.Errorf("parameter %q belongs to the user; agents delete only parameters they created", prm.Name)
+			}
+			if users := w.ParamUsers(prm.Name); len(users) > 0 {
+				return DeletedOut{}, fmt.Errorf("$%s is still used by %s; change those first", prm.Name, strings.Join(users, ", "))
+			}
+			if _, err := c.s.m.Store.BI().Update(p, func(w *bi.Workspace) error { return w.Delete(prm.ID) }); err != nil {
+				return DeletedOut{}, err
+			}
+			c.act.SQL = p + " › $" + prm.Name
+			c.biChanged(p)
+			return DeletedOut{Deleted: prm.Name}, nil
 		})
 
 	add(s, srv, ep, &mcp.Tool{Name: "delete_chart", Description: "Deletes a chart created over MCP (scratch work, a chart you replaced). The user's own charts can't be deleted.",
@@ -793,6 +832,14 @@ func (c *call) applySpec(ch *bi.Chart, src bi.DataSource, in ChartSpec) error {
 		dec := json.NewDecoder(bytes.NewReader(data))
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&p); err != nil {
+			var te *json.UnmarshalTypeError
+			if errors.As(err, &te) {
+				want := map[string]string{"float64": "a number", "string": "text", "bool": "true or false", "int": "a whole number"}[te.Type.Kind().String()]
+				if want == "" {
+					want = "a " + te.Type.Kind().String()
+				}
+				return fmt.Errorf("properties.%s is %s, not %s", te.Field, want, te.Value)
+			}
 			return fmt.Errorf("properties: %w", err)
 		}
 		ch.Props = p
