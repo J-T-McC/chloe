@@ -68,9 +68,46 @@ await page.waitForTimeout(800);
 console.log("replan:", (await sd.locator(".sync-actions").innerText()).replace(/\n/g, " | "));
 await sd.getByRole("button", { name: /Close|Cancel/ }).click();
 
-// New PG model from the toolbar
+// Save the reverse-engineered model into Chloe's library: it asks for a name, not a file.
+const dialog = () => page.locator(".modal.small");
+const check = (ok, msg) => { if (!ok) throw new Error(msg); };
+await page.locator(".tab", { hasText: "(model)" }).first().click();
+await page.locator(".model-editor:visible").getByRole("button", { name: "Save", exact: true }).click();
+await dialog().locator("input").fill("Shop model");
+await dialog().getByRole("button", { name: "OK" }).click();
+await page.locator(".tab.active", { hasText: "Shop model (model)" }).waitFor();
+check(!(await page.locator(".tab.active").innerText()).includes("•"), "still dirty after saving");
+
+// The Model toolbar button lists the library.
 await page.locator(".tool-button", { hasText: "Model" }).click();
-await page.locator(".context-menu").getByText("New PostgreSQL Model").click();
+const lib = page.locator(".models-list");
+const libRow = (name) => lib.locator("tbody tr", { has: page.locator(`td:first-child:text-is("${name}")`) });
+await libRow("Shop model").waitFor();
+const cells = await libRow("Shop model").locator("td").allInnerTexts();
+console.log("library row:", cells.join(" | "));
+check(cells[1] === "MySQL" && cells[2] === "5" && cells[3] === "M › shop", "row: " + cells.join(" | "));
+await page.screenshot({ path: `${out}/m-library.png` });
+
+await libRow("Shop model").click({ button: "right" });
+await page.locator(".context-menu").getByText("Duplicate").click();
+await libRow("Shop model copy").waitFor();
+await libRow("Shop model copy").click({ button: "right" });
+await page.locator(".context-menu").getByText("Rename…").click();
+await dialog().locator("input").fill("Shop archive");
+await dialog().getByRole("button", { name: "OK" }).click();
+await libRow("Shop archive").waitFor();
+await libRow("Shop archive").click();
+await page.locator(".objects-pane:visible").getByRole("button", { name: "Delete Model" }).click();
+await page.locator(".modal").getByRole("button", { name: "Delete" }).click();
+await libRow("Shop archive").waitFor({ state: "detached" });
+console.log("library after duplicate/rename/delete:", (await lib.locator("tbody tr td:first-child").allInnerTexts()).join(", "));
+check((await lib.locator("tbody tr").count()) === 1, "expected one model left");
+await libRow("Shop model").dblclick();
+await page.locator(".tab.active", { hasText: "Shop model (model)" }).waitFor();
+
+// New PG model from the Models list
+await page.locator(".tool-button", { hasText: "Model" }).click();
+await page.locator(".objects-pane:visible").getByRole("button", { name: "New PostgreSQL Model" }).click();
 await page.locator(".model-empty").waitFor();
 await page.locator(".model-empty button").click();
 await page.locator(".model-table-dialog input.name-input").last().fill("things");

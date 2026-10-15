@@ -448,6 +448,7 @@ func (m *Manager) ReverseModel(ctx context.Context, connID, database, schema str
 	}
 	dialect := c.Dialect().Name
 	mdl := datamodel.New(database, dialect)
+	mdl.Link = &datamodel.Link{ConnID: connID, Database: database, Schema: schema}
 	if schema != "" {
 		mdl.Name = database + "." + schema
 		mdl.Schema = schema

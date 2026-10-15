@@ -56,6 +56,9 @@ interface AppState {
   managing: boolean;
   /** Bumped when objects change (create/drop/rename) so lists reload. */
   objectsVersion: number;
+  /** The Objects tab shows Chloe's model library (the Model toolbar button) instead of the selection's objects. */
+  showingModels: boolean;
+  showModels(): void;
 
   loadConnections(): Promise<void>;
   connect(id: string): Promise<boolean>;
@@ -91,6 +94,7 @@ export const useApp = create<AppState>((set, get) => ({
   openDbs: {},
   managing: false,
   objectsVersion: 0,
+  showingModels: false,
   connecting: {},
   errors: {},
   tabs: [OBJECTS_TAB],
@@ -185,7 +189,11 @@ export const useApp = create<AppState>((set, get) => ({
 
   select(selection) {
     const conn = get().connections.find((c) => c.id === selection.connId);
-    set({ selection, selectedGroup: selection.group ?? conn?.group ?? undefined });
+    set({ selection, selectedGroup: selection.group ?? conn?.group ?? undefined, showingModels: false });
+  },
+
+  showModels() {
+    set({ showingModels: true, activeTab: "objects" });
   },
 
   openTab(tab) {

@@ -4147,3 +4147,17 @@ table.mapping select {
   color: var(--warn);
   margin-right: 12px;
 }
+
+.model-tables {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  font-size: 12px;
+}
+
+.link-button {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  color: var(--text-3);
+  cursor: pointer;
+}

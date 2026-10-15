@@ -8,14 +8,16 @@ import { CodeBlock } from "../ObjectsPane";
 
 const KIND_LABEL: Record<string, string> = { create: "Create", alter: "Modify", drop: "Delete" };
 
-export function SyncDialog({ model, onClose }: { model: DM.Model; onClose(): void }) {
+export function SyncDialog({ model, onClose, onSynced }: { model: DM.Model; onClose(): void; onSynced?(link: DM.Link): void }) {
   const pg = model.dialect === "postgres";
   const connections = useApp((s) => s.connections).filter((c) => (pg ? c.type === DBType.PostgreSQL : c.type === DBType.MySQL || c.type === DBType.MariaDB));
-  const [connId, setConnId] = useState(connections[0]?.id ?? "");
+  // Default to the database the model came from or was last synchronized to.
+  const linked = model.link && connections.some((c) => c.id === model.link!.connId) ? model.link : null;
+  const [connId, setConnId] = useState(linked?.connId ?? connections[0]?.id ?? "");
   const [databases, setDatabases] = useState<string[]>([]);
   const [database, setDatabase] = useState("");
   const [schemas, setSchemas] = useState<string[]>([]);
-  const [schema, setSchema] = useState(model.schema ?? "");
+  const [schema, setSchema] = useState(model.link?.schema || model.schema || "");
   const [dropMissing, setDropMissing] = useState(false);
   const [plan, setPlan] = useState<DM.SyncPlan | null>(null);
   const [include, setInclude] = useState<Record<number, boolean>>({});
@@ -32,7 +34,8 @@ export function SyncDialog({ model, onClose }: { model: DM.Model; onClose(): voi
       try {
         const dbs = arr(await Explorer.ListDatabases(connId));
         setDatabases(dbs);
-        setDatabase((d) => (dbs.includes(d) ? d : (dbs.find((x) => x === model.name) ?? dbs.find((x) => !SYSTEM_DBS.has(x)) ?? dbs[0] ?? "")));
+        const preferred = linked?.connId === connId ? linked.database : "";
+        setDatabase((d) => (dbs.includes(d) ? d : dbs.includes(preferred) ? preferred : (dbs.find((x) => x === model.name) ?? dbs.find((x) => !SYSTEM_DBS.has(x)) ?? dbs[0] ?? "")));
       } catch (e) {
         setError({ text: errorText(e) });
       }
@@ -82,6 +85,7 @@ export function SyncDialog({ model, onClose }: { model: DM.Model; onClose(): voi
       invalidateCatalog(connId, database);
       useApp.setState((s) => ({ objectsVersion: s.objectsVersion + 1 }));
       setDone(`Synchronized: ${statements.length} statement(s) executed.`);
+      onSynced?.({ connId, database, schema: pg ? schema : undefined });
       setPlan(null);
     } catch (e) {
       setError({ text: errorText(e) });

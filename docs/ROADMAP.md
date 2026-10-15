@@ -56,6 +56,8 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
 ## 5. Data model / ER diagrams ✅
 - [x] Reverse-engineer an ER diagram from a database
 - [x] Model editing, forward engineer to SQL, sync model ↔ database
+- [x] Model library: Chloe keeps models in its config folder and lists them under Model (rename, duplicate, delete,
+  Show in Finder), with the database each was built from or synchronized to; outside files open and import
 
 ## 6. Users & privileges ✅
 - Users/roles, server privileges, object privileges (MySQL, PostgreSQL)
