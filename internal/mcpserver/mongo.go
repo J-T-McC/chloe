@@ -269,8 +269,12 @@ func checkDataValue(v any, where string) error {
 }
 
 func exprError(key, where string) error {
-	return fmt.Errorf("%s in %s would be stored as a literal field named %q, not evaluated: updates and inserts don't compute expressions. "+
-		"Read the current value, compute the result, and write it (or use $inc, $mul, $min, $max for arithmetic)", key, where, key)
+	msg := fmt.Sprintf("%s in %s would be stored as a literal field named %q, not evaluated: ", key, where, key)
+	if strings.HasPrefix(where, "document ") {
+		return errors.New(msg + "inserts don't compute expressions. Store the computed value instead")
+	}
+	return errors.New(msg + "updates don't compute expressions. Read the current value, compute the result, and write it " +
+		"(or use $inc, $mul, $min, $max for arithmetic)")
 }
 
 // --- targets --------------------------------------------------------------------
@@ -519,7 +523,7 @@ type MongoCollectionsOut struct {
 
 type MongoFieldOut struct {
 	Path   string         `json:"path"`
-	Type   string         `json:"type" jsonschema:"BSON type seen most: string, int, long, double, decimal, bool, date, oid, object, array…"`
+	Type   string         `json:"type" jsonschema:"BSON type seen most: string, int, long, double, decimal, bool, date, oid, object, array…; mixed when no type is in the majority (see types)"`
 	SeenIn int            `json:"seen_in" jsonschema:"sampled documents that have the field"`
 	Types  map[string]int `json:"types,omitempty" jsonschema:"when the field has more than one type: how often each was seen"`
 }
@@ -1163,11 +1167,15 @@ func sampleFields(ctx context.Context, coll *mongo.Collection, n int) (int, []Mo
 	out := make([]MongoFieldOut, 0, len(order))
 	for _, p := range order {
 		f := byPath[p]
-		best, most := "", 0
+		best, most, total := "", 0, 0
 		for t, c := range f.types {
+			total += c
 			if c > most || c == most && t < best {
 				best, most = t, c
 			}
+		}
+		if most*2 <= total {
+			best = "mixed" // no type is in the majority; types has the counts
 		}
 		o := MongoFieldOut{Path: p, Type: best, SeenIn: f.seen}
 		if len(f.types) > 1 {

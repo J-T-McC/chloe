@@ -140,13 +140,18 @@ func TestIntegrationMongoTools(t *testing.T) {
 	}
 	// Expressions aren't stored as data by accident.
 	f.call(t, "mongo_update", at(map[string]any{"filter": map[string]any{"_id": 1}, "update": map[string]any{"$set": map[string]any{"n": map[string]any{"$add": []any{1, 2}}}}}), "not evaluated")
-	f.call(t, "mongo_insert", at(map[string]any{"documents": []any{map[string]any{"n": map[string]any{"$sum": 1}}}}), "not evaluated")
+	f.call(t, "mongo_insert", at(map[string]any{"documents": []any{map[string]any{"n": map[string]any{"$sum": 1}}}}), "Store the computed value instead")
 	// Fields with several types say so.
 	db.Collection("orders").InsertOne(ctx, bson.D{{Key: "_id", Value: "s1"}, {Key: "total", Value: "n/a"}})
 	if fs := fmt.Sprint(f.call(t, "mongo_describe", at(nil), "")["fields"]); !strings.Contains(fs, "types:map[int:3 string:1]") {
 		t.Fatalf("mixed types: %s", fs)
 	}
-	db.Collection("orders").DeleteOne(ctx, bson.D{{Key: "_id", Value: "s1"}})
+	db.Collection("orders").InsertOne(ctx, bson.D{{Key: "_id", Value: "s2"}, {Key: "total", Value: true}})
+	db.Collection("orders").InsertOne(ctx, bson.D{{Key: "_id", Value: "s3"}, {Key: "total", Value: 1.5}})
+	if fs := fmt.Sprint(f.call(t, "mongo_describe", at(nil), "")["fields"]); !strings.Contains(fs, "path:total seen_in:6 type:mixed") {
+		t.Fatalf("no majority: %s", fs)
+	}
+	db.Collection("orders").DeleteMany(ctx, bson.D{{Key: "_id", Value: bson.D{{Key: "$in", Value: bson.A{"s1", "s2", "s3"}}}}})
 	// Fields of documents in arrays are described too.
 	if fs := fmt.Sprint(f.call(t, "mongo_describe", at(nil), "")["fields"]); !strings.Contains(fs, "path:items.sku seen_in:1") {
 		t.Fatalf("array fields: %s", fs)
