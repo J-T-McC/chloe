@@ -616,3 +616,37 @@ func TestSeriesOrderStable(t *testing.T) {
 		t.Errorf("order: %v", order)
 	}
 }
+
+func TestFitText(t *testing.T) {
+	// An old layout: a one-line heading in an S row (3) on a slide, then charts.
+	p := Page{Size: SizeSlide, Items: []Item{
+		{ID: "h", Kind: ItemText, Text: "# Rooms by game", X: 0, Y: 0, W: 12, H: 3},
+		{ID: "a", Kind: ItemChart, Chart: "c", X: 0, Y: 3, W: 6, H: 5},
+		{ID: "b", Kind: ItemText, Text: "One sentence.", X: 6, Y: 3, W: 6, H: 5},
+		{ID: "n", Kind: ItemText, Text: "- a\n- b\n- c\n- d\n- e\n- f\n- g\n- h", CreatedBy: "mcp:x", X: 0, Y: 8, W: 12, H: 2},
+	}}
+	if !p.FitText() {
+		t.Fatal("nothing fitted")
+	}
+	got := ""
+	for _, it := range p.Items {
+		got += fmt.Sprintf("%s %d+%d; ", it.ID, it.Y, it.H)
+	}
+	// The heading shrinks to 2, the chart row keeps 5 (its text fits), the notes grow to fit.
+	if want := "h 0+2; a 2+5; b 2+5; n 7+4; "; got != want {
+		t.Errorf("fit: %s", got)
+	}
+	if p.FitText() {
+		t.Error("fitting again changed something")
+	}
+	// Interleaved (free-form) pages are left alone.
+	free := Page{Size: SizeReport, Items: []Item{{ID: "x", Kind: ItemChart, Y: 0, W: 6, H: 8}, {ID: "y", Kind: ItemText, Text: "x", X: 6, Y: 0, W: 6, H: 3}, {ID: "z", Kind: ItemText, Text: "x", X: 6, Y: 3, W: 6, H: 3}}}
+	if free.FitText() {
+		t.Error("free-form page changed")
+	}
+	// A slide never grows past 12 rows.
+	full := Page{Size: SizeSlide, Items: []Item{{ID: "a", Kind: ItemChart, Y: 0, W: 12, H: 10}, {ID: "n", Kind: ItemText, Text: strings.Repeat("line\n", 9), Y: 10, W: 12, H: 2}}}
+	if full.FitText() || full.Items[1].H != 2 {
+		t.Errorf("slide overflow: %+v", full.Items)
+	}
+}
