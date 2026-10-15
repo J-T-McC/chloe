@@ -35,7 +35,7 @@ func TestDashboardTools(t *testing.T) {
 	r := f.call(t, "refresh_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly"}, "")
 	page := r["pages"].([]any)[0].(map[string]any)
 	charts := page["charts"].([]any)
-	if len(charts) != 2 || charts[0].(map[string]any)["rows"].([]any)[0].([]any)[0] != 3.0 || page["notes"].([]any)[0] != "# Weekly people" {
+	if len(charts) != 2 || charts[0].(map[string]any)["rows"].([]any)[0].([]any)[0] != 3.0 || page["text"].([]any)[0] != "# Weekly people" {
 		t.Fatalf("refresh: %v", r)
 	}
 
@@ -51,6 +51,18 @@ func TestDashboardTools(t *testing.T) {
 		t.Fatalf("replace notes: %v", items)
 	}
 	f.call(t, "set_notes", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "page": "3", "markdown": "x"}, "has 1 page")
+	r = f.call(t, "refresh_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly"}, "")
+	page = r["pages"].([]any)[0].(map[string]any)
+	if nt := page["notes"].([]any)[0].(map[string]any); nt["by"] != "test" || nt["markdown"] != "Updated." || len(page["text"].([]any)) != 1 {
+		t.Errorf("text and notes apart: %v", page)
+	}
+	// Re-laying out the page keeps the notes.
+	ed := f.call(t, "edit_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly", "pages": []any{map[string]any{"rows": []any{
+		map[string]any{"tiles": []any{map[string]any{"chart": "Count"}}}}}}}, "")
+	kept := ed["pages"].([]any)[0].(map[string]any)["items"].([]any)
+	if len(kept) != 2 || kept[0].(map[string]any)["text"] != "Updated." || kept[1].(map[string]any)["y"] != 2.0 {
+		t.Errorf("notes after edit_dashboard: %v", kept)
+	}
 
 	// The user's dashboard: notes yes, layout no; a full slide has no room.
 	lib := f.m.Store.BI()
@@ -82,7 +94,7 @@ func TestDashboardTools(t *testing.T) {
 	}
 	// A deleted chart leaves its dashboards.
 	f.call(t, "delete_chart", map[string]any{"workspace": "Ops", "chart": "Count"}, "")
-	if r := f.call(t, "refresh_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly report"}, ""); len(r["pages"].([]any)[0].(map[string]any)["charts"].([]any)) != 1 {
+	if r := f.call(t, "refresh_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly report"}, ""); len(r["pages"].([]any)[0].(map[string]any)["charts"].([]any)) != 0 {
 		t.Errorf("after deleting a chart: %v", r)
 	}
 	f.call(t, "delete_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly report"}, "")

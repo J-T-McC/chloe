@@ -245,7 +245,14 @@ func shape(c Chart, cols []Column, raw [][]*string, win *Window) [][]any {
 	for i, k := range order {
 		pos[k] = i
 	}
-	slices.SortStableFunc(rows, func(a, b []any) int { return cmp.Compare(pos[key(a[dim])], pos[key(b[dim])]) })
+	// Within a dimension value, series always come in the same order (by name).
+	ser := slices.IndexFunc(cols, func(c Column) bool { return c.Role == "series" })
+	slices.SortStableFunc(rows, func(a, b []any) int {
+		if r := cmp.Compare(pos[key(a[dim])], pos[key(b[dim])]); r != 0 || ser < 0 {
+			return r
+		}
+		return compareCells(a[ser], b[ser])
+	})
 	applyOps(c, cols, rows)
 	return rows
 }

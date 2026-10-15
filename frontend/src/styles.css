@@ -4849,16 +4849,19 @@ table.mapping select {
   width: 100%;
 }
 
-.bi-canvas-page {
-  position: relative;
+.bi-canvas-frame {
   margin: 0 auto;
   border-radius: 8px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
   overflow: hidden;
 }
 
+.bi-canvas-page {
+  position: relative;
+  transform-origin: 0 0;
+}
+
 .bi-canvas.report .bi-canvas-page {
-  overflow: visible;
   padding-bottom: 12px;
 }
 
@@ -4905,7 +4908,7 @@ table.mapping select {
 }
 
 .bi-tile .bi-value-figure {
-  font-size: clamp(16px, min(42cqh, 20cqw), 56px);
+  font-size: clamp(16px, min(42cqh, 20cqw), 64px);
 }
 
 .bi-tile .bi-value-label {
@@ -5030,7 +5033,7 @@ table.mapping select {
   align-items: stretch;
 }
 
-.bi-present.dash .bi-canvas-page {
+.bi-present.dash .bi-canvas-frame {
   box-shadow: none;
 }
 

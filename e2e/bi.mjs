@@ -252,7 +252,7 @@ await step("a dashboard of charts and text", async () => {
   check((await text.locator("h1").innerText()) === "Sales overview", "markdown heading");
   check(!(await text.locator("img").count()), "markup in text rendered");
   // Tiles stay inside the 16:9 slide.
-  const box = await dash().locator(".bi-canvas-page").boundingBox();
+  const box = await dash().locator(".bi-canvas-frame").boundingBox();
   check(Math.abs(box.width / box.height - 16 / 9) < 0.02, `slide ratio ${box.width}x${box.height}`);
   await dash().locator(".bi-dash-canvas-wrap").click({ position: { x: 4, y: 4 } });
   await dash().getByLabel("Dashboard name").fill("Sales overview");

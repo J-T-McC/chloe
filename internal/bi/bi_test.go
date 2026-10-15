@@ -327,7 +327,7 @@ func TestFillPeriods(t *testing.T) {
 	if want := []string{"2026-09-28", "2026-09-29", "2026-09-30", "2026-10-01"}; !reflect.DeepEqual(days, want) {
 		t.Fatalf("days: %v", days)
 	}
-	if len(got) != 8 || got[1][2] != 0.0 { // every day × series
+	if len(got) != 8 || got[2][2] != 0.0 { // every day × series
 		t.Errorf("filled rows: %v", got)
 	}
 	// Weeks across a new year, and averages left empty.
@@ -528,7 +528,7 @@ func TestDashboards(t *testing.T) {
 		}
 		return "", fmt.Errorf("no chart %q", ref)
 	}
-	items, bottom, err := LayoutRows([][]RowTile{{{Text: "# Weekly"}}, {{Chart: "revenue"}, {Chart: "Revenue", Span: 4}, {Text: "notes"}}}, []string{"S", "L"}, 0, id)
+	items, bottom, err := LayoutRows([][]RowTile{{{Text: "# Weekly"}}, {{Chart: "revenue"}, {Chart: "Revenue", Span: 4}, {Text: "notes"}}}, []string{"S", "L"}, 0, false, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -539,10 +539,15 @@ func TestDashboards(t *testing.T) {
 	if want := "text 0,0 12x3; chart 0,3 4x8; chart 4,3 4x8; text 8,3 4x8; "; got != want || bottom != 11 {
 		t.Errorf("layout: %s (bottom %d)", got, bottom)
 	}
-	if _, _, err := LayoutRows([][]RowTile{{{Chart: "nope"}}}, nil, 0, id); err == nil || !strings.Contains(err.Error(), `no chart "nope"`) {
+	// On a report page a row grows to fit its text.
+	long := "## Summary\n" + strings.Repeat("A line of findings about the rooms and users this week.\n", 6)
+	if grown, _, _ := LayoutRows([][]RowTile{{{Text: long, Span: 8}, {Chart: "Revenue"}}}, []string{"S"}, 0, true, id); grown[0].H <= 3 || grown[1].H != grown[0].H {
+		t.Errorf("text row didn't grow: %+v", grown)
+	}
+	if _, _, err := LayoutRows([][]RowTile{{{Chart: "nope"}}}, nil, 0, false, id); err == nil || !strings.Contains(err.Error(), `no chart "nope"`) {
 		t.Errorf("unknown chart: %v", err)
 	}
-	if _, _, err := LayoutRows([][]RowTile{{{Text: "a", Span: 8}, {Text: "b", Span: 6}}}, nil, 0, id); err == nil {
+	if _, _, err := LayoutRows([][]RowTile{{{Text: "a", Span: 8}, {Text: "b", Span: 6}}}, nil, 0, false, id); err == nil {
 		t.Error("over-wide row accepted")
 	}
 	d, err := w.PutDashboard(Dashboard{Meta: Meta{Name: "Weekly"}, Pages: []Page{{Size: SizeSlide, Items: items}}})
@@ -567,7 +572,24 @@ func TestDashboards(t *testing.T) {
 	if n := len(w.Dashboards[0].Pages[0].Items); n != 2 {
 		t.Errorf("tiles left: %d", n)
 	}
-	if TextRows("one line") != 2 || TextRows(strings.Repeat("line\n", 40)) < 15 {
+	if TextRows("one line") != 2 || TextRows(strings.Repeat("line\n", 40)) < 13 {
 		t.Errorf("text rows: %d %d", TextRows("one line"), TextRows(strings.Repeat("line\n", 40)))
+	}
+}
+
+func TestSeriesOrderStable(t *testing.T) {
+	s := func(v string) *string { return &v }
+	cols := []Column{{Role: "dimension", Type: TypeString}, {Role: "series", Type: TypeString}, {Role: "value", Type: TypeNumber}}
+	raw := [][]*string{{s("Frontier"), s("ended early"), s("9")}, {s("Frontier"), s("finished"), s("1")}, {s("Warriors"), s("finished"), s("9")}, {s("Warriors"), s("stuck"), s("2")}}
+	c := Chart{Type: "stacked_hbar", Value: []ChartField{{Field: "id", Aggregate: "count"}}}
+	got := Shape(c, cols, raw)
+	var order []string
+	for _, r := range got {
+		order = append(order, r[0].(string)+"/"+r[1].(string))
+	}
+	// Warriors first (11 in all), and within each game the series by name.
+	want := []string{"Warriors/ended early", "Warriors/finished", "Warriors/stuck", "Frontier/ended early", "Frontier/finished", "Frontier/stuck"}
+	if !reflect.DeepEqual(order, want) {
+		t.Errorf("order: %v", order)
 	}
 }

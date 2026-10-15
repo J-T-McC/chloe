@@ -5,6 +5,7 @@
 import { Copy, FileText, GripVertical, Plus, Presentation, RefreshCw, Save, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ReactGridLayout, { verticalCompactor } from "react-grid-layout";
+import { createScaledStrategy } from "react-grid-layout/core";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import { B, BI, arr, errorText } from "../../api";
@@ -302,55 +303,69 @@ interface CanvasProps {
 
 /** The width of an element, kept current; 0 until it has been laid out (a hidden
  *  tab has none), so the grid is never placed at a guessed width. */
-function useWidth() {
-  const ref = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(0);
+function useSize() {
+  // A callback ref, so an element that appears later (the scaled page) is measured too.
+  const [el, ref] = useState<HTMLDivElement | null>(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
   useLayoutEffect(() => {
-    const el = ref.current;
     if (!el) return;
-    setWidth(el.clientWidth);
-    const ro = new ResizeObserver(([e]) => setWidth(Math.floor(e.contentRect.width)));
+    setSize({ width: el.clientWidth, height: el.clientHeight });
+    const ro = new ResizeObserver(([e]) => setSize({ width: Math.floor(e.contentRect.width), height: Math.floor(e.contentRect.height) }));
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
-  return { ref, width };
+  }, [el]);
+  return { ref, ...size };
 }
 
-/** A page's tiles on the grid, sized to the pane: a slide keeps 16:9. */
+/** Pages are laid out at one size, 1280px wide (a slide 1280×720), and scaled to
+ *  fit where they're shown, so the designer, Present and exports look the same. */
+export const PAGE_WIDTH = 1280;
+export const SLIDE_HEIGHT = 720;
+const REPORT_ROW = 48;
+const SLIDE_ROW = (SLIDE_HEIGHT - 2 * MARGIN - (SLIDE_ROWS - 1) * MARGIN) / SLIDE_ROWS;
+
+/** A page's tiles on the grid, scaled to fit: a slide within the space given. */
 export function PageCanvas({ page, charts, path, theme, tick, editable, selected, onSelect, onLayout, maxHeight }: CanvasProps) {
-  const { ref: containerRef, width: paneWidth } = useWidth();
-  const mounted = paneWidth > 0;
+  const outer = useSize();
+  const inner = useSize();
   const slide = page.size === "16:9";
-  const width = slide && maxHeight ? Math.min(paneWidth, (maxHeight * 16) / 9) : paneWidth;
-  const height = (width * 9) / 16;
-  const rowHeight = slide ? Math.max(8, (height - 2 * MARGIN - (SLIDE_ROWS - 1) * MARGIN) / SLIDE_ROWS) : Math.max(32, (width / 1280) * 48);
+  const scale = outer.width ? (slide && maxHeight ? Math.min(outer.width / PAGE_WIDTH, maxHeight / SLIDE_HEIGHT) : outer.width / PAGE_WIDTH) : 0;
+  const strategy = useMemo(() => createScaledStrategy(scale || 1), [scale]);
   const layout = useMemo(() => arr(page.items).map((it) => ({ i: it.id, x: it.x, y: it.y, w: it.w, h: it.h, minW: 2, minH: 2 })), [page.items]);
   const t = TOKENS[theme];
+  const logicalHeight = slide ? SLIDE_HEIGHT : inner.height;
   return (
-    <div ref={containerRef} className={"bi-canvas " + (slide ? "slide" : "report")} data-testid="bi-canvas">
-      {mounted && (
-        <div className="bi-canvas-page" style={{ width, minHeight: slide ? height : 320, height: slide ? height : undefined, background: t.plane, color: t.ink }}>
-          <ReactGridLayout
-            layout={layout}
-            width={width}
-            gridConfig={{ cols: COLS, rowHeight, margin: [MARGIN, MARGIN], containerPadding: [MARGIN, MARGIN], maxRows: slide ? SLIDE_ROWS : Infinity }}
-            dragConfig={{ enabled: !!editable, handle: ".bi-tile-grip", bounded: slide }}
-            resizeConfig={{ enabled: !!editable }}
-            compactor={verticalCompactor}
-            onLayoutChange={(l) => onLayout?.(l)}
+    <div ref={outer.ref} className={"bi-canvas " + (slide ? "slide" : "report")} data-testid="bi-canvas">
+      {scale > 0 && (
+        <div className="bi-canvas-frame" style={{ width: PAGE_WIDTH * scale, height: logicalHeight * scale }}>
+          <div
+            ref={inner.ref}
+            className="bi-canvas-page"
+            style={{ width: PAGE_WIDTH, minHeight: slide ? SLIDE_HEIGHT : 400, height: slide ? SLIDE_HEIGHT : undefined, transform: `scale(${scale})`, background: t.plane, color: t.ink }}
           >
-            {arr(page.items).map((it) => (
-              <div key={it.id} className={"bi-tile" + (it.id === selected ? " selected" : "")} onPointerDown={() => onSelect?.(it.id)} data-kind={it.kind}>
-                {editable && (
-                  <div className="bi-tile-grip" title="Drag to move">
-                    <GripVertical size={13} />
-                  </div>
-                )}
-                {it.kind === "chart" ? <ChartTile chartId={it.chart ?? ""} charts={charts} path={path} theme={theme} tick={tick} /> : <TextTile item={it} theme={theme} />}
-              </div>
-            ))}
-          </ReactGridLayout>
-          {!arr(page.items).length && editable && <div className="bi-canvas-empty">Add charts and text with the toolbar.</div>}
+            <ReactGridLayout
+              layout={layout}
+              width={PAGE_WIDTH}
+              gridConfig={{ cols: COLS, rowHeight: slide ? SLIDE_ROW : REPORT_ROW, margin: [MARGIN, MARGIN], containerPadding: [MARGIN, MARGIN], maxRows: slide ? SLIDE_ROWS : Infinity }}
+              dragConfig={{ enabled: !!editable, handle: ".bi-tile-grip", bounded: slide }}
+              resizeConfig={{ enabled: !!editable }}
+              positionStrategy={strategy}
+              compactor={verticalCompactor}
+              onLayoutChange={(l) => onLayout?.(l)}
+            >
+              {arr(page.items).map((it) => (
+                <div key={it.id} className={"bi-tile" + (it.id === selected ? " selected" : "")} onPointerDown={() => onSelect?.(it.id)} data-kind={it.kind}>
+                  {editable && (
+                    <div className="bi-tile-grip" title="Drag to move">
+                      <GripVertical size={13} />
+                    </div>
+                  )}
+                  {it.kind === "chart" ? <ChartTile chartId={it.chart ?? ""} charts={charts} path={path} theme={theme} tick={tick} /> : <TextTile item={it} theme={theme} />}
+                </div>
+              ))}
+            </ReactGridLayout>
+            {!arr(page.items).length && editable && <div className="bi-canvas-empty">Add charts and text with the toolbar.</div>}
+          </div>
         </div>
       )}
     </div>
