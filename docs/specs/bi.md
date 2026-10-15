@@ -228,12 +228,15 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 | `export_dashboard` | Read on its sources | `workspace, dashboard, format` (pdf / png / html) |
 | `open_dashboard` | — | `workspace, dashboard` (Chloe comes to the front) |
 | `open_chart` | — | `workspace, chart` (Chloe comes to the front) |
+| `delete_chart` | — | `workspace, chart` (agent-made charts only) |
+| `delete_data_source` | — | `workspace, data_source` (agent-made, once no chart uses it) |
 
 - **Ownership**, as with models:
   - An agent creates objects in any workspace, but edits only objects it created (`createdBy: "mcp:<endpoint>"`).
   - The user's own objects are read, copied and used (an agent's dashboard can show the user's chart), never
     written.
-  - No delete tool. The user deletes from Chloe.
+  - Agents delete only charts and data sources they created (a data source once no chart uses it); everything else
+    the user deletes from Chloe.
 - **Data access**:
   - `create_data_source` needs Read on that database for the endpoint.
   - Its SQL must pass the same check as `run_query` and is stored as given. Chloe runs it read-only every time.
@@ -291,6 +294,9 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
   alias is shown as typed. Shelves keep the field names.
 - A date axis bucketed by year, quarter, month, week, day or hour gets its empty periods back (sums and counts 0,
   other aggregates empty), unless the chart uses Top N or sorts by value.
+- An `in_last` filter on the dimension's field widens that fill to the whole window, today included.
+- Extracted weekdays and months come back named (`Sun`…`Sat`, `Jan`…`Dec`), in calendar order.
+- Table columns can group a date by a bucket.
 - Every dimension value gets a row for every series (0 for sums and counts), so stacked series never have holes.
 - A sort by value can name the value it sorts by (`sort.field`, or the value's field or label as `sort.by`); tables sort by their first aggregated column
   otherwise, and by their first column when sorting "by dimension".

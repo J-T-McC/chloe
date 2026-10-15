@@ -65,7 +65,8 @@ export function allowedAggregates(cat: BICatalog, shelf: ShelfName, f: B.Field, 
   if (grouped(shelf)) return f.type === "datetime" ? ["", ...arr(cat.dateBuckets)] : [""];
   let out = [...arr(cat.valueAggregates?.[f.type])];
   if (dialect !== "postgres") out = out.filter((a) => a !== "median");
-  return raw ? ["", ...out] : out;
+  // A table column groups by its plain value or, for dates, by a bucket.
+  return raw ? ["", ...(f.type === "datetime" ? arr(cat.dateBuckets) : []), ...out] : out;
 }
 
 export function fieldLabel(cf: B.ChartField) {

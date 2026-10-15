@@ -231,7 +231,7 @@ func ChartQuery(d driver.Dialect, from string, src DataSource, c Chart, limit in
 		if raw {
 			role = "column"
 		}
-		add(role, cf, raw && cf.Aggregate == "")
+		add(role, cf, raw && (cf.Aggregate == "" || IsBucket(cf.Aggregate)))
 	}
 	for _, cf := range c.Secondary {
 		add("secondary", cf, false)

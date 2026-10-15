@@ -30,6 +30,68 @@ type Data struct {
 // Shape turns raw query cells into chart data: numbers parsed, then the chart's
 // sort, Top N (with Others) and value operations applied.
 func Shape(c Chart, cols []Column, raw [][]*string) [][]any {
+	return ShapeRange(c, cols, raw, nil)
+}
+
+// Window is the date range an in_last filter on the dimension asks for; empty
+// periods are filled out to its edges.
+type Window struct{ From, To time.Time }
+
+// FilterWindow finds an in_last filter (the source's or the chart's) on the
+// chart's dimension field.
+func FilterWindow(src DataSource, c Chart) *Window {
+	if len(c.Dimension) == 0 {
+		return nil
+	}
+	var w *Window
+	for _, f := range append(slices.Clone(src.Filters), c.Filters...) {
+		if f.Disabled || f.Negate || f.Op != "in_last" || f.Field != c.Dimension[0].Field || f.check() != nil {
+			continue
+		}
+		n, _ := strconv.Atoi(f.Values[0])
+		from := Since(now(), n, f.Values[1])
+		if w == nil || from.After(w.From) {
+			w = &Window{From: from, To: now()}
+		}
+	}
+	return w
+}
+
+// ShapeRange is Shape with the dimension's filtered date window, if any.
+func ShapeRange(c Chart, cols []Column, raw [][]*string, win *Window) [][]any {
+	rows := shape(c, cols, raw, win)
+	nameParts(cols, rows)
+	return rows
+}
+
+var weekdays = []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
+var months = []string{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}
+
+// nameParts names extracted weekdays and months ("0" → "Sun", "03" → "Mar")
+// once rows are in order.
+func nameParts(cols []Column, rows [][]any) {
+	for j, col := range cols {
+		var names []string
+		offset := 0
+		switch col.Aggregate {
+		case "weekday_x":
+			names = weekdays
+		case "month_x":
+			names, offset = months, 1
+		default:
+			continue
+		}
+		for _, r := range rows {
+			if s, ok := r[j].(string); ok {
+				if i, err := strconv.Atoi(s); err == nil && i-offset >= 0 && i-offset < len(names) {
+					r[j] = names[i-offset]
+				}
+			}
+		}
+	}
+}
+
+func shape(c Chart, cols []Column, raw [][]*string, win *Window) [][]any {
 	c.NormalizeSort()
 	rows := make([][]any, len(raw))
 	for i, r := range raw {
@@ -60,7 +122,7 @@ func Shape(c Chart, cols []Column, raw [][]*string) [][]any {
 		return rows
 	}
 	if c.Top == 0 && (c.Sort == nil || c.Sort.By == "dimension") && c.Type != "pie" && c.Type != "donut" {
-		rows = fillPeriods(c, cols, rows, dim)
+		rows = fillPeriods(c, cols, rows, dim, win)
 	}
 	rows = fillSeries(c, cols, rows, dim)
 	// Totals per dimension value (over series) decide value order and Top N.
@@ -343,9 +405,9 @@ const maxFill = 5000
 // fillPeriods adds the periods between the first and last that have no rows,
 // so a date axis keeps its gaps: sums and counts there are 0, other aggregates
 // empty. Only whole periods (year … hour) are filled.
-func fillPeriods(c Chart, cols []Column, rows [][]any, dim int) [][]any {
+func fillPeriods(c Chart, cols []Column, rows [][]any, dim int, win *Window) [][]any {
 	bucket := cols[dim].Aggregate
-	if !slices.Contains([]string{"year", "quarter", "month", "week", "day", "hour"}, bucket) || len(rows) == 0 {
+	if !slices.Contains([]string{"year", "quarter", "month", "week", "day", "hour"}, bucket) || len(rows) == 0 && win == nil {
 		return rows
 	}
 	have := map[string]bool{}
@@ -365,10 +427,24 @@ func fillPeriods(c Chart, cols []Column, rows [][]any, dim int) [][]any {
 	}
 	start, ok1 := parsePeriod(bucket, lo)
 	end, ok2 := parsePeriod(bucket, hi)
+	if win != nil {
+		// Out to the edges of the filtered window, today included.
+		from, _ := parsePeriod(bucket, PeriodLabel(bucket, win.From))
+		to, _ := parsePeriod(bucket, PeriodLabel(bucket, win.To))
+		if !ok1 || from.Before(start) {
+			start, ok1 = from, true
+		}
+		if !ok2 || to.After(end) {
+			end, ok2 = to, true
+		}
+	}
 	if !ok1 || !ok2 {
 		return rows
 	}
 	ser := slices.IndexFunc(cols, func(c Column) bool { return c.Role == "series" })
+	if ser >= 0 && len(rows) == 0 {
+		return rows // no series to fill
+	}
 	var series []any
 	seen := map[string]bool{}
 	for _, r := range rows {
