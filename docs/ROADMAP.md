@@ -69,7 +69,11 @@ Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, tab
   unanswered approval is reported as a timeout, not a refusal; SQLite paths checked only after approval
 - [x] Monitor (sessions, status, variables, kill with approval) and saved queries / query tabs (capabilities)
 - [ ] ER model tools
-- [ ] MongoDB and Redis tools; hidden columns; a dedicated database user with matching GRANTs
+- [ ] MongoDB and Redis tools
+
+Access stays per group, connection and database: no table or column permissions. Without a Chloe-managed
+database user there's no complete way to enforce them while keeping `run_query` (views, functions, run-time SQL and
+statistics catalogs get around name checks), so share connections that log in as a restricted user instead.
 
 ## 7. More engines
 - [x] Redis: key browser, typed value editors, TTL, console, server monitor (pub/sub, cluster and sentinel still to do)
