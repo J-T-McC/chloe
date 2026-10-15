@@ -501,9 +501,14 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 			}
 			out := MongoDatabasesOut{Databases: []MongoDatabaseOut{}}
 			for _, d := range dbs {
-				if l := a.db(d.Name); l != store.MCPOff {
-					out.Databases = append(out.Databases, MongoDatabaseOut{Name: d.Name, Size: d.Size, Access: levelName(l)})
+				l := a.db(d.Name)
+				if l == store.MCPOff {
+					continue
 				}
+				if l == store.MCPWrite && slices.Contains(systemDBs, d.Name) {
+					l = store.MCPRead // never written
+				}
+				out.Databases = append(out.Databases, MongoDatabaseOut{Name: d.Name, Size: d.Size, Access: levelName(l)})
 			}
 			return out, nil
 		})
