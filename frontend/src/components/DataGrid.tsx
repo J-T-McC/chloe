@@ -60,6 +60,8 @@ export function DataGrid(p: DataGridProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const cache = useRef(new Map<number, Cell[][]>());
   const pending = useRef(new Set<number>());
+  // Bumped whenever the caches reset, so a page fetched for older data is dropped.
+  const generation = useRef(0);
   const [, bump] = useState(0);
   const [widths, setWidths] = useState<number[]>([]);
   const [sel, setSel] = useState<Sel | null>(null);
@@ -73,6 +75,7 @@ export function DataGrid(p: DataGridProps) {
   useEffect(() => {
     cache.current.clear();
     pending.current.clear();
+    generation.current++;
     setSel(null);
     setEditing(null);
     bump((x) => x + 1);
@@ -82,6 +85,7 @@ export function DataGrid(p: DataGridProps) {
     if (p.revision === undefined) return;
     cache.current.clear();
     pending.current.clear();
+    generation.current++;
     bump((x) => x + 1);
   }, [p.revision]);
 
@@ -101,14 +105,16 @@ export function DataGrid(p: DataGridProps) {
     for (let pg = first; pg <= last; pg++) {
       if (cache.current.has(pg) || pending.current.has(pg) || pg * PAGE >= p.rowCount) continue;
       pending.current.add(pg);
-      const key = p.dataKey;
+      const gen = generation.current;
       p.fetchPage(pg * PAGE, PAGE)
         .then((rows) => {
-          if (key !== p.dataKey) return;
+          if (gen !== generation.current) return;
           cache.current.set(pg, rows);
           bump((x) => x + 1);
         })
-        .finally(() => pending.current.delete(pg));
+        .finally(() => {
+          if (gen === generation.current) pending.current.delete(pg);
+        });
     }
   });
 
