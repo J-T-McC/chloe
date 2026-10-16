@@ -215,6 +215,10 @@ export function ImportConnectionsDialog({
               </button>
             </div>
           </div>
+          <p className="dialog-message muted">
+            Auto connect, initial queries, extra connection parameters and cleartext passwords are left off; turn
+            them on per connection after checking them.
+          </p>
           {info && (
             <p className="dialog-message muted">
               {info.connections} connection(s)

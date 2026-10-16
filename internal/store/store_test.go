@@ -134,6 +134,17 @@ func TestDuplicateAndImportExport(t *testing.T) {
 		t.Fatalf("v1 password %q", got.Password)
 	}
 
+	// Settings that act on their own don't come in with someone else's file.
+	risky := `{"format":"chloe-connections","version":1,"connections":[{"name":"r","type":"postgres","advanced":{"autoConnect":true,
+		"initialQueries":"DROP TABLE x","connectionParams":"host=evil","cleartextAuth":true,"sessionLimit":3}}]}`
+	s5, _, _ := newStore(t)
+	if n, err := s5.Import([]byte(risky), ""); err != nil || n != 1 {
+		t.Fatalf("risky import %d %v", n, err)
+	}
+	if a := s5.List()[0].Advanced; a.AutoConnect || a.InitialQueries != "" || a.ConnectionParams != "" || a.CleartextAuth || a.SessionLimit != 3 {
+		t.Fatalf("imported advanced settings %+v", a)
+	}
+
 	if _, err := s2.Import([]byte(`{"hello":1}`), ""); err == nil {
 		t.Fatal("expected error for foreign file")
 	}

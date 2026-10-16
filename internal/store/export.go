@@ -183,9 +183,22 @@ func Inspect(data []byte) (ExportSummary, error) {
 	return ExportSummary{Connections: len(f.Connections), Encrypted: f.Secrets != nil}, err
 }
 
+// withoutLaunchSettings clears what would act without the user looking at the profile:
+// SQL run on every session, connecting at startup, extra Postgres parameters (they can
+// redirect the host) and sending the password in the clear. A file from someone else
+// shouldn't bring them in; the user turns them back on in the connection dialog.
+func withoutLaunchSettings(c model.Connection) model.Connection {
+	c.Advanced.AutoConnect = false
+	c.Advanced.InitialQueries = ""
+	c.Advanced.ConnectionParams = ""
+	c.Advanced.CleartextAuth = false
+	return c
+}
+
 // Import adds connections from an export. Imported profiles always get new IDs;
 // name clashes get a numeric suffix. Encrypted passwords are restored with the
-// passphrase; without one they are skipped. Returns the number imported.
+// passphrase; without one they are skipped. Settings that act on their own are
+// cleared (withoutLaunchSettings). Returns the number imported.
 func (s *Store) Import(data []byte, passphrase string) (int, error) {
 	f, err := parseExport(data)
 	if err != nil {
@@ -204,6 +217,7 @@ func (s *Store) Import(data []byte, passphrase string) (int, error) {
 	for i, c := range f.Connections {
 		c.ID = ""
 		c.Name = s.uniqueName(c.Name)
+		c = withoutLaunchSettings(c)
 		if f.Secrets != nil {
 			// Passwords only come from the sealed block; version 1 files kept them in the clear.
 			c = stripSecrets(c)
