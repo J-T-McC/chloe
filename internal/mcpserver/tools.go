@@ -701,7 +701,8 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 					return err
 				}
 				return driver.ReadOnly(ctx, ds, d, func() error {
-					out, err = readRows(ctx, ds, stmt{SQL: sql}, limit)
+					// One row past the limit tells readRows the result was truncated.
+					out, err = readRows(ctx, ds, stmt{SQL: limitRead(d, sql, limit+1)}, limit)
 					return err
 				})
 			})

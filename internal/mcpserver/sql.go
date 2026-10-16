@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"chloe/internal/driver"
 	"chloe/internal/driver/sqlcommon"
@@ -397,6 +398,36 @@ var readOnlyStart = map[string][]string{
 // checkReadOnly accepts exactly one read statement. The read-only transaction
 // it then runs in is what really stops writes; this keeps out statements that
 // would end that transaction (MySQL DDL commits implicitly) or write files.
+var modifyingRe = regexp.MustCompile(`(?i)\b(INSERT|UPDATE|DELETE|MERGE)\b`)
+
+// limitRead lets the server stop after n rows of a read statement instead of planning and
+// sorting the whole result for run_query to cut. MySQL gets a statement-scoped
+// sql_select_limit hint after a leading SELECT (a derived table would refuse duplicate
+// column names and could drop the ORDER BY; MariaDB reads the hint as a comment).
+// PostgreSQL SELECT and WITH are wrapped in an outer LIMIT. SQLite steps rows lazily in
+// process, so stopping early already costs nothing there.
+func limitRead(d driver.Dialect, sql string, n int) string {
+	switch d.Name {
+	case "mysql":
+		if len(sql) > 6 && strings.EqualFold(sql[:6], "SELECT") && unicode.IsSpace(rune(sql[6])) {
+			hint := fmt.Sprintf("SET_VAR(sql_select_limit=%d)", n)
+			// Only the first hint block after the keyword counts, so join one that's there.
+			if rest := strings.TrimLeftFunc(sql[6:], unicode.IsSpace); strings.HasPrefix(rest, "/*+") {
+				return sql[:6] + " /*+ " + hint + " " + strings.TrimLeftFunc(rest[3:], unicode.IsSpace)
+			}
+			return sql[:6] + " /*+ " + hint + " */" + sql[6:]
+		}
+	case "postgres":
+		// A WITH that changes data must stay at the top level, where the read-only
+		// transaction refuses it with a clear error.
+		switch kw := sqlcommon.LeadingKeyword(sql); {
+		case kw == "SELECT", kw == "WITH" && !modifyingRe.MatchString(sql):
+			return fmt.Sprintf("SELECT * FROM (\n%s\n) q LIMIT %d", sql, n)
+		}
+	}
+	return sql
+}
+
 func checkReadOnly(d driver.Dialect, sql string) (string, error) {
 	stmts := sqlsplit.Split(sql, d.Split)
 	if len(stmts) != 1 {

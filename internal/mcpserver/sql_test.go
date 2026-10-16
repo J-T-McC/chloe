@@ -130,3 +130,23 @@ func TestCheckReadOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestLimitRead(t *testing.T) {
+	my, pg, lite := driver.Dialect{Name: "mysql"}, driver.Dialect{Name: "postgres"}, driver.Dialect{Name: "sqlite"}
+	for _, c := range []struct {
+		d       driver.Dialect
+		in, out string
+	}{
+		{my, "SELECT a.id, b.id FROM a JOIN b", "SELECT /*+ SET_VAR(sql_select_limit=11) */ a.id, b.id FROM a JOIN b"},
+		{my, "select\n/*+ MAX_EXECUTION_TIME(5) */ 1", "select /*+ SET_VAR(sql_select_limit=11) MAX_EXECUTION_TIME(5) */ 1"},
+		{my, "WITH x AS (SELECT 1) SELECT * FROM x", "WITH x AS (SELECT 1) SELECT * FROM x"},
+		{my, "SHOW TABLES", "SHOW TABLES"},
+		{pg, "WITH x AS (SELECT 1) SELECT * FROM x -- note", "SELECT * FROM (\nWITH x AS (SELECT 1) SELECT * FROM x -- note\n) q LIMIT 11"},
+		{pg, "EXPLAIN SELECT 1", "EXPLAIN SELECT 1"},
+		{lite, "SELECT 1", "SELECT 1"},
+	} {
+		if got := limitRead(c.d, c.in, 11); got != c.out {
+			t.Errorf("%s %q:\n got %q\nwant %q", c.d.Name, c.in, got, c.out)
+		}
+	}
+}
