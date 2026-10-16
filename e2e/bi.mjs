@@ -336,6 +336,7 @@ await step("HTML report: one file that draws the pages without Chloe", async () 
   const file = new URL("./.out/exports/Sales overview.html", import.meta.url);
   const html = readFileSync(file, "utf8");
   check(html.startsWith("<!doctype html>") && !html.includes("SELECT"), "no SQL in the report");
+  check(/<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/.test(html), "report CSP");
   // A fresh page, from disk, with no network: the report draws on its own.
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
   const report = await ctx.newPage();
@@ -343,6 +344,7 @@ await step("HTML report: one file that draws the pages without Chloe", async () 
   report.on("request", (r) => r.url().startsWith("file:") || r.url().startsWith("data:") || requests.push(r.url()));
   const errors = [];
   report.on("pageerror", (e) => errors.push(e.message));
+  report.on("console", (m) => m.type() === "error" && errors.push(m.text()));
   await report.goto(file.href);
   await report.locator(".bi-echart svg").first().waitFor();
   check((await report.title()) === "Sales overview", "report title");

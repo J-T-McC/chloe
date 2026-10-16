@@ -38,6 +38,20 @@ describe("phase 3 chart options", () => {
     expect(o.visualMap.max).toBe(4);
   });
 
+  it("tooltips escape names and labels from the data", () => {
+    const x = "<img src=x onerror=alert(1)>";
+    const dv = data([col("d", "dimension", "string"), col("s", "series", "string"), col("v", "value", "number", x)], [[x, x, 1]]);
+    const tips = [
+      opt(chart("treemap"), dv).tooltip.formatter({ name: x, value: 1 }),
+      opt(chart("heatmap"), dv).tooltip.formatter({ value: [0, 0, 1] }),
+      opt(chart("waterfall"), dv).tooltip.formatter({ dataIndex: 0 }),
+    ];
+    for (const tip of tips) {
+      expect(tip).not.toContain("<img");
+      expect(tip).toContain("&lt;img");
+    }
+  });
+
   it("treemap tiles past the palette share the neutral", () => {
     const rows = Array.from({ length: 10 }, (_, i) => [`c${i}`, 10 - i]);
     const o = opt(chart("treemap"), data([col("d", "dimension", "string"), col("v", "value")], rows));

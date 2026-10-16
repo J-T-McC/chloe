@@ -4,6 +4,7 @@
 // database: no connection, query or SQL goes into the file.
 import { B, BI, arr } from "../../api";
 import { PAYLOAD_ID, ReportPayload } from "../../report/payload";
+import { escapeHtml } from "./format";
 import { ParamValues, dashboardParams, paramValues } from "./Parameters";
 
 export interface ReportOptions {
@@ -36,7 +37,6 @@ function viewerAssets() {
   return viewer;
 }
 
-const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 /** Build the HTML report of a dashboard (saved, by id, or a draft). */
 export async function buildReport(path: string, dashboard: B.Dashboard | string, opt: ReportOptions = {}): Promise<string> {
@@ -96,12 +96,18 @@ export async function buildReport(path: string, dashboard: B.Dashboard | string,
   const { js, css } = await assets;
   // Nothing in the JSON or the inlined code may close its element early.
   const json = JSON.stringify(payload).replace(/</g, "\\u003c");
+  const script = js.replace(/<\/script/gi, "<\\/script");
+  // Only the report's own script runs and nothing loads from the network, so text
+  // from the data can't run code or send anything anywhere.
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(script)));
+  const csp = `default-src 'none'; script-src 'sha256-${btoa(String.fromCharCode(...digest))}'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:`;
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="Chloe">
+<meta http-equiv="Content-Security-Policy" content="${csp}">
 <title>${escapeHtml(d.name)}</title>
 <style>${css.replace(/<\/style/gi, "<\\/style")}</style>
 </head>
@@ -109,7 +115,7 @@ export async function buildReport(path: string, dashboard: B.Dashboard | string,
 <div id="root"></div>
 <noscript>This report needs JavaScript to draw its charts.</noscript>
 <script type="application/json" id="${PAYLOAD_ID}">${json}</script>
-<script>${js.replace(/<\/script/gi, "<\\/script")}</script>
+<script>${script}</script>
 </body>
 </html>
 `;

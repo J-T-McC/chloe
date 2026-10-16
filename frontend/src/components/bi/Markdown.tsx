@@ -5,8 +5,8 @@ import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { useMemo } from "react";
 import { openLink } from "./links";
+import { escapeHtml } from "./format";
 
-const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** Markdown to safe HTML: inline HTML in the source is shown as text. */
 export function renderMarkdown(md: string): string {

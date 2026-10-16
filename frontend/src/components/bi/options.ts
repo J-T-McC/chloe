@@ -3,7 +3,7 @@
 // grids, one value axis, a legend only for two or more series.
 import type { EChartsCoreOption } from "echarts/core";
 import type { B } from "../../api";
-import { formatLabel, formatNumber, oneYear } from "./format";
+import { escapeHtml as esc, formatLabel, formatNumber, oneYear } from "./format";
 import { ChartTheme, FONT, METER, OTHERS_COLOR, POLARITY, SEQUENTIAL, TOKENS, inkOn, seriesColors } from "./theme";
 
 export interface Series {
@@ -211,7 +211,7 @@ function buildBase(chart: B.Chart, data: B.Data, theme: ChartTheme): EChartsCore
     const s = p.series[0] ?? { name: "", values: [] };
     return {
       ...base,
-      tooltip: { ...tooltip, trigger: "item", formatter: (x: { name: string; value: number }) => `${x.name}<br/><b>${valueText(x.value)}</b>` },
+      tooltip: { ...tooltip, trigger: "item", formatter: (x: { name: string; value: number }) => `${esc(x.name)}<br/><b>${esc(valueText(x.value))}</b>` },
       series: [
         {
           type: "treemap",
@@ -251,7 +251,7 @@ function buildBase(chart: B.Chart, data: B.Data, theme: ChartTheme): EChartsCore
     );
     return {
       ...base,
-      tooltip: { ...tooltip, trigger: "item", formatter: (x: { value: [number, number, number | null] }) => `${ys[x.value[1]]} · ${p.categories[x.value[0]]}<br/><b>${valueText(x.value[2])}</b>` },
+      tooltip: { ...tooltip, trigger: "item", formatter: (x: { value: [number, number, number | null] }) => `${esc(ys[x.value[1]])} · ${esc(p.categories[x.value[0]])}<br/><b>${esc(valueText(x.value[2]))}</b>` },
       grid: { left: 8, right: 16, top: 12, bottom: 44, containLabel: true },
       xAxis: categoryAxisOf(p.categories, props.xTitle, { splitArea: { show: false } }),
       // Rows read top-down in the series' order (Sun first).
@@ -304,7 +304,7 @@ function buildBase(chart: B.Chart, data: B.Data, theme: ChartTheme): EChartsCore
         formatter: (x: { dataIndex: number }) => {
           const st = steps[x.dataIndex];
           const total = x.dataIndex === steps.length - 1;
-          return `${st.name}<br/>${total ? "Total" : "Change"} <b>${valueText(st.change)}</b>${total ? "" : `<br/>Running total ${valueText(st.to)}`}`;
+          return `${esc(st.name)}<br/>${total ? "Total" : "Change"} <b>${esc(valueText(st.change))}</b>${total ? "" : `<br/>Running total ${esc(valueText(st.to))}`}`;
         },
       },
       grid: { left: 8, right: 16, top: props.labels ? 22 : 12, bottom: 4 + (props.xTitle ? 24 : 0), containLabel: true },
@@ -393,8 +393,8 @@ function buildBase(chart: B.Chart, data: B.Data, theme: ChartTheme): EChartsCore
         trigger: "item",
         formatter: (x: { data: { name: string; value: [number, number] }; dataIndex: number; seriesIndex: number }) => {
           const pt = list[x.seriesIndex].points[x.dataIndex];
-          const extra = si >= 0 ? `<br/>${cols[si].label}: ${valueText(pt.sizeValue)}` : "";
-          return `<b>${pt.name}</b><br/>${cols[xi].label}: ${valueText(pt.value[0])}<br/>${cols[yi].label}: ${valueText(pt.value[1])}${extra}`;
+          const extra = si >= 0 ? `<br/>${esc(cols[si].label)}: ${esc(valueText(pt.sizeValue))}` : "";
+          return `<b>${esc(pt.name)}</b><br/>${esc(cols[xi].label)}: ${esc(valueText(pt.value[0]))}<br/>${esc(cols[yi].label)}: ${esc(valueText(pt.value[1]))}${extra}`;
         },
       },
       // Room on the left for the Y title; padding inside the axes so points
