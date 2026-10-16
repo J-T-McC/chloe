@@ -1,6 +1,6 @@
 import { Activity, Bot, ChartColumn, ChevronDown, LayoutDashboard, Database, FilePlus2, History, Monitor, Moon, Network, PencilRuler, Plug, Shapes, Sun, Table2, TerminalSquare, UserRound, UsersRound, X } from "lucide-react";
 import { ThemePref, onThemeChange, setThemePref, themePref } from "./theme";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useLayoutEffect, useRef, useState } from "react";
 import { Events, ObjectKind } from "./api";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { ContextMenuHost } from "./components/ContextMenu";
@@ -77,6 +77,8 @@ export default function App() {
   useEffect(() => Events.On("menu:data-sync", () => openDataSync(useApp.getState().selection)), []);
   const selection = useApp((s) => s.selection);
   const open = useApp((s) => s.open);
+  // The sidebar reads the store itself; the same element lets React skip it when App re-renders.
+  const sidebar = useMemo(() => <Sidebar />, []);
 
   // The backend can drop a connection (e.g. when its profile is edited).
   useEffect(
@@ -186,7 +188,7 @@ export default function App() {
         firstSize={260}
         minFirst={160}
         maxFirst="50"
-        first={<Sidebar />}
+        first={sidebar}
         second={
           <div className="workspace">
             <TabBar tabs={tabs} active={active} />
@@ -223,7 +225,9 @@ export default function App() {
   );
 }
 
-function TabContent({ tab, active }: { tab: Tab; active: boolean }) {
+// Memoised: App re-renders on every tree click and tab switch, and a tab only
+// needs to when its own tab object (kept by updateTab) or active flag changes.
+const TabContent = memo(function TabContent({ tab, active }: { tab: Tab; active: boolean }) {
   switch (tab.kind) {
     case "history":
       return <HistoryLog active={active} />;
@@ -272,7 +276,7 @@ function TabContent({ tab, active }: { tab: Tab; active: boolean }) {
     case "mongousers":
       return <MongoUsers tab={tab} />;
   }
-}
+});
 
 // The open tabs. When they don't fit, the bar scrolls (its scrollbar is hidden,
 // as macOS hides them), so a button at its end lists every tab, as Navicat's does,

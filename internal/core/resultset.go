@@ -2,6 +2,7 @@ package core
 
 import (
 	"sync"
+	"time"
 
 	"chloe/internal/driver"
 	"chloe/internal/model"
@@ -28,6 +29,8 @@ type resultOrigin struct {
 	connID, sql, database, schema string
 }
 
+const progressEvery = 150 * time.Millisecond
+
 func newResultSet(id string, cols []model.ResultColumn, cancel func()) *resultSet {
 	rs := &resultSet{id: id, columns: cols, cancel: cancel}
 	rs.cond = sync.NewCond(&rs.mu)
@@ -40,6 +43,9 @@ func (rs *resultSet) fill(r driver.Rows, maxRows int, onProgress func(n int, don
 	defer r.Close()
 	const batch = 500
 	buf := make([][]*string, 0, batch)
+	// Progress events re-render every listening grid, so a fast read reports at
+	// most every progressEvery (the first batch at once, the end always).
+	var reported time.Time
 	flush := func() bool {
 		rs.mu.Lock()
 		closed := rs.complete
@@ -50,7 +56,8 @@ func (rs *resultSet) fill(r driver.Rows, maxRows int, onProgress func(n int, don
 		n := len(rs.rows)
 		rs.mu.Unlock()
 		buf = buf[:0]
-		if onProgress != nil && !closed {
+		if onProgress != nil && !closed && time.Since(reported) >= progressEvery {
+			reported = time.Now()
 			onProgress(n, false)
 		}
 		return !closed
