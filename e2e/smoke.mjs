@@ -166,7 +166,7 @@ await step("db open/close", async () => {
 });
 
 await step("empty-area menu + group", async () => {
-  await page.locator(".sidebar .tree").click({ button: "right", position: { x: 100, y: 600 } });
+  await page.locator(".sidebar .tree").click({ button: "right", position: { x: 100, y: (await page.locator(".sidebar .tree").boundingBox()).height - 8 } });
   await page.locator(".context-menu").waitFor();
   await shot("10-empty-menu");
   await page.locator(".menu-item", { hasText: "New Group" }).click();
@@ -217,7 +217,9 @@ await step("beautify", async () => {
 });
 
 await step("manage connections", async () => {
-  await page.locator(".sidebar .tree").click({ button: "right", position: { x: 100, y: 600 } });
+  // Below the last row, however many databases earlier runs left behind.
+  const tree = await page.locator(".sidebar .tree").boundingBox();
+  await page.locator(".sidebar .tree").click({ button: "right", position: { x: 100, y: tree.height - 8 } });
   await page.locator(".menu-item", { hasText: "Manage Connections" }).click();
   await page.locator(".modal.manage tbody tr").first().waitFor();
   await shot("18-manage");
