@@ -17,7 +17,9 @@ var (
 	ErrUnterminated = errors.New("the statement has an unterminated string, identifier or comment")
 )
 
-// MySQLReadHazard reports what in a MySQL statement a keyword check can't see:
+// MySQLReadHazard is a hazard detector, not a read-only validator: callers also
+// require one statement, check its leading keyword and run it in a read-only
+// transaction. It reports what in a MySQL statement a keyword check can't see:
 // executable comments, which MySQL runs as code (/*!CREATE TABLE t AS*/ SELECT …
 // reads as a SELECT), and INTO OUTFILE/DUMPFILE however it is spaced or
 // commented. It fails closed: where strings end depends on the server's
@@ -58,6 +60,9 @@ func mysqlCode(s string, backslash bool) (string, bool) {
 			j, closed := i+1, false
 			for j < len(s) {
 				if backslash && s[j] == '\\' && c != '`' {
+					if j+1 >= len(s) {
+						return "", false // a trailing backslash escapes nothing: still open
+					}
 					j += 2
 					continue
 				}

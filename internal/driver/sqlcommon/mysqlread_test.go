@@ -17,7 +17,13 @@ func TestMySQLReadHazard(t *testing.T) {
 		"SELECT \"a\\\" INTO DUMPFILE '/tmp/x' -- \"",
 		// /*! is refused even where it looks quoted: the server may not agree.
 		"SELECT 'a\\' /*!CREATE TABLE x AS*/ SELECT 1 -- '",
+		"SELECT 1 INTO DUMPFILE '/tmp/a'",
+		"/*!50000 SELECT 1 */",
+		// Deliberate false positive: the server's sql_mode decides where a string
+		// ends, so /*! is refused even where it looks quoted. Don't "fix" this.
+		"SELECT '/*!x*/'",
 		"SELECT 'unfinished",
+		"SELECT 'trailing\\",
 		"SELECT 1 /* unfinished",
 		"SELECT `x",
 	}
@@ -27,6 +33,8 @@ func TestMySQLReadHazard(t *testing.T) {
 		}
 	}
 	good := []string{
+		"SELECT 1",
+		"SELECT 'INTO OUTFILE'",
 		"SELECT \"INTO OUTFILE\", `into outfile` FROM t",
 		"SELECT 'O\\'Brien', 'it''s' FROM t",
 		"SELECT 'C:\\\\'",
