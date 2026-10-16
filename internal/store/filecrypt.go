@@ -75,7 +75,25 @@ func (s *Store) fileKey(create bool) ([]byte, error) {
 	return key, nil
 }
 
-func (s *Store) sealFile(plain []byte) ([]byte, error) {
+// fileAADFor binds a sealed file to its name, so one sealed file can't stand in
+// for another (version 2; version 1 files share fileAAD and are resealed when
+// next written).
+func fileAADFor(name string) []byte { return append(slices.Clone(fileAAD), append([]byte{0}, name...)...) }
+
+// refusePlain is the error for a plain file where a sealed one belongs: once the
+// keychain holds Chloe's key everything it writes is sealed, so a plain file was
+// put there by something else (to plant settings, or to roll them back).
+func (s *Store) refusePlain(name string) error {
+	if !s.encrypts() {
+		return nil
+	}
+	if _, err := s.fileKey(false); err != nil {
+		return nil // no key yet: a file from a release before encryption
+	}
+	return fmt.Errorf("%s isn't encrypted, so Chloe didn't write it; it was ignored", name)
+}
+
+func (s *Store) sealFile(name string, plain []byte) ([]byte, error) {
 	key, err := s.fileKey(true)
 	if err != nil {
 		return nil, fmt.Errorf("keychain: %w", err)
@@ -84,15 +102,15 @@ func (s *Store) sealFile(plain []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	f := sealedConnections{Format: sealedFile, Version: 1, Nonce: make([]byte, gcm.NonceSize())}
+	f := sealedConnections{Format: sealedFile, Version: 2, Nonce: make([]byte, gcm.NonceSize())}
 	if _, err := rand.Read(f.Nonce); err != nil {
 		return nil, err
 	}
-	f.Data = gcm.Seal(nil, f.Nonce, plain, fileAAD)
+	f.Data = gcm.Seal(nil, f.Nonce, plain, fileAADFor(name))
 	return json.MarshalIndent(f, "", "  ")
 }
 
-func (s *Store) openFile(data []byte) ([]byte, error) {
+func (s *Store) openFile(name string, data []byte) ([]byte, error) {
 	var f sealedConnections
 	if err := json.Unmarshal(data, &f); err != nil {
 		return nil, err
@@ -108,7 +126,11 @@ func (s *Store) openFile(data []byte) ([]byte, error) {
 	if len(f.Nonce) != gcm.NonceSize() {
 		return nil, errors.New("connections file is damaged")
 	}
-	plain, err := gcm.Open(nil, f.Nonce, f.Data, fileAAD)
+	aad := fileAAD
+	if f.Version >= 2 {
+		aad = fileAADFor(name)
+	}
+	plain, err := gcm.Open(nil, f.Nonce, f.Data, aad)
 	if err != nil {
 		return nil, errors.New("the connections key in the keychain doesn't open this file")
 	}
@@ -141,9 +163,13 @@ func (s *Store) SealData(plain []byte, purpose string) ([]byte, error) {
 	return out, nil
 }
 
-// OpenData reverses SealData; unsealed data is returned as it is.
+// OpenData reverses SealData; unsealed data is returned as it is by stores that
+// don't encrypt, and refused by those that do.
 func (s *Store) OpenData(data []byte, purpose string) ([]byte, error) {
 	if !bytes.HasPrefix(data, sealedDataMagic) {
+		if s.encrypts() {
+			return nil, errors.New("the file isn't encrypted, so Chloe didn't write it")
+		}
 		return data, nil
 	}
 	data = data[len(sealedDataMagic):]

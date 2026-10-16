@@ -103,9 +103,11 @@ func (s *Store) readDoc(name string, v any) error {
 		return err
 	}
 	if isSealed(data) {
-		if data, err = s.openFile(data); err != nil {
+		if data, err = s.openFile(name, data); err != nil {
 			return err
 		}
+	} else if err := s.refusePlain(name); err != nil {
+		return err
 	}
 	return json.Unmarshal(data, v)
 }
@@ -116,7 +118,7 @@ func (s *Store) writeDoc(name string, v any) error {
 		return err
 	}
 	if s.encrypts() {
-		if data, err = s.sealFile(data); err != nil {
+		if data, err = s.sealFile(name, data); err != nil {
 			return err
 		}
 	}

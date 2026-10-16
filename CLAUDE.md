@@ -52,7 +52,8 @@ Sample data lives in `testdata/seed_*` (`seed_mongo.js` runs in mongosh). To reb
 - macOS secrets go through the Security framework (`internal/store/keyring_darwin.go`), never `/usr/bin/security`: items the
   CLI creates can be read by any process without a prompt. `CHLOE_KEYCHAIN_IT=1 go test ./internal/store` exercises it.
   `connections.json` is AES-GCM encrypted under a keychain key (plain with `CHLOE_SECRETS=memory`); if the key can't be read
-  the store is `Locked()` and never writes, so the file survives. `queries.json`, `history.json` and `drafts.json`
+  the store is `Locked()` and never writes, so the file survives. Once the key exists, a plain file where a sealed one
+  belongs is refused, and sealed files are bound to their name (version 2). `queries.json`, `history.json` and `drafts.json`
   (`store.Workspace`) use the same key. Saved queries are tree objects of kind `query`, served by `ListObjects`/`DDL`.
 - Tab panes mount when first shown and stay mounted. Query tabs aren't closed by Close Connection/Database; close
   tabs through `requestCloseTabs` (it asks to save edited queries), not `closeTabs`.
