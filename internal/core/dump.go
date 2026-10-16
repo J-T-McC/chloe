@@ -16,6 +16,7 @@ import (
 	"chloe/internal/design"
 	"chloe/internal/driver"
 	"chloe/internal/model"
+	"chloe/internal/sqlq"
 	"chloe/internal/sqlsplit"
 	"chloe/internal/transfer"
 )
@@ -391,7 +392,7 @@ var nextvalRe = regexp.MustCompile(`^nextval\('((?:[^']|'')+)'(?:::regclass)?\)$
 // every serial/identity sequence past the restored ids.
 func (d *dumper) resetSequences(td design.Table) {
 	tbl := d.d.Qualified(d.ref(td.Name, model.KindTable))
-	lit := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+	lit := sqlq.PGString
 	for _, c := range td.Columns {
 		col := d.d.QuoteIdent(c.Name)
 		var seq string

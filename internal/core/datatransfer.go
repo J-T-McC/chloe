@@ -15,6 +15,7 @@ import (
 	"chloe/internal/driver"
 	"chloe/internal/driver/sqlcommon"
 	"chloe/internal/model"
+	"chloe/internal/sqlq"
 )
 
 // Data Transfer copies tables (structure and rows) and views from one database or
@@ -482,7 +483,7 @@ func (t *transferRun) prepareIndexNames(ctx context.Context) error {
 	return rows.Err()
 }
 
-func pgLiteral(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+func pgLiteral(s string) string { return sqlq.PGString(s) }
 
 // ---- target DDL ------------------------------------------------------------------------------
 

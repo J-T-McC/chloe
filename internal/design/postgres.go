@@ -3,6 +3,8 @@ package design
 import (
 	"fmt"
 	"strings"
+
+	"chloe/internal/sqlq"
 )
 
 // Postgres generates PostgreSQL DDL. Its statements are meant to run in one
@@ -35,7 +37,7 @@ var pgReserved = map[string]bool{"all": true, "and": true, "any": true, "array":
 	"order": true, "primary": true, "references": true, "select": true, "table": true, "then": true, "to": true, "true": true, "union": true,
 	"unique": true, "user": true, "using": true, "when": true, "where": true, "with": true}
 
-func pgStr(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+func pgStr(s string) string { return sqlq.PGString(s) }
 
 func (Postgres) table(t Table, name string) string {
 	if t.Schema != "" {
