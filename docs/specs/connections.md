@@ -72,7 +72,10 @@ Use SSL, Use authentication → Client Key (PEM) + Client Key Password (+save), 
 - Host, Port [22], User Name
 - **Authentication Method**: Password (default) / Public Key / Password and Public Key
 - Password (+Save password), Private Key (path), Passphrase (+Save passphrase)
-- Chloe additions to consider: ssh-agent, `~/.ssh/config` host aliases, known_hosts prompts.
+- Host keys: checked against `~/.ssh/known_hosts` and Chloe's own `known_hosts` in the config directory. A host
+  in neither is trusted on first use and its key recorded in Chloe's file; a different key later fails the
+  connection with the new fingerprint and the file and line to delete if the change was intended.
+- Chloe additions to consider: `~/.ssh/config` host aliases, a fingerprint prompt on first connect.
 
 ## HTTP tunnel (low priority)
 Use HTTP tunnel, Tunnel URL, Encode outgoing query with base64, Use authentication (User/Password/save), Proxy Settings…, Export Tunnel Script…. This needs server-side PHP scripts, so we defer it.
