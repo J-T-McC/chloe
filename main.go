@@ -58,6 +58,8 @@ func main() {
 	mgr := core.NewManager(st, services.Emitter{}, core.DefaultSettings)
 	defer mgr.Close()
 	approver := &services.MCPApprover{}
+	hostKeys := &services.HostKeys{}
+	tunnel.ConfirmHostKey = hostKeys.Confirm
 	mcpSrv := mcpserver.New(mgr, approver, services.MCPEvents{})
 	defer mcpSrv.Close()
 
@@ -79,6 +81,7 @@ func main() {
 			application.NewService(&services.MongoService{M: mgr}),
 			application.NewService(&services.UserService{M: mgr}),
 			application.NewService(&services.MCPService{S: mcpSrv, Approver: approver}),
+			application.NewService(&services.HostKeyService{H: hostKeys}),
 		},
 		Assets: application.AssetOptions{
 			Handler:    application.AssetFileServerFS(assets),

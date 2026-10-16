@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -129,7 +130,18 @@ func (t *SSH) getClient(ctx context.Context) (*ssh.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ssh connect %s: %w", addr, err)
 	}
-	cb, algos := hostKeyCheck(addr, raw.RemoteAddr())
+	// Asking about an unknown host lifts the handshake deadline: the user may take longer.
+	ask := func(hostname string, key ssh.PublicKey) bool {
+		if ConfirmHostKey == nil {
+			return false
+		}
+		_ = raw.SetDeadline(time.Time{})
+		defer raw.SetDeadline(time.Now().Add(t.timeout))
+		return ConfirmHostKey(ctx, HostKeyPrompt{
+			ID: fmt.Sprintf("hostkey-%d", promptSeq.Add(1)), Host: hostname, KeyType: key.Type(), Fingerprint: ssh.FingerprintSHA256(key),
+		})
+	}
+	cb, algos := hostKeyCheck(addr, raw.RemoteAddr(), ask)
 	conf := &ssh.ClientConfig{
 		User:              t.cfg.User,
 		Auth:              auth,
@@ -253,15 +265,29 @@ var PinnedHostsPath string
 
 var pinMu sync.Mutex
 
+// HostKeyPrompt asks the user whether to trust a host seen for the first time.
+type HostKeyPrompt struct {
+	ID          string `json:"id"`
+	Host        string `json:"host"` // host:port as dialled
+	KeyType     string `json:"keyType"`
+	Fingerprint string `json:"fingerprint"` // SHA256:…
+}
+
+// ConfirmHostKey asks the user about an unknown host and reports whether they trust it.
+// main connects it to a dialog; nil refuses unknown hosts.
+var ConfirmHostKey func(ctx context.Context, p HostKeyPrompt) bool
+
+var promptSeq atomic.Int64
+
 // hostKeyCheck verifies the server's key against ~/.ssh/known_hosts and Chloe's pinned
-// hosts. A host in neither is trusted on first use and its key pinned; from then on a
-// different key is rejected.
+// hosts. For a host in neither, ask shows the user its fingerprint; a trusted key is
+// pinned, and from then on a different key is rejected.
 //
 // When the host is known it also returns the host key algorithms to ask for, limited to
 // the key types on record. Otherwise the server may present a key type we have no entry
 // for (Go prefers ECDSA, ssh-keyscan often records only ed25519), which knownhosts
 // reports as a mismatch. OpenSSH orders algorithms the same way.
-func hostKeyCheck(addr string, remote net.Addr) (ssh.HostKeyCallback, []string) {
+func hostKeyCheck(addr string, remote net.Addr, ask func(hostname string, key ssh.PublicKey) bool) (ssh.HostKeyCallback, []string) {
 	if PinnedHostsPath == "" {
 		return func(string, net.Addr, ssh.PublicKey) error {
 			return errors.New("ssh: no file to record host keys in")
@@ -282,9 +308,15 @@ func hostKeyCheck(addr string, remote net.Addr) (ssh.HostKeyCallback, []string) 
 			}, nil
 		}
 	}
+	trust := func(hostname string, key ssh.PublicKey) error {
+		if !ask(hostname, key) {
+			return fmt.Errorf("ssh: the host key of %s (%s) wasn't trusted", hostname, ssh.FingerprintSHA256(key))
+		}
+		return pin(hostname, key)
+	}
 	check := func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		if cb == nil {
-			return pin(hostname, key)
+			return trust(hostname, key)
 		}
 		err := cb(hostname, remote, key)
 		var ke *knownhosts.KeyError
@@ -292,7 +324,7 @@ func hostKeyCheck(addr string, remote net.Addr) (ssh.HostKeyCallback, []string) 
 			return err
 		}
 		if len(ke.Want) == 0 {
-			return pin(hostname, key)
+			return trust(hostname, key)
 		}
 		w := ke.Want[0]
 		return fmt.Errorf("ssh: host key mismatch for %s: the server sent %s, but %s:%d records another key. "+

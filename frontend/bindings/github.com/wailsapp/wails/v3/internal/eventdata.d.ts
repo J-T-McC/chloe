@@ -16,6 +16,9 @@ import type * as mcpserver$0 from "../../../../../chloe/internal/mcpserver/model
 import type * as store$0 from "../../../../../chloe/internal/store/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import type * as tunnel$0 from "../../../../../chloe/internal/tunnel/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import type * as services$0 from "../../../../../chloe/services/models.js";
 
 declare module "@wailsio/runtime" {
@@ -37,6 +40,8 @@ declare module "@wailsio/runtime" {
             "mcp:settings": store$0.MCPSettings;
             "mcp:status": mcpserver$0.Status;
             "result:progress": services$0.ResultProgress;
+            "ssh:hostkey": tunnel$0.HostKeyPrompt;
+            "ssh:hostkey-done": string;
         }
     }
 }

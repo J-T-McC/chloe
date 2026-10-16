@@ -166,6 +166,7 @@ func TestSSHKnownHostsOtherKeyType(t *testing.T) {
 			oldKnown, oldPinned := knownHostsPath, PinnedHostsPath
 			knownHostsPath, PinnedHostsPath = path, filepath.Join(t.TempDir(), "known_hosts")
 			defer func() { knownHostsPath, PinnedHostsPath = oldKnown, oldPinned }()
+			answerPrompts(t, true)
 
 			cfg := model.SSHConfig{Enabled: true, Host: "127.0.0.1", Port: port, User: "u", Password: "pw"}
 			s, err := newSSH(context.Background(), cfg, 5*time.Second)
@@ -182,8 +183,8 @@ func TestSSHKnownHostsOtherKeyType(t *testing.T) {
 	}
 }
 
-// A host seen for the first time is pinned in Chloe's known_hosts, and a server
-// presenting a different key afterwards is refused.
+// A host seen for the first time is pinned in Chloe's known_hosts once the user trusts
+// its key, and a server presenting a different key afterwards is refused.
 func TestSSHPinsFirstSeenHostKey(t *testing.T) {
 	_, first, _ := ed25519.GenerateKey(rand.Reader)
 	_, second, _ := ed25519.GenerateKey(rand.Reader)
@@ -195,6 +196,19 @@ func TestSSHPinsFirstSeenHostKey(t *testing.T) {
 	defer func() { knownHostsPath, PinnedHostsPath = oldKnown, oldPinned }()
 
 	cfg := model.SSHConfig{Enabled: true, Host: "127.0.0.1", Port: port, User: "u", Password: "pw"}
+	// Declined: no connection, nothing pinned.
+	asked := answerPrompts(t, false)
+	if _, err := newSSH(context.Background(), cfg, 5*time.Second); err == nil || !strings.Contains(err.Error(), "wasn't trusted") {
+		t.Fatalf("want a refusal, got %v", err)
+	}
+	if p := *asked; len(p) != 1 || p[0].Fingerprint != ssh.FingerprintSHA256(signer(t, first).PublicKey()) || p[0].KeyType != "ssh-ed25519" {
+		t.Fatalf("prompts %+v", p)
+	}
+	if _, err := os.Stat(PinnedHostsPath); !os.IsNotExist(err) {
+		t.Fatalf("declined key pinned: %v", err)
+	}
+
+	asked = answerPrompts(t, true)
 	s, err := newSSH(context.Background(), cfg, 5*time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -205,11 +219,14 @@ func TestSSHPinsFirstSeenHostKey(t *testing.T) {
 		t.Fatalf("host key not pinned: %q %v", b, err)
 	}
 
-	// Same key again: accepted, nothing more recorded.
+	// Same key again: accepted without asking, nothing more recorded.
 	if s, err = newSSH(context.Background(), cfg, 5*time.Second); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
+	if len(*asked) != 1 {
+		t.Fatalf("asked again about a pinned host: %+v", *asked)
+	}
 	if b2, _ := os.ReadFile(PinnedHostsPath); string(b2) != string(b) {
 		t.Fatalf("known host pinned again:\n%s", b2)
 	}
@@ -222,4 +239,16 @@ func TestSSHPinsFirstSeenHostKey(t *testing.T) {
 	if _, err = newSSH(context.Background(), cfg, 5*time.Second); err == nil || !strings.Contains(err.Error(), "mismatch") {
 		t.Fatalf("want a key mismatch, got %v", err)
 	}
+}
+
+// answerPrompts answers host key prompts for the rest of the test and records them.
+func answerPrompts(t *testing.T, trust bool) *[]HostKeyPrompt {
+	var asked []HostKeyPrompt
+	old := ConfirmHostKey
+	ConfirmHostKey = func(_ context.Context, p HostKeyPrompt) bool {
+		asked = append(asked, p)
+		return trust
+	}
+	t.Cleanup(func() { ConfirmHostKey = old })
+	return &asked
 }

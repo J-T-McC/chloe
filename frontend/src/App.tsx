@@ -50,6 +50,7 @@ import { QueryEditor } from "./components/QueryEditor";
 import { HistoryLog, openHistoryLog } from "./components/HistoryLog";
 import { MCPButton, MCPServer, openMCPServer } from "./components/mcp/MCPServer";
 import { ApprovalHost } from "./components/mcp/ApprovalHost";
+import { HostKeyHost } from "./components/HostKeyHost";
 import { requestCloseTabs, saveQueryTab } from "./queries";
 import { Sidebar, newQuery, openMonitor, selectAllSQL, useInitialLoad } from "./components/Sidebar";
 import { TableViewer } from "./components/TableViewer";
@@ -218,6 +219,7 @@ export default function App() {
       <MongoTransferHost />
       <DialogHost />
       <ApprovalHost />
+      <HostKeyHost />
       <CreateChartDialog />
       <ExportHost />
       <ContextMenuHost />
