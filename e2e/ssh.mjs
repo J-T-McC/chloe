@@ -51,7 +51,11 @@ await step("public key tunnel tests ok", async () => {
   await openDialog("2222");
   await page.getByRole("button", { name: "Test Connection" }).click();
   await page.locator(".status-line.ok").waitFor({ timeout: 15000 });
+  await page.locator('.tunnel-diagram[data-probe="ok"]').waitFor();
+  if ((await page.locator(".tunnel-node.ok").count()) !== 3) throw new Error("all three nodes should be lit");
   await shot("ssh-key-ok");
+  await field("Port").fill("2223"); // editing clears the lights
+  await page.locator('.tunnel-diagram[data-probe="idle"]').waitFor();
   await page.getByRole("button", { name: "Cancel" }).click();
 });
 
@@ -59,11 +63,27 @@ await step("silent ssh host reports an error", async () => {
   await openDialog(silentPort);
   const t0 = Date.now();
   await page.getByRole("button", { name: "Test Connection" }).click();
+  await page.locator('.tunnel-diagram[data-probe="testing"]').waitFor();
+  await shot("ssh-testing");
   await page.locator(".status-line:not(.ok)").waitFor({ timeout: 25000 });
+  await page.locator('.tunnel-diagram[data-probe="ssh-failed"]').waitFor();
   const text = await page.locator(".status-line").innerText();
   if (!/no response from the SSH server/.test(text)) throw new Error("unexpected status: " + text);
   console.log(`     failed after ${((Date.now() - t0) / 1000).toFixed(1)}s: ${text}`);
   await shot("ssh-silent-error");
+});
+
+await step("database failure lights the second leg", async () => {
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await openDialog("2222");
+  await page.getByText("General", { exact: true }).click();
+  await field("Password").fill("wrong");
+  await page.getByText("SSH", { exact: true }).click();
+  await page.getByRole("button", { name: "Test Connection" }).click();
+  await page.locator('.tunnel-diagram[data-probe="db-failed"]').waitFor({ timeout: 15000 });
+  if ((await page.locator(".tunnel-link.ok").count()) !== 1 || (await page.locator(".tunnel-link.fail").count()) !== 1)
+    throw new Error("expected the SSH leg ok and the database leg failed");
+  await shot("ssh-db-failed");
 });
 
 await browser.close();
