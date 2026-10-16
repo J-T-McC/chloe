@@ -176,6 +176,7 @@ func (m *Manager) runStatement(ctx context.Context, s *session, st sqlsplit.Stat
 	id := newID()
 	ds := s.ds
 	rs := newResultSet(id, rows.Columns(), func() { _ = ds.Cancel(context.Background()) })
+	rs.origin = resultOrigin{connID: s.connID, sql: st.SQL, database: s.database, schema: s.schema}
 	m.mu.Lock()
 	m.results[id] = rs
 	s.results = append(s.results, id)

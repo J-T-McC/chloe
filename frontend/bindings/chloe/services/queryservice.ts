@@ -79,12 +79,26 @@ export function OpenSession(connID: string, database: string, schema: string): $
     return $Call.ByID(495882282, connID, database, schema);
 }
 
+/**
+ * PatchResult updates a buffered result after its edits were applied.
+ */
+export function PatchResult(resultID: string, p: core$0.ResultPatch): $CancellablePromise<model$0.StatementResult> {
+    return $Call.ByID(504947701, resultID, p);
+}
+
 export function ReleaseResult(resultID: string): $CancellablePromise<void> {
     return $Call.ByID(1041865830, resultID);
 }
 
 export function RenameQuery(id: string, name: string): $CancellablePromise<store$0.SavedQuery> {
     return $Call.ByID(627105716, id, name);
+}
+
+/**
+ * ResultEditTarget says whether a query result can be edited in place, and how.
+ */
+export function ResultEditTarget(resultID: string): $CancellablePromise<core$0.ResultEdit> {
+    return $Call.ByID(2311743862, resultID);
 }
 
 export function ResultStatus(resultID: string): $CancellablePromise<model$0.StatementResult> {

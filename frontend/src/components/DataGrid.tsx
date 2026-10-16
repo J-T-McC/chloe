@@ -23,6 +23,8 @@ export interface DataGridProps {
   dataKey: string;
   fetchPage(offset: number, limit: number): Promise<Cell[][]>;
   editable?: boolean;
+  /** Columns that can't be edited even when the grid is (computed query result columns). */
+  readOnlyColumns?: boolean[];
   edits?: GridEdits;
   onEditCell?(row: number, col: number, value: Cell): void;
   onDeleteRows?(rows: number[]): void;
@@ -169,8 +171,10 @@ export function DataGrid(p: DataGridProps) {
     p.onActiveCell?.(r, c, cellValue(r, c));
   };
 
+  const canEdit = (c: number) => !!p.editable && !p.readOnlyColumns?.[c];
+
   const startEdit = (r: number, c: number, initial?: string) => {
-    if (!p.editable || p.edits?.deleted.has(r)) return;
+    if (!canEdit(c) || p.edits?.deleted.has(r)) return;
     const cur = cellValue(r, c);
     setEditing({ r, c, value: initial ?? cur ?? "", isNull: initial === undefined && cur === null });
   };
@@ -271,7 +275,7 @@ export function DataGrid(p: DataGridProps) {
       case "Delete":
         if (p.editable && !meta) {
           const n = norm(sel);
-          for (let rr = n.r0; rr <= n.r1; rr++) for (let cc = n.c0; cc <= n.c1; cc++) if (cellValue(rr, cc) !== "") p.onEditCell?.(rr, cc, "");
+          for (let rr = n.r0; rr <= n.r1; rr++) for (let cc = n.c0; cc <= n.c1; cc++) if (canEdit(cc) && cellValue(rr, cc) !== "") p.onEditCell?.(rr, cc, "");
         } else if (p.editable && meta) {
           const n = norm(sel);
           p.onDeleteRows?.(range(n.r0, n.r1));
@@ -331,9 +335,9 @@ export function DataGrid(p: DataGridProps) {
     if (p.editable) {
       items.push(
         { separator: true },
-        { label: "Edit Cell", shortcut: "↩", onClick: () => startEdit(r, c) },
-        { label: "Set to NULL", onClick: () => p.onEditCell?.(r, c, null) },
-        { label: "Set to Empty String", onClick: () => p.onEditCell?.(r, c, "") },
+        { label: "Edit Cell", shortcut: "↩", disabled: !canEdit(c), onClick: () => startEdit(r, c) },
+        { label: "Set to NULL", disabled: !canEdit(c), onClick: () => p.onEditCell?.(r, c, null) },
+        { label: "Set to Empty String", disabled: !canEdit(c), onClick: () => p.onEditCell?.(r, c, "") },
         { separator: true },
         { label: "Add Row", onClick: () => p.onInsertRow?.() },
         {

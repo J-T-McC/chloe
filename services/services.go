@@ -309,6 +309,16 @@ func (s *QueryService) ResultStatus(resultID string) (model.StatementResult, err
 
 func (s *QueryService) ReleaseResult(resultID string) { s.M.ReleaseResult(resultID) }
 
+// ResultEditTarget says whether a query result can be edited in place, and how.
+func (s *QueryService) ResultEditTarget(ctx context.Context, resultID string) (core.ResultEdit, error) {
+	return s.M.ResultEditTarget(ctx, resultID)
+}
+
+// PatchResult updates a buffered result after its edits were applied.
+func (s *QueryService) PatchResult(resultID string, p core.ResultPatch) (model.StatementResult, error) {
+	return s.M.PatchResult(resultID, p)
+}
+
 func (s *QueryService) BrowseTable(ctx context.Context, connID string, req core.BrowseRequest) (model.StatementResult, error) {
 	return s.M.BrowseTable(ctx, connID, req)
 }

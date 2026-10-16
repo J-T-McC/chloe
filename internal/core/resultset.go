@@ -12,6 +12,7 @@ import (
 type resultSet struct {
 	id      string
 	columns []model.ResultColumn
+	origin  resultOrigin // set for query editor results; used to edit them in place
 
 	mu        sync.Mutex
 	cond      *sync.Cond
@@ -20,6 +21,11 @@ type resultSet struct {
 	truncated bool
 	err       error
 	cancel    func()
+}
+
+// resultOrigin is the statement and session context a result came from.
+type resultOrigin struct {
+	connID, sql, database, schema string
 }
 
 func newResultSet(id string, cols []model.ResultColumn, cancel func()) *resultSet {

@@ -65,3 +65,9 @@ A bar with a **Find Data** / **Find Field** mode, Highlight All, Incremental Sea
 - **Canvas-based virtualized grid.** Glide Data Grid is MIT and canvas-based, with frozen columns, custom cells and editors. Rows are fetched by viewport window from a Go-side result cursor/page cache, so large results are never fully serialized to JS.
 - Paging defaults to LIMIT/OFFSET 1000 per page for table views. Query results stream in chunks.
 - Copy As formats are generated in Go so they work for large selections.
+- **Editable query results.** A result is editable when its statement is a plain single-table `SELECT` (no joins,
+  GROUP BY, DISTINCT or set operations) and it includes the table's whole primary key (`core.ResultEditTarget`).
+  Column references, `*` and `t.*` map to table columns; expressions stay read-only. Without a primary key the
+  result is read-only, unlike the table view, because a query's columns can't safely stand in for a row identity.
+  Apply writes through `ApplyChanges` and patches the buffered result (`PatchResult`) instead of re-running the
+  query. Otherwise the status bar shows a read-only badge with the reason.
