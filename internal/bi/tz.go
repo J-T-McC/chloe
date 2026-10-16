@@ -88,3 +88,37 @@ func (b *qb) col(f Field) string {
 	}
 	return "chloe_tz(" + col + ", '" + b.tz + "')"
 }
+
+// cmp is a field for comparing with values: the stored column and a function
+// that turns a value in the data source's time zone into what it's compared
+// with. Shifting the value instead of the column keeps the comparison on the
+// bare column, so an index on it is used. Only MySQL and PostgreSQL date/time
+// columns qualify; SQLite stores dates as text in more than one format, so it
+// (and anything else) compares the converted column.
+func (b *qb) cmp(f Field) (string, func(string) string) {
+	col := b.d.QuoteIdent(f.Name)
+	same := func(v string) string { return v }
+	t := strings.ToLower(f.DBType)
+	if b.tz == "" || f.Type != TypeDateTime || t == "date" {
+		return col, same
+	}
+	switch b.d.Name {
+	case "postgres":
+		switch {
+		case t == "timestamptz" || strings.Contains(t, "with time zone"):
+			return col, func(v string) string { return "(CAST(" + v + " AS timestamp) AT TIME ZONE '" + b.tz + "')" }
+		case t == "timestamp" || strings.HasPrefix(t, "timestamp without"):
+			return col, func(v string) string {
+				return "(CAST(" + v + " AS timestamp) AT TIME ZONE '" + b.tz + "' AT TIME ZONE 'UTC')"
+			}
+		}
+	case "mysql":
+		switch t {
+		case "timestamp":
+			return col, func(v string) string { return "CONVERT_TZ(" + v + ", '" + b.tz + "', @@session.time_zone)" }
+		case "datetime":
+			return col, func(v string) string { return "CONVERT_TZ(" + v + ", '" + b.tz + "', '+00:00')" }
+		}
+	}
+	return b.col(f), same
+}

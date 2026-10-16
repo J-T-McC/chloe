@@ -2,6 +2,7 @@ package core_test
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -14,6 +15,9 @@ import (
 	"chloe/internal/core"
 	"chloe/internal/driver"
 	"chloe/internal/model"
+
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 // The same charts give the same rows on every engine, live and archived: date
@@ -97,6 +101,24 @@ func TestBIChartsAcrossEngines(t *testing.T) {
 					data, err := m.BIChartData(ctx, w, c, nil, opt)
 					if want := [][]any{{"Sun", 1.0}, {"Mon", 1.0}}; err != nil || !reflect.DeepEqual(data.Rows, want) {
 						t.Errorf("%s %s zoned: %v %v\n%s", mode, how, err, data.Rows, data.SQL)
+					}
+				}
+				// Filters are wall-clock time in the zone: Monday Jan 19 there holds
+				// Jan 20 00:00 UTC, and nothing of Jan 4 10:00 UTC (02:00 that day).
+				days := bi.Chart{DataSource: src.ID, Type: "value", Value: []bi.ChartField{{Field: "total", Aggregate: "sum"}}}
+				for _, tc := range []struct {
+					f    bi.Filter
+					want float64
+				}{
+					{bi.Filter{Field: "placed_at", Op: "=", Values: []string{"2026-01-19"}}, 80},
+					{bi.Filter{Field: "placed_at", Op: "between", Values: []string{"2026-01-04", "2026-01-19"}}, 200},
+					{bi.Filter{Field: "placed_at", Op: ">=", Values: []string{"2026-01-04 03:00:00"}}, 710.5},
+					{bi.Filter{Field: "placed_at", Op: "in", Values: []string{"2026-01-04 02:00:00", "2026-01-19 16:00:00"}}, 200},
+				} {
+					days.Filters = []bi.Filter{tc.f}
+					data, err := m.BIChartData(ctx, w, days, nil, core.BIRead{Uncached: true})
+					if err != nil || len(data.Rows) != 1 || data.Rows[0][0] != tc.want {
+						t.Errorf("%s zoned filter %s %v: %v %v\n%s", mode, tc.f.Op, tc.f.Values, err, data.Rows, data.SQL)
 					}
 				}
 			}
@@ -251,4 +273,108 @@ func TestBICacheKeepsDatabaseRules(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A zoned date filter keeps the column bare, so the database uses its index.
+func TestBIZonedFilterUsesIndex(t *testing.T) {
+	for _, e := range engines() {
+		t.Run(string(e.conn.Type), func(t *testing.T) {
+			m, id := setup(t, e)
+			ctx := context.Background()
+			d, err := m.Dialect(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			driverName, dsn := "mysql", "root:chloe@tcp(127.0.0.1:33306)/shop"
+			table, cols := "bi_tz_idx", "(id INT PRIMARY KEY, at %s, v INT)"
+			ts := []string{"DATETIME", "TIMESTAMP"}
+			if e.conn.Type == model.PostgreSQL {
+				driverName, dsn, table = "pgx", "postgres://postgres:chloe@127.0.0.1:55432/postgres", "shop.bi_tz_idx"
+				ts = []string{"timestamp", "timestamptz"}
+			}
+			db, err := sql.Open(driverName, dsn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			conn, err := db.Conn(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			exec := func(q string) {
+				if _, err := conn.ExecContext(ctx, q); err != nil {
+					t.Fatalf("%s: %v", q, err)
+				}
+			}
+			t.Cleanup(func() { db.Exec("DROP TABLE IF EXISTS " + table) })
+			for _, typ := range ts {
+				exec("DROP TABLE IF EXISTS " + table)
+				exec("CREATE TABLE " + table + " " + fmt.Sprintf(cols, typ))
+				exec("CREATE INDEX bi_tz_idx_at ON " + table + " (at)")
+				if e.conn.Type == model.PostgreSQL {
+					exec("INSERT INTO " + table + " SELECT i, TIMESTAMP '2020-01-01' + i * INTERVAL '7 hours', i FROM generate_series(0, 1999) i")
+					exec("ANALYZE " + table)
+					exec("SET enable_seqscan = off") // a seq scan only when there's no way to use the index
+				} else {
+					exec("SET SESSION cte_max_recursion_depth = 5000")
+					exec("INSERT INTO " + table + " SELECT n, TIMESTAMP '2020-01-01 00:00:00' + INTERVAL n * 7 HOUR, n FROM (WITH RECURSIVE s(n) AS (SELECT 0 UNION ALL SELECT n + 1 FROM s WHERE n < 1999) SELECT n FROM s) x")
+					exec("ANALYZE TABLE " + table)
+				}
+				src := bi.DataSource{Table: "bi_tz_idx", Database: e.database, Schema: e.schema, Timezone: "America/Los_Angeles",
+					Fields: []bi.Field{{Name: "at", Type: bi.TypeDateTime, DBType: strings.ToUpper(typ)}, {Name: "v", Type: bi.TypeNumber}}}
+				from, err := bi.From(d, src)
+				if err != nil {
+					t.Fatal(err)
+				}
+				c := bi.Chart{Type: "value", Value: []bi.ChartField{{Field: "v", Aggregate: "sum"}},
+					Filters: []bi.Filter{{Field: "at", Op: "between", Values: []string{"2020-03-01", "2020-03-02"}}}}
+				q, _, err := bi.ChartQuery(d, from, src, c, 10)
+				if err != nil {
+					t.Fatal(err)
+				}
+				explain := "EXPLAIN FORMAT=TREE "
+				if e.conn.Type == model.PostgreSQL {
+					explain = "EXPLAIN "
+				}
+				rows, err := conn.QueryContext(ctx, explain+q.SQL, q.Args...)
+				if err != nil {
+					t.Fatalf("%s: %v", q.SQL, err)
+				}
+				var plan strings.Builder
+				for rows.Next() {
+					var line string
+					rows.Scan(&line)
+					plan.WriteString(line + "\n")
+				}
+				rows.Close()
+				if !strings.Contains(plan.String(), "bi_tz_idx_at") {
+					t.Errorf("%s: the index isn't used:\n%s\n%s", typ, q.SQL, plan.String())
+				}
+				// And the filter still means wall-clock days in the zone.
+				var sum sql.NullInt64
+				if err := conn.QueryRowContext(ctx, q.SQL, q.Args...).Scan(&sum); err != nil {
+					t.Fatal(err)
+				}
+				var want int64
+				for i := int64(0); i < 2000; i++ {
+					at := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(i*7) * time.Hour)
+					if l := at.In(mustZone(t, "America/Los_Angeles")); !l.Before(time.Date(2020, 3, 1, 0, 0, 0, 0, l.Location())) && l.Before(time.Date(2020, 3, 3, 0, 0, 0, 0, l.Location())) {
+						want += i
+					}
+				}
+				if sum.Int64 != want {
+					t.Errorf("%s: sum %d, want %d", typ, sum.Int64, want)
+				}
+			}
+		})
+	}
+}
+
+func mustZone(t *testing.T, name string) *time.Location {
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return loc
 }
