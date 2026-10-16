@@ -33,6 +33,15 @@ export function ChartData(path: string, c: bi$0.Chart, params: { [_ in string]?:
 }
 
 /**
+ * ChooseExportFile asks where to save an export before anything is drawn, so a
+ * cancelled dialog costs nothing. Returns the path with its extension, or ""
+ * when cancelled.
+ */
+export function ChooseExportFile(name: string, format: string): $CancellablePromise<string> {
+    return $Call.ByID(1157933296, name, format);
+}
+
+/**
  * Create adds an empty workspace to the library and returns its path.
  */
 export function Create(name: string): $CancellablePromise<string> {
@@ -137,14 +146,6 @@ export function SaveDashboard(path: string, d: bi$0.Dashboard): $CancellableProm
 }
 
 /**
- * SaveExport writes rendered pages to a file the user picks: one PNG, or a PDF
- * of every page. Returns the path, or "" when cancelled.
- */
-export function SaveExport(name: string, format: string, pages: string[] | null): $CancellablePromise<string> {
-    return $Call.ByID(4135964862, name, format, pages);
-}
-
-/**
  * SaveExternal writes a copy of a workspace (definitions only) to a file the user
  * picks. Returns the path written, or "" when cancelled.
  */
@@ -172,4 +173,11 @@ export function SaveSource(path: string, src: bi$0.DataSource): $CancellableProm
  */
 export function SetTheme(path: string, theme: string): $CancellablePromise<void> {
     return $Call.ByID(3069361484, path, theme);
+}
+
+/**
+ * WriteExport writes rendered pages to path: one PNG, or a PDF of every page.
+ */
+export function WriteExport(path: string, format: string, pages: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(3128369754, path, format, pages);
 }

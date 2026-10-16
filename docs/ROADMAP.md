@@ -17,6 +17,29 @@ Order reflects dependencies: later features build on the earlier ones. Specs for
 
 MCP server (6b): Redis and MongoDB tools are done.
 
+### BI fixes (found building the Uptime Command Center dashboard, 2026-10-15)
+Export (`ExportHost.tsx`, `DashboardEditor.tsx`, `services/render.go`):
+- [x] Feedback while exporting: the Save dialog comes first (nothing is drawn if it's cancelled), then
+  "Exporting page n of m…" with Cancel, then "Saved <path>" with Show in Finder
+- [x] Each page capture times out after 60s instead of stalling the export queue (MCP included)
+- [x] A failed capture names its page instead of reading `[object Event]`
+- [ ] Tall report pages (~2,100px+) still fail to capture; capture them in slices or lower the pixel ratio
+- [ ] Exporting all pages fails as a whole when one page fails
+- [ ] Export re-runs every chart's query; reuse the data the open dashboard already has
+
+Charts (`options.ts`, `ChartView.tsx`, `styles.css`):
+- [ ] `bar_line` / `stacked_bar_line` split by a series drop their secondary (line) fields: the series pivot only
+  reads the value column
+- [ ] The line in bar+line charts shares the bars' y-axis; give it its own (`yAxisIndex: 1`)
+- [ ] No y-axis min/max for line, area and bar charts, so a 97–100% uptime line is flat on a 0–100% axis
+- [ ] KPI tiles 2 columns wide (height S) clip the target meter and change; the figure doesn't shrink
+- [ ] KPI change always says "vs target"; let it say "vs previous" when the target is a previous period
+- [ ] Control checkbox list stays two narrow columns (second one clipped) however wide the tile is
+- [ ] Donut/pie legend "right" overlaps the ring in narrow tiles; slice labels get cut off
+- [ ] Treemap runs out of palette colours after ~8 categories and greys the rest
+- [ ] Long hbar category labels are clipped at the start ("ptime-api.tysonmccarney.com") instead of ellipsized
+- [ ] Table number format applies to every column; allow a format (e.g. percent) per column
+
 ## 1. Foundation ✅
 Go core, MySQL/PostgreSQL drivers, connection tree, objects pane, data grid, table viewer, query editor with autocomplete.
 

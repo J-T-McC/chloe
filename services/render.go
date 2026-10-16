@@ -109,12 +109,17 @@ func decodePNG(s string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(s)
 }
 
-// SaveExport writes rendered pages to a file the user picks: one PNG, or a PDF
-// of every page. Returns the path, or "" when cancelled.
-func (s *BIService) SaveExport(name, format string, pages []string) (string, error) {
-	data, ext, err := exportData(format, pages)
+// ChooseExportFile asks where to save an export before anything is drawn, so a
+// cancelled dialog costs nothing. Returns the path with its extension, or ""
+// when cancelled.
+func (s *BIService) ChooseExportFile(name, format string) (string, error) {
+	ext, err := exportExt(format)
 	if err != nil {
 		return "", err
+	}
+	// The browser build has no native dialog; e2e saves into a folder instead.
+	if dir := os.Getenv("CHLOE_EXPORT_DIR"); dir != "" {
+		return filepath.Join(dir, safeName(name)+ext), os.MkdirAll(dir, 0o755)
 	}
 	p, err := application.Get().Dialog.SaveFile().SetFilename(safeName(name) + ext).CanCreateDirectories(true).PromptForSingleSelection()
 	if err != nil || p == "" {
@@ -123,7 +128,24 @@ func (s *BIService) SaveExport(name, format string, pages []string) (string, err
 	if filepath.Ext(p) == "" {
 		p += ext
 	}
-	return p, os.WriteFile(p, data, 0o644)
+	return p, nil
+}
+
+// WriteExport writes rendered pages to path: one PNG, or a PDF of every page.
+func (s *BIService) WriteExport(path, format string, pages []string) error {
+	data, _, err := exportData(format, pages)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
+func exportExt(format string) (string, error) {
+	switch format {
+	case "png", "pdf":
+		return "." + format, nil
+	}
+	return "", fmt.Errorf("export is png or pdf, not %q", format)
 }
 
 func exportData(format string, pages []string) ([]byte, string, error) {

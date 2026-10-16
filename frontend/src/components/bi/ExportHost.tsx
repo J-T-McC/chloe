@@ -19,14 +19,32 @@ interface Job {
   scale: number;
   overrides: ParamValues;
   values: ParamValues;
+  progress?: RenderProgress;
   done(pngs: string[] | null, error?: string): void;
+}
+
+/** Follows a render: told as each page is captured, and asked whether to stop. */
+export interface RenderProgress {
+  page?(done: number, total: number): void;
+  cancelled?(): boolean;
+}
+
+// A page that can't be captured shouldn't hold up every export after it.
+const CAPTURE_TIMEOUT = 60_000;
+
+/** html-to-image rejects with a DOM Event when the browser can't decode the page
+ *  it drew (usually a page too tall to capture at this scale). */
+function captureError(e: unknown, page: number, total: number): string {
+  const where = total > 1 ? `Page ${page + 1}` : "The page";
+  if (typeof Event !== "undefined" && e instanceof Event) return `${where} couldn't be captured; it may be too tall to export at this size`;
+  return `${where}: ${errorText(e)}`;
 }
 
 const useJobs = create<{ queue: Job[] }>(() => ({ queue: [] }));
 
 /** Render pages (0-based) of a dashboard: the saved one by id, or a draft, with
  *  parameter values changed for this session if any. */
-export async function renderPages(path: string, dashboard: B.Dashboard | string, pages: number[], scale: number, overrides: ParamValues = {}): Promise<string[]> {
+export async function renderPages(path: string, dashboard: B.Dashboard | string, pages: number[], scale: number, overrides: ParamValues = {}, progress?: RenderProgress): Promise<string[]> {
   const w = await BI.Open(path);
   const d = typeof dashboard === "string" ? arr(w.dashboards).find((x) => x.id === dashboard) : dashboard;
   if (!d) throw new Error("the dashboard is no longer in the workspace");
@@ -40,6 +58,7 @@ export async function renderPages(path: string, dashboard: B.Dashboard | string,
       scale,
       overrides,
       values: paramValues(w.parameters, overrides),
+      progress,
       done: (pngs, error) => (pngs ? resolve(pngs) : reject(new Error(error ?? "rendering failed"))),
     };
     useJobs.setState((s) => ({ queue: [...s.queue, job] }));
@@ -77,6 +96,7 @@ export function ExportHost() {
         for (;;) {
           await wait(120);
           if (!live) return;
+          if (job.progress?.cancelled?.()) throw new Error("cancelled");
           const el = stage.current?.querySelector(".bi-canvas-frame");
           const busy = stage.current?.querySelector("[data-state=loading]");
           if (el && !busy && (el as HTMLElement).offsetHeight > 0) break;
@@ -85,9 +105,18 @@ export function ExportHost() {
         await frame();
         await frame();
         const el = stage.current!.querySelector(".bi-canvas-frame") as HTMLElement;
-        const png = await toPng(el, { pixelRatio: job.scale, cacheBust: false, width: el.offsetWidth, height: el.offsetHeight });
+        let png: string;
+        try {
+          png = await Promise.race([
+            toPng(el, { pixelRatio: job.scale, cacheBust: false, width: el.offsetWidth, height: el.offsetHeight }),
+            wait(CAPTURE_TIMEOUT).then(() => Promise.reject(new Error("capturing the page took too long"))),
+          ]);
+        } catch (e) {
+          throw new Error(captureError(e, index, job.pages.length));
+        }
         if (!live) return;
         results.current.push(png);
+        job.progress?.page?.(index + 1, job.pages.length);
         if (index + 1 < job.pages.length) {
           setIndex(index + 1);
           return;
