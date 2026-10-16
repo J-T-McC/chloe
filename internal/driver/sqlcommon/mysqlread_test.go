@@ -12,6 +12,14 @@ func TestMySQLReadHazard(t *testing.T) {
 		"SELECT * FROM t INTO -- x\nOUTFILE '/tmp/x'",
 		"SELECT * FROM t INTO # x\nDUMPFILE '/tmp/x'",
 		"SELECT 'a\\'' INTO OUTFILE '/tmp/x'",
+		// With NO_BACKSLASH_ESCAPES the string ends at the backslash.
+		"SELECT 'a\\' INTO OUTFILE '/tmp/x' -- '",
+		"SELECT \"a\\\" INTO DUMPFILE '/tmp/x' -- \"",
+		// /*! is refused even where it looks quoted: the server may not agree.
+		"SELECT 'a\\' /*!CREATE TABLE x AS*/ SELECT 1 -- '",
+		"SELECT 'unfinished",
+		"SELECT 1 /* unfinished",
+		"SELECT `x",
 	}
 	for _, s := range bad {
 		if MySQLReadHazard(s) == nil {
@@ -19,7 +27,9 @@ func TestMySQLReadHazard(t *testing.T) {
 		}
 	}
 	good := []string{
-		"SELECT '/*!x*/', \"INTO OUTFILE\", `into outfile` FROM t",
+		"SELECT \"INTO OUTFILE\", `into outfile` FROM t",
+		"SELECT 'O\\'Brien', 'it''s' FROM t",
+		"SELECT 'C:\\\\'",
 		"SELECT 1 /* plain */ -- INTO OUTFILE\n",
 		"SELECT /*+ MAX_EXECUTION_TIME(1000) */ * FROM t",
 		"SELECT 'it''s' INTO @v",
