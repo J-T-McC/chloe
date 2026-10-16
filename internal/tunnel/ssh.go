@@ -40,15 +40,23 @@ func (d *Direct) Close() error { return nil }
 // SSH dials through an SSH jump host. One SSH client is shared by all of a
 // connection's database sessions; it reconnects lazily if the link drops.
 type SSH struct {
-	cfg    model.SSHConfig
-	mu     sync.Mutex
-	client *ssh.Client
-	stopKA chan struct{}
+	cfg     model.SSHConfig
+	timeout time.Duration
+	mu      sync.Mutex
+	client  *ssh.Client
+	stopKA  chan struct{}
 }
+
+// sshTimeout bounds the TCP connect plus the SSH handshake and authentication.
+const sshTimeout = 15 * time.Second
 
 // NewSSH validates the configuration and opens the SSH connection.
 func NewSSH(ctx context.Context, cfg model.SSHConfig) (*SSH, error) {
-	t := &SSH{cfg: cfg}
+	return newSSH(ctx, cfg, sshTimeout)
+}
+
+func newSSH(ctx context.Context, cfg model.SSHConfig, timeout time.Duration) (*SSH, error) {
+	t := &SSH{cfg: cfg, timeout: timeout}
 	if _, err := t.getClient(ctx); err != nil {
 		return nil, err
 	}
@@ -119,18 +127,31 @@ func (t *SSH) getClient(ctx context.Context) (*ssh.Client, error) {
 		User:            t.cfg.User,
 		Auth:            auth,
 		HostKeyCallback: hostKeyCallback(),
-		Timeout:         15 * time.Second,
 	}
-	var d net.Dialer
+	d := net.Dialer{Timeout: t.timeout}
 	raw, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("ssh connect %s: %w", addr, err)
 	}
+	// ssh.NewClientConn has no timeout of its own (ClientConfig.Timeout only applies to
+	// ssh.Dial), so a host that accepts TCP but never answers would block forever.
+	// Bound the handshake with a deadline and abort it if ctx is cancelled.
+	_ = raw.SetDeadline(time.Now().Add(t.timeout))
+	stop := context.AfterFunc(ctx, func() { _ = raw.SetDeadline(time.Unix(1, 0)) })
 	sc, chans, reqs, err := ssh.NewClientConn(raw, addr, conf)
+	stop()
 	if err != nil {
 		raw.Close()
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("ssh handshake %s: %w", addr, ctx.Err())
+		}
+		var ne net.Error
+		if errors.As(err, &ne) && ne.Timeout() {
+			return nil, fmt.Errorf("ssh handshake %s: no response from the SSH server after %v (is this the SSH port?)", addr, t.timeout)
+		}
 		return nil, fmt.Errorf("ssh handshake %s: %w", addr, err)
 	}
+	_ = raw.SetDeadline(time.Time{})
 	t.client = ssh.NewClient(sc, chans, reqs)
 	t.stopKA = make(chan struct{})
 	go keepAlive(t.client, t.stopKA)
