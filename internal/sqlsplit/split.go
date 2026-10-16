@@ -37,6 +37,9 @@ func Split(script string, d Dialect) []Statement {
 	// SQLite trigger bodies: words seen in the statement and BEGIN/CASE … END depth.
 	words, depth := 0, 0
 	create, trigger := false, false
+	// Statements start in order, so count lines from the previous start rather than
+	// from the top of the script each time (that was quadratic on big files).
+	line, linePos := 1, 0
 	emit := func(end int) {
 		words, depth, create, trigger = 0, 0, false, false
 		raw := script[stmtStart:end]
@@ -44,11 +47,13 @@ func Split(script string, d Dialect) []Statement {
 		if trimmed != "" && !onlyComments(trimmed, d) {
 			lead := len(raw) - len(strings.TrimLeftFunc(raw, unicode.IsSpace))
 			start := stmtStart + lead
+			line += strings.Count(script[linePos:start], "\n")
+			linePos = start
 			out = append(out, Statement{
 				SQL:       strings.TrimRightFunc(script[start:end], unicode.IsSpace),
 				Start:     start,
 				End:       end,
-				StartLine: 1 + strings.Count(script[:start], "\n"),
+				StartLine: line,
 			})
 		}
 	}
