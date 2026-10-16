@@ -281,7 +281,8 @@ func (m *Manager) BIChartData(ctx context.Context, w bi.Workspace, c bi.Chart, p
 		if err != nil || !complete {
 			return err
 		}
-		q, cols, err := bi.ChartQuery(d, from, *src, c, bi.MaxChartRows)
+		// One row past the limit tells the reader the chart was cut off.
+		q, cols, err := bi.ChartQuery(d, from, *src, c, bi.MaxChartRows+1)
 		if err != nil {
 			return err
 		}
@@ -356,8 +357,7 @@ func (m *Manager) BIChartData(ctx context.Context, w bi.Workspace, c bi.Chart, p
 	err = read(d, from, func(qc bi.Chart, limit int, q bi.Stmt) ([]model.ResultColumn, [][]*string, bool, error) {
 		e, cached, err := m.cachedResult(ctx, *src, q, bi.MaxChartRows, opt.Since, func(ctx context.Context) ([]model.ResultColumn, [][]*string, bool, error) {
 			// Charts drawn together on this source may share one read of it.
-			cols, rows, err := m.biBatched(ctx, d, *src, from, qc, q, limit)
-			return cols, rows, false, err
+			return m.biBatched(ctx, d, *src, from, qc, q, limit)
 		})
 		if err != nil {
 			return nil, nil, false, err
