@@ -38,7 +38,9 @@ func Parse(raw string) (model.Connection, error) {
 		c.Type = model.MariaDB
 	case "redis", "rediss", "valkey", "valkeys":
 		c.Type = model.Redis
+		// rediss:// means a verified TLS connection, as in redis-cli and the clients.
 		c.SSL.Enabled = strings.EqualFold(u.Scheme, "rediss") || strings.EqualFold(u.Scheme, "valkeys")
+		c.SSL.VerifyHost = c.SSL.Enabled
 	case "":
 		return c, errors.New("connection URL needs a scheme such as postgres:// or mysql://")
 	default:
@@ -183,6 +185,8 @@ func parseMongo(raw string) (model.Connection, error) {
 	}
 	if v := strings.ToLower(firstOf(q, "tls", "ssl")); v == "true" || c.Mongo.SRV && v != "false" {
 		c.SSL.Enabled = true
+		// Like the MongoDB drivers: certificates are checked unless the URL opts out.
+		c.SSL.VerifyHost = !strings.EqualFold(firstOf(q, "tlsInsecure", "tlsAllowInvalidCertificates", "tlsAllowInvalidHostnames"), "true")
 	}
 	c.SSL.CAFile = q.Get("tlsCAFile")
 	c.SSL.CertFile = q.Get("tlsCertificateKeyFile")

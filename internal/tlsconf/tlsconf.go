@@ -12,7 +12,8 @@ import (
 	"chloe/internal/model"
 )
 
-// Config builds a client TLS configuration from a connection's SSL settings.
+// Config builds a client TLS configuration from a connection's SSL settings. An
+// empty host leaves the name to the driver (MongoDB names each server itself).
 func Config(s model.SSLConfig, host string) (*tls.Config, error) {
 	tc := &tls.Config{ServerName: host, InsecureSkipVerify: !s.VerifyHost}
 	if s.CAFile != "" {
@@ -25,6 +26,21 @@ func Config(s model.SSLConfig, host string) (*tls.Config, error) {
 			return nil, errors.New("CA file contains no certificates")
 		}
 		tc.RootCAs = pool
+		if !s.VerifyHost {
+			// A CA file is always checked: without "verify host" only the name
+			// isn't, for servers whose certificate names an internal host.
+			tc.VerifyConnection = func(cs tls.ConnectionState) error {
+				if len(cs.PeerCertificates) == 0 {
+					return errors.New("the server sent no certificate")
+				}
+				inter := x509.NewCertPool()
+				for _, c := range cs.PeerCertificates[1:] {
+					inter.AddCert(c)
+				}
+				_, err := cs.PeerCertificates[0].Verify(x509.VerifyOptions{Roots: pool, Intermediates: inter})
+				return err
+			}
+		}
 	}
 	if s.CertFile != "" && s.KeyFile != "" {
 		cert, err := tls.LoadX509KeyPair(s.CertFile, s.KeyFile)

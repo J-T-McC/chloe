@@ -94,7 +94,9 @@ func Options(c model.Connection, d tunnel.Dialer) (*options.ClientOptions, error
 		o.SetAuth(options.Credential{Username: c.User, AuthSource: "$external", AuthMechanism: "MONGODB-X509"})
 	}
 	if c.SSL.Enabled || auth == "x509" {
-		tc, err := tlsconf.Config(c.SSL, c.Host)
+		// The driver names each server for SNI and verification; c.Host may be
+		// an SRV name or a list of hosts.
+		tc, err := tlsconf.Config(c.SSL, "")
 		if err != nil {
 			return nil, err
 		}
