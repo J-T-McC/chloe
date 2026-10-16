@@ -5,6 +5,7 @@ import * as BIService from "./biservice.js";
 import * as ConnectionService from "./connectionservice.js";
 import * as DesignService from "./designservice.js";
 import * as ExplorerService from "./explorerservice.js";
+import * as HostKeyService from "./hostkeyservice.js";
 import * as LayoutService from "./layoutservice.js";
 import * as MCPService from "./mcpservice.js";
 import * as ModelService from "./modelservice.js";
@@ -19,6 +20,7 @@ export {
     ConnectionService,
     DesignService,
     ExplorerService,
+    HostKeyService,
     LayoutService,
     MCPService,
     ModelService,

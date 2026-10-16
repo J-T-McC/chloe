@@ -337,6 +337,8 @@ func TestIntegrationSSHTunnel(t *testing.T) {
 	old := tunnel.PinnedHostsPath
 	tunnel.PinnedHostsPath = filepath.Join(t.TempDir(), "known_hosts")
 	t.Cleanup(func() { tunnel.PinnedHostsPath = old })
+	tunnel.ConfirmHostKey = func(context.Context, tunnel.HostKeyPrompt) bool { return true }
+	t.Cleanup(func() { tunnel.ConfirmHostKey = nil })
 	key, _ := filepath.Abs("../../testdata/sshd/id_ed25519")
 	auths := []model.SSHConfig{
 		{Enabled: true, Host: "127.0.0.1", Port: 2222, User: "tunnel", Auth: model.SSHPassword, Password: "chloe", SavePassword: true},

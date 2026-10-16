@@ -65,10 +65,27 @@ const openDialog = async (sshPort) => {
   await field("Private Key").fill(key);
 };
 
+await step("first connect asks to trust the host key", async () => {
+  await openDialog("2222");
+  const ask = page.locator(".host-key");
+  await page.getByRole("button", { name: "Test Connection" }).click();
+  await ask.getByText("Trust this SSH server?").waitFor({ timeout: 15000 });
+  const fp = await ask.locator(".host-key-fingerprint").innerText();
+  if (!/^SHA256:\S{43}$/.test(fp)) throw new Error("fingerprint: " + fp);
+  await shot("ssh-hostkey-prompt");
+  await ask.getByRole("button", { name: "Cancel" }).click();
+  await page.locator(".status-line.err", { hasText: "wasn't trusted" }).waitFor({ timeout: 15000 });
+  await page.getByRole("button", { name: "Test Connection" }).click();
+  await ask.getByRole("button", { name: "Trust and Connect" }).click();
+  await page.locator(".status-line.ok").waitFor({ timeout: 15000 });
+  await page.getByRole("button", { name: "Cancel" }).click();
+});
+
 await step("public key tunnel tests ok", async () => {
   await openDialog("2222");
   await page.getByRole("button", { name: "Test Connection" }).click();
   await page.locator(".status-line.ok").waitFor({ timeout: 15000 });
+  if (await page.locator(".host-key").count()) throw new Error("asked again about a trusted host");
   await page.locator('.tunnel-diagram[data-probe="ok"]').waitFor();
   if ((await page.locator(".tunnel-node.ok").count()) !== 3) throw new Error("all three nodes should be lit");
   await page.getByText("General", { exact: true }).click();
