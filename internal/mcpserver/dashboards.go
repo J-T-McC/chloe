@@ -587,6 +587,8 @@ func fileSafe(s string) string {
 		}
 		return r
 	}, strings.TrimSpace(s))
+	// A leading dot would hide the file, and "." or ".." would leave the reports folder.
+	s = strings.TrimLeft(s, ".")
 	if s == "" {
 		return "dashboard"
 	}
