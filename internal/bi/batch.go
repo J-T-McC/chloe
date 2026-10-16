@@ -48,7 +48,10 @@ func BatchQuery(d driver.Dialect, from Source, src DataSource, charts []Chart, l
 	if err != nil {
 		return Stmt{}, nil, err
 	}
-	b := qb{d: d, tz: src.Timezone, args: slices.Clone(layered.Args)}
+	b, err := newQB(d, src, layered.Args)
+	if err != nil {
+		return Stmt{}, nil, err
+	}
 	w, err := b.where(src.allFields(), append(slices.Clone(src.Filters), charts[0].Filters...))
 	if err != nil {
 		return Stmt{}, nil, err

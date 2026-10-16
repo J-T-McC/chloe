@@ -182,6 +182,12 @@ func (l Library) Import(src string) (string, error) {
 	if strings.TrimSpace(w.Name) == "" {
 		w.Name = strings.TrimSuffix(filepath.Base(src), filepath.Ext(src))
 	}
+	// A shared file wasn't checked by this Chloe; its sources must pass what editing checks.
+	for _, d := range w.DataSources {
+		if err := d.Validate(); err != nil {
+			return "", fmt.Errorf("data source %q: %w", d.Name, err)
+		}
+	}
 	// Archived data stays behind; the copy's archive sources read again on refresh.
 	w.ID = uuid.NewString()
 	for i := range w.DataSources {
