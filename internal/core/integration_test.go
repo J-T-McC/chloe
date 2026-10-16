@@ -424,3 +424,22 @@ func TestIntegrationCatalogEnums(t *testing.T) {
 		})
 	}
 }
+
+// Without "Use SSL", MySQL still encrypts when the server offers TLS (PostgreSQL does
+// too, through sslmode=prefer; the Docker server has no certificate to show it).
+func TestIntegrationMySQLPrefersTLS(t *testing.T) {
+	m, id := setup(t, engines()[0])
+	ctx := context.Background()
+	sid, err := m.OpenSession(ctx, id, "shop", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := m.Execute(ctx, sid, "SHOW SESSION STATUS LIKE 'Ssl_cipher'", core.ExecOptions{})
+	if err != nil || len(res) != 1 || res[0].Error != "" {
+		t.Fatalf("%v %+v", err, res)
+	}
+	page, err := m.FetchRows(res[0].ResultID, 0, 1)
+	if err != nil || len(page.Rows) != 1 || page.Rows[0][1] == nil || *page.Rows[0][1] == "" {
+		t.Fatalf("not encrypted: %+v %v", page, err)
+	}
+}

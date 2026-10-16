@@ -420,7 +420,7 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
                   </>
                 )}
               </fieldset>
-              {!conn.ssl.enabled && pg && <p className="hint">Without SSL, Chloe still uses TLS if the server offers it (sslmode=prefer).</p>}
+              {!conn.ssl.enabled && (pg || mysql) && <p className="hint">Without SSL, Chloe still encrypts the connection if the server offers TLS{pg ? " (sslmode=prefer)" : ""}; Use SSL requires it.</p>}
             </>
           )}
 

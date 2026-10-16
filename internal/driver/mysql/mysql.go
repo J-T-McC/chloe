@@ -85,6 +85,11 @@ func (Driver) Open(ctx context.Context, c model.Connection, d tunnel.Dialer) (dr
 			return nil, err
 		}
 		cfg.TLSConfig = tlsName
+	} else if a.SocketFile == "" || c.SSH.Enabled {
+		// Without "Use SSL", encrypt when the server offers TLS and fall back to plain
+		// when it doesn't, like the mysql client's default (and libpq's sslmode=prefer).
+		// The certificate isn't checked; "Use SSL" requires TLS and can verify it.
+		cfg.TLSConfig = "preferred"
 	}
 
 	connector, err := gomysql.NewConnector(cfg)

@@ -58,8 +58,10 @@ All types: **Settings Location** (where per-connection files live, read-only pat
 "Use custom database list" switches the tree to show only the listed DBs. Table columns: active ✓, **Name**, **Auto Open**. Buttons: +, −, Refresh (fetches from server).
 
 ## SSL tab (MySQL/PG/Redis)
-- **Use SSL**
-- PG only: **SSL Mode**: prefer (default) / allow / require / verify-ca / verify-full (add `disable` implicitly when SSL is off).
+- **Use SSL**: requires TLS. Off, MySQL and PostgreSQL still encrypt when the server offers TLS and fall back to
+  plain when it doesn't (MySQL client `PREFERRED`, libpq `sslmode=prefer`), without checking the certificate; a
+  note under the checkbox says so. Redis and MongoDB have no such negotiation, so off means plain.
+- PG only: **SSL Mode**: prefer (default) / allow / require / verify-ca / verify-full.
 - **Use authentication** → Client Key, Client Certificate, CA Certificate (file pickers).
 - MySQL: **Verify server certificate against CA**, **Specified Cipher**.
 - PG: **Root Certificate**, **Certificate Revocation List**.

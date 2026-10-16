@@ -70,7 +70,7 @@ await step("connections and groups", async () => {
     await row(name).waitFor();
   }
   for (const g of ["Prod", "Dev"]) {
-    await page.locator(".sidebar .tree").click({ button: "right", position: { x: 100, y: 600 } });
+    await page.locator(".sidebar .tree").click({ button: "right", position: { x: 100, y: (await page.locator(".sidebar .tree").boundingBox()).height - 8 } });
     await page.locator(".menu-item", { hasText: "New Group" }).click();
     await page.locator(".modal input").fill(g);
     await page.keyboard.press("Enter");
