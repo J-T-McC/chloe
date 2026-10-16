@@ -16,6 +16,7 @@ import { libraryChanged, pendingModels } from "./actions";
 import { ModelTableDialog } from "./ModelTableDialog";
 import { SyncDialog } from "./SyncDialog";
 import { Toolbar } from "../Toolbar";
+import { useSavableTab } from "../useSavableTab";
 
 interface ModelState {
   model: DM.Model;
@@ -119,8 +120,8 @@ function ModelEditorInner({ tab }: { tab: Tab }) {
 
   useEffect(() => {
     if (!state) return;
-    useApp.getState().updateTab(tab.id, { title: `${state.model.name || "Untitled"}${dirty ? " •" : ""} (model)`, modelPath: path || undefined });
-  }, [state?.model.name, dirty, path, tab.id, state]);
+    useApp.getState().updateTab(tab.id, { title: `${state.model.name || "Untitled"} (model)`, modelPath: path || undefined });
+  }, [state?.model.name, path, tab.id, state]);
 
   // The library folder, to tell its models from files kept elsewhere.
   const [libraryDir, setLibraryDir] = useState("");
@@ -130,24 +131,27 @@ function ModelEditorInner({ tab }: { tab: Tab }) {
   const external = !!path && !!libraryDir && !path.startsWith(libraryDir + "/");
 
   /** Save to the model's file; a new model is named and added to Chloe's library. */
-  const save = async () => {
-    if (!state) return;
+  const save = async (): Promise<boolean> => {
+    if (!state) return false;
     if (!path) return saveToChloe();
     const doc = toModel(state, positions.current);
     try {
       await Models.Save(path, doc);
       setSaved(JSON.stringify(doc));
       libraryChanged();
+      return true;
     } catch (e) {
       alert("Save failed", errorText(e));
+      return false;
     }
   };
+  useSavableTab(tab.id, dirty, save);
 
   /** Add the model to Chloe's library (a new model, or a file kept elsewhere). */
-  const saveToChloe = async () => {
-    if (!state) return;
+  const saveToChloe = async (): Promise<boolean> => {
+    if (!state) return false;
     const name = await prompt(path ? "Save to Chloe" : "Save Model", { message: "Model name", defaultValue: state.model.name || "Untitled" });
-    if (name === null || !name.trim()) return;
+    if (name === null || !name.trim()) return false;
     const doc = { ...toModel(state, positions.current), name: name.trim() };
     try {
       const p = await Models.Create(doc);
@@ -155,8 +159,10 @@ function ModelEditorInner({ tab }: { tab: Tab }) {
       setPath(p);
       setSaved(JSON.stringify(doc));
       libraryChanged();
+      return true;
     } catch (e) {
       alert("Save failed", errorText(e));
+      return false;
     }
   };
 

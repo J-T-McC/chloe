@@ -5,7 +5,6 @@
 import { Copy, Download, FileText, Plus, Presentation, RefreshCw, Save, Shapes, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { B, BI, arr, errorText } from "../../api";
-import { tabSavers } from "../../queries";
 import { Tab, useApp } from "../../store";
 import { openMenu } from "../ContextMenu";
 import { alert, confirm, prompt } from "../Dialogs";
@@ -21,6 +20,7 @@ import { buildReport } from "./reportExport";
 import { PageCanvas, SLIDE_ROWS } from "./Canvas";
 import { ParamBar, ParamValues, dashboardParams, paramValues } from "./Parameters";
 import { Toolbar } from "../Toolbar";
+import { useSavableTab } from "../useSavableTab";
 
 const REFRESH_CHOICES = [0, 1, 5, 15, 30, 60];
 
@@ -91,15 +91,7 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
       return false;
     }
   }, [draft, path, tab.id]);
-  const saveRef = useRef(save);
-  saveRef.current = save;
-  useEffect(() => {
-    tabSavers.set(tab.id, () => saveRef.current());
-    return () => void tabSavers.delete(tab.id);
-  }, [tab.id]);
-  useEffect(() => {
-    useApp.getState().updateTab(tab.id, { dirty });
-  }, [dirty, tab.id]);
+  useSavableTab(tab.id, dirty, save);
 
   const charts = arr(w?.charts);
   const theme: ChartTheme = w?.theme === "dark" ? "dark" : "light";

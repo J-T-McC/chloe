@@ -15,6 +15,7 @@ import { CodeBlock } from "../ObjectsPane";
 import { Messages, ResultGrid, RunState } from "../QueryEditor";
 import { Split } from "../Split";
 import { Toolbar } from "../Toolbar";
+import { useSavableTab } from "../useSavableTab";
 
 type Section = "definition" | "advanced" | "comment" | "sql";
 
@@ -35,7 +36,7 @@ export function ViewDesigner({ tab }: { tab: Tab }) {
   const host = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const session = useRef<Promise<string> | null>(null);
-  const saveRef = useRef<() => void>(() => {});
+  const saveRef = useRef<() => Promise<boolean>>(async () => false);
   const previewRef = useRef<() => void>(() => {});
 
   // Load (or start) the view.
@@ -122,10 +123,10 @@ export function ViewDesigner({ tab }: { tab: Tab }) {
 
   const dirty = useMemo(() => (isNew ? !!draft?.name || (draft?.definition.trim() ?? "") !== "SELECT\n  \nFROM".trim() : !same(original, draft)), [isNew, draft, original]);
   const kindLabel = draft?.materialized ? "materialized view" : "view";
+  useSavableTab(tab.id, dirty, () => saveRef.current());
   useEffect(() => {
-    const base = draft?.name || "Untitled";
-    useApp.getState().updateTab(tab.id, { title: `${base}${dirty && !isNew ? " •" : ""} (${kindLabel})` });
-  }, [dirty, draft?.name, tab.id, isNew, kindLabel]);
+    useApp.getState().updateTab(tab.id, { title: `${draft?.name || "Untitled"} (${kindLabel})` });
+  }, [draft?.name, tab.id, kindLabel]);
 
   const update = (patch: Partial<D.View>) => setDraft((d) => (d ? { ...d, ...patch } : d));
 
@@ -160,21 +161,22 @@ export function ViewDesigner({ tab }: { tab: Tab }) {
     [connId, kindLabel],
   );
 
-  const save = async () => {
-    if (!draft) return;
+  const save = async (): Promise<boolean> => {
+    if (!draft) return false;
     let v = draft;
     if (!v.name.trim()) {
       const name = await prompt(`Save ${kindLabel}`, { message: "View name" });
-      if (!name?.trim()) return;
+      if (!name?.trim()) return false;
       v = { ...v, name: name.trim() };
     }
     const saved = await apply(original, v);
-    if (!saved) return;
+    if (!saved) return false;
     setOriginal(saved);
     setDraft(saved);
     editorRef.current?.setValue(saved.definition);
     const kind = saved.materialized ? ObjectKind.KindMatView : ObjectKind.KindView;
     useApp.getState().updateTab(tab.id, { ref: { database: saved.database, schema: saved.schema, name: saved.name, kind } });
+    return true;
   };
   saveRef.current = save;
 

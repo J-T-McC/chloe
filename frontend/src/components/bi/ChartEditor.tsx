@@ -3,9 +3,8 @@
 // (Navicat's chart tab). Fields are dragged onto shelves (or double-clicked);
 // each placed field has a menu for its aggregate, value operation and alias.
 import { Calendar, ChevronDown, Database, Hash, Presentation, RefreshCw, Save, Type, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { B, BI, BICatalog, arr, errorText } from "../../api";
-import { tabSavers } from "../../queries";
 import { Tab, connById, useApp } from "../../store";
 import { DBType } from "../../api";
 import { MenuItem, openMenu } from "../ContextMenu";
@@ -18,6 +17,7 @@ import { ChartTypeIcon } from "./icons";
 import { PALETTES } from "./theme";
 import { CHART_TYPE_NAMES, connLabel, useWorkspace } from "./WorkspaceView";
 import { Toolbar } from "../Toolbar";
+import { useSavableTab } from "../useSavableTab";
 
 type ShelfName = "dimension" | "series" | "value" | "secondary" | "target";
 const SHELVES: ShelfName[] = ["dimension", "series", "value", "target", "secondary"];
@@ -169,15 +169,7 @@ export function ChartEditor({ tab }: { tab: Tab }) {
       return false;
     }
   }, [draft, path, tab.id]);
-  const saveRef = useRef(save);
-  saveRef.current = save;
-  useEffect(() => {
-    tabSavers.set(tab.id, () => saveRef.current());
-    return () => void tabSavers.delete(tab.id);
-  }, [tab.id]);
-  useEffect(() => {
-    useApp.getState().updateTab(tab.id, { dirty });
-  }, [dirty, tab.id]);
+  useSavableTab(tab.id, dirty, save);
 
   if (!draft || !cat || !type) return <div className="center-hint">Loading…</div>;
 

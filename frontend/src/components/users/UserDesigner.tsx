@@ -10,6 +10,7 @@ import { CodeBlock } from "../ObjectsPane";
 import { accountLabel, isPGConn } from "./actions";
 import { PrivilegesTab } from "./PrivilegesTab";
 import { Toolbar } from "../Toolbar";
+import { useSavableTab } from "../useSavableTab";
 
 type Section = "general" | "advanced" | "members" | "server" | "privileges" | "sql";
 
@@ -90,22 +91,22 @@ export function UserDesigner({ tab }: { tab: Tab }) {
   const dirty = preview.stmts.length > 0;
   useEffect(() => {
     const base = draft?.name ? accountLabel(draft) : "Untitled";
-    useApp.getState().updateTab(tab.id, { title: `${base}${dirty && !isNew ? " •" : ""} (${noun})` });
-  }, [draft?.name, draft?.host, dirty, isNew, tab.id, noun]);
+    useApp.getState().updateTab(tab.id, { title: `${base} (${noun})` });
+  }, [draft?.name, draft?.host, tab.id, noun]);
 
   const update = useCallback((fn: (u: P.User) => P.User) => setDraft((d) => (d ? fn(d) : d)), []);
   const set = (patch: Partial<P.User>) => update((u) => ({ ...u, ...patch }));
 
-  const save = async () => {
-    if (!toSave) return;
-    if (!toSave.name.trim()) return (setSection("general"), setError({ text: `Enter a ${noun} name.` }));
-    if (password !== confirmPw) return (setSection("general"), setError({ text: "The passwords don't match." }));
-    if (!dirty) return;
+  const save = async (): Promise<boolean> => {
+    if (!toSave) return false;
+    if (!toSave.name.trim()) return (setSection("general"), setError({ text: `Enter a ${noun} name.` }), false);
+    if (password !== confirmPw) return (setSection("general"), setError({ text: "The passwords don't match." }), false);
+    if (!dirty) return false;
     setSaving(true);
     setError(null);
     try {
       const res = await Users.Apply(connId, original, toSave);
-      if (res.error) return setError({ text: res.error + (res.executed ? `\n(${res.executed} statement(s) before it were applied)` : ""), sql: res.failedStatement });
+      if (res.error) return (setError({ text: res.error + (res.executed ? `\n(${res.executed} statement(s) before it were applied)` : ""), sql: res.failedStatement }), false);
       const u = await Users.Load(connId, toSave.name, toSave.host ?? "", pg ? pgDb : "");
       setOriginal(u);
       setDraft(u);
@@ -114,12 +115,15 @@ export function UserDesigner({ tab }: { tab: Tab }) {
       setConfirmPw("");
       useApp.getState().updateTab(tab.id, { ref: { ...tab.ref!, name: u.name, schema: u.host, signature: "user" } });
       useApp.setState((s) => ({ objectsVersion: s.objectsVersion + 1 }));
+      return true;
     } catch (e) {
       setError({ text: errorText(e) });
+      return false;
     } finally {
       setSaving(false);
     }
   };
+  useSavableTab(tab.id, dirty, save);
 
   if (!draft || !meta) return <div className="center-hint">{error ? <span className="err">{error.text}</span> : "Loading…"}</div>;
 
