@@ -303,15 +303,23 @@ func PreviewQuery(d driver.Dialect, from Source, src DataSource, limit int) (Stm
 // fields by their bucket), values aggregated, the source's and the chart's
 // filters applied. Every field name is checked against the data source.
 func ChartQuery(d driver.Dialect, from Source, src DataSource, c Chart, limit int) (Stmt, []Column, error) {
+	q, cols, _, err := chartQuery(d, from, src, c, limit)
+	return q, cols, err
+}
+
+// chartQuery is ChartQuery, also returning the positions (from 0) of the
+// columns it groups and sorts by.
+func chartQuery(d driver.Dialect, from Source, src DataSource, c Chart, limit int) (Stmt, []Column, []int, error) {
 	if _, err := c.Check(src, d.Name); err != nil {
-		return Stmt{}, nil, err
+		return Stmt{}, nil, nil, err
 	}
 	from, err := withCustom(d, from, src)
 	if err != nil {
-		return Stmt{}, nil, err
+		return Stmt{}, nil, nil, err
 	}
 	b := qb{d: d, tz: src.Timezone, args: slices.Clone(from.Args)}
 	var sel, group []string
+	var groupAt []int
 	var cols []Column
 	add := func(role string, cf ChartField, grouped bool) {
 		f, _ := src.Field(cf.Field)
@@ -330,6 +338,7 @@ func ChartQuery(d driver.Dialect, from Source, src DataSource, c Chart, limit in
 				}
 			}
 			group = append(group, strconv.Itoa(len(cols)+1))
+			groupAt = append(groupAt, len(cols))
 		} else {
 			expr = b.aggregate(f, cf.Aggregate)
 			if cf.Aggregate == "count" || cf.Aggregate == "count_distinct" {
@@ -360,12 +369,12 @@ func ChartQuery(d driver.Dialect, from Source, src DataSource, c Chart, limit in
 		add("target", cf, false)
 	}
 	if len(sel) == 0 {
-		return Stmt{}, nil, errors.New("the chart has no fields yet")
+		return Stmt{}, nil, nil, errors.New("the chart has no fields yet")
 	}
 	sql := "SELECT " + strings.Join(sel, ", ") + " FROM " + from.SQL + " AS s"
 	w, err := b.where(src.allFields(), append(slices.Clone(src.Filters), c.Filters...))
 	if err != nil {
-		return Stmt{}, nil, err
+		return Stmt{}, nil, nil, err
 	}
 	sql += w
 	// A table of plain columns lists rows; anything else groups.
@@ -376,7 +385,7 @@ func ChartQuery(d driver.Dialect, from Source, src DataSource, c Chart, limit in
 		sql += " ORDER BY " + strings.Join(group, ", ")
 	}
 	sql += fmt.Sprintf(" LIMIT %d", limit)
-	return Stmt{sql, b.args}, cols, nil
+	return Stmt{sql, b.args}, cols, groupAt, nil
 }
 
 // qb renders expressions for one statement, collecting bind arguments.

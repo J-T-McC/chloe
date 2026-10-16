@@ -96,8 +96,8 @@ func (o offer) instructions() string {
 		p("- This endpoint is read-only: there are no write tools.")
 	}
 	if o.caps.Reports {
-		p("- Reports: every chart on a live data source runs its own query with the source's SQL inside it, each time it is drawn, so a " +
-			"slow source is slow once per chart. Read guide topic reports before building a dashboard.")
+		p("- Reports: a live data source's SQL runs whenever its charts are drawn (charts with filters of their own read it again), so a " +
+			"slow source makes a slow dashboard. Read guide topic reports before building one.")
 	}
 	if o.caps.Models {
 		p("- ER models never touch a database: create_model, edit_model, then generate_sql; the user applies the SQL.")

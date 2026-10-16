@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -332,6 +333,50 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 			started := time.Now()
 			// A chart on several pages is read once, so every copy shows the same rows.
 			read := map[string]ChartResult{}
+			// The charts are read together, so charts on one source can share a read of it.
+			var charts []*bi.Chart
+			for i, pg := range d.Pages {
+				for _, it := range pg.Items {
+					if ch := w.Chart(it.Chart); ch != nil && it.Kind != bi.ItemText && (only < 0 || i == only) && !slices.ContainsFunc(charts, func(c *bi.Chart) bool { return c.ID == ch.ID }) {
+						charts = append(charts, ch)
+					}
+				}
+			}
+			results := make([]ChartResult, len(charts))
+			var wg sync.WaitGroup
+			for i, ch := range charts {
+				title := ch.Props.Title
+				if title == "" {
+					title = ch.Name
+				}
+				r := &results[i]
+				*r = ChartResult{Chart: ch.Name, ID: ch.ID, Type: ch.Type, Title: values.Expand(title)}
+				src := w.Source(ch.DataSource)
+				if src == nil {
+					r.Error = "the chart's data source is no longer in the workspace"
+					continue
+				}
+				if err := c.canRead(ctx, *src); err != nil {
+					r.Error = err.Error()
+					continue
+				}
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					// Read as of now: results from before the call aren't used.
+					data, err := c.s.m.BIChartData(ctx, w, *ch, in.Parameters, core.BIRead{Since: started})
+					if err != nil {
+						r.Error = err.Error()
+						return
+					}
+					r.Columns, r.Rows, r.Complete, r.Truncated, r.Mode, r.AsOf, r.Previous = data.Columns, data.Rows, data.Complete, data.Truncated, data.Mode, data.RanAt, data.Previous
+				}()
+			}
+			wg.Wait()
+			for i, ch := range charts {
+				read[ch.ID] = results[i]
+				rows += len(results[i].Rows)
+			}
 			for i, pg := range d.Pages {
 				if only >= 0 && i != only {
 					continue
@@ -358,35 +403,7 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 					if ch == nil {
 						continue
 					}
-					if r, ok := read[ch.ID]; ok {
-						pr.Charts = append(pr.Charts, r)
-						continue
-					}
-					title := ch.Props.Title
-					if title == "" {
-						title = ch.Name
-					}
-					r := ChartResult{Chart: ch.Name, ID: ch.ID, Type: ch.Type, Title: values.Expand(title)}
-					src := w.Source(ch.DataSource)
-					switch {
-					case src == nil:
-						r.Error = "the chart's data source is no longer in the workspace"
-					default:
-						if err := c.canRead(ctx, *src); err != nil {
-							r.Error = err.Error()
-							break
-						}
-						// Each source is read once for the whole dashboard, now.
-						data, err := c.s.m.BIChartData(ctx, w, *ch, in.Parameters, core.BIRead{Since: started})
-						if err != nil {
-							r.Error = err.Error()
-							break
-						}
-						r.Columns, r.Rows, r.Complete, r.Truncated, r.Mode, r.AsOf, r.Previous = data.Columns, data.Rows, data.Complete, data.Truncated, data.Mode, data.RanAt, data.Previous
-						rows += len(data.Rows)
-					}
-					read[ch.ID] = r
-					pr.Charts = append(pr.Charts, r)
+					pr.Charts = append(pr.Charts, read[ch.ID])
 				}
 				out.Pages = append(out.Pages, pr)
 			}

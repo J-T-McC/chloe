@@ -279,6 +279,16 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 - Live chart results are cached (`core/bicache.go`) by connection, database, time zone and bound statement;
   concurrent charts wait for one run. `ChartData` takes `since` (the last Refresh): a result read before it isn't
   used. MCP `get_chart_data`, `refresh_dashboard` and `export_dashboard` read as of the call.
+- Charts drawn together share a read of their source (`core/bibatch.go`, `bi.BatchQuery`): reads of charts on one
+  query or joined-tables source on MySQL or PostgreSQL, with the same chart filters, that arrive within 20 ms (up to 12)
+  become one statement. The source with its custom fields and the shared filters is a CTE
+  (`WITH bi_source AS (SELECT * FROM (<source>) AS s WHERE …)`), read once (MySQL needs `NO_MERGE`; PostgreSQL
+  materializes a CTE used more than once), and each chart is a `UNION ALL` branch grouped from it, with its own
+  columns (the rest NULL) and its rows in its own order. PostgreSQL types a UNION's columns pair by pair (two NULLs
+  make text), so a first branch selects every chart's columns `WHERE false` and never runs. A chart read alone runs
+  its own statement, and a batch the database refuses is read chart by chart, so only the chart at fault shows the
+  error. Plain tables and SQLite aren't batched: a copy of a table costs as much as reading it. Each chart's result is
+  still cached under its own statement. MCP `refresh_dashboard` reads its charts concurrently so they batch too.
 - The cache keeps results, not source rows: aggregating a copy in SQLite (as archives do) would compare text by
   SQLite's rules, so MySQL's case-insensitive `North`/`north` would split into two groups and `= 'north'` would
   miss rows. `TestBICacheKeepsDatabaseRules` guards this.

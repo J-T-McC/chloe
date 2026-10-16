@@ -276,7 +276,7 @@ func (m *Manager) BIChartData(ctx context.Context, w bi.Workspace, c bi.Chart, p
 	src := &resolved
 	out.Mode = src.Mode
 	out.Params, _ = w.Values(params)
-	read := func(d driver.Dialect, from bi.Source, query func(bi.Stmt) ([]model.ResultColumn, [][]*string, bool, error)) error {
+	read := func(d driver.Dialect, from bi.Source, query func(bi.Chart, int, bi.Stmt) ([]model.ResultColumn, [][]*string, bool, error)) error {
 		complete, err := c.Check(*src, d.Name)
 		if err != nil || !complete {
 			return err
@@ -286,7 +286,7 @@ func (m *Manager) BIChartData(ctx context.Context, w bi.Workspace, c bi.Chart, p
 			return err
 		}
 		out.SQL = q.SQL
-		_, raw, truncated, err := query(q)
+		_, raw, truncated, err := query(c, bi.MaxChartRows, q)
 		if err != nil {
 			return err
 		}
@@ -298,7 +298,7 @@ func (m *Manager) BIChartData(ctx context.Context, w bi.Workspace, c bi.Chart, p
 			if err != nil {
 				return err
 			}
-			_, praw, _, err := query(pq)
+			_, praw, _, err := query(pc, 1, pq)
 			if err != nil {
 				return err
 			}
@@ -310,7 +310,7 @@ func (m *Manager) BIChartData(ctx context.Context, w bi.Workspace, c bi.Chart, p
 		return nil
 	}
 	if src.Mode == bi.ModeArchive {
-		err := read(bi.SQLite, bi.Table(bi.SQLite.QuoteIdent(bi.ArchiveTable)), func(q bi.Stmt) ([]model.ResultColumn, [][]*string, bool, error) {
+		err := read(bi.SQLite, bi.Table(bi.SQLite.QuoteIdent(bi.ArchiveTable)), func(_ bi.Chart, _ int, q bi.Stmt) ([]model.ResultColumn, [][]*string, bool, error) {
 			return m.biArchiveQuery(ctx, w, *src, q, bi.MaxChartRows)
 		})
 		if out.Complete {
@@ -331,7 +331,7 @@ func (m *Manager) BIChartData(ctx context.Context, w bi.Workspace, c bi.Chart, p
 			if err != nil {
 				return err
 			}
-			return read(d, from, func(q bi.Stmt) ([]model.ResultColumn, [][]*string, bool, error) {
+			return read(d, from, func(_ bi.Chart, _ int, q bi.Stmt) ([]model.ResultColumn, [][]*string, bool, error) {
 				return readStmt(ctx, ds, q, bi.MaxChartRows)
 			})
 		})
@@ -353,13 +353,11 @@ func (m *Manager) BIChartData(ctx context.Context, w bi.Workspace, c bi.Chart, p
 	}
 	var first *resultEntry
 	var hit bool
-	err = read(d, from, func(q bi.Stmt) ([]model.ResultColumn, [][]*string, bool, error) {
-		e, cached, err := m.cachedResult(ctx, *src, q, bi.MaxChartRows, opt.Since, func(ctx context.Context) (cols []model.ResultColumn, rows [][]*string, truncated bool, err error) {
-			err = m.biLive(ctx, *src, func(ctx context.Context, ds driver.Session, _ driver.Dialect) error {
-				cols, rows, truncated, err = readStmt(ctx, ds, q, bi.MaxChartRows)
-				return err
-			})
-			return
+	err = read(d, from, func(qc bi.Chart, limit int, q bi.Stmt) ([]model.ResultColumn, [][]*string, bool, error) {
+		e, cached, err := m.cachedResult(ctx, *src, q, bi.MaxChartRows, opt.Since, func(ctx context.Context) ([]model.ResultColumn, [][]*string, bool, error) {
+			// Charts drawn together on this source may share one read of it.
+			cols, rows, err := m.biBatched(ctx, d, *src, from, qc, q, limit)
+			return cols, rows, false, err
 		})
 		if err != nil {
 			return nil, nil, false, err
