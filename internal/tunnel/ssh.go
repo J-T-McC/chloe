@@ -123,15 +123,17 @@ func (t *SSH) getClient(ctx context.Context) (*ssh.Client, error) {
 		port = 22
 	}
 	addr := net.JoinHostPort(t.cfg.Host, fmt.Sprint(port))
-	conf := &ssh.ClientConfig{
-		User:            t.cfg.User,
-		Auth:            auth,
-		HostKeyCallback: hostKeyCallback(),
-	}
 	d := net.Dialer{Timeout: t.timeout}
 	raw, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("ssh connect %s: %w", addr, err)
+	}
+	cb, algos := hostKeyCheck(addr, raw.RemoteAddr())
+	conf := &ssh.ClientConfig{
+		User:              t.cfg.User,
+		Auth:              auth,
+		HostKeyCallback:   cb,
+		HostKeyAlgorithms: algos,
 	}
 	// ssh.NewClientConn has no timeout of its own (ClientConfig.Timeout only applies to
 	// ssh.Dial), so a host that accepts TCP but never answers would block forever.
@@ -238,15 +240,22 @@ func passwordAuth(pw string) []ssh.AuthMethod {
 	}
 }
 
-// hostKeyCallback verifies against ~/.ssh/known_hosts when present. Unknown hosts are
-// accepted (trust on first use, like Navicat); mismatched keys are rejected.
-func hostKeyCallback() ssh.HostKeyCallback {
-	path := expandHome("~/.ssh/known_hosts")
-	cb, err := knownhosts.New(path)
+// knownHostsPath is a variable so tests can point it elsewhere.
+var knownHostsPath = "~/.ssh/known_hosts"
+
+// hostKeyCheck verifies against known_hosts when present. Unknown hosts are accepted
+// (trust on first use, like Navicat); mismatched keys are rejected.
+//
+// When the host is known it also returns the host key algorithms to ask for, limited to
+// the key types on record. Otherwise the server may present a key type we have no entry
+// for (Go prefers ECDSA, ssh-keyscan often records only ed25519), which knownhosts
+// reports as a mismatch. OpenSSH orders algorithms the same way.
+func hostKeyCheck(addr string, remote net.Addr) (ssh.HostKeyCallback, []string) {
+	cb, err := knownhosts.New(expandHome(knownHostsPath))
 	if err != nil {
-		return ssh.InsecureIgnoreHostKey()
+		return ssh.InsecureIgnoreHostKey(), nil
 	}
-	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+	check := func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		err := cb(hostname, remote, key)
 		var ke *knownhosts.KeyError
 		if errors.As(err, &ke) && len(ke.Want) == 0 {
@@ -254,7 +263,40 @@ func hostKeyCallback() ssh.HostKeyCallback {
 		}
 		return err
 	}
+	return check, knownAlgorithms(cb, addr, remote)
 }
+
+// knownAlgorithms lists the host key algorithms matching the key types known_hosts holds
+// for addr, or nil (the client defaults) if it holds none.
+func knownAlgorithms(cb ssh.HostKeyCallback, addr string, remote net.Addr) []string {
+	var ke *knownhosts.KeyError
+	if err := cb(addr, remote, probeKey{}); !errors.As(err, &ke) {
+		return nil
+	}
+	var algos []string
+	seen := map[string]bool{}
+	for _, k := range ke.Want {
+		names := []string{k.Key.Type()}
+		if k.Key.Type() == ssh.KeyAlgoRSA {
+			names = []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSA}
+		}
+		for _, n := range names {
+			if !seen[n] {
+				seen[n] = true
+				algos = append(algos, n)
+			}
+		}
+	}
+	return algos
+}
+
+// probeKey matches no known_hosts entry, so the callback's KeyError lists every key on
+// record for the host.
+type probeKey struct{}
+
+func (probeKey) Type() string                        { return "chloe-probe" }
+func (probeKey) Marshal() []byte                     { return []byte("chloe-probe") }
+func (probeKey) Verify([]byte, *ssh.Signature) error { return errors.New("probe key") }
 
 func expandHome(p string) string {
 	if strings.HasPrefix(p, "~/") {
