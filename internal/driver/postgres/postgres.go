@@ -110,7 +110,7 @@ func (c *Conn) dsn(database string) string {
 	q := url.Values{}
 	// Extra key=value parameters first, so the explicit settings below win.
 	for _, line := range strings.Split(p.Advanced.ConnectionParams, "\n") {
-		if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok && strings.TrimSpace(k) != "" {
+		if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok && strings.TrimSpace(k) != "" && !targetParam(strings.TrimSpace(k)) {
 			q.Set(strings.TrimSpace(k), strings.TrimSpace(v))
 		}
 	}
@@ -482,3 +482,17 @@ func (s *Session) Exec(ctx context.Context, stmt string, args ...any) (int64, er
 }
 
 func (s *Session) Close() error { return sqlcommon.DiscardConn(s.conn) }
+
+// targetParam reports the libpq parameters that would say where to connect, as
+// whom, or which files to trust. They have fields of their own (shown when an MCP
+// agent's connection is approved), so an extra parameter never overrides them:
+// postgresql://db.corp/app?host=elsewhere would send the password elsewhere.
+func targetParam(k string) bool {
+	switch strings.ToLower(k) {
+	case "host", "hostaddr", "port", "user", "password", "dbname", "service", "servicefile", "passfile",
+		"target_session_attrs", "load_balance_hosts":
+		return true
+	}
+	// sslmode stays: it is how a connection without "Use SSL" asks for TLS.
+	return strings.HasPrefix(strings.ToLower(k), "ssl") && strings.ToLower(k) != "sslmode"
+}
