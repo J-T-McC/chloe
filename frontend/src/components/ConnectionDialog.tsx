@@ -1,4 +1,4 @@
-import { Clipboard, FolderOpen, Info, Link2, Plus, Search, Trash2 } from "lucide-react";
+import { Check as CheckIcon, Clipboard, FolderOpen, Info, Laptop, Link2, Lock, Plus, Search, Server, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Connection, Connections, DBType, Preset, SSHAuth, Transfer, arr, errorText, copyText } from "../api";
 import { useApp } from "../store";
@@ -146,6 +146,9 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
   const [section, setSection] = useState<Section>("general");
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [probe, setProbe] = useState<Probe>("idle");
+  // A result describes the settings it tested; editing them clears the lights.
+  useEffect(() => setProbe((p) => (p === "testing" ? p : "idle")), [conn]);
   const [preset, setPreset] = useState<Preset | null>(null);
   const groups = useApp((s) => s.groups);
   const mysql = isMySQL(conn.type);
@@ -171,11 +174,15 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
   const test = async () => {
     setBusy(true);
     setStatus(null);
+    setProbe("testing");
     try {
       const v = await Connections.Test(named());
       setStatus({ ok: true, text: `Connection successful — server ${v}` });
+      setProbe("ok");
     } catch (e) {
-      setStatus({ ok: false, text: errorText(e) });
+      const text = errorText(e);
+      setStatus({ ok: false, text });
+      setProbe(sshFailed(text) ? "ssh-failed" : "db-failed");
     } finally {
       setBusy(false);
     }
@@ -411,6 +418,7 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
 
           {section === "ssh" && (
             <>
+              <TunnelDiagram probe={probe} enabled={conn.ssh.enabled} type={conn.type} sshHost={conn.ssh.host} dbHost={conn.host} />
               <Field label="">
                 <Check label="Use SSH Tunnel" checked={conn.ssh.enabled} onChange={(v) => setSSH({ enabled: v })} />
               </Field>
@@ -684,6 +692,63 @@ function ToggleText({ label, value, def, disabled, hint, onChange }: { label: st
         <input disabled={!on || disabled} value={on ? value : def} onChange={(e) => onChange(e.target.value)} />
       </div>
     </Field>
+  );
+}
+
+type Probe = "idle" | "testing" | "ok" | "ssh-failed" | "db-failed";
+type Leg = "idle" | "active" | "ok" | "fail";
+
+// Errors raised before the tunnel is up (internal/tunnel): connect, handshake, keys, agent.
+// Anything else happened past the SSH server, on the way to or inside the database.
+const sshFailed = (msg: string) => /^(ssh connect|ssh handshake)|private key|ssh agent/i.test(msg);
+
+function TunnelDiagram({ probe, enabled, type, sshHost, dbHost }: { probe: Probe; enabled: boolean; type: DBType; sshHost: string; dbHost: string }) {
+  const legs: [Leg, Leg] =
+    probe === "testing" ? ["active", "active"]
+    : probe === "ok" ? ["ok", "ok"]
+    : probe === "ssh-failed" ? ["fail", "idle"]
+    : probe === "db-failed" ? ["ok", "fail"]
+    : ["idle", "idle"];
+  const lit = enabled ? probe : "idle";
+  const [toServer, toDB] = enabled ? legs : (["idle", "idle"] as [Leg, Leg]);
+  const nodeState = (leg: Leg) => (leg === "ok" || leg === "fail" ? leg : "idle");
+  return (
+    <div className={"tunnel-diagram" + (enabled ? "" : " off")} data-probe={lit}>
+      <TunnelNode label="Chloe" sub="this Mac" state={lit === "idle" ? "idle" : lit === "testing" ? "active" : "ok"}>
+        <Laptop size={22} />
+      </TunnelNode>
+      <TunnelLink state={toServer} lock />
+      <TunnelNode label="SSH Server" sub={sshHost || "—"} state={toServer === "active" ? "active" : nodeState(toServer)}>
+        <Server size={22} />
+      </TunnelNode>
+      <TunnelLink state={toDB} />
+      <TunnelNode label="Database" sub={dbHost || "—"} state={toDB === "active" ? "active" : nodeState(toDB)}>
+        <DBIcon type={type} size={24} />
+      </TunnelNode>
+    </div>
+  );
+}
+
+function TunnelNode({ label, sub, state, children }: { label: string; sub: string; state: Leg; children: React.ReactNode }) {
+  return (
+    <div className={"tunnel-node " + state}>
+      <div className="tunnel-badge">
+        {children}
+        {state === "ok" && <span className="tunnel-mark"><CheckIcon size={10} strokeWidth={3} /></span>}
+        {state === "fail" && <span className="tunnel-mark"><X size={10} strokeWidth={3} /></span>}
+      </div>
+      <div className="tunnel-label">{label}</div>
+      <div className="tunnel-sub" title={sub}>{sub}</div>
+    </div>
+  );
+}
+
+function TunnelLink({ state, lock }: { state: Leg; lock?: boolean }) {
+  return (
+    <div className={"tunnel-link " + state}>
+      {lock && <Lock size={12} className="tunnel-lock" />}
+      <div className="tunnel-wire" />
+    </div>
   );
 }
 
