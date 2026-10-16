@@ -30,6 +30,24 @@ const field = (l) => page.locator(".field", { has: page.locator(`label:text-is("
 await page.goto(process.env.BASE ?? "http://localhost:8080/");
 await page.waitForTimeout(800);
 
+await step("direct connection: two nodes lit on the General tab", async () => {
+  await page.getByRole("button", { name: "Connection" }).first().click();
+  await page.locator(".type-card").filter({ has: page.locator(`span:text-is("MySQL")`) }).click();
+  await field("Host").fill("127.0.0.1");
+  await field("Port").fill("33306");
+  await field("User Name").fill("root");
+  await field("Password").fill("chloe");
+  if ((await page.locator(".tunnel-node").count()) !== 2) throw new Error("expected Chloe and Database only");
+  await page.getByRole("button", { name: "Test Connection" }).click();
+  await page.locator('.tunnel-diagram[data-probe="ok"]').waitFor({ timeout: 15000 });
+  if ((await page.locator(".tunnel-node.ok").count()) !== 2) throw new Error("both nodes should be lit");
+  await page.waitForTimeout(500);
+  const wire = await page.locator(".tunnel-link").first().getAttribute("class");
+  if (!wire.includes("ok")) throw new Error("link not lit: " + wire);
+  await shot("direct-ok");
+  await page.getByRole("button", { name: "Cancel" }).click();
+});
+
 const openDialog = async (sshPort) => {
   await page.getByRole("button", { name: "Connection" }).first().click();
   await page.locator(".type-card").filter({ has: page.locator(`span:text-is("MySQL")`) }).click();
@@ -53,7 +71,10 @@ await step("public key tunnel tests ok", async () => {
   await page.locator(".status-line.ok").waitFor({ timeout: 15000 });
   await page.locator('.tunnel-diagram[data-probe="ok"]').waitFor();
   if ((await page.locator(".tunnel-node.ok").count()) !== 3) throw new Error("all three nodes should be lit");
+  await page.getByText("General", { exact: true }).click();
+  await page.locator('.tunnel-diagram[data-probe="ok"]').waitFor();
   await shot("ssh-key-ok");
+  await page.getByText("SSH", { exact: true }).click();
   await field("Port").fill("2223"); // editing clears the lights
   await page.locator('.tunnel-diagram[data-probe="idle"]').waitFor();
   await page.getByRole("button", { name: "Cancel" }).click();
