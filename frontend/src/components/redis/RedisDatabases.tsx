@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { R, Redis, arr, errorText } from "../../api";
 import { useApp } from "../../store";
 import { openRedisConsole } from "./actions";
+import { Toolbar } from "../Toolbar";
 
 export function RedisDatabases({ connId }: { connId: string }) {
   const [dbs, setDbs] = useState<R.DBInfo[]>([]);
@@ -18,11 +19,11 @@ export function RedisDatabases({ connId }: { connId: string }) {
   const pick = (i: number) => useApp.getState().select({ connId, database: String(i) });
   return (
     <div className="redis-dbs">
-      <div className="toolbar">
+      <Toolbar>
         <button onClick={() => openRedisConsole(connId, 0)}>
           <TerminalSquare size={14} /> Console
         </button>
-      </div>
+      </Toolbar>
       {error && <div className="error-banner">{error}</div>}
       <table className="redis-table">
         <thead>

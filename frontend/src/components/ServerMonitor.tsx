@@ -6,6 +6,7 @@ import { openMenu } from "./ContextMenu";
 import { confirm } from "./Dialogs";
 import { ConnIcon } from "./icons";
 import { Split } from "./Split";
+import { Toolbar } from "./Toolbar";
 
 type Page = "processes" | "variables" | "status";
 const INTERVALS: Array<[number, string]> = [
@@ -136,7 +137,7 @@ export function ServerMonitor({ tab }: { tab: Tab }) {
       }
       second={
       <div className="monitor-main">
-        <div className="toolbar">
+        <Toolbar>
           <div className="seg">
             {(["processes", "variables", "status"] as Page[]).map((p) => (
               <button key={p} className={page === p ? "active" : ""} onClick={() => setPage(p)}>
@@ -167,7 +168,7 @@ export function ServerMonitor({ tab }: { tab: Tab }) {
           )}
           <span className="spacer" />
           <input className="search" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} />
-        </div>
+        </Toolbar>
         {!!errors.length && <div className="error-banner">{errors.join("\n")}</div>}
         <div className="monitor-table">
           {page === "processes" ? (

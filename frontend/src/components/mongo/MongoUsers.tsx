@@ -7,6 +7,7 @@ import type { Tab } from "../../store";
 import { confirm } from "../Dialogs";
 import { CodeBlock } from "../ObjectsPane";
 import { Split } from "../Split";
+import { Toolbar } from "../Toolbar";
 
 type Section = "users" | "roles";
 
@@ -134,7 +135,7 @@ export function MongoUsers({ tab }: { tab: Tab }) {
 
   return (
     <div className="objects-pane mongo-users">
-      <div className="toolbar">
+      <Toolbar>
         <div className="seg-tabs inline">
           {(["users", "roles"] as const).map((s) => (
             <button key={s} className={section === s ? "active" : ""} onClick={() => (setSection(s), setPicked(-1), setUserDraft(null), setRoleDraft(null))}>
@@ -174,7 +175,7 @@ export function MongoUsers({ tab }: { tab: Tab }) {
             </label>
           </>
         )}
-      </div>
+      </Toolbar>
       {error && (
         <div className="error-banner" onClick={() => setError("")}>
           {error}

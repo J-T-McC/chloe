@@ -9,6 +9,7 @@ import {
 } from "./ConnectionTransfer";
 import { confirm } from "./Dialogs";
 import { ConnIcon } from "./icons";
+import { Toolbar } from "./Toolbar";
 
 export function ManageConnections() {
   const managing = useApp((s) => s.managing);
@@ -75,7 +76,7 @@ export function ManageConnections() {
           onKeyDown={(e) => e.key === "Escape" && close()}
         >
           <div className="modal-title">Manage Connections</div>
-          <div className="toolbar">
+          <Toolbar>
             <button onClick={() => app.editConnection("new")}>
               <Plus size={14} /> New
             </button>
@@ -120,7 +121,7 @@ export function ManageConnections() {
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
             />
-          </div>
+          </Toolbar>
           <div className="manage-list">
             <table>
               <thead>

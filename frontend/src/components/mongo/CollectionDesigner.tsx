@@ -7,6 +7,7 @@ import { useApp, type Tab } from "../../store";
 import { prompt } from "../Dialogs";
 import { CodeBlock } from "../ObjectsPane";
 import { collectionsChanged } from "./actions";
+import { Toolbar } from "../Toolbar";
 
 interface IndexRow {
   /** name on the server; empty for a new index */
@@ -233,7 +234,7 @@ export function CollectionDesigner({ tab }: { tab: Tab }) {
         }
       }}
     >
-      <div className="toolbar">
+      <Toolbar>
         <button className={dirty ? "accent" : ""} disabled={busy || !dirty} onClick={save} title="Save (⌘S)">
           <Save size={14} /> Save
         </button>
@@ -260,7 +261,7 @@ export function CollectionDesigner({ tab }: { tab: Tab }) {
             {info.type === "timeseries" ? " · time series" : ""}
           </span>
         )}
-      </div>
+      </Toolbar>
       <div className="seg-tabs designer-tabs">
         {sections.map(([k, label]) => (
           <button key={k} className={section === k ? "active" : ""} onClick={() => setSection(k)}>

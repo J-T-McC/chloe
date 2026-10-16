@@ -21,6 +21,7 @@ export function linkLabel(link?: DM.Link | null) {
 
 /** "mcp:Claude Code" → "AI (Claude Code)". */
 import { createdByLabel } from "../../createdBy";
+import { Toolbar } from "../Toolbar";
 
 export { createdByLabel };
 
@@ -81,7 +82,7 @@ export function ModelsList() {
 
   return (
     <div className="objects-pane">
-      <div className="toolbar">
+      <Toolbar>
         <button disabled={!sel} onClick={() => sel && openModel(sel.path)}>
           <Shapes size={14} /> Open Model
         </button>
@@ -104,7 +105,7 @@ export function ModelsList() {
         <span className="crumbs">Models</span>
         <span className="spacer" />
         <input className="search" placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} />
-      </div>
+      </Toolbar>
       <Split
         id="models-info"
         className="objects-split"

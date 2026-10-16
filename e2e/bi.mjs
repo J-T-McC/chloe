@@ -3,6 +3,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { chromium } from "playwright";
+import { clickTool } from "./lib/toolbar.mjs";
 const out = process.argv[2];
 const dir = process.env.LITE;
 execFileSync("sqlite3", [
@@ -131,7 +132,7 @@ await step("the BI library and workspace lists", async () => {
   await ws.locator("tr", { has: page.locator("td:first-child", { hasText: /^\s*orders$/ }) }).click();
   await ws.locator(".bi-props").getByRole("button", { name: "Used By" }).click();
   check((await ws.locator(".bi-deps").innerText()).includes("Revenue to date"), "used by");
-  await ws.getByRole("button", { name: "Chart", exact: true }).click();
+  await clickTool(page, ws, "Chart");
   check((await ws.locator("tbody tr").count()) === 1, "chart filter");
   await ws.getByTitle("Icon view").click();
   await ws.locator(".bi-icon").first().waitFor();
@@ -211,7 +212,7 @@ await step("table sorted by a named column, with a relative date filter", async 
 await step("archive data source with a filter", async () => {
   await page.locator(".tab", { hasText: "Sales (BI)" }).click();
   const ws = page.locator(".bi-workspace:visible");
-  await ws.getByRole("button", { name: "All", exact: true }).click();
+  await clickTool(page, ws, "All");
   await ws.locator("tr", { has: page.locator("td:first-child", { hasText: /^\s*orders$/ }) }).filter({ hasText: "Data Source" }).dblclick();
   const src = page.locator(".bi-source:visible");
   await src.locator(".bi-preview tbody tr").first().waitFor();
@@ -316,9 +317,9 @@ await step("pages, report size and present", async () => {
   // The workspace knows the chart is on it.
   await page.locator(".tab", { hasText: "Sales (BI)" }).click();
   const ws = page.locator(".bi-workspace:visible");
-  await ws.getByRole("button", { name: "Dashboard", exact: true }).click();
+  await clickTool(page, ws, "Dashboard");
   check((await ws.locator("tbody tr").count()) === 1, "dashboard filter");
-  await ws.getByRole("button", { name: "All", exact: true }).click();
+  await clickTool(page, ws, "All");
   await ws.locator("tr", { hasText: "Revenue to date" }).click();
   await ws.locator(".bi-props").getByRole("button", { name: "Used By" }).click();
   check((await ws.locator(".bi-deps").innerText()).includes("Sales overview"), "chart used by");

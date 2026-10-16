@@ -453,13 +453,30 @@ button.icon {
   min-width: 0;
 }
 
-.tabbar {
+.tabbar-wrap {
   display: flex;
+  flex: none;
+  min-width: 0;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
+}
+
+.tabbar {
+  display: flex;
+  flex: 1;
+  min-width: 0;
   overflow-x: auto;
-  flex: none;
   scrollbar-width: none;
+}
+
+.tab-list {
+  flex: none;
+  border: none;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  background: none;
+  padding: 0 8px;
+  color: var(--text-2);
 }
 
 .tab {
@@ -5565,4 +5582,87 @@ table.mapping select {
 
 .notice-banner button + button {
   margin-left: 0;
+}
+
+/* Toolbars that hide what doesn't fit behind a » menu (Toolbar.tsx). */
+.tb-fit {
+  min-width: 0;
+}
+
+.tb-fit > * {
+  flex-shrink: 0;
+}
+
+/* Text boxes give up width before buttons are hidden. */
+.tb-fit > input,
+.tb-fit > .search {
+  flex-shrink: 1;
+  min-width: 90px;
+}
+
+[data-tb-hidden] {
+  display: none !important;
+}
+
+.tb-fit > .tb-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  --wails-draggable: no-drag;
+}
+
+.tb-fit > .tb-more[hidden] {
+  display: none;
+}
+
+.tb-menu {
+  position: fixed;
+  z-index: 1000;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 4px;
+  max-height: 70vh;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+}
+
+.tb-menu > button,
+.tb-menu > label {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.tb-menu > .tb-sep {
+  width: auto;
+  height: 1px;
+  margin: 3px 2px;
+}
+
+.tb-menu > .seg {
+  align-self: flex-start;
+}
+
+.tb-menu .tool-button {
+  flex-direction: row;
+  gap: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.main-toolbar {
+  flex: 1;
+  margin-right: 130px; /* the titlebar's right-hand buttons */
+}
+
+.main-toolbar > .tb-more {
+  align-self: center;
+  border: none;
+  background: none;
+  color: var(--text-2);
+  padding: 6px 8px;
 }

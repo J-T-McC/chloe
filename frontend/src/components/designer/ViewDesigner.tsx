@@ -14,6 +14,7 @@ import { confirm, prompt } from "../Dialogs";
 import { CodeBlock } from "../ObjectsPane";
 import { Messages, ResultGrid, RunState } from "../QueryEditor";
 import { Split } from "../Split";
+import { Toolbar } from "../Toolbar";
 
 type Section = "definition" | "advanced" | "comment" | "sql";
 
@@ -213,7 +214,7 @@ export function ViewDesigner({ tab }: { tab: Tab }) {
 
   return (
     <div className="designer view-designer">
-      <div className="toolbar">
+      <Toolbar>
         <button className={dirty ? "accent" : ""} disabled={saving || (!dirty && !isNew)} onClick={save} title="Save (⌘S)">
           <Save size={14} /> {saving ? "Saving…" : "Save"}
         </button>
@@ -232,7 +233,7 @@ export function ViewDesigner({ tab }: { tab: Tab }) {
           <Eye size={13} /> {[connById(connId)?.name, draft.database, draft.schema].filter(Boolean).join(" › ")} ›{" "}
           <input className="name-input" placeholder={`${kindLabel} name`} value={draft.name} onChange={(e) => update({ name: e.target.value })} />
         </span>
-      </div>
+      </Toolbar>
       <div className="seg-tabs designer-tabs">
         {sections
           .filter(([, , on]) => on)

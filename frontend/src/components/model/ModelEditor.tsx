@@ -15,6 +15,7 @@ import { exportDiagram } from "../erd/export";
 import { libraryChanged, pendingModels } from "./actions";
 import { ModelTableDialog } from "./ModelTableDialog";
 import { SyncDialog } from "./SyncDialog";
+import { Toolbar } from "../Toolbar";
 
 interface ModelState {
   model: DM.Model;
@@ -296,7 +297,7 @@ function ModelEditorInner({ tab }: { tab: Tab }) {
         }
       }}
     >
-      <div className="toolbar">
+      <Toolbar>
         <button className={dirty ? "accent" : ""} onClick={() => save()} title="Save (⌘S)">
           <Save size={14} /> Save
         </button>
@@ -345,7 +346,7 @@ function ModelEditorInner({ tab }: { tab: Tab }) {
           <Search size={13} />
           <input placeholder="Find table" value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && find(search)} />
         </div>
-      </div>
+      </Toolbar>
       <DiagramCanvas
         model={erd}
         mode={mode}

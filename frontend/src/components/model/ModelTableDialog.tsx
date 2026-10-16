@@ -5,6 +5,7 @@ import { D, DM, Models, arr, errorText } from "../../api";
 import { Dialect, Table, toWire } from "../../designer/model";
 import { CodeBlock } from "../ObjectsPane";
 import { ChecksTab, FieldToolbar, FieldsTab, ForeignKeysTab, IndexesTab, OptionsTab, RefSource, UniquesTab } from "../designer/DesignerTabs";
+import { Toolbar } from "../Toolbar";
 
 type Section = "fields" | "indexes" | "foreignKeys" | "uniques" | "checks" | "options" | "comment" | "sql";
 
@@ -72,7 +73,7 @@ export function ModelTableDialog(p: {
       >
         <div className="modal-title">{p.isNew ? "New Table" : `Design Table — ${p.table.name}`}</div>
         <div className="designer">
-          <div className="toolbar">
+          <Toolbar>
             {section === "fields" && <FieldToolbar table={draft} dialect={dialect} selected={selected} setSelected={setSelected} update={update} />}
             <span className="spacer" />
             <span className="crumbs">
@@ -83,7 +84,7 @@ export function ModelTableDialog(p: {
               )}
               <input className="name-input" autoFocus={p.isNew} placeholder="table name" value={draft.name} onChange={(e) => update((t) => ({ ...t, name: e.target.value }))} />
             </span>
-          </div>
+          </Toolbar>
           <div className="seg-tabs designer-tabs">
             {sections
               .filter(([, , on]) => on)

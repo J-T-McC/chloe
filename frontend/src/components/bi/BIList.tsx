@@ -9,6 +9,7 @@ import { alert, confirm, prompt } from "../Dialogs";
 import { createdByLabel } from "../model/ModelsList";
 import { Split } from "../Split";
 import { biChanged, listenBI, moveWorkspaceTabs, newWorkspace, openWorkspace, useBIVersion } from "./actions";
+import { Toolbar } from "../Toolbar";
 
 export function BIList() {
   const version = useBIVersion((s) => s.lib);
@@ -75,7 +76,7 @@ export function BIList() {
 
   return (
     <div className="objects-pane">
-      <div className="toolbar">
+      <Toolbar>
         <button disabled={!sel} onClick={() => sel && openWorkspace(sel.path)}>
           <ChartColumn size={14} /> Open Workspace
         </button>
@@ -95,7 +96,7 @@ export function BIList() {
         <span className="crumbs">BI Workspaces</span>
         <span className="spacer" />
         <input className="search" placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} />
-      </div>
+      </Toolbar>
       <Split
         id="bi-library-info"
         className="objects-split"

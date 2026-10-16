@@ -11,6 +11,7 @@ import { readFlag, writeFlag } from "../prefs";
 import { designTable } from "../tableActions";
 import { openExport, openImport } from "./transfer/state";
 import { createChartFrom } from "./bi/actions";
+import { Toolbar } from "./Toolbar";
 
 const PAGE_SIZES = [100, 500, 1000, 5000, 10000];
 
@@ -177,7 +178,7 @@ export function TableViewer({ tab }: { tab: Tab }) {
 
   return (
     <div className="viewer">
-      <div className="toolbar">
+      <Toolbar>
         <button title="Filter" className={showFilter || where ? "on" : ""} onClick={() => setShowFilter((x) => !x)}>
           <Filter size={14} /> Filter
         </button>
@@ -202,7 +203,7 @@ export function TableViewer({ tab }: { tab: Tab }) {
         </button>
         {!editable && <span className="badge">read-only</span>}
         {editable && detail && !arr(detail.columns).some((c) => c.primaryKey) && <span className="badge warn" title="Edits match on all column values">no primary key</span>}
-      </div>
+      </Toolbar>
 
       {showFilter && (
         <div className="filter-bar">

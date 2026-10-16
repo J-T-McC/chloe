@@ -15,6 +15,12 @@ Sources: decoded main-window, connection-tree, object-list, information-pane, DD
 ```
 - Three-column split: **navigation pane** (⌘1 to toggle), **content tabs**, **information pane** (toggle; ⌘2 General). Panes are collapsible. **Focus mode** hides everything but the content.
 - **Tabs**: the permanent **Objects** tab plus one tab per opened table/query/designer. Close Tab (⌘W), Close Other Tabs, Close Tabs to the Right, Close All. Tabs can open in the main window or a new window. Pref "Allow opening multiple forms for same object".
+- **Narrow windows**: nothing is cut off. Toolbars (`Toolbar.tsx`: the main toolbar and every tab's) hide what
+  doesn't fit behind a **»** button at their end, as macOS toolbars do: items before the spacer go first, from the
+  end inward, then those after it. » opens a menu of just the hidden items (the toolbar's own controls, so filters,
+  selects and segmented buttons work there); a button closes it, as do Escape and clicking away. When the tabs don't
+  fit, the tab bar scrolls and a **⌄** button at its end lists every tab (the active one ticked); the active tab is
+  scrolled into view. `e2e/toolbars.mjs` checks every toolbar at 1200, 900 and 700 px.
 - **File menu**: New Connection ▸ (per DB type), New Query, Open File (⌘O), Open Recent ▸ Clear, Import Connections…, Export Connections…, Close Window (⇧⌘W), Close Tab (⌘W).
 - **View menu**: Navigation Pane ▸ Show (⌘1), **Flatten Connection**, **Show Only Active Objects** (hide unopened connections/DBs), Show Filter On Top. Information Pane ▸ Show, General (⌘2). Objects ▸ **Detail** (list style), ER Diagram, **Flatten Object List**, Choose Columns…, Show Hidden Items. Show Status Bar, Show Toolbar, Enter Focus Mode, Full Screen.
 

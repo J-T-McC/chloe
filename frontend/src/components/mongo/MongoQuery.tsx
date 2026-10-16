@@ -11,6 +11,7 @@ import { Split } from "../Split";
 import { DocsView, type DocsMode } from "./DocsView";
 import { ModeSwitch, readMode, writeMode } from "./CollectionViewer";
 import { editDocument } from "./DocEditor";
+import { Toolbar } from "../Toolbar";
 
 const PAGE = 100;
 
@@ -141,7 +142,7 @@ export function MongoQuery({ tab }: { tab: Tab }) {
 
   return (
     <div className="query-editor mongo-query">
-      <div className="toolbar">
+      <Toolbar>
         <button className="accent" disabled={!shell || running} onClick={() => run(false)} title="Run (⌘R)">
           <Play size={14} /> Run
         </button>
@@ -159,7 +160,7 @@ export function MongoQuery({ tab }: { tab: Tab }) {
             </option>
           ))}
         </select>
-      </div>
+      </Toolbar>
       <Split
         id="mongo-query-results"
         vertical

@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { clickTool } from "./lib/toolbar.mjs";
 const out = process.argv[2];
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1400, height: 860 } });
@@ -53,7 +54,7 @@ console.log("export head:", sqlText.slice(0, 300).replace(/\n/g, " "), sqlText.m
 await page.getByRole("button", { name: "Close" }).click();
 
 // Sync
-await page.getByRole("button", { name: "Synchronize" }).click();
+await clickTool(page, page, "Synchronize");
 const sd = page.locator(".sync-dialog");
 await page.waitForTimeout(800);
 await sd.getByRole("button", { name: "Compare" }).click();

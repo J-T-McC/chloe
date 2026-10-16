@@ -10,6 +10,7 @@ import { useApp } from "../../store";
 import { alert, confirm } from "../Dialogs";
 import { ConnIcon } from "../icons";
 import { Split } from "../Split";
+import { Toolbar } from "../Toolbar";
 
 /** Engines MCP serves. */
 const MCP_ENGINES: string[] = [DBType.MySQL, DBType.MariaDB, DBType.PostgreSQL, DBType.SQLite, DBType.Redis, DBType.MongoDB];
@@ -88,7 +89,7 @@ export function MCPServer() {
 
   return (
     <div className="mcp">
-      <div className="toolbar">
+      <Toolbar>
         <label className="check">
           <input type="checkbox" aria-label="Run MCP server" checked={settings.enabled} onChange={(e) => save({ ...settings, enabled: e.target.checked })} />
           Run MCP server
@@ -107,7 +108,7 @@ export function MCPServer() {
             </button>
           ))}
         </div>
-      </div>
+      </Toolbar>
       {page === "endpoints" ? <Endpoints settings={settings} url={status?.url ?? `http://127.0.0.1:${settings.port}/mcp`} /> : <ActivityLog />}
     </div>
   );
@@ -562,7 +563,7 @@ function ActivityLog() {
   const picked = activity.find((a) => a.id === sel);
   return (
     <div className="mcp-activity">
-      <div className="toolbar">
+      <Toolbar>
         <span className="muted">{activity.length ? `${activity.length} calls (kept until Chloe quits)` : "No tool calls yet"}</span>
         <span className="spacer" />
         <button
@@ -574,7 +575,7 @@ function ActivityLog() {
         >
           <Trash2 size={13} /> Clear
         </button>
-      </div>
+      </Toolbar>
       <Split
         id="mcp-activity"
         vertical

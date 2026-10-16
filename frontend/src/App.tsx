@@ -1,6 +1,6 @@
-import { Activity, Bot, ChartColumn, LayoutDashboard, Database, FilePlus2, History, Monitor, Moon, Network, PencilRuler, Plug, Shapes, Sun, Table2, TerminalSquare, UserRound, UsersRound, X } from "lucide-react";
+import { Activity, Bot, ChartColumn, ChevronDown, LayoutDashboard, Database, FilePlus2, History, Monitor, Moon, Network, PencilRuler, Plug, Shapes, Sun, Table2, TerminalSquare, UserRound, UsersRound, X } from "lucide-react";
 import { ThemePref, onThemeChange, setThemePref, themePref } from "./theme";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Events, ObjectKind } from "./api";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { ContextMenuHost } from "./components/ContextMenu";
@@ -57,6 +57,7 @@ import { Tab, connById, useApp } from "./store";
 import { openRedisConsole } from "./components/redis/actions";
 import { newTable } from "./tableActions";
 import { RevealTarget, useTree } from "./tree";
+import { Toolbar } from "./components/Toolbar";
 
 registerMongoLanguage();
 
@@ -133,7 +134,7 @@ export default function App() {
     <div className="app">
       <header className="titlebar">
         <div className="titlebar-drag" />
-        <div className="main-toolbar">
+        <Toolbar className="main-toolbar">
           <ToolButton icon={<Plug size={20} />} label="Connection" onClick={() => useApp.getState().editConnection("new")} />
           <ToolButton
             icon={<FilePlus2 size={20} />}
@@ -172,7 +173,7 @@ export default function App() {
               }
             }}
           />
-        </div>
+        </Toolbar>
         <div className="titlebar-right">
           <ThemeButton />
           <MCPButton />
@@ -188,11 +189,7 @@ export default function App() {
         first={<Sidebar />}
         second={
           <div className="workspace">
-            <div className="tabbar">
-              {tabs.map((t) => (
-                <TabButton key={t.id} tab={t} active={t.id === active} />
-              ))}
-            </div>
+            <TabBar tabs={tabs} active={active} />
             <div className="tab-content">
               {tabs.map((t) => (
                 // Tabs mount when first shown (restored query tabs connect then) and stay
@@ -275,6 +272,52 @@ function TabContent({ tab, active }: { tab: Tab; active: boolean }) {
     case "mongousers":
       return <MongoUsers tab={tab} />;
   }
+}
+
+// The open tabs. When they don't fit, the bar scrolls (its scrollbar is hidden,
+// as macOS hides them), so a button at its end lists every tab, as Navicat's does,
+// and the active tab is scrolled into view.
+function TabBar({ tabs, active }: { tabs: Tab[]; active: string }) {
+  const bar = useRef<HTMLDivElement>(null);
+  const [over, setOver] = useState(false);
+  useLayoutEffect(() => {
+    const el = bar.current;
+    if (!el) return;
+    const check = () => setOver(el.scrollWidth > el.clientWidth + 1);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [tabs.length]);
+  useEffect(() => {
+    bar.current?.querySelector(".tab.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [active, over]);
+  return (
+    <div className="tabbar-wrap">
+      <div ref={bar} className="tabbar">
+        {tabs.map((t) => (
+          <TabButton key={t.id} tab={t} active={t.id === active} />
+        ))}
+      </div>
+      {over && (
+        <button
+          className="tab-list"
+          aria-label="All tabs"
+          title="All tabs"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            openMenu(
+              { clientX: r.right - 220, clientY: r.bottom + 2, preventDefault() {} },
+              tabs.map((t) => ({ label: t.title, checked: t.id === active, onClick: () => useApp.getState().setActive(t.id) })),
+            );
+          }}
+        >
+          <ChevronDown size={14} />
+        </button>
+      )}
+    </div>
+  );
 }
 
 function TabButton({ tab, active }: { tab: Tab; active: boolean }) {

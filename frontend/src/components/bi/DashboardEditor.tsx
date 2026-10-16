@@ -20,6 +20,7 @@ import { renderPages } from "./ExportHost";
 import { buildReport } from "./reportExport";
 import { PageCanvas, SLIDE_ROWS } from "./Canvas";
 import { ParamBar, ParamValues, dashboardParams, paramValues } from "./Parameters";
+import { Toolbar } from "../Toolbar";
 
 const REFRESH_CHOICES = [0, 1, 5, 15, 30, 60];
 
@@ -166,7 +167,7 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
         if (!typing && item && (e.key === "Delete" || e.key === "Backspace")) (e.preventDefault(), setItems((xs) => xs.filter((x) => x.id !== item.id)), setSelected(""));
       }}
     >
-      <div className="toolbar">
+      <Toolbar>
         <button onClick={save} className={dirty ? "accent" : ""} title="Save (⌘S)">
           <Save size={14} /> Save
         </button>
@@ -249,7 +250,7 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
             <option value="report">Report (scrolls)</option>
           </select>
         </label>
-      </div>
+      </Toolbar>
       {error && <div className="error-banner">{error}</div>}
       {exporting && (
         <div className="notice-banner" role="status">

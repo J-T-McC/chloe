@@ -15,6 +15,7 @@ import { CustomFieldsPane } from "./CustomFields";
 import { JoinsPane } from "./Joins";
 import { FilterList, cleanFilters } from "./FilterList";
 import { useWorkspace } from "./WorkspaceView";
+import { Toolbar } from "../Toolbar";
 
 const SQL_ENGINES = [DBType.MySQL, DBType.MariaDB, DBType.PostgreSQL, DBType.SQLite];
 
@@ -215,7 +216,7 @@ export function SourceEditor({ tab }: { tab: Tab }) {
         if (meta && e.key.toLowerCase() === "r") (e.preventDefault(), refresh());
       }}
     >
-      <div className="toolbar">
+      <Toolbar>
         <button onClick={save} disabled={!!busy} className={dirty ? "accent" : ""} title="Save (⌘S)">
           <Save size={14} /> Save
         </button>
@@ -260,7 +261,7 @@ export function SourceEditor({ tab }: { tab: Tab }) {
             <Plus size={14} /> New Chart
           </button>
         )}
-      </div>
+      </Toolbar>
       {error && <div className="error-banner">{error}</div>}
       <Split
         id="bi-source-preview"

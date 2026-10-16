@@ -6,6 +6,7 @@ import { Tab, useApp } from "../../store";
 import { openMenu } from "../ContextMenu";
 import { alert, confirm } from "../Dialogs";
 import { accountLabel, isPGConn, openUser } from "./actions";
+import { Toolbar } from "../Toolbar";
 
 export function UsersPane({ tab }: { tab: Tab }) {
   const connId = tab.connId!;
@@ -64,7 +65,7 @@ export function UsersPane({ tab }: { tab: Tab }) {
 
   return (
     <div className="users-pane">
-      <div className="toolbar">
+      <Toolbar>
         <button onClick={() => openUser(connId)}>
           <Plus size={14} /> New {noun}
         </button>
@@ -79,7 +80,7 @@ export function UsersPane({ tab }: { tab: Tab }) {
         </button>
         <span className="spacer" />
         <input className="search" placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} />
-      </div>
+      </Toolbar>
       {error && <div className="error-banner">{error}</div>}
       <div className="users-table-wrap" onContextMenu={(e) => e.target === e.currentTarget && menu(e)}>
         <table className="redis-table users-table">

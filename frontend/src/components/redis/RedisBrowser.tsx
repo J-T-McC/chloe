@@ -12,6 +12,7 @@ import { Split } from "../Split";
 import { KeyEditor } from "./KeyEditor";
 import { NewKeyDialog } from "./NewKeyDialog";
 import { openRedisConsole } from "./actions";
+import { Toolbar } from "../Toolbar";
 
 const BATCH = 1000;
 const AUTO_LIMIT = 20000; // keys loaded before asking to load more
@@ -165,7 +166,7 @@ export function RedisBrowser({ connId, db }: { connId: string; db: number }) {
             else if ((e.key === "Delete" || e.key === "Backspace") && selected.size && (e.target as HTMLElement).tagName !== "INPUT") (e.preventDefault(), deleteKeys(selectedKeys()));
           }}
         >
-          <div className="toolbar">
+          <Toolbar>
             <button onClick={() => setCreating(true)} title="New key (⌘N)">
               <Plus size={14} /> New Key
             </button>
@@ -182,7 +183,7 @@ export function RedisBrowser({ connId, db }: { connId: string; db: number }) {
             <button onClick={() => openRedisConsole(connId, db)} title="Open a console on this database">
               <TerminalSquare size={14} />
             </button>
-          </div>
+          </Toolbar>
           <div className="redis-filter">
             <div className="erd-search">
               <Search size={13} />

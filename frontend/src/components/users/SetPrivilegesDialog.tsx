@@ -7,6 +7,7 @@ import { P, Users, arr, errorText } from "../../api";
 import { useApp } from "../../store";
 import { Combobox } from "../Combobox";
 import { accountLabel, isPGConn } from "./actions";
+import { Toolbar } from "../Toolbar";
 
 type Target = Omit<P.Grant, "privilege" | "grantable">;
 
@@ -103,7 +104,7 @@ function Inner({ connId, target, title }: { connId: string; target: Target; titl
     <div className="modal-backdrop" onMouseDown={close}>
       <div className="modal wizard wide set-privs" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-title">Set Privileges — {title}</div>
-        <div className="toolbar">
+        <Toolbar>
           <div style={{ width: 260 }}>
             <Combobox value={adding} options={options} placeholder={`Add ${pg ? "role" : "user"}…`} strict onChange={setAdding} />
           </div>
@@ -117,7 +118,7 @@ function Inner({ connId, target, title }: { connId: string; target: Target; titl
           >
             <Plus size={14} /> Add
           </button>
-        </div>
+        </Toolbar>
         <div className="modal-body set-privs-body">
           <table className="redis-table privs-table">
             <thead>
