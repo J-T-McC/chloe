@@ -102,6 +102,7 @@ export function ChartEditor({ tab }: { tab: Tab }) {
   const [loading, setLoading] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [present, setPresent] = useState(false);
+  // When Refresh was last asked for (ms): data is read again from then on.
   const [tick, setTick] = useState(0);
   useEffect(() => void loadCatalog().then(setCat), []);
 
@@ -137,7 +138,7 @@ export function ChartEditor({ tab }: { tab: Tab }) {
     let live = true;
     setLoading(true);
     const t = setTimeout(() => {
-      BI.ChartData(path, { ...draft, filters: cleanFilters(arr(draft.filters)) }, null)
+      BI.ChartData(path, { ...draft, filters: cleanFilters(arr(draft.filters)) }, null, tick)
         .then((d) => live && (setData(d), setError("")))
         .catch((e) => live && (setError(errorText(e)), setData(null)))
         .finally(() => live && setLoading(false));
@@ -241,7 +242,7 @@ export function ChartEditor({ tab }: { tab: Tab }) {
       onKeyDown={(e) => {
         const meta = e.metaKey || e.ctrlKey;
         if (meta && e.key.toLowerCase() === "s") (e.preventDefault(), save());
-        if (meta && e.key.toLowerCase() === "r") (e.preventDefault(), setTick((x) => x + 1));
+        if (meta && e.key.toLowerCase() === "r") (e.preventDefault(), setTick(Date.now()));
         if (meta && e.key === "Enter") (e.preventDefault(), setPresent(true));
       }}
       tabIndex={-1}
@@ -250,7 +251,7 @@ export function ChartEditor({ tab }: { tab: Tab }) {
         <button onClick={save} className={dirty ? "accent" : ""} title="Save (⌘S)">
           <Save size={14} /> Save
         </button>
-        <button onClick={() => setTick((x) => x + 1)} title="Refresh Data (⌘R)">
+        <button onClick={() => setTick(Date.now())} title="Refresh Data (⌘R)">
           <RefreshCw size={14} className={loading ? "spin" : ""} /> Refresh
         </button>
         <button onClick={() => setPresent(true)} title="Present (⌘↵)">

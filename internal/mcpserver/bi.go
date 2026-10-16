@@ -9,10 +9,12 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"chloe/internal/bi"
+	"chloe/internal/core"
 	"chloe/internal/model"
 	"chloe/internal/store"
 )
@@ -470,7 +472,8 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			if err := c.canRead(ctx, *src); err != nil {
 				return ChartDataOut{}, err
 			}
-			data, err := c.s.m.BIChartData(ctx, w, *ch, in.Parameters)
+			// Data read now; with the SQL, the chart's own query on the database.
+			data, err := c.s.m.BIChartData(ctx, w, *ch, in.Parameters, core.BIRead{Since: time.Now(), Uncached: in.IncludeSQL})
 			c.act.SQL = data.SQL
 			c.act.Rows = int64(len(data.Rows))
 			if err != nil {

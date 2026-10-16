@@ -177,7 +177,9 @@ func testMonitor(t *testing.T, f *fixture, conn model.Connection) {
 	for _, x := range sessions {
 		s := x.(map[string]any)
 		found = found || s["id"] == id
-		if s["chloe"] == true {
+		// Other test packages' Chloe sessions come and go on the same server; the
+		// one listing the sessions is this server's own and stays open.
+		if q, _ := s["query"].(string); s["chloe"] == true && (own == "" || strings.Contains(strings.ToUpper(q), "PROCESSLIST") || strings.Contains(q, "pg_stat_activity")) {
 			own = s["id"].(string)
 		}
 	}

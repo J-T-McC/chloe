@@ -15,6 +15,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"chloe/internal/bi"
+	"chloe/internal/core"
 )
 
 type TileArg struct {
@@ -328,6 +329,7 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 				}
 			}
 			rows := 0
+			started := time.Now()
 			// A chart on several pages is read once, so every copy shows the same rows.
 			read := map[string]ChartResult{}
 			for i, pg := range d.Pages {
@@ -374,7 +376,8 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 							r.Error = err.Error()
 							break
 						}
-						data, err := c.s.m.BIChartData(ctx, w, *ch, in.Parameters)
+						// Each source is read once for the whole dashboard, now.
+						data, err := c.s.m.BIChartData(ctx, w, *ch, in.Parameters, core.BIRead{Since: started})
 						if err != nil {
 							r.Error = err.Error()
 							break

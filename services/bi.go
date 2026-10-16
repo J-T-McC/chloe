@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -213,13 +214,20 @@ func (s *BIService) DeleteObject(path, id string) error {
 	return err
 }
 
-// ChartData reads what a (draft) chart of a workspace draws.
-func (s *BIService) ChartData(ctx context.Context, path string, c bi.Chart, params map[string]string) (bi.Data, error) {
+// ChartData reads what a (draft) chart of a workspace draws. A live source's
+// rows may come from a copy read at or after since (Unix milliseconds; 0 takes
+// any recent copy): pages of a dashboard share one read of each source, and
+// Refresh reads them again.
+func (s *BIService) ChartData(ctx context.Context, path string, c bi.Chart, params map[string]string, since int64) (bi.Data, error) {
 	w, err := s.Open(path)
 	if err != nil {
 		return bi.Data{}, err
 	}
-	return s.M.BIChartData(ctx, w, c, params)
+	opt := core.BIRead{}
+	if since > 0 {
+		opt.Since = time.UnixMilli(since)
+	}
+	return s.M.BIChartData(ctx, w, c, params, opt)
 }
 
 // SaveParameter adds or replaces a parameter of a workspace.

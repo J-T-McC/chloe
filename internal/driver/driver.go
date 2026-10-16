@@ -91,14 +91,27 @@ type Attacher interface {
 // ReadOnly runs fn inside a read-only transaction (SQLite: query_only, which
 // lasts for the session, so the session must be discarded afterwards).
 func ReadOnly(ctx context.Context, ds Session, d Dialect, fn func() error) error {
-	begin := map[string]string{"mysql": "START TRANSACTION READ ONLY", "postgres": "BEGIN READ ONLY", "sqlite": "PRAGMA query_only = ON"}[d.Name]
-	if _, err := ds.Exec(ctx, begin); err != nil {
+	if err := BeginReadOnly(ctx, ds, d); err != nil {
 		return err
 	}
 	err := fn()
-	if d.Name != "sqlite" {
-		_, _ = ds.Exec(context.Background(), "ROLLBACK")
+	_ = EndReadOnly(ds, d)
+	return err
+}
+
+// BeginReadOnly starts a read-only transaction (SQLite: makes the session read-only).
+func BeginReadOnly(ctx context.Context, ds Session, d Dialect) error {
+	begin := map[string]string{"mysql": "START TRANSACTION READ ONLY", "postgres": "BEGIN READ ONLY", "sqlite": "PRAGMA query_only = ON"}[d.Name]
+	_, err := ds.Exec(ctx, begin)
+	return err
+}
+
+// EndReadOnly ends what BeginReadOnly started. A SQLite session stays read-only.
+func EndReadOnly(ds Session, d Dialect) error {
+	if d.Name == "sqlite" {
+		return nil
 	}
+	_, err := ds.Exec(context.Background(), "ROLLBACK")
 	return err
 }
 

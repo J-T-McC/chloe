@@ -60,6 +60,9 @@ type Manager struct {
 
 	syncMu sync.Mutex
 	syncs  map[string]*dataSync // Data Synchronization comparisons by ID
+
+	bi      biSessions    // BI read sessions per connection
+	biCache biSourceCache // live BI sources read recently
 }
 
 type openConn struct {
@@ -215,6 +218,8 @@ func (m *Manager) Disconnect(id string) {
 	}
 	m.closeConsoles(id)
 	m.closeShells(id)
+	m.bi.drop(id)
+	m.biCache.drop(id)
 	if ok {
 		oc.close()
 		m.events.ConnectionClosed(id)

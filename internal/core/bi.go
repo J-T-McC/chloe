@@ -51,13 +51,11 @@ func (m *Manager) biLive(ctx context.Context, src bi.DataSource, fn func(context
 	}
 	ctx, cancel := context.WithTimeout(ctx, BITimeout)
 	defer cancel()
-	return m.WithSession(ctx, src.ConnID, src.Database, src.Schema, func(ds driver.Session, d driver.Dialect) error {
-		return driver.ReadOnly(ctx, ds, d, func() error {
-			if err := checkZone(ctx, ds, d, src.Timezone); err != nil {
-				return err
-			}
-			return fn(ctx, ds, d)
-		})
+	return m.withBISession(ctx, src.ConnID, src.Database, src.Schema, func(ds driver.Session, d driver.Dialect) error {
+		if err := checkZone(ctx, ds, d, src.Timezone); err != nil {
+			return err
+		}
+		return fn(ctx, ds, d)
 	})
 }
 
@@ -250,12 +248,22 @@ func (m *Manager) BIPreview(ctx context.Context, w bi.Workspace, src bi.DataSour
 	return out, err
 }
 
+// BIRead says how fresh a chart's live data must be.
+type BIRead struct {
+	// Since takes a cached copy of the source only if it was read at or after
+	// this time; the zero time takes any copy younger than BICacheTTL.
+	Since time.Time
+	// Uncached reads the chart from the database, with its own SQL.
+	Uncached bool
+}
+
 // BIChartData reads what a chart draws. A chart whose shelves aren't filled yet
 // comes back with Complete false and no rows.
 //
 // params override parameter values for this read (by name); the values used come
-// back in Data.Params for titles and text.
-func (m *Manager) BIChartData(ctx context.Context, w bi.Workspace, c bi.Chart, params map[string]string) (bi.Data, error) {
+// back in Data.Params for titles and text. A live source's rows may come from a
+// recent copy of them (see cachedSource), as opt allows.
+func (m *Manager) BIChartData(ctx context.Context, w bi.Workspace, c bi.Chart, params map[string]string, opt BIRead) (bi.Data, error) {
 	out := bi.Data{Rows: [][]any{}, Columns: []bi.Column{}}
 	stored := w.Source(c.DataSource)
 	if stored == nil {
@@ -317,6 +325,11 @@ func (m *Manager) BIChartData(ctx context.Context, w bi.Workspace, c bi.Chart, p
 		}
 		src.Fields = fields
 	}
+	if !opt.Uncached {
+		if done, err := m.biCachedChart(ctx, *src, c, opt.Since, &out, read); done || err != nil {
+			return out, err
+		}
+	}
 	err = m.biLive(ctx, *src, func(ctx context.Context, ds driver.Session, d driver.Dialect) error {
 		from, err := bi.From(d, *src)
 		if err != nil {
@@ -327,6 +340,37 @@ func (m *Manager) BIChartData(ctx context.Context, w bi.Workspace, c bi.Chart, p
 		})
 	})
 	return out, err
+}
+
+// biCachedChart draws a chart from a cached copy of its live source. done is
+// false when the chart has to be read from the database instead: the copy can't
+// express it (a PostgreSQL median) or the source is too big to keep.
+func (m *Manager) biCachedChart(ctx context.Context, src bi.DataSource, c bi.Chart, since time.Time, out *bi.Data, read func(driver.Dialect, bi.Source, func(bi.Stmt) ([]model.ResultColumn, [][]*string, bool, error)) error) (done bool, err error) {
+	if _, err := c.Check(src, bi.SQLite.Name); err != nil {
+		return false, nil
+	}
+	if err := m.Ensure(ctx, src.ConnID); err != nil {
+		return false, err
+	}
+	conn, err := m.conn(src.ConnID)
+	if err != nil {
+		return false, err
+	}
+	from, err := bi.From(conn.Dialect(), src)
+	if err != nil {
+		return false, err
+	}
+	e, err := m.cachedSource(ctx, src, from, since)
+	if e == nil || err != nil {
+		return false, err
+	}
+	err = read(bi.SQLite, bi.Table(bi.SQLite.QuoteIdent(bi.ArchiveTable)), func(q bi.Stmt) ([]model.ResultColumn, [][]*string, bool, error) {
+		return memQuery(ctx, e.db, q, bi.MaxChartRows)
+	})
+	if err == nil && out.Complete {
+		out.Cached, out.RanAt = true, e.started.UTC().Format(time.RFC3339)
+	}
+	return true, err
 }
 
 // --- archive snapshots ---------------------------------------------------------
@@ -410,69 +454,8 @@ func (m *Manager) BIArchive(ctx context.Context, w bi.Workspace, src bi.DataSour
 		return src, err
 	}
 	defer db.Close()
-	cols := make([]string, len(fields))
-	for i, f := range fields {
-		affinity := "TEXT"
-		if f.Type == bi.TypeNumber {
-			affinity = "NUMERIC"
-		}
-		cols[i] = bi.SQLite.QuoteIdent(f.Name) + " " + affinity
-	}
-	if _, err := db.ExecContext(ctx, "CREATE TABLE "+bi.SQLite.QuoteIdent(bi.ArchiveTable)+" ("+strings.Join(cols, ", ")+")"); err != nil {
-		return src, err
-	}
-	tx, err := db.BeginTx(ctx, nil)
+	n, err := m.biCopyRows(ctx, src, fields, db, MaxArchiveRows, fmt.Errorf("the data source has more than %d rows; filter it in its query, or use live mode", MaxArchiveRows))
 	if err != nil {
-		return src, err
-	}
-	defer tx.Rollback()
-	ph := strings.TrimSuffix(strings.Repeat("?, ", len(fields)), ", ")
-	ins, err := tx.PrepareContext(ctx, "INSERT INTO "+bi.SQLite.QuoteIdent(bi.ArchiveTable)+" VALUES ("+ph+")")
-	if err != nil {
-		return src, err
-	}
-	var n int64
-	err = m.biLive(ctx, src, func(ctx context.Context, ds driver.Session, d driver.Dialect) error {
-		from, err := bi.From(d, src)
-		if err != nil {
-			return err
-		}
-		rows, err := ds.Query(ctx, "SELECT * FROM "+from.SQL+" AS s", from.Args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		if len(rows.Columns()) != len(fields) {
-			return errors.New("the data source's columns changed while reading it; try again")
-		}
-		cells := make([]*string, len(fields))
-		args := make([]any, len(fields))
-		for rows.Next(cells) {
-			if n >= MaxArchiveRows {
-				_ = ds.Cancel(context.Background())
-				return fmt.Errorf("the data source has more than %d rows; filter it in its query, or use live mode", MaxArchiveRows)
-			}
-			for i, c := range cells {
-				switch {
-				case c == nil:
-					args[i] = nil
-				case fields[i].Type == bi.TypeDateTime:
-					args[i] = bi.NormalizeDate(*c)
-				default:
-					args[i] = *c
-				}
-			}
-			if _, err := ins.ExecContext(ctx, args...); err != nil {
-				return err
-			}
-			n++
-		}
-		return rows.Err()
-	})
-	if err != nil {
-		return src, err
-	}
-	if err := tx.Commit(); err != nil {
 		return src, err
 	}
 	image, err := serialize(ctx, db)
@@ -504,12 +487,85 @@ func (m *Manager) BIArchive(ctx context.Context, w bi.Workspace, src bi.DataSour
 	return stored, nil
 }
 
+// biCopyRows reads a live source's rows into a table of an in-memory database,
+// typed by fields; more than limit rows fails with over.
+func (m *Manager) biCopyRows(ctx context.Context, src bi.DataSource, fields []bi.Field, db *sql.DB, limit int64, over error) (int64, error) {
+	cols := make([]string, len(fields))
+	for i, f := range fields {
+		affinity := "TEXT"
+		if f.Type == bi.TypeNumber {
+			affinity = "NUMERIC"
+		}
+		cols[i] = bi.SQLite.QuoteIdent(f.Name) + " " + affinity
+	}
+	if _, err := db.ExecContext(ctx, "CREATE TABLE "+bi.SQLite.QuoteIdent(bi.ArchiveTable)+" ("+strings.Join(cols, ", ")+")"); err != nil {
+		return 0, err
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	ph := strings.TrimSuffix(strings.Repeat("?, ", len(fields)), ", ")
+	ins, err := tx.PrepareContext(ctx, "INSERT INTO "+bi.SQLite.QuoteIdent(bi.ArchiveTable)+" VALUES ("+ph+")")
+	if err != nil {
+		return 0, err
+	}
+	var n int64
+	err = m.biLive(ctx, src, func(ctx context.Context, ds driver.Session, d driver.Dialect) error {
+		from, err := bi.From(d, src)
+		if err != nil {
+			return err
+		}
+		rows, err := ds.Query(ctx, "SELECT * FROM "+from.SQL+" AS s", from.Args...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		if len(rows.Columns()) != len(fields) {
+			return errors.New("the data source's columns changed while reading it; try again")
+		}
+		cells := make([]*string, len(fields))
+		args := make([]any, len(fields))
+		for rows.Next(cells) {
+			if n >= limit {
+				_ = ds.Cancel(context.Background())
+				return over
+			}
+			for i, c := range cells {
+				switch {
+				case c == nil:
+					args[i] = nil
+				case fields[i].Type == bi.TypeDateTime:
+					args[i] = bi.NormalizeDate(*c)
+				default:
+					args[i] = *c
+				}
+			}
+			if _, err := ins.ExecContext(ctx, args...); err != nil {
+				return err
+			}
+			n++
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return 0, err
+	}
+	return n, tx.Commit()
+}
+
 // biArchiveQuery runs a query on a data source's archive snapshot.
 func (m *Manager) biArchiveQuery(ctx context.Context, w bi.Workspace, src bi.DataSource, q bi.Stmt, limit int) ([]model.ResultColumn, [][]*string, bool, error) {
 	db, err := m.archiveDB(w, src)
 	if err != nil {
 		return nil, nil, false, err
 	}
+	return memQuery(ctx, db, q, limit)
+}
+
+// memQuery runs a query on an in-memory copy of a source (archive or cached).
+func memQuery(ctx context.Context, db *sql.DB, q bi.Stmt, limit int) ([]model.ResultColumn, [][]*string, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, BITimeout)
 	defer cancel()
 	rows, err := db.QueryContext(ctx, q.SQL, q.Args...)

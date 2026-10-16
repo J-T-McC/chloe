@@ -26,10 +26,13 @@ export function Catalog(): $CancellablePromise<$models.Catalog> {
 }
 
 /**
- * ChartData reads what a (draft) chart of a workspace draws.
+ * ChartData reads what a (draft) chart of a workspace draws. A live source's
+ * rows may come from a copy read at or after since (Unix milliseconds; 0 takes
+ * any recent copy): pages of a dashboard share one read of each source, and
+ * Refresh reads them again.
  */
-export function ChartData(path: string, c: bi$0.Chart, params: { [_ in string]?: string } | null): $CancellablePromise<bi$0.Data> {
-    return $Call.ByID(986314243, path, c, params);
+export function ChartData(path: string, c: bi$0.Chart, params: { [_ in string]?: string } | null, since: number): $CancellablePromise<bi$0.Data> {
+    return $Call.ByID(986314243, path, c, params, since);
 }
 
 /**

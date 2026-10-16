@@ -83,6 +83,12 @@ export interface RenderRequest {
      * Params are parameter values to draw with (not saved).
      */
     "params"?: { [_ in string]?: string } | null;
+
+    /**
+     * Since asks for data read at or after this time (Unix ms): an agent's
+     * export shows the data as it is now, each source read once for it.
+     */
+    "since"?: number;
 }
 
 /**

@@ -42,6 +42,8 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
   const [draft, setDraft] = useState<B.Dashboard | null>(null);
   const [pageIdx, setPageIdx] = useState(0);
   const [selected, setSelected] = useState("");
+  // When Refresh (or auto refresh) last ran, in ms. Charts take data read from
+  // then on, so every page shares one read of each source per refresh.
   const [tick, setTick] = useState(0);
   const [present, setPresent] = useState(false);
   const [error, setError] = useState("");
@@ -77,7 +79,7 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
   useEffect(() => {
     const m = draft?.refresh ?? 0;
     if (!m) return;
-    const t = setInterval(() => setTick((x) => x + 1), m * 60_000);
+    const t = setInterval(() => setTick(Date.now()), m * 60_000);
     return () => clearInterval(t);
   }, [draft?.refresh]);
 
@@ -167,7 +169,7 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
         const meta = e.metaKey || e.ctrlKey;
         const typing = (e.target as HTMLElement).closest("input, textarea, select");
         if (meta && e.key.toLowerCase() === "s") (e.preventDefault(), save());
-        if (meta && e.key.toLowerCase() === "r") (e.preventDefault(), setTick((x) => x + 1));
+        if (meta && e.key.toLowerCase() === "r") (e.preventDefault(), setTick(Date.now()));
         if (meta && e.key === "Enter") (e.preventDefault(), setPresent(true));
         if (!typing && item && (e.key === "Delete" || e.key === "Backspace")) (e.preventDefault(), setItems((xs) => xs.filter((x) => x.id !== item.id)), setSelected(""));
       }}
@@ -198,7 +200,7 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
           <Shapes size={14} /> Add Shape
         </button>
         <span className="tb-sep" />
-        <button onClick={() => setTick((x) => x + 1)} onContextMenu={refreshMenu} title="Refresh Data (⌘R); right-click for auto refresh">
+        <button onClick={() => setTick(Date.now())} onContextMenu={refreshMenu} title="Refresh Data (⌘R); right-click for auto refresh">
           <RefreshCw size={14} /> Refresh Data
         </button>
         <button className="tb-drop" onClick={refreshMenu} title="Auto refresh" aria-label="Auto refresh">
@@ -225,6 +227,7 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
                 const pngs = await renderPages(path, draft, which, 2, overrides, {
                   page: (done, total) => setExporting({ done, total }),
                   cancelled: () => cancelExport.current,
+                  since: tick,
                 });
                 await BI.WriteExport(file, format, pngs);
                 setExported(file);
@@ -583,7 +586,7 @@ function ChartTile({
     if (!chart) return;
     let live = true;
     setLoading(true);
-    BI.ChartData(path, extra?.length ? { ...chart, filters: [...arr(chart.filters), ...extra] } : chart, overrides && Object.keys(overrides).length ? overrides : null)
+    BI.ChartData(path, extra?.length ? { ...chart, filters: [...arr(chart.filters), ...extra] } : chart, overrides && Object.keys(overrides).length ? overrides : null, tick)
       .then((d) => live && (setData(d), setError("")))
       .catch((e) => live && setError(errorText(e)))
       .finally(() => live && setLoading(false));

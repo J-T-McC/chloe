@@ -26,6 +26,9 @@ type Data struct {
 	// Mode is live or archive; RanAt is when the rows were read.
 	Mode  string `json:"mode"`
 	RanAt string `json:"ranAt"`
+	// Cached is set when a live source's rows came from a copy read at RanAt
+	// rather than from the database just now.
+	Cached bool `json:"cached,omitempty"`
 	// Params are the parameter values the read used, for titles and text.
 	Params Values `json:"params,omitempty"`
 	// Previous is what a sameDays Trend compares its current period with.
