@@ -14,6 +14,10 @@ const UNITS: [number, string][] = [
 
 /** Format a value with a chart's number format. compact shortens big numbers (axes)
  *  even when no unit is set. */
+/** Escapes text for HTML (ECharts tooltips, the HTML report, markdown). */
+export const escapeHtml = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
 export function formatNumber(x: number | null | undefined, fmt: B.NumberFormat = {}, compact = false): string {
   if (x === null || x === undefined || Number.isNaN(x)) return "";
   if (fmt.percent) return formatNumber(x * 100, { ...fmt, percent: false, unit: "", suffix: "%" + (fmt.suffix ?? "") }, false);
