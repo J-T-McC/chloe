@@ -12,6 +12,7 @@ import { Split } from "../Split";
 import { biChanged, openObject, useBIVersion, workspaceTitle } from "./actions";
 import { ChartTypeIcon } from "./icons";
 import { ParameterDialog, paramRefs } from "./Parameters";
+import { Toolbar } from "../Toolbar";
 
 type Filter = "all" | "source" | "chart" | "dashboard" | "parameter";
 
@@ -176,7 +177,7 @@ export function WorkspaceView({ tab }: { tab: Tab }) {
 
   return (
     <div className="objects-pane bi-workspace">
-      <div className="toolbar">
+      <Toolbar>
         <button onClick={() => openObject(path, "source", "", "")}>
           <Plus size={14} /> New Data Source
         </button>
@@ -216,7 +217,7 @@ export function WorkspaceView({ tab }: { tab: Tab }) {
           <RefreshCw size={14} />
         </button>
         <input className="search" placeholder="Filter" value={search} onChange={(e) => setSearch(e.target.value)} />
-      </div>
+      </Toolbar>
       {error && <div className="error-banner">{error}</div>}
       <Split
         id="bi-workspace-props"

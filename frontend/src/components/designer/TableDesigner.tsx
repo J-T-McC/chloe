@@ -9,6 +9,7 @@ import { connDialect } from "../../dialect";
 import { confirm } from "../Dialogs";
 import { CodeBlock } from "../ObjectsPane";
 import { ChecksTab, FieldToolbar, FieldsTab, ForeignKeysTab, connectionRefs, IndexesTab, OptionsTab, TriggersTab, UniquesTab } from "./DesignerTabs";
+import { Toolbar } from "../Toolbar";
 
 type Section = "fields" | "indexes" | "foreignKeys" | "uniques" | "checks" | "triggers" | "options" | "comment" | "sql";
 
@@ -127,7 +128,7 @@ export function TableDesigner({ tab }: { tab: Tab }) {
         }
       }}
     >
-      <div className="toolbar">
+      <Toolbar>
         <button className={dirty ? "accent" : ""} disabled={!dirty || saving} onClick={save} title="Save (⌘S)">
           <Save size={14} /> {saving ? "Saving…" : "Save"}
         </button>
@@ -138,7 +139,7 @@ export function TableDesigner({ tab }: { tab: Tab }) {
           {[connById(connId)?.name, draft.database, draft.schema].filter(Boolean).join(" › ")} ›{" "}
           <input className="name-input" placeholder="table name" value={draft.name} onChange={(e) => update((t) => ({ ...t, name: e.target.value }))} />
         </span>
-      </div>
+      </Toolbar>
       <div className="seg-tabs designer-tabs">
         {sections
           .filter(([, , on]) => on)

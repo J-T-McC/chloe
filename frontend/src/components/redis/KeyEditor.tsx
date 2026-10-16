@@ -6,6 +6,7 @@ import { R, Redis, arr, errorText } from "../../api";
 import { TYPE_LABEL, display, formatBytes, formatTTL, hexDump, text } from "../../redis/keys";
 import { alert, confirm } from "../Dialogs";
 import { Split } from "../Split";
+import { Toolbar } from "../Toolbar";
 
 interface Props {
   connId: string;
@@ -182,7 +183,7 @@ function StringEditor({ connId, db, kv, onSaved }: { connId: string; db: number;
 
   return (
     <div className="redis-string" onKeyDown={(e) => (e.metaKey || e.ctrlKey) && e.key === "s" && (e.preventDefault(), dirty && editable && save())}>
-      <div className="toolbar">
+      <Toolbar>
         <div className="seg">
           {(["text", "json", "hex"] as Mode[]).map((m) => (
             <button key={m} className={mode === m ? "active" : ""} disabled={m === "json" && (binary || !isJSON(value.text))} onClick={() => setMode(m)}>
@@ -196,7 +197,7 @@ function StringEditor({ connId, db, kv, onSaved }: { connId: string; db: number;
         <button className={dirty ? "accent" : ""} disabled={!dirty || !editable} onClick={save} title="Save (⌘S)">
           <Save size={14} /> Save
         </button>
-      </div>
+      </Toolbar>
       {err && <div className="error-banner">{err}</div>}
       <textarea className="redis-text" spellCheck={false} readOnly={!editable} value={draft} onChange={(e) => setDraft(e.target.value)} />
     </div>
@@ -328,7 +329,7 @@ function ItemsEditor({ connId, db, kv, reload }: { connId: string; db: number; k
       minSecond="15"
       first={
         <div className="redis-items-top">
-          <div className="toolbar">
+          <Toolbar>
             <button onClick={() => (setSel(new Set()), setDetail({ row: -1, field: "", value: "", score: "0", id: "*", pairs: [["", ""]] }))} title="Add an element">
               <Plus size={14} /> {type === "stream" ? "Add Entry" : type === "hash" ? "Add Field" : type === "list" ? "Add Item" : "Add Member"}
             </button>
@@ -344,7 +345,7 @@ function ItemsEditor({ connId, db, kv, reload }: { connId: string; db: number; k
                 Load more
               </button>
             )}
-          </div>
+          </Toolbar>
           <div className="redis-table-wrap">
             <table className="redis-table">
               <thead>

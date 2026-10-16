@@ -12,6 +12,7 @@ import { newQuery } from "../Sidebar";
 import { Split } from "../Split";
 import { EndpointPicker, JobProgress } from "./shared";
 import { track, useTransfer } from "./state";
+import { Toolbar } from "../Toolbar";
 
 const useDS = create<{ open: boolean; source?: Endpoint }>(() => ({ open: false }));
 
@@ -208,12 +209,12 @@ export function DataSyncWizard() {
           )}
           {step === "mapping" && (
             <div className="dsync-mapping">
-              <div className="toolbar">
+              <Toolbar>
                 <button onClick={() => setMapped(new Set(mapping.filter((t) => t.target && t.key?.length).map((t) => t.source)))}>Select All</button>
                 <button onClick={() => setMapped(new Set())}>Deselect All</button>
                 <span className="spacer" />
                 <span className="muted">{mapped.size} of {mapping.length} table(s) mapped</span>
-              </div>
+              </Toolbar>
               <div className="dsync-grid">
                 <div className="dsync-row head">
                   <span />
@@ -261,7 +262,7 @@ export function DataSyncWizard() {
           )}
           {step === "deploy" && (
             <div className="ss-deploy">
-              <div className="toolbar">
+              <Toolbar>
                 <button onClick={() => copyText(scriptText)}>
                   <Copy size={14} /> Copy Script
                 </button>
@@ -281,7 +282,7 @@ export function DataSyncWizard() {
                   <input type="checkbox" checked={continueOnError} onChange={(e) => setContinueOnError(e.target.checked)} /> Continue on error
                 </label>
                 <span className="muted">{script.length.toLocaleString()} statement(s)</span>
-              </div>
+              </Toolbar>
               <div className="ss-script">
                 <CodeBlock code={script.length > PREVIEW ? script.slice(0, PREVIEW).join(";\n") + `;\n-- … ${script.length - PREVIEW} more statement(s)` : scriptText} />
               </div>
@@ -350,7 +351,7 @@ function Results(p: {
   const set = (table: string, a: Act, v: boolean) => p.setChosen({ ...p.chosen, [table]: { ...p.chosen[table], [a]: v } });
   return (
     <div className="ss-results">
-      <div className="toolbar">
+      <Toolbar>
         <button onClick={p.onRecompare} disabled={p.busy}>
           <RefreshCw size={14} className={p.busy ? "spin" : ""} /> Recompare
         </button>
@@ -358,7 +359,7 @@ function Results(p: {
         <label className="check">
           <input type="checkbox" checked={p.showSame} onChange={(e) => p.setShowSame(e.target.checked)} /> Show identical tables and others
         </label>
-      </div>
+      </Toolbar>
       <Split
         id="data-sync"
         vertical
@@ -415,7 +416,7 @@ function Records({ id, table }: { id: string; table: string }) {
   const cell = (v?: string | null) => (v === null || v === undefined ? <span className="null">(Null)</span> : v);
   return (
     <div className="dsync-records">
-      <div className="toolbar">
+      <Toolbar>
         <strong>{table}</strong>
         <select aria-label="Show records" value={op} onChange={(e) => setOp(e.target.value)}>
           <option value="">Difference</option>
@@ -438,7 +439,7 @@ function Records({ id, table }: { id: string; table: string }) {
           </>
         )}
         {page && page.total <= PAGE && <span className="muted">{page.total.toLocaleString()} record(s)</span>}
-      </div>
+      </Toolbar>
       {err && <div className="err small">{err}</div>}
       <div className="dsync-table">
         <table>

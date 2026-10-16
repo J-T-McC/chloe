@@ -18,6 +18,7 @@ import { Split } from "./Split";
 import { KIND_LABEL, KindIcon } from "./icons";
 import { newQuery, openObject, savedQueryMenu, selectAllSQL } from "./Sidebar";
 import { deleteSavedQueries } from "../queries";
+import { Toolbar } from "./Toolbar";
 
 export function ObjectsPane() {
   const sel = useApp((s) => s.selection);
@@ -143,7 +144,7 @@ function SqlObjectsPane() {
 
   return (
     <div className="objects-pane">
-      <div className="toolbar">
+      <Toolbar>
         <button disabled={!picked} onClick={() => picked && openObject(asNode(picked))}>
           <Table2 size={14} /> {isData ? "Open" : isQueries ? "Open Query" : "View DDL"}
         </button>
@@ -208,7 +209,7 @@ function SqlObjectsPane() {
         </span>
         <span className="spacer" />
         <input className="search" placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} />
-      </div>
+      </Toolbar>
       <Split
         id="objects-info"
         className="objects-split"
@@ -418,14 +419,14 @@ export function DDLView({ connId, objRef: r }: { connId: string; objRef: ObjectR
   }, [connId, r]);
   return (
     <div className="ddl-view">
-      <div className="toolbar">
+      <Toolbar>
         <button onClick={() => copyText(ddl)} disabled={!ddl}>
           <Copy size={14} /> Copy
         </button>
         <button onClick={() => newQuery(connId, r.database, r.schema, ddl)} disabled={!ddl}>
           <FilePlus2 size={14} /> Open in Query Editor
         </button>
-      </div>
+      </Toolbar>
       {err ? <div className="error-banner">{err}</div> : <CodeBlock code={ddl} />}
     </div>
   );

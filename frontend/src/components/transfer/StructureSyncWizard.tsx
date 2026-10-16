@@ -12,6 +12,7 @@ import { newQuery } from "../Sidebar";
 import { Split } from "../Split";
 import { EndpointPicker, JobProgress } from "./shared";
 import { track, useTransfer } from "./state";
+import { Toolbar } from "../Toolbar";
 
 const useSS = create<{ open: boolean; source?: Endpoint }>(() => ({ open: false }));
 
@@ -190,7 +191,7 @@ export function StructureSyncWizard() {
           )}
           {step === "deploy" && (
             <div className="ss-deploy">
-              <div className="toolbar">
+              <Toolbar>
                 <button onClick={() => copyText(scriptText)}>
                   <Copy size={14} /> Copy Script
                 </button>
@@ -207,7 +208,7 @@ export function StructureSyncWizard() {
                   <input type="checkbox" checked={continueOnError} onChange={(e) => setContinueOnError(e.target.checked)} /> Continue on error
                 </label>
                 <span className="muted">{script.length} statement(s)</span>
-              </div>
+              </Toolbar>
               <div className="ss-script">
                 <CodeBlock code={scriptText} />
               </div>
@@ -285,7 +286,7 @@ function Results(p: {
   const counts = ["create", "modify", "drop", "same"].map((op) => [op, p.items.filter((it) => it.op === op).length] as const).filter(([, n]) => n);
   return (
     <div className="ss-results">
-      <div className="toolbar">
+      <Toolbar>
         <button onClick={() => toggle(differing.map(key), true)}>Select All</button>
         <button onClick={() => p.setChecked(new Set())}>Deselect All</button>
         <button onClick={p.onRecompare} disabled={p.busy}>
@@ -296,7 +297,7 @@ function Results(p: {
         <label className="check">
           <input type="checkbox" checked={p.showSame} onChange={(e) => p.setShowSame(e.target.checked)} /> Show identical objects
         </label>
-      </div>
+      </Toolbar>
       <Split
         id="structure-sync"
         vertical

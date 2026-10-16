@@ -9,6 +9,7 @@ import { designTable } from "../../tableActions";
 import { openMenu } from "../ContextMenu";
 import { DiagramCanvas } from "./DiagramCanvas";
 import { exportDiagram } from "./export";
+import { Toolbar } from "../Toolbar";
 
 interface Saved {
   positions: Positions;
@@ -112,7 +113,7 @@ function ERDiagramInner({ tab }: { tab: Tab }) {
 
   return (
     <div className="erd">
-      <div className="toolbar">
+      <Toolbar>
         <button onClick={() => load(true)} title="Arrange tables automatically">
           <LayoutGrid size={14} /> Auto Layout
         </button>
@@ -145,7 +146,7 @@ function ERDiagramInner({ tab }: { tab: Tab }) {
           <Search size={13} />
           <input placeholder="Find table" value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && find(search)} />
         </div>
-      </div>
+      </Toolbar>
       {error && <div className="error-banner">{error}</div>}
       <DiagramCanvas
         model={model}

@@ -17,6 +17,7 @@ import { FilterList, cleanFilters } from "./FilterList";
 import { ChartTypeIcon } from "./icons";
 import { PALETTES } from "./theme";
 import { CHART_TYPE_NAMES, connLabel, useWorkspace } from "./WorkspaceView";
+import { Toolbar } from "../Toolbar";
 
 type ShelfName = "dimension" | "series" | "value" | "secondary" | "target";
 const SHELVES: ShelfName[] = ["dimension", "series", "value", "target", "secondary"];
@@ -247,7 +248,7 @@ export function ChartEditor({ tab }: { tab: Tab }) {
       }}
       tabIndex={-1}
     >
-      <div className="toolbar">
+      <Toolbar>
         <button onClick={save} className={dirty ? "accent" : ""} title="Save (⌘S)">
           <Save size={14} /> Save
         </button>
@@ -276,7 +277,7 @@ export function ChartEditor({ tab }: { tab: Tab }) {
         )}
         <span className="spacer" />
         <span className="muted bi-asof">{data?.complete ? `${data.mode === "archive" ? "Snapshot" : "Live"} · ${asOf}` : src ? connLabel(src) : ""}</span>
-      </div>
+      </Toolbar>
       {saveError && <div className="error-banner">{saveError}</div>}
       <Split
         id="bi-chart-fields"

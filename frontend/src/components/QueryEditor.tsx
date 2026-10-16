@@ -16,6 +16,7 @@ import { openExport } from "./transfer/state";
 import { createChartFrom } from "./bi/actions";
 import { queryTextChanged, registerQueryEditor, saveQueryTab } from "../queries";
 import { openHistoryLog } from "./HistoryLog";
+import { Toolbar } from "./Toolbar";
 
 export interface RunState {
   results: StatementResult[];
@@ -244,7 +245,7 @@ export function QueryEditor({ tab }: { tab: Tab }) {
 
   return (
     <div className="query-editor">
-      <div className="toolbar">
+      <Toolbar>
         <button className="accent" onClick={() => runRef.current()} disabled={!session || run.running} title="Run (⌘R)">
           <Play size={14} /> Run
         </button>
@@ -280,7 +281,7 @@ export function QueryEditor({ tab }: { tab: Tab }) {
         )}
         <span className="spacer" />
         {sessionError && <span className="err">{sessionError}</span>}
-      </div>
+      </Toolbar>
       {!connected && (
         <div className="qe-offline">
           Not connected to {conn?.name ?? "the server"}.

@@ -9,6 +9,7 @@ import { alert, confirm } from "./Dialogs";
 import { openMenu } from "./ContextMenu";
 import { newQuery } from "./Sidebar";
 import { Split } from "./Split";
+import { Toolbar } from "./Toolbar";
 
 // The connection the log is filtered to ("" for all), set by whoever opens it.
 const useFilter = create<{ conn: string }>(() => ({ conn: "" }));
@@ -66,7 +67,7 @@ export function HistoryLog({ active }: { active: boolean }) {
 
   return (
     <div className="history-log">
-      <div className="toolbar">
+      <Toolbar>
         <button disabled={!picked} onClick={() => picked && openInQuery(picked)} title="Open the statement in a new query">
           <FilePlus2 size={14} /> Open in Query
         </button>
@@ -94,7 +95,7 @@ export function HistoryLog({ active }: { active: boolean }) {
         <span className="spacer" />
         <span className="muted">{shown.length.toLocaleString()} statement{shown.length === 1 ? "" : "s"}</span>
         <input className="search" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} />
-      </div>
+      </Toolbar>
       <Split
         id="history-log"
         vertical

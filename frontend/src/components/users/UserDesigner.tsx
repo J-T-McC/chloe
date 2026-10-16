@@ -9,6 +9,7 @@ import { Combobox } from "../Combobox";
 import { CodeBlock } from "../ObjectsPane";
 import { accountLabel, isPGConn } from "./actions";
 import { PrivilegesTab } from "./PrivilegesTab";
+import { Toolbar } from "../Toolbar";
 
 type Section = "general" | "advanced" | "members" | "server" | "privileges" | "sql";
 
@@ -170,7 +171,7 @@ export function UserDesigner({ tab }: { tab: Tab }) {
         }
       }}
     >
-      <div className="toolbar">
+      <Toolbar>
         <button className={dirty ? "accent" : ""} disabled={saving || !dirty} onClick={save} title="Save (⌘S)">
           <Save size={14} /> {saving ? "Saving…" : "Save"}
         </button>
@@ -178,7 +179,7 @@ export function UserDesigner({ tab }: { tab: Tab }) {
         <span className="crumbs">
           {connById(connId)?.name} › {draft.name ? self : `new ${noun}`}
         </span>
-      </div>
+      </Toolbar>
       <div className="seg-tabs designer-tabs">
         {sections
           .filter(([, , on]) => on)
@@ -262,7 +263,7 @@ export function UserDesigner({ tab }: { tab: Tab }) {
         )}
         {section === "server" && !pg && (
           <div className="list-tab">
-            <div className="toolbar">
+            <Toolbar>
               <label className="check" title="WITH GRANT OPTION on *.*">
                 <input
                   type="checkbox"
@@ -279,7 +280,7 @@ export function UserDesigner({ tab }: { tab: Tab }) {
               <button className="small-btn" onClick={() => arr(meta.levels?.global).forEach((p) => globalHas(p) && setGlobal(p, false))}>
                 None
               </button>
-            </div>
+            </Toolbar>
             <div className="server-privs">
               {arr(meta.levels?.global).map((p) => (
                 <label key={p} className="check">

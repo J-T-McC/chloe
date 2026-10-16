@@ -10,6 +10,7 @@ import { editDocument } from "./DocEditor";
 import { DocsMode, DocsView } from "./DocsView";
 import { designCollection } from "./actions";
 import { exportCollection, importCollection } from "./TransferDialog";
+import { Toolbar } from "../Toolbar";
 
 const PAGE_SIZES = [100, 500, 1000, 5000];
 
@@ -169,7 +170,7 @@ export function CollectionViewer({ tab }: { tab: Tab }) {
 
   return (
     <div className="viewer mongo-viewer">
-      <div className="toolbar">
+      <Toolbar>
         <button title="Filter, sort and projection" className={showFilter || query.filter || query.sort || query.projection ? "on" : ""} onClick={() => setShowFilter((x) => !x)}>
           <Filter size={14} /> Filter
         </button>
@@ -197,7 +198,7 @@ export function CollectionViewer({ tab }: { tab: Tab }) {
         </button>
         <span className="spacer" />
         {!editable && <span className="badge">read-only</span>}
-      </div>
+      </Toolbar>
 
       {showFilter && (
         <div className="filter-bar mongo-filter">

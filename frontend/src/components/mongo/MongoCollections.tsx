@@ -11,6 +11,7 @@ import { Split } from "../Split";
 import { CodeBlock } from "../ObjectsPane";
 import { exportCollection, importCollection } from "./TransferDialog";
 import { collectionMenu, collectionsChanged, designCollection, dropCollections, newMongoQuery, openCollection, openMongoShell } from "./actions";
+import { Toolbar } from "../Toolbar";
 
 type SortKey = "name" | "count" | "size" | "storageSize" | "indexes";
 
@@ -62,7 +63,7 @@ export function MongoCollections({ connId, db, kind }: { connId: string; db: str
 
   return (
     <div className="objects-pane">
-      <div className="toolbar">
+      <Toolbar>
         <button disabled={!one} onClick={() => one && openCollection(connId, db, one.name, kind)}>
           <Table2 size={14} /> Open {what}
         </button>
@@ -97,7 +98,7 @@ export function MongoCollections({ connId, db, kind }: { connId: string; db: str
         <span className="crumbs">{[connById(connId)?.name, db, view ? "Views" : "Collections"].join(" › ")}</span>
         <span className="spacer" />
         <input className="search" placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} />
-      </div>
+      </Toolbar>
       <Split
         id="objects-info"
         className="objects-split"
