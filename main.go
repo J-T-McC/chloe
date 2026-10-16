@@ -81,7 +81,8 @@ func main() {
 			application.NewService(&services.MCPService{S: mcpSrv, Approver: approver}),
 		},
 		Assets: application.AssetOptions{
-			Handler: application.AssetFileServerFS(assets),
+			Handler:    application.AssetFileServerFS(assets),
+			Middleware: serverGuard,
 		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
