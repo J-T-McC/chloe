@@ -290,6 +290,10 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
   Values without a zone count as UTC; DATE columns aren't shifted. PostgreSQL uses `AT TIME ZONE`, MySQL `CONVERT_TZ`
   (Chloe refuses with a hint when MySQL's time zone tables aren't loaded), SQLite and archives Chloe's own `chloe_tz()`.
   Archive snapshots store zoned values in UTC. `in_last` counts days in the source's zone.
+  Filters on MySQL and PostgreSQL date/time columns shift the compared value into the column's zone instead of
+  converting the column (`at >= CONVERT_TZ(?, 'America/Los_Angeles', '+00:00')`), so an index on the column is used
+  (`TestBIZonedFilterUsesIndex`). SQLite stores dates as text in several formats, so it and archives convert the
+  column. Text matches (contains…) always use the converted value, as the chart shows it.
 - Sort, Top N with Others and value operations run on the aggregated rows, so they work the same live and archived.
   Without a sort, date and number dimensions keep their order and categories go largest first.
 - Names are unique per kind: a chart may share its data source's name.

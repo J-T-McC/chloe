@@ -458,9 +458,28 @@ func TestTimezone(t *testing.T) {
 		!strings.Contains(q.SQL, `(CAST("made" AS timestamp) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles') >= $1`) || !strings.Contains(q.SQL, `"day" = $2`) {
 		t.Errorf("postgres: %v\n%s", err, q.SQL)
 	}
-	src.Fields[0].DBType = "TIMESTAMP"
-	if q, _, _ := ChartQuery(mysql, Table("`t`"), src, c, 10); !strings.Contains(q.SQL, "CONVERT_TZ(`placed_at`, @@session.time_zone, 'America/Los_Angeles')") || !strings.Contains(q.SQL, "CONVERT_TZ(`made`, '+00:00', 'America/Los_Angeles') >= ?") {
+	// Comparisons shift the value, not the column, so an index on the column is used.
+	src.Fields[1].DBType = "TIMESTAMP"
+	if q, _, _ := ChartQuery(pg, Table(`"t"`), src, c, 10); !strings.Contains(q.SQL, `"made" >= (CAST($1 AS timestamp) AT TIME ZONE 'America/Los_Angeles' AT TIME ZONE 'UTC')`) {
+		t.Errorf("postgres timestamp: %s", q.SQL)
+	}
+	src.Fields[1].DBType = "TIMESTAMPTZ"
+	zc := c
+	zc.Filters = []Filter{{Field: "made", Op: "between", Values: []string{"2026-01-01", "2026-01-31"}}, {Field: "made", Op: "contains", Values: []string{"01-1"}}}
+	if q, _, _ := ChartQuery(pg, Table(`"t"`), src, zc, 10); !strings.Contains(q.SQL, `"made" >= (CAST($1 AS timestamp) AT TIME ZONE 'America/Los_Angeles') AND "made" < (CAST($2 AS timestamp) AT TIME ZONE 'America/Los_Angeles')`) ||
+		!strings.Contains(q.SQL, `CAST(("made" AT TIME ZONE 'America/Los_Angeles') AS TEXT) ILIKE $3`) {
+		t.Errorf("postgres timestamptz: %s", q.SQL)
+	}
+	src.Fields[0].DBType, src.Fields[1].DBType = "TIMESTAMP", "DATETIME"
+	if q, _, _ := ChartQuery(mysql, Table("`t`"), src, c, 10); !strings.Contains(q.SQL, "CONVERT_TZ(`placed_at`, @@session.time_zone, 'America/Los_Angeles')") || !strings.Contains(q.SQL, "`made` >= CONVERT_TZ(?, 'America/Los_Angeles', '+00:00')") {
 		t.Errorf("mysql: %s", q.SQL)
+	}
+	src.Fields[1].DBType = "TIMESTAMP"
+	if q, _, _ := ChartQuery(mysql, Table("`t`"), src, c, 10); !strings.Contains(q.SQL, "`made` >= CONVERT_TZ(?, 'America/Los_Angeles', @@session.time_zone)") {
+		t.Errorf("mysql timestamp: %s", q.SQL)
+	}
+	if q, _, _ := ChartQuery(SQLite, Table(`"data"`), src, c, 10); !strings.Contains(q.SQL, `chloe_tz("made", 'America/Los_Angeles') >= ?`) {
+		t.Errorf("sqlite keeps converting the column: %s", q.SQL)
 	}
 	if q, _, _ := ChartQuery(SQLite, Table(`"data"`), src, c, 10); !strings.Contains(q.SQL, `strftime('%Y-%m-%d', chloe_tz("placed_at", 'America/Los_Angeles'))`) {
 		t.Errorf("sqlite: %s", q.SQL)

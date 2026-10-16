@@ -426,7 +426,15 @@ func (b *qb) where(fields []Field, filters []Filter) (string, error) {
 		if err := checkFieldFilter(f, fd); err != nil {
 			return "", err
 		}
-		col := b.col(fd)
+		// Comparisons use the bare column with shifted values (see cmp); text
+		// matches need the column as the chart shows it.
+		col, at := b.cmp(fd)
+		shown := b.col(fd)
+		val := func(v string) string { return at(b.bind(fd, v)) }
+		arg := func(v any) string {
+			b.args = append(b.args, v)
+			return at(b.d.Placeholder(len(b.args)))
+		}
 		like := "LIKE"
 		if b.d.Name == "postgres" {
 			like = "ILIKE" // contains / begins with match case-insensitively, as MySQL and SQLite do
@@ -439,16 +447,16 @@ func (b *qb) where(fields []Field, filters []Filter) (string, error) {
 				next := day.AddDate(0, 0, 1).Format("2006-01-02")
 				switch f.Op {
 				case "=", "!=":
-					e = col + " >= " + b.bind(fd, f.Values[0]) + " AND " + col + " < " + b.bind(fd, next)
+					e = col + " >= " + val(f.Values[0]) + " AND " + col + " < " + val(next)
 					if f.Op == "!=" {
 						e = "NOT (" + e + ")"
 					}
 				case "<=":
-					e = col + " < " + b.bind(fd, next)
+					e = col + " < " + val(next)
 				case ">":
-					e = col + " >= " + b.bind(fd, next)
+					e = col + " >= " + val(next)
 				default: // < and >= already start at midnight
-					e = col + " " + f.Op + " " + b.bind(fd, f.Values[0])
+					e = col + " " + f.Op + " " + val(f.Values[0])
 				}
 				break
 			}
@@ -456,7 +464,7 @@ func (b *qb) where(fields []Field, filters []Filter) (string, error) {
 			if op == "" {
 				op = f.Op
 			}
-			e = col + " " + op + " " + b.bind(fd, f.Values[0])
+			e = col + " " + op + " " + val(f.Values[0])
 		case "contains", "not_contains", "begins_with", "not_begins_with", "ends_with", "not_ends_with":
 			v := likeEscape.Replace(f.Values[0])
 			switch strings.TrimPrefix(f.Op, "not_") {
@@ -468,35 +476,31 @@ func (b *qb) where(fields []Field, filters []Filter) (string, error) {
 				v = "%" + v
 			}
 			b.args = append(b.args, v)
-			e = b.text(col) + " " + like + " " + b.d.Placeholder(len(b.args)) + " ESCAPE '!'"
+			e = b.text(shown) + " " + like + " " + b.d.Placeholder(len(b.args)) + " ESCAPE '!'"
 			if strings.HasPrefix(f.Op, "not_") {
 				e = "NOT (" + e + ")"
 			}
 		case "in_last":
 			k, _ := strconv.Atoi(f.Values[0])
 			// A date as text compares correctly with dates, timestamps and SQLite's date text.
-			b.args = append(b.args, Since(now().In(location(b.tz)), k, f.Values[1]).Format("2006-01-02"))
-			e = col + " >= " + b.d.Placeholder(len(b.args))
+			e = col + " >= " + arg(Since(now().In(location(b.tz)), k, f.Values[1]).Format("2006-01-02"))
 		case "in_period", "to_date":
 			from, to, _ := DynamicRange(f, now().In(location(b.tz)))
-			b.args = append(b.args, from.Format("2006-01-02"))
-			e = col + " >= " + b.d.Placeholder(len(b.args))
-			b.args = append(b.args, to.Format("2006-01-02"))
-			e += " AND " + col + " < " + b.d.Placeholder(len(b.args))
+			e = col + " >= " + arg(from.Format("2006-01-02")) + " AND " + col + " < " + arg(to.Format("2006-01-02"))
 		case "is_null":
 			e = col + " IS NULL"
 		case "is_not_null":
 			e = col + " IS NOT NULL"
 		case "is_empty":
-			e = b.text(col) + " = ''"
+			e = b.text(shown) + " = ''"
 		case "is_not_empty":
-			e = b.text(col) + " <> ''"
+			e = b.text(shown) + " <> ''"
 		case "between", "not_between":
 			if day, ok := wholeDay(fd, f.Values[1]); ok {
 				// The end date is included whole: up to midnight the day after.
-				e = col + " >= " + b.bind(fd, f.Values[0]) + " AND " + col + " < " + b.bind(fd, day.AddDate(0, 0, 1).Format("2006-01-02"))
+				e = col + " >= " + val(f.Values[0]) + " AND " + col + " < " + val(day.AddDate(0, 0, 1).Format("2006-01-02"))
 			} else {
-				e = col + " BETWEEN " + b.bind(fd, f.Values[0]) + " AND " + b.bind(fd, f.Values[1])
+				e = col + " BETWEEN " + val(f.Values[0]) + " AND " + val(f.Values[1])
 			}
 			if f.Op == "not_between" {
 				e = "NOT (" + e + ")"
@@ -504,7 +508,7 @@ func (b *qb) where(fields []Field, filters []Filter) (string, error) {
 		case "in", "not_in":
 			ph := make([]string, len(f.Values))
 			for i, v := range f.Values {
-				ph[i] = b.bind(fd, v)
+				ph[i] = val(v)
 			}
 			e = col + " IN (" + strings.Join(ph, ", ") + ")"
 			if f.Op == "not_in" {
