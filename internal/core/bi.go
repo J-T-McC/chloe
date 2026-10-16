@@ -250,10 +250,10 @@ func (m *Manager) BIPreview(ctx context.Context, w bi.Workspace, src bi.DataSour
 
 // BIRead says how fresh a chart's live data must be.
 type BIRead struct {
-	// Since takes a cached copy of the source only if it was read at or after
-	// this time; the zero time takes any copy younger than BICacheTTL.
+	// Since takes a cached result only if its query ran at or after this time;
+	// the zero time takes any result younger than BICacheTTL.
 	Since time.Time
-	// Uncached reads the chart from the database, with its own SQL.
+	// Uncached runs the chart's queries whatever the cache holds.
 	Uncached bool
 }
 
@@ -261,8 +261,8 @@ type BIRead struct {
 // comes back with Complete false and no rows.
 //
 // params override parameter values for this read (by name); the values used come
-// back in Data.Params for titles and text. A live source's rows may come from a
-// recent copy of them (see cachedSource), as opt allows.
+// back in Data.Params for titles and text. A live chart's result may be one read
+// recently (see cachedResult), as opt allows.
 func (m *Manager) BIChartData(ctx context.Context, w bi.Workspace, c bi.Chart, params map[string]string, opt BIRead) (bi.Data, error) {
 	out := bi.Data{Rows: [][]any{}, Columns: []bi.Column{}}
 	stored := w.Source(c.DataSource)
@@ -325,52 +325,55 @@ func (m *Manager) BIChartData(ctx context.Context, w bi.Workspace, c bi.Chart, p
 		}
 		src.Fields = fields
 	}
-	if !opt.Uncached {
-		if done, err := m.biCachedChart(ctx, *src, c, opt.Since, &out, read); done || err != nil {
-			return out, err
-		}
-	}
-	err = m.biLive(ctx, *src, func(ctx context.Context, ds driver.Session, d driver.Dialect) error {
-		from, err := bi.From(d, *src)
-		if err != nil {
-			return err
-		}
-		return read(d, from, func(q bi.Stmt) ([]model.ResultColumn, [][]*string, bool, error) {
-			return readStmt(ctx, ds, q, bi.MaxChartRows)
+	if opt.Uncached {
+		err = m.biLive(ctx, *src, func(ctx context.Context, ds driver.Session, d driver.Dialect) error {
+			from, err := bi.From(d, *src)
+			if err != nil {
+				return err
+			}
+			return read(d, from, func(q bi.Stmt) ([]model.ResultColumn, [][]*string, bool, error) {
+				return readStmt(ctx, ds, q, bi.MaxChartRows)
+			})
 		})
-	})
-	return out, err
-}
-
-// biCachedChart draws a chart from a cached copy of its live source. done is
-// false when the chart has to be read from the database instead: the copy can't
-// express it (a PostgreSQL median) or the source is too big to keep.
-func (m *Manager) biCachedChart(ctx context.Context, src bi.DataSource, c bi.Chart, since time.Time, out *bi.Data, read func(driver.Dialect, bi.Source, func(bi.Stmt) ([]model.ResultColumn, [][]*string, bool, error)) error) (done bool, err error) {
-	if _, err := c.Check(src, bi.SQLite.Name); err != nil {
-		return false, nil
+		return out, err
 	}
+	// Each of the chart's statements comes from the result cache, or runs on one
+	// of the connection's BI sessions.
 	if err := m.Ensure(ctx, src.ConnID); err != nil {
-		return false, err
+		return out, err
 	}
 	conn, err := m.conn(src.ConnID)
 	if err != nil {
-		return false, err
+		return out, err
 	}
-	from, err := bi.From(conn.Dialect(), src)
+	d := conn.Dialect()
+	from, err := bi.From(d, *src)
 	if err != nil {
-		return false, err
+		return out, err
 	}
-	e, err := m.cachedSource(ctx, src, from, since)
-	if e == nil || err != nil {
-		return false, err
-	}
-	err = read(bi.SQLite, bi.Table(bi.SQLite.QuoteIdent(bi.ArchiveTable)), func(q bi.Stmt) ([]model.ResultColumn, [][]*string, bool, error) {
-		return memQuery(ctx, e.db, q, bi.MaxChartRows)
+	var first *resultEntry
+	var hit bool
+	err = read(d, from, func(q bi.Stmt) ([]model.ResultColumn, [][]*string, bool, error) {
+		e, cached, err := m.cachedResult(ctx, *src, q, bi.MaxChartRows, opt.Since, func(ctx context.Context) (cols []model.ResultColumn, rows [][]*string, truncated bool, err error) {
+			err = m.biLive(ctx, *src, func(ctx context.Context, ds driver.Session, _ driver.Dialect) error {
+				cols, rows, truncated, err = readStmt(ctx, ds, q, bi.MaxChartRows)
+				return err
+			})
+			return
+		})
+		if err != nil {
+			return nil, nil, false, err
+		}
+		if first == nil {
+			first, hit = e, cached
+		}
+		return e.cols, e.rows, e.truncated, nil
 	})
-	if err == nil && out.Complete {
-		out.Cached, out.RanAt = true, e.started.UTC().Format(time.RFC3339)
+	if err == nil && out.Complete && first != nil {
+		out.RanAt = first.started.UTC().Format(time.RFC3339)
+		out.Cached = hit
 	}
-	return true, err
+	return out, err
 }
 
 // --- archive snapshots ---------------------------------------------------------

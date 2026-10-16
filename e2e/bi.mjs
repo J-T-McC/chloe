@@ -152,8 +152,8 @@ await step("a value chart from New Chart", async () => {
   await page.waitForTimeout(200);
   check((await editor().getByTestId("bi-value").innerText()) === "$930", "decimals");
   check((await editor().locator(".bi-value-label").innerText()) === "Sum of Total", "label: " + (await editor().locator(".bi-value-label").innerText()));
-  // A live source is read once and kept: another chart of it (here the same
-  // chart as a KPI) draws from that copy until Refresh reads the source again.
+  // A live chart's result is kept: the same query (here the chart as a KPI)
+  // draws from it until Refresh runs the query again.
   const shown = () => editor().getByTestId("bi-value").innerText();
   execFileSync("sqlite3", [`${dir}/sales.db`, "INSERT INTO orders (region, total, placed_at) VALUES ('North', 1000, '2026-04-03')"]);
   await editor().getByRole("radio", { name: "KPI" }).click();
