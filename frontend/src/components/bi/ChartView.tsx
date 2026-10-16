@@ -87,17 +87,30 @@ function EChart({ chart, data, theme, still, selected, onPick }: { chart: B.Char
       const key = pickKey(chart, data, ev);
       if (key !== undefined) onPick(key, ev.name ?? String(key));
     });
+    // Resizing redraws in place; only a gauge rebuilds its option, to fit its
+    // text to the tile. Frames are coalesced, and a hidden tile (0×0) is left alone.
+    let frame = 0;
     const ro = new ResizeObserver(() => {
-      c.resize();
-      setSize({ w: host.current?.clientWidth ?? 0, h: host.current?.clientHeight ?? 0 });
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const w = host.current?.clientWidth ?? 0, h = host.current?.clientHeight ?? 0;
+        if (!w && !h) return;
+        c.resize();
+        if (pick.current.chart.type === "gauge") setSize((s) => (s.w === w && s.h === h ? s : { w, h }));
+      });
     });
     ro.observe(host.current);
     return () => {
+      cancelAnimationFrame(frame);
       ro.disconnect();
       c.dispose();
       inst.current = null;
     };
   }, []);
+  // A chart that becomes a gauge needs its tile's size straight away.
+  useEffect(() => {
+    if (chart.type === "gauge" && host.current) setSize({ w: host.current.clientWidth, h: host.current.clientHeight });
+  }, [chart.type]);
   useEffect(() => {
     inst.current?.setOption(option, { notMerge: true });
   }, [option]);
