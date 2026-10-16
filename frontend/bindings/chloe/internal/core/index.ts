@@ -37,6 +37,8 @@ export type {
     Job,
     MaintainResult,
     RedisConsoleResult,
+    ResultEdit,
+    ResultPatch,
     RowChange,
     SortSpec,
     StructItem,

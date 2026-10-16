@@ -1,6 +1,7 @@
 import { ChartColumn, PanelBottom, Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Filter, Minus, PencilRuler, Plus, RefreshCw, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChangeKind, Explorer, ObjectKind, Query, RowChange, StatementResult, TableDetail, arr, errorText } from "../api";
+import { Explorer, ObjectKind, Query, StatementResult, TableDetail, arr, errorText } from "../api";
+import { buildRowChanges } from "../gridChanges";
 import type { Tab } from "../store";
 import { Cell, DataGrid, GridEdits, emptyEdits } from "./DataGrid";
 import { confirm } from "./Dialogs";
@@ -151,32 +152,7 @@ export function TableViewer({ tab }: { tab: Tab }) {
     const cols = columns.map((c) => c.name);
     const pkCols = arr(detail?.columns).filter((c) => c.primaryKey).map((c) => c.name);
     const original = async (r: number) => arr((await Query.FetchRows(result.resultId!, r, 1)).rows)[0] as Cell[];
-    const keyOf = (row: Cell[]) => {
-      const key: Record<string, Cell> = {};
-      const use = pkCols.length ? pkCols : cols;
-      for (const name of use) key[name] = row[cols.indexOf(name)];
-      return key;
-    };
-
-    const changes: RowChange[] = [];
-    const changeRows: number[] = [];
-    for (const r of [...edits.deleted].sort((a, b) => a - b)) {
-      changes.push({ kind: ChangeKind.ChangeDelete, key: keyOf(await original(r)), values: {} });
-      changeRows.push(r);
-    }
-    for (const [r, m] of edits.updated) {
-      if (edits.deleted.has(r) || edits.inserted.has(r)) continue;
-      const values: Record<string, Cell> = {};
-      for (const [c, v] of m) values[cols[c]] = v;
-      changes.push({ kind: ChangeKind.ChangeUpdate, key: keyOf(await original(r)), values });
-      changeRows.push(r);
-    }
-    for (const r of [...edits.inserted].sort((a, b) => a - b)) {
-      const values: Record<string, Cell> = {};
-      for (const [c, v] of edits.updated.get(r) ?? []) values[cols[c]] = v;
-      changes.push({ kind: ChangeKind.ChangeInsert, key: {}, values });
-      changeRows.push(r);
-    }
+    const { changes, rows: changeRows } = await buildRowChanges(edits, (c) => cols[c], pkCols.length ? pkCols : cols, original, cols.length);
     if (!changes.length) return;
 
     const res = await Query.ApplyChanges(connId, ref, changes);

@@ -488,6 +488,50 @@ export interface RedisConsoleResult {
 }
 
 /**
+ * ResultEdit says whether a query result can be edited in place and, if so, how its
+ * columns map onto the one table it came from. Only a plain single-table SELECT whose
+ * result includes the table's whole primary key qualifies: anything else (joins,
+ * grouping, DISTINCT, set operations, no primary key) is read-only with a Reason.
+ */
+export interface ResultEdit {
+    "editable": boolean;
+    "reason"?: string;
+    "ref": model$0.ObjectRef;
+
+    /**
+     * Columns holds, per result column, the table column it shows, or "" for a
+     * computed column (which stays read-only).
+     */
+    "columns": string[] | null;
+
+    /**
+     * Key lists the primary key columns, which identify a row in updates and deletes.
+     */
+    "key": string[] | null;
+}
+
+/**
+ * ResultPatch brings a buffered result in line with edits that were applied to the
+ * table, so the grid keeps showing them without re-running the query.
+ */
+export interface ResultPatch {
+    /**
+     * row -> column -> value
+     */
+    "updated": { [_ in `${number}`]?: { [_ in `${number}`]?: string | null } | null } | null;
+
+    /**
+     * rows to drop
+     */
+    "deleted": number[] | null;
+
+    /**
+     * rows to append
+     */
+    "inserted": ((string | null)[] | null)[] | null;
+}
+
+/**
  * RowChange is one pending grid edit. Key holds the row's original values used to
  * identify it (primary key columns when the table has one, else every column).
  * Values holds the new values for inserted/updated columns. nil means NULL.

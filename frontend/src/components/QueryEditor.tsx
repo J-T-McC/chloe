@@ -1,11 +1,13 @@
-import { CircleStop, History, PanelBottom, Play, PlayCircle, Save, Sparkles } from "lucide-react";
+import { Check, CircleStop, History, Minus, PanelBottom, Play, PlayCircle, Plus, Save, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DBType, Events, Explorer, Query, StatementResult, arr, errorText } from "../api";
+import { DBType, Events, Explorer, Query, ResultEdit, StatementResult, arr, errorText } from "../api";
 import { autoTrigger, clearEditorContext, invalidateCatalog, preloadCatalog, registerSqlCompletion, setEditorContext } from "../editor/completion";
 import { beautifyEditor, registerFormatter } from "../editor/format";
 import { Monaco, editorTheme, monaco } from "../editor/monaco";
 import { Tab, connById, useApp } from "../store";
-import { Cell, DataGrid } from "./DataGrid";
+import { Cell, DataGrid, GridEdits, emptyEdits } from "./DataGrid";
+import { confirm } from "./Dialogs";
+import { buildRowChanges } from "../gridChanges";
 import { Split } from "./Split";
 import { ValuePanel } from "./ValuePanel";
 import { readFlag, writeFlag } from "../prefs";
@@ -38,6 +40,10 @@ export function QueryEditor({ tab }: { tab: Tab }) {
   const [schema, setSchema] = useState(tab.schema ?? (isPG ? "public" : ""));
   const [run, setRun] = useState<RunState>({ results: [], running: false });
   const [resultTab, setResultTab] = useState(0);
+  // Pending edits per result, kept here so switching result tabs doesn't lose them.
+  const [edits, setEdits] = useState<Record<string, GridEdits>>({});
+  const hasEdits = Object.values(edits).some(isDirty);
+  const guardEdits = async () => !hasEdits || (await confirm("Discard unsaved changes to the results?", { danger: true, okLabel: "Discard" }));
   const [elapsed, setElapsed] = useState(0);
   const runRef = useRef<() => void>(() => {});
   const runCurrentRef = useRef<() => void>(() => {});
@@ -148,7 +154,7 @@ export function QueryEditor({ tab }: { tab: Tab }) {
   }, [connId, database, schema]);
 
   const changeDb = async (db: string, sc: string) => {
-    if (!session) return;
+    if (!session || !(await guardEdits())) return;
     try {
       await Query.UseDatabase(session, db, sc);
       setDatabase(db);
@@ -180,6 +186,8 @@ export function QueryEditor({ tab }: { tab: Tab }) {
   const execute = useCallback(
     async (sql: string, lineOffset: number) => {
       if (!session || run.running || !sql.trim()) return;
+      if (!(await guardEdits())) return;
+      setEdits({});
       decorations.current?.clear();
       setRun({ results: [], running: true, startedAt: Date.now() });
       try {
@@ -199,7 +207,8 @@ export function QueryEditor({ tab }: { tab: Tab }) {
         setRun({ results: [], running: false, error: errorText(e) });
       }
     },
-    [session, run.running, connId, database],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [session, run.running, connId, database, hasEdits],
   );
 
   runRef.current = () => {
@@ -306,7 +315,17 @@ export function QueryEditor({ tab }: { tab: Tab }) {
               {resultTab === 0 || !run.results[resultTab - 1]?.resultId ? (
                 <Messages run={run} />
               ) : (
-                <ResultGrid result={run.results[resultTab - 1]} connId={connId} database={database} schema={schema} />
+                <ResultGrid
+                  result={run.results[resultTab - 1]}
+                  connId={connId}
+                  database={database}
+                  schema={schema}
+                  edits={edits[run.results[resultTab - 1].resultId!] ?? emptyEdits()}
+                  onEdits={(id, fn) => setEdits((m) => ({ ...m, [id]: fn(m[id] ?? emptyEdits()) }))}
+                  onPatched={(st) =>
+                    setRun((r) => ({ ...r, results: r.results.map((x) => (x.resultId === st.resultId ? { ...x, rowCount: st.rowCount, complete: st.complete } : x)) }))
+                  }
+                />
               )}
             </div>
           </div>
@@ -338,25 +357,151 @@ export function Messages({ run }: { run: RunState }) {
   );
 }
 
-export function ResultGrid({ result, connId, database, schema }: { result: StatementResult; connId: string; database?: string; schema?: string }) {
-  const fetchPage = useCallback(
-    async (offset: number, limit: number) => arr((await Query.FetchRows(result.resultId!, offset, limit)).rows) as Cell[][],
-    [result.resultId],
-  );
+const isDirty = (e: GridEdits) => e.updated.size > 0 || e.inserted.size > 0 || e.deleted.size > 0;
+
+export function ResultGrid({
+  result,
+  connId,
+  database,
+  schema,
+  edits,
+  onEdits,
+  onPatched,
+}: {
+  result: StatementResult;
+  connId: string;
+  database?: string;
+  schema?: string;
+  /** With edits and onEdits the grid can be edited when the query allows it. */
+  edits?: GridEdits;
+  onEdits?(resultId: string, fn: (e: GridEdits) => GridEdits): void;
+  onPatched?(status: StatementResult): void;
+}) {
+  const id = result.resultId!;
+  const fetchPage = useCallback(async (offset: number, limit: number) => arr((await Query.FetchRows(id, offset, limit)).rows) as Cell[][], [id]);
   const [panel, setPanel] = useState(() => readFlag("valuePanel"));
   const [active, setActive] = useState<{ r: number; c: number; value?: Cell } | null>(null);
   const [fetched, setFetched] = useState<{ key: string; value: Cell } | null>(null);
-  const activeKey = active ? `${result.resultId}:${active.r}:${active.c}` : "";
+  const [target, setTarget] = useState<ResultEdit | null>(null);
+  const [revision, setRevision] = useState(0);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const activeKey = active ? `${id}:${active.r}:${active.c}` : "";
   useEffect(() => {
     if (!panel || !active || active.value !== undefined) return;
-    Query.FetchRows(result.resultId!, active.r, 1)
+    Query.FetchRows(id, active.r, 1)
       .then((p) => setFetched({ key: activeKey, value: (arr(p.rows)[0] as Cell[] | undefined)?.[active.c] ?? null }))
       .catch(() => {});
-  }, [panel, active, activeKey, result.resultId]);
+  }, [panel, active, activeKey, id]);
+
+  // Whether (and how) the result maps onto a table; asked once all rows are in.
+  useEffect(() => {
+    setTarget(null);
+    setError("");
+    setMessage("");
+    if (!onEdits || !result.complete) return;
+    let live = true;
+    Query.ResultEditTarget(id)
+      .then((t) => live && setTarget(t))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, result.complete]);
+
   const toggle = (on: boolean) => (setPanel(on), writeFlag("valuePanel", on));
   const columns = arr(result.columns);
+  const editable = !!target?.editable && !!edits && !!onEdits;
+  const mapped = arr(target?.columns);
+  const readOnlyColumns = editable ? columns.map((_, c) => !mapped[c]) : undefined;
+  const e = edits ?? emptyEdits();
+  const dirty = isDirty(e);
+  const update = (fn: (e: GridEdits) => GridEdits) => onEdits?.(id, fn);
+
+  const onEditCell = (row: number, col: number, value: Cell) =>
+    update((x) => {
+      const updated = new Map(x.updated);
+      const m = new Map(updated.get(row) ?? []);
+      m.set(col, value);
+      updated.set(row, m);
+      return { ...x, updated };
+    });
+  const onInsertRow = () =>
+    update((x) => {
+      const inserted = new Set(x.inserted);
+      inserted.add(result.rowCount + inserted.size);
+      return { ...x, inserted };
+    });
+  const onDeleteRows = (rows: number[]) =>
+    update((x) => {
+      const deleted = new Set(x.deleted);
+      const inserted = new Set(x.inserted);
+      for (const r of rows) {
+        if (inserted.has(r)) inserted.delete(r);
+        else deleted.add(r);
+      }
+      return { ...x, deleted, inserted };
+    });
+
+  const apply = async () => {
+    if (!editable || !target || !dirty) return;
+    setError("");
+    const original = async (r: number) => arr((await Query.FetchRows(id, r, 1)).rows)[0] as Cell[];
+    const { changes, rows } = await buildRowChanges(e, (c) => mapped[c] || undefined, arr(target.key), original, columns.length);
+    if (!changes.length) return update(() => emptyEdits());
+    const res = await Query.ApplyChanges(connId, target.ref, changes);
+    const results = arr(res.results);
+    if (res.error) {
+      const bad = results.findIndex((r) => r.error);
+      setError(bad >= 0 ? `Row ${rows[bad] + 1}: ${results[bad].error}\n\n${results[bad].sql}` : res.error);
+      return;
+    }
+    // Show the applied values without re-running the query.
+    const updated: Record<number, Record<number, Cell>> = {};
+    for (const [r, m] of e.updated) {
+      if (e.deleted.has(r) || e.inserted.has(r)) continue;
+      updated[r] = Object.fromEntries([...m].filter(([c]) => mapped[c]));
+    }
+    const inserted = [...e.inserted].sort((a, b) => a - b).map((r) => columns.map((_, c) => (mapped[c] ? (e.updated.get(r)?.get(c) ?? null) : null)));
+    try {
+      const st = await Query.PatchResult(id, { updated, deleted: [...e.deleted], inserted } as never);
+      onPatched?.(st);
+    } catch {
+      /* the rows were written; the grid just shows the old values until re-run */
+    }
+    update(() => emptyEdits());
+    setRevision((n) => n + 1);
+    const n = results.reduce((a, r) => a + r.rowsAffected, 0);
+    setMessage(`${changes.length} change${changes.length === 1 ? "" : "s"} applied to ${target.ref.name} (${n} row${n === 1 ? "" : "s"} affected)`);
+  };
+
+  const activeValue = !active
+    ? undefined
+    : e.updated.get(active.r)?.has(active.c)
+      ? e.updated.get(active.r)!.get(active.c)!
+      : active.value !== undefined
+        ? active.value
+        : fetched?.key === activeKey
+          ? fetched.value
+          : undefined;
+
   return (
-    <div className="result-grid">
+    <div
+      className="result-grid"
+      onKeyDown={(ev) => {
+        if (editable && (ev.metaKey || ev.ctrlKey) && ev.key === "s") {
+          ev.preventDefault();
+          ev.stopPropagation();
+          apply();
+        }
+      }}
+    >
+      {error && (
+        <div className="error-banner" onClick={() => setError("")}>
+          {error}
+        </div>
+      )}
       <Split
         id="result-value-panel"
         vertical
@@ -365,20 +510,60 @@ export function ResultGrid({ result, connId, database, schema }: { result: State
         minFirst="20"
         minSecond="12"
         collapsed={!panel}
-        first={<DataGrid columns={columns} rowCount={result.rowCount} dataKey={result.resultId!} fetchPage={fetchPage} onActiveCell={(r, c, value) => setActive({ r, c, value })} />}
+        first={
+          <DataGrid
+            columns={columns}
+            rowCount={result.rowCount}
+            dataKey={id}
+            revision={revision}
+            fetchPage={fetchPage}
+            editable={editable}
+            readOnlyColumns={readOnlyColumns}
+            edits={editable ? e : undefined}
+            onEditCell={onEditCell}
+            onInsertRow={onInsertRow}
+            onDeleteRows={onDeleteRows}
+            onActiveCell={(r, c, value) => setActive({ r, c, value })}
+          />
+        }
         second={
           <ValuePanel
             cellId={activeKey}
             column={active ? columns[active.c] : undefined}
-            value={!active ? undefined : active.value !== undefined ? active.value : fetched?.key === activeKey ? fetched.value : undefined}
-            readOnly
+            value={activeValue}
+            readOnly={!editable || !active || !mapped[active.c] || e.deleted.has(active.r)}
+            onChange={(v) => active && onEditCell(active.r, active.c, v)}
             onClose={() => toggle(false)}
           />
         }
       />
       <div className="statusbar">
-        <span className="sql-preview">{result.sql}</span>
+        {editable && (
+          <div className="tb-group">
+            <button title="Add record" onClick={onInsertRow}>
+              <Plus size={14} />
+            </button>
+            <button title="Delete record (⌘⌫)" disabled={!active} onClick={() => active && onDeleteRows([active.r])}>
+              <Minus size={14} />
+            </button>
+            <button title="Apply changes (⌘S)" className={dirty ? "accent" : ""} disabled={!dirty} onClick={apply}>
+              <Check size={14} />
+            </button>
+            <button title="Discard changes" disabled={!dirty} onClick={() => update(() => emptyEdits())}>
+              <X size={14} />
+            </button>
+          </div>
+        )}
+        <span className="sql-preview" title={result.sql}>
+          {message || result.sql}
+        </span>
         <span className="spacer" />
+        {onEdits && target && !target.editable && (
+          <span className="badge" title={`Read-only: ${target.reason}`}>
+            read-only
+          </span>
+        )}
+        {dirty && <span className="dirty-dot">unsaved changes</span>}
         <button className={"small-btn" + (panel ? " on" : "")} title="Show the active cell's full value" onClick={() => toggle(!panel)}>
           <PanelBottom size={12} /> Value
         </button>
