@@ -62,7 +62,7 @@ type Manager struct {
 	syncs  map[string]*dataSync // Data Synchronization comparisons by ID
 
 	bi      biSessions    // BI read sessions per connection
-	biCache biSourceCache // live BI sources read recently
+	biCache biResultCache // live BI chart results read recently
 }
 
 type openConn struct {

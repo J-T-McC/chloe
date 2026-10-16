@@ -3,119 +3,58 @@ package core
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"sync"
 	"time"
 
 	"chloe/internal/bi"
+	"chloe/internal/model"
 )
 
-// Live data sources are read once and kept for a few minutes in memory, as an
-// archive snapshot is kept on disk: every chart on the source then aggregates
-// that copy instead of running the source's query again. A dashboard page with
-// eight charts on one source reads it once, and going back to a page doesn't
-// read anything. Refresh asks for data read after a time (since), so it reads
-// each source again once, however many charts use it.
+// Live chart results are kept for a few minutes and shared: going back to a
+// dashboard page, the same chart on several pages, and exporting a dashboard
+// don't query the database again. Each chart's query still runs on its database,
+// so text compares, groups and sorts by the database's own collation. (Reading a
+// source once and aggregating it in SQLite, as archives do, would group "North"
+// and "north" apart where MySQL groups them together.) Refresh asks for results
+// read after a time (since), so each query runs again once.
 
-// BICacheTTL is how long a read of a live source serves charts.
+// BICacheTTL is how long a chart query's result serves charts.
 var BICacheTTL = 5 * time.Minute
 
-// BICacheMaxRows bounds a cached source. Bigger sources are aggregated by their
-// database chart by chart, as before.
-var BICacheMaxRows int64 = 500_000
+const maxCachedResults = 256
 
-const (
-	maxCachedSources = 16
-	// A source too big to cache isn't tried again for a while.
-	tooBigFor = 30 * time.Minute
-)
-
-var errTooBig = errors.New("too many rows to cache")
-
-type biSourceCache struct {
+type biResultCache struct {
 	mu      sync.Mutex
-	entries map[string]*sourceEntry
-	tooBig  map[string]time.Time
+	entries map[string]*resultEntry
 }
 
-type sourceEntry struct {
-	connID  string
-	ready   chan struct{} // closed once the read is done
-	db      *sql.DB
-	err     error
-	started time.Time
-	used    time.Time
+type resultEntry struct {
+	connID    string
+	ready     chan struct{} // closed once the query is done
+	cols      []model.ResultColumn
+	rows      [][]*string
+	truncated bool
+	err       error
+	started   time.Time
+	used      time.Time
 }
 
-// sourceKey identifies what a live source reads: where, the bound query, and
-// the fields its copy is typed by.
-func sourceKey(src bi.DataSource, from bi.Source) string {
-	b, _ := json.Marshal([]any{src.ConnID, src.Database, src.Schema, from.SQL, from.Args, src.Fields})
+// resultKey identifies a chart query: where it runs and the statement with its
+// bound values.
+func resultKey(src bi.DataSource, q bi.Stmt, limit int) string {
+	b, _ := json.Marshal([]any{src.ConnID, src.Database, src.Schema, src.Timezone, q.SQL, q.Args, limit})
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
 }
 
 // fresh reports whether an entry may serve a read wanting data from since on.
-func (e *sourceEntry) fresh(since time.Time) bool {
+func (e *resultEntry) fresh(since time.Time) bool {
 	return !e.started.Before(since) && time.Since(e.started) < BICacheTTL
 }
 
-// cachedSource returns an in-memory copy of a live source's rows read at or after
-// since, reading it if needed; nil when the source is too big to keep.
-func (m *Manager) cachedSource(ctx context.Context, src bi.DataSource, from bi.Source, since time.Time) (*sourceEntry, error) {
-	key := sourceKey(src, from)
-	c := &m.biCache
-	c.mu.Lock()
-	if c.entries == nil {
-		c.entries, c.tooBig = map[string]*sourceEntry{}, map[string]time.Time{}
-	}
-	if until, ok := c.tooBig[key]; ok && time.Now().Before(until) {
-		c.mu.Unlock()
-		return nil, nil
-	}
-	e := c.entries[key]
-	if e == nil || !e.fresh(since) || e.failed() {
-		now := time.Now()
-		e = &sourceEntry{connID: src.ConnID, ready: make(chan struct{}), started: now, used: now}
-		if old := c.entries[key]; old != nil {
-			old.retire()
-		}
-		c.entries[key] = e
-		c.evict()
-		c.mu.Unlock()
-		// The read belongs to every chart waiting on it, not to the first one's request.
-		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), BITimeout)
-		e.db, e.err = m.readSource(rctx, src)
-		cancel()
-		close(e.ready)
-		if errors.Is(e.err, errTooBig) {
-			c.mu.Lock()
-			c.tooBig[key] = time.Now().Add(tooBigFor)
-			if c.entries[key] == e {
-				delete(c.entries, key)
-			}
-			c.mu.Unlock()
-			return nil, nil
-		}
-	} else {
-		e.used = time.Now()
-		c.mu.Unlock()
-	}
-	select {
-	case <-e.ready:
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-	if e.err != nil {
-		return nil, e.err
-	}
-	return e, nil
-}
-
-func (e *sourceEntry) failed() bool {
+func (e *resultEntry) failed() bool {
 	select {
 	case <-e.ready:
 		return e.err != nil
@@ -124,51 +63,60 @@ func (e *sourceEntry) failed() bool {
 	}
 }
 
-// retire closes an entry's copy once charts reading it have had time to finish.
-func (e *sourceEntry) retire() {
-	go func() {
-		<-e.ready
-		if e.db != nil {
-			time.AfterFunc(BITimeout, func() { e.db.Close() })
-		}
-	}()
+// cachedResult returns the result of a chart query run at or after since,
+// running it (once, for every chart waiting on it) if needed. hit reports that an
+// earlier read's result was used.
+func (m *Manager) cachedResult(ctx context.Context, src bi.DataSource, q bi.Stmt, limit int, since time.Time, run func(context.Context) ([]model.ResultColumn, [][]*string, bool, error)) (e *resultEntry, hit bool, err error) {
+	key := resultKey(src, q, limit)
+	c := &m.biCache
+	c.mu.Lock()
+	if c.entries == nil {
+		c.entries = map[string]*resultEntry{}
+	}
+	e = c.entries[key]
+	if e == nil || !e.fresh(since) || e.failed() {
+		now := time.Now()
+		e = &resultEntry{connID: src.ConnID, ready: make(chan struct{}), started: now, used: now}
+		c.entries[key] = e
+		c.evict()
+		c.mu.Unlock()
+		// The query belongs to every chart waiting on it, not to the first one's request.
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), BITimeout)
+		e.cols, e.rows, e.truncated, e.err = run(rctx)
+		cancel()
+		close(e.ready)
+	} else {
+		e.used, hit = time.Now(), true
+		c.mu.Unlock()
+	}
+	select {
+	case <-e.ready:
+	case <-ctx.Done():
+		return nil, false, ctx.Err()
+	}
+	return e, hit, e.err
 }
 
 // evict drops the least recently used entries over the limit. Locked by caller.
-func (c *biSourceCache) evict() {
-	for len(c.entries) > maxCachedSources {
+func (c *biResultCache) evict() {
+	for len(c.entries) > maxCachedResults {
 		var oldest string
 		for k, e := range c.entries {
 			if oldest == "" || e.used.Before(c.entries[oldest].used) {
 				oldest = k
 			}
 		}
-		c.entries[oldest].retire()
 		delete(c.entries, oldest)
 	}
 }
 
-// drop forgets a connection's cached sources (on disconnect).
-func (c *biSourceCache) drop(connID string) {
+// drop forgets a connection's results (on disconnect).
+func (c *biResultCache) drop(connID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for k, e := range c.entries {
 		if e.connID == connID {
-			e.retire()
 			delete(c.entries, k)
 		}
 	}
-}
-
-// readSource reads a live source's rows into a new in-memory database.
-func (m *Manager) readSource(ctx context.Context, src bi.DataSource) (*sql.DB, error) {
-	db, err := newMemDB()
-	if err != nil {
-		return nil, err
-	}
-	if _, err := m.biCopyRows(ctx, src, src.Fields, db, BICacheMaxRows, errTooBig); err != nil {
-		db.Close()
-		return nil, err
-	}
-	return db, nil
 }

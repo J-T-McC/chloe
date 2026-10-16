@@ -244,9 +244,9 @@ func TestBIFieldTypesWithoutRows(t *testing.T) {
 	}
 }
 
-// Charts on a live source share one read of it until Refresh asks for data read
-// after a time; Uncached reads the database itself.
-func TestBISourceCache(t *testing.T) {
+// A live chart's result is kept and shared until Refresh asks for results read
+// after a time; Uncached runs the query whatever the cache holds.
+func TestBIResultCache(t *testing.T) {
 	m, id := biSetup(t)
 	ctx := context.Background()
 	w := bi.New("Sales")
@@ -268,34 +268,29 @@ func TestBISourceCache(t *testing.T) {
 		return d
 	}
 	first := read(count, core.BIRead{})
-	if !first.Cached || first.Rows[0][0] != 5.0 {
+	if first.Cached || first.Rows[0][0] != 5.0 {
 		t.Fatalf("first read: %+v", first)
 	}
 	exec(t, m, id, `INSERT INTO orders (customer_id, total, placed_at) VALUES (2, 1000, '2024-06-01');`)
-	// Another chart on the source, and the same chart again, use the copy.
-	if d := read(total, core.BIRead{}); !d.Cached || d.RanAt != first.RanAt || d.Rows[0][0] != 187.75 {
-		t.Fatalf("second chart: %+v", d)
-	}
-	if d := read(count, core.BIRead{}); d.Rows[0][0] != 5.0 {
+	// The same chart again (another page, an export) uses the kept result.
+	if d := read(count, core.BIRead{}); !d.Cached || d.RanAt != first.RanAt || d.Rows[0][0] != 5.0 {
 		t.Fatalf("again: %+v", d)
+	}
+	// Another chart runs its own query on the database.
+	if d := read(total, core.BIRead{}); d.Cached || d.Rows[0][0] != 1187.75 {
+		t.Fatalf("other chart: %+v", d)
 	}
 	if d := read(count, core.BIRead{Uncached: true}); d.Cached || d.Rows[0][0] != 6.0 {
 		t.Fatalf("uncached: %+v", d)
 	}
-	// Refresh: data read from now on; the next chart reuses that read.
+	// Refresh: results read from now on, each query once.
 	refresh := core.BIRead{Since: time.Now()}
-	if d := read(count, refresh); !d.Cached || d.Rows[0][0] != 6.0 {
+	if d := read(count, refresh); d.Cached || d.Rows[0][0] != 6.0 {
 		t.Fatalf("refreshed: %+v", d)
 	}
 	exec(t, m, id, `DELETE FROM orders WHERE total = 1000;`)
-	if d := read(total, refresh); d.Rows[0][0] != 1187.75 {
+	if d := read(count, refresh); !d.Cached || d.Rows[0][0] != 6.0 {
 		t.Fatalf("same refresh: %+v", d)
-	}
-	// A source too big to keep is aggregated by its database.
-	core.BICacheMaxRows = 2
-	t.Cleanup(func() { core.BICacheMaxRows = 500_000 })
-	if d := read(count, core.BIRead{Since: time.Now()}); d.Cached || d.Rows[0][0] != 5.0 {
-		t.Fatalf("too big: %+v", d)
 	}
 }
 

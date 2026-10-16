@@ -216,3 +216,39 @@ func TestBIReadsOnTheServer(t *testing.T) {
 		})
 	}
 }
+
+// Cached results are the database's own: text groups, filters and sorts by its
+// collation (MySQL's is case-insensitive), not by SQLite's.
+func TestBICacheKeepsDatabaseRules(t *testing.T) {
+	for _, e := range engines() {
+		t.Run(string(e.conn.Type), func(t *testing.T) {
+			m, id := setup(t, e)
+			w := bi.New("case")
+			w.DataSources = []bi.DataSource{{Meta: bi.Meta{ID: "s", Name: "s"}, ConnID: id, Database: e.database, Schema: e.schema, Mode: bi.ModeLive,
+				SQL:    "SELECT 'North' AS region, 1 AS n UNION ALL SELECT 'north', 2 UNION ALL SELECT 'NORTH', 4 UNION ALL SELECT 'South', 8",
+				Fields: []bi.Field{{Name: "region", Type: bi.TypeString}, {Name: "n", Type: bi.TypeNumber}}}}
+			value := func(f bi.Filter) bi.Chart {
+				return bi.Chart{DataSource: "s", Type: "value", Value: []bi.ChartField{{Field: "n", Aggregate: "sum"}}, Filters: []bi.Filter{f}}
+			}
+			charts := []bi.Chart{
+				{DataSource: "s", Type: "bar", Dimension: []bi.ChartField{{Field: "region"}}, Value: []bi.ChartField{{Field: "n", Aggregate: "sum"}}, Sort: &bi.ChartSort{By: "dimension"}},
+				value(bi.Filter{Field: "region", Op: "=", Values: []string{"north"}}),
+				value(bi.Filter{Field: "region", Op: "in", Values: []string{"NORTH"}}),
+				{DataSource: "s", Type: "value", Value: []bi.ChartField{{Field: "region", Aggregate: "count_distinct"}}},
+				{DataSource: "s", Type: "value", Value: []bi.ChartField{{Field: "region", Aggregate: "max"}}},
+			}
+			for i, c := range charts {
+				db, err := m.BIChartData(context.Background(), w, c, nil, core.BIRead{Uncached: true})
+				if err != nil {
+					t.Fatal(err)
+				}
+				for range 2 {
+					got, err := m.BIChartData(context.Background(), w, c, nil, core.BIRead{})
+					if err != nil || !reflect.DeepEqual(got.Rows, db.Rows) {
+						t.Errorf("chart %d: cached %v, database %v (%v)", i, got.Rows, db.Rows, err)
+					}
+				}
+			}
+		})
+	}
+}

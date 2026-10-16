@@ -236,8 +236,8 @@ export interface Data {
     "ranAt": string;
 
     /**
-     * Cached is set when a live source's rows came from a copy read at RanAt
-     * rather than from the database just now.
+     * Cached is set when a live chart's result was read at RanAt, for an earlier
+     * view, rather than just now.
      */
     "cached"?: boolean;
 
