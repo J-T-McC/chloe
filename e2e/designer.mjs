@@ -71,6 +71,30 @@ await step("alter table", async () => {
   await page.locator(".object-list tr", { hasText: "pw_notes" }).waitFor();
 });
 
+await step("save prompt on close", async () => {
+  const dialog = () => page.locator(".modal.small");
+  const tab = page.locator(".tab", { hasText: "pw_notes (design)" });
+  await tab.click();
+  await page.locator(".designer-tabs button", { hasText: "Fields" }).click();
+  await page.locator(".fields-grid tbody tr").nth(1).locator("td").nth(3).locator("input").fill("250");
+  await tab.locator(".tab-dirty").waitFor();
+  await tab.locator(".tab-close").click();
+  await dialog().getByText("Save changes to “pw_notes (design)”?").waitFor();
+  await shot("d4-save-prompt");
+  await dialog().getByRole("button", { name: "Cancel" }).click();
+  await tab.waitFor();
+  await tab.locator(".tab-close").click();
+  await dialog().getByRole("button", { name: "Save", exact: true }).click();
+  await tab.waitFor({ state: "detached" });
+  // the change was applied before the tab closed
+  await page.locator(".tree-row", { hasText: "pw_notes" }).click({ button: "right" });
+  await page.locator(".menu-item", { hasText: "Design Table" }).click();
+  const len = await page.locator(".fields-grid tbody tr").nth(1).locator("td").nth(3).locator("input").inputValue();
+  if (len !== "250") throw new Error("expected length 250, got " + len);
+  await page.locator(".tab.active .tab-close").click();
+  await tab.waitFor({ state: "detached" });
+});
+
 await step("pg identity", async () => {
   await page.locator(".tree-row", { hasText: "Local Postgres" }).dblclick();
   await page.locator(".tree-row", { hasText: /^\s*postgres\s*$/ }).first().dblclick();

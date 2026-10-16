@@ -1,5 +1,5 @@
 import { Save } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { D, Design, ObjectKind, arr, errorText } from "../../api";
 import { Dialect, Table, newTable, normalize, toWire } from "../../designer/model";
 import { invalidateCatalog } from "../../editor/completion";
@@ -10,6 +10,7 @@ import { confirm } from "../Dialogs";
 import { CodeBlock } from "../ObjectsPane";
 import { ChecksTab, FieldToolbar, FieldsTab, ForeignKeysTab, connectionRefs, IndexesTab, OptionsTab, TriggersTab, UniquesTab } from "./DesignerTabs";
 import { Toolbar } from "../Toolbar";
+import { useSavableTab } from "../useSavableTab";
 
 type Section = "fields" | "indexes" | "foreignKeys" | "uniques" | "checks" | "triggers" | "options" | "comment" | "sql";
 
@@ -19,6 +20,7 @@ export function TableDesigner({ tab }: { tab: Tab }) {
   const isNew = !tab.ref?.name;
   const [original, setOriginal] = useState<Table | null>(null);
   const [draft, setDraft] = useState<Table | null>(null);
+  const blank = useRef<Table | null>(null);
   const [meta, setMeta] = useState<D.Meta | null>(null);
   const [section, setSection] = useState<Section>("fields");
   const [selected, setSelected] = useState(0);
@@ -33,7 +35,8 @@ export function TableDesigner({ tab }: { tab: Tab }) {
         setMeta(m);
         if (isNew) {
           setOriginal(null);
-          setDraft(newTable(dialect, tab.database!, tab.schema, m));
+          blank.current = newTable(dialect, tab.database!, tab.schema, m);
+          setDraft(blank.current);
         } else {
           const t = normalize(await Design.Load(connId, tab.ref!));
           setOriginal(t);
@@ -58,38 +61,38 @@ export function TableDesigner({ tab }: { tab: Tab }) {
   }, [draft, original, connId]);
 
   const dirty = useMemo(() => (preview?.statements.length ?? 0) > 0 || (isNew && !!draft), [preview, isNew, draft]);
+  // A new table only needs saving once it's been touched.
+  const saveRef = useSavableTab(tab.id, isNew ? !!draft && draft !== blank.current : dirty);
   useEffect(() => {
-    // Mark unsaved designs in the tab title.
-    const base = draft?.name || "Untitled";
-    useApp.getState().updateTab(tab.id, { title: `${base}${dirty && !isNew ? " •" : ""} (design)` });
-  }, [dirty, draft?.name, tab.id, isNew]);
+    useApp.getState().updateTab(tab.id, { title: `${draft?.name || "Untitled"} (design)` });
+  }, [draft?.name, tab.id]);
 
   if (!draft || !meta) return <div className="center-hint">{error ? <span className="err">{error.text}</span> : "Loading…"}</div>;
 
   const update = (fn: (t: Table) => Table) => setDraft((d) => (d ? fn(d) : d));
 
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     if (!draft.name.trim()) {
       setSection("options");
       setError({ text: "Enter a table name before saving." });
-      return;
+      return false;
     }
     const p = await Design.Preview(connId, original, toWire(draft)).catch((e) => {
       setError({ text: errorText(e) });
       return null;
     });
-    if (!p) return;
+    if (!p) return false;
     const statements = arr(p.statements);
-    if (!statements.length) return;
+    if (!statements.length) return false;
     const warnings = arr(p.warnings);
-    if (warnings.length && !(await confirm("Save changes?", { message: warnings.join("\n") + "\n\n" + statements.join(";\n"), okLabel: "Save" }))) return;
+    if (warnings.length && !(await confirm("Save changes?", { message: warnings.join("\n") + "\n\n" + statements.join(";\n"), okLabel: "Save" }))) return false;
     setSaving(true);
     setError(null);
     try {
       const res = await Design.Apply(connId, original, toWire(draft));
       if (res.error) {
         setError({ text: res.error + (res.executed ? `\n(${res.executed} statement(s) before it were applied)` : ""), sql: res.failedStatement });
-        return;
+        return false;
       }
       const t = normalize(res.table!);
       setOriginal(t);
@@ -99,12 +102,15 @@ export function TableDesigner({ tab }: { tab: Tab }) {
       invalidateCatalog(connId, t.database);
       refreshTablesFolder(connId, t.database, t.schema);
       useApp.setState((s) => ({ objectsVersion: s.objectsVersion + 1 }));
+      return true;
     } catch (e) {
       setError({ text: errorText(e) });
+      return false;
     } finally {
       setSaving(false);
     }
   };
+  saveRef.current = save;
 
   const sections: Array<[Section, string, boolean]> = [
     ["fields", "Fields", true],

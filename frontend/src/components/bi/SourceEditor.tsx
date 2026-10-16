@@ -7,7 +7,6 @@ import { B, BI, BIPreview, DBType, Explorer, ObjectKind, Query, SavedQuery, arr,
 import { connDialect, editorLanguage } from "../../dialect";
 import { autoTrigger, clearEditorContext, preloadCatalog, registerSqlCompletion, setEditorContext } from "../../editor/completion";
 import { Monaco, editorTheme, monaco } from "../../editor/monaco";
-import { tabSavers } from "../../queries";
 import { Tab, connById, useApp } from "../../store";
 import { Split } from "../Split";
 import { biChanged, openObject } from "./actions";
@@ -16,6 +15,7 @@ import { JoinsPane } from "./Joins";
 import { FilterList, cleanFilters } from "./FilterList";
 import { useWorkspace } from "./WorkspaceView";
 import { Toolbar } from "../Toolbar";
+import { useSavableTab } from "../useSavableTab";
 
 const SQL_ENGINES = [DBType.MySQL, DBType.MariaDB, DBType.PostgreSQL, DBType.SQLite];
 
@@ -184,17 +184,9 @@ export function SourceEditor({ tab }: { tab: Tab }) {
     }
   };
 
-  const saveRef = useRef(save);
   const refreshRef = useRef(refresh);
-  saveRef.current = save;
   refreshRef.current = refresh;
-  useEffect(() => {
-    tabSavers.set(tab.id, () => saveRef.current());
-    return () => void tabSavers.delete(tab.id);
-  }, [tab.id]);
-  useEffect(() => {
-    useApp.getState().updateTab(tab.id, { dirty });
-  }, [dirty, tab.id]);
+  const saveRef = useSavableTab(tab.id, dirty, save);
   // Preview the source when it opens.
   const opened = !!draft && (!!saved || !!draft.table);
   useEffect(() => {
