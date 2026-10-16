@@ -35,6 +35,8 @@ Performance (`core/bipool.go`, `core/bicache.go`): a 7-page dashboard ran the se
 - [x] Every view re-ran every query: live chart results are kept 5 minutes and shared by pages, exports and MCP;
   Refresh runs each query again once. (Reading each source once and aggregating it locally was tried and
   dropped: SQLite's text rules differ from MySQL's and PostgreSQL's collations)
+- [x] Charts drawn together with the same filters share one read of their source (one statement: the source as a
+  CTE, a UNION ALL branch per chart); zoned date filters keep the column bare, so its index is used
 - [ ] Skip auto refresh while a dashboard's tab isn't showing
 - [ ] Drop a connection's cached sources when Chloe itself writes to it (grid edits, query tabs)
 

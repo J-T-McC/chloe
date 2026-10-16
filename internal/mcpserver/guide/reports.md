@@ -13,15 +13,17 @@
 6. `set_notes` for what you found, and tell the user where the dashboard is (`open_dashboard` brings it up).
 
 ## How charts read a data source
-A live data source isn't read once and shared. Each chart is its own query, with the source's SQL inside it as a
-subquery:
+Each chart is a query with the source inside it, grouped and filtered by the database (so there's no need to
+pre-aggregate for Chloe):
 
     SELECT <buckets>, SUM(<value>) FROM (<the source's SQL>) AS s WHERE <chart filters> GROUP BY 1
 
-The database groups and filters (so there's no need to pre-aggregate for Chloe), but the source's own cost is paid
-once per chart, every time a chart is drawn: 8 charts on a source that takes 3 seconds give the server 24 seconds of
-work (Chloe runs at most 4 at a time per connection, so the page also waits). Results are kept for 5 minutes and shared by the pages, exports and these tools; Refresh and the
-dashboard's auto refresh read again.
+On MySQL and PostgreSQL, charts on a query (or joined tables) that are drawn together and have the same chart
+filters share one read of it: the source and those filters run once, and each chart groups from that. A chart with
+filters of its own reads the source again, once per set of filters, so a source that takes 3 seconds with charts in
+four different filter sets gives the server 12 seconds of work. Filters most charts share belong on the source.
+Results are kept for 5 minutes and shared by the pages, exports and these tools; Refresh and the dashboard's auto
+refresh read again.
 
 ## Data sources that stay fast
 - Check the plan of every source query with EXPLAIN before saving it (see the `sql` topic), with realistic parameter

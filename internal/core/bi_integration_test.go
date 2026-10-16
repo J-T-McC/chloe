@@ -307,7 +307,7 @@ func TestBIZonedFilterUsesIndex(t *testing.T) {
 					t.Fatalf("%s: %v", q, err)
 				}
 			}
-			t.Cleanup(func() { db.Exec("DROP TABLE IF EXISTS " + table) })
+			defer db.Exec("DROP TABLE IF EXISTS " + table) // before db closes
 			for _, typ := range ts {
 				exec("DROP TABLE IF EXISTS " + table)
 				exec("CREATE TABLE " + table + " " + fmt.Sprintf(cols, typ))
@@ -377,4 +377,126 @@ func mustZone(t *testing.T, name string) *time.Location {
 		t.Fatal(err)
 	}
 	return loc
+}
+
+// Charts drawn together on one source share a read of it, and get the rows they
+// get one at a time.
+func TestBIChartsShareASourceRead(t *testing.T) {
+	union := func(ts string) string {
+		return "SELECT 'North' AS region, CAST(120 AS DECIMAL(10,2)) AS total, CAST('2026-01-04 10:00:00' AS " + ts + ") AS placed_at" +
+			" UNION ALL SELECT 'south', 80, CAST('2026-01-20 00:00:00' AS " + ts + ")" +
+			" UNION ALL SELECT 'North', 45.5, CAST('2026-02-02 08:30:00' AS " + ts + ")" +
+			" UNION ALL SELECT 'East', 300, CAST('2026-02-14 12:00:00' AS " + ts + ")" +
+			" UNION ALL SELECT 'South', 60, CAST('2026-03-01 00:00:00' AS " + ts + ")"
+	}
+	charts := []bi.Chart{
+		{Type: "bar", Dimension: []bi.ChartField{{Field: "placed_at", Aggregate: "month"}}, Value: []bi.ChartField{{Field: "total", Aggregate: "sum"}}},
+		{Type: "bar", Dimension: []bi.ChartField{{Field: "region"}}, Value: []bi.ChartField{{Field: "total", Aggregate: "avg"}, {Field: "total", Aggregate: "max"}}},
+		{Type: "stacked_bar", Dimension: []bi.ChartField{{Field: "placed_at", Aggregate: "weekday_x"}}, Series: []bi.ChartField{{Field: "region"}}, Value: []bi.ChartField{{Field: "region", Aggregate: "count"}}},
+		{Type: "value", Value: []bi.ChartField{{Field: "region", Aggregate: "count_distinct"}}},
+		{Type: "table", Value: []bi.ChartField{{Field: "region"}, {Field: "placed_at"}, {Field: "net", Aggregate: "sum"}}},
+		{Type: "pie", Dimension: []bi.ChartField{{Field: "size"}}, Value: []bi.ChartField{{Field: "total", Aggregate: "sum"}}},
+		// Two with the same filter share their own read.
+		{Type: "bar", Dimension: []bi.ChartField{{Field: "region"}}, Value: []bi.ChartField{{Field: "total", Aggregate: "sum"}},
+			Filters: []bi.Filter{{Field: "placed_at", Op: "<", Values: []string{"2026-02-01"}}}},
+		{Type: "value", Value: []bi.ChartField{{Field: "total", Aggregate: "min"}},
+			Filters: []bi.Filter{{Field: "placed_at", Op: "<", Values: []string{"2026-02-01"}}}},
+	}
+	custom := []bi.CustomField{
+		{Name: "net", Kind: bi.CustomCalculated, Expression: "ROUND([total] * 0.9, 2)"},
+		{Name: "size", Kind: bi.CustomCalculated, Expression: "IF(total >= 100, 'big', 'small')"},
+	}
+	for _, e := range engines() {
+		t.Run(string(e.conn.Type), func(t *testing.T) {
+			m, id := setup(t, e)
+			ctx := context.Background()
+			// Reading the source waits 0.06 s a row: 0.3 s for its 5 rows.
+			ts, sleep := "DATETIME", "SLEEP(0.06) = 0"
+			if e.conn.Type == model.PostgreSQL {
+				ts, sleep = "timestamp", "pg_sleep(0.06)::text = ''"
+			}
+			p, err := m.Store.BI().Create(bi.New("share " + string(e.conn.Type)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			src, err := m.BISaveSource(ctx, p, bi.DataSource{Meta: bi.Meta{Name: "Orders"}, ConnID: id, Database: e.database, Schema: e.schema,
+				SQL: union(ts), Mode: bi.ModeLive, Timezone: "America/Los_Angeles", CustomFields: custom})
+			if err != nil {
+				t.Fatal(err)
+			}
+			w, _ := bi.Read(p)
+			alone := make([][][]any, len(charts))
+			for i, c := range charts {
+				c.DataSource = src.ID
+				data, err := m.BIChartData(ctx, w, c, nil, core.BIRead{Uncached: true})
+				if err != nil || !data.Complete {
+					t.Fatalf("chart %d alone: %v", i, err)
+				}
+				alone[i] = data.Rows
+			}
+			readAll := func(src bi.DataSource, charts []bi.Chart) ([]bi.Data, []error) {
+				out, errs := make([]bi.Data, len(charts)), make([]error, len(charts))
+				var wg sync.WaitGroup
+				since := time.Now()
+				for i, c := range charts {
+					c.DataSource = src.ID
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						out[i], errs[i] = m.BIChartData(ctx, w, c, nil, core.BIRead{Since: since})
+					}()
+				}
+				wg.Wait()
+				return out, errs
+			}
+			before := m.BISharedReads()
+			got, errs := readAll(src, charts)
+			for i := range charts {
+				if errs[i] != nil || !reflect.DeepEqual(got[i].Rows, alone[i]) {
+					t.Errorf("chart %d shared: %v\n got %v\nwant %v", i, errs[i], got[i].Rows, alone[i])
+				}
+			}
+			if n := m.BISharedReads() - before; n != int64(len(charts)) {
+				t.Errorf("%d of %d chart reads shared a read", n, len(charts))
+			}
+
+			// A slow source runs once for the charts sharing it, even on one session.
+			defer func(n int) { core.BIMaxSessions = n }(core.BIMaxSessions)
+			core.BIMaxSessions = 1
+			m2, id2 := setup(t, e)
+			p2, err := m2.Store.BI().Create(bi.New("slow"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			slow, err := m2.BISaveSource(ctx, p2, bi.DataSource{Meta: bi.Meta{Name: "Slow"}, ConnID: id2, Database: e.database, Schema: e.schema,
+				SQL: "SELECT x.* FROM (" + union(ts) + ") x WHERE " + sleep, Mode: bi.ModeLive})
+			if err != nil {
+				t.Fatal(err)
+			}
+			w, _ = bi.Read(p2)
+			mm := m
+			m = m2
+			start := time.Now()
+			_, errs = readAll(slow, charts[:4])
+			if took := time.Since(start); took > 800*time.Millisecond || errs[0] != nil {
+				t.Errorf("4 charts on a 0.3 s source took %v (%v)", took, errs)
+			}
+			m = mm
+
+			// A chart the database refuses fails alone.
+			if e.conn.Type == model.PostgreSQL {
+				bad := bi.Chart{Type: "value", Value: []bi.ChartField{{Field: "total_text", Aggregate: "sum"}}}
+				src.CustomFields = append(custom, bi.CustomField{Name: "total_text", Kind: bi.CustomTypeChanged, Field: "region", To: bi.TypeString})
+				src, err = m.BISaveSource(ctx, p, src)
+				if err != nil {
+					t.Fatal(err)
+				}
+				w, _ = bi.Read(p)
+				got, errs = readAll(src, []bi.Chart{charts[0], bad, charts[3]})
+				if errs[0] != nil || errs[2] != nil || errs[1] == nil || !reflect.DeepEqual(got[0].Rows, alone[0]) {
+					t.Errorf("one bad chart: %v", errs)
+				}
+			}
+		})
+	}
 }

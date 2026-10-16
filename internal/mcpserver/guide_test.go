@@ -47,7 +47,7 @@ func TestInstructionsFollowTheEndpoint(t *testing.T) {
 		}
 	}
 	out = g.call(t, "guide", map[string]any{"topic": " Reports "}, "")
-	if out["topic"] != "reports" || !strings.Contains(out["text"].(string), "once per chart") {
+	if out["topic"] != "reports" || !strings.Contains(out["text"].(string), "share one read") {
 		t.Fatalf("reports topic: %v", out)
 	}
 
