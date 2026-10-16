@@ -1,6 +1,7 @@
 // BI: Create Chart from a table, build charts by dragging fields onto shelves,
 // save and present them, the workspace list, and an archive data source.
 import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { chromium } from "playwright";
 const out = process.argv[2];
 const dir = process.env.LITE;
@@ -267,9 +268,18 @@ await step("a dashboard of charts and text", async () => {
   await page.waitForTimeout(200);
   check(!(await page.locator(".tab.active .tab-dirty").count()), "dirty after save");
   await shot("bi-dashboard");
+  // Export asks where to save first, shows progress, then where it saved.
   await dash().getByRole("button", { name: "Export" }).click();
-  await page.locator(".menu-item", { hasText: "All Pages as PDF" }).waitFor();
-  await page.keyboard.press("Escape");
+  await page.locator(".menu-item", { hasText: "All Pages as PDF" }).click();
+  const saved = dash().locator(".notice-banner", { hasText: "Saved" });
+  await saved.waitFor({ timeout: 30_000 });
+  check((await saved.innerText()).includes("Sales overview.pdf"), "saved path shown");
+  check(await saved.getByRole("button", { name: "Show in Finder" }).isVisible(), "show in finder");
+  check(!(await dash().getByRole("button", { name: "Export" }).isDisabled()), "export enabled again");
+  const pdf = new URL("./.out/exports/Sales overview.pdf", import.meta.url);
+  check(existsSync(pdf) && readFileSync(pdf).subarray(0, 5).toString() === "%PDF-", "pdf written");
+  await shot("bi-dashboard-exported");
+  await saved.getByRole("button", { name: "Dismiss" }).click();
 });
 
 await step("pages, report size and present", async () => {

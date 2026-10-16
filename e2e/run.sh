@@ -20,7 +20,7 @@ sqlite3 "$out/lite/big.db" "CREATE TABLE n(id INTEGER PRIMARY KEY, v TEXT);
 
 pkill -f Chloe-server || true
 sleep 0.5
-CHLOE_CONFIG_DIR="$out/config" CHLOE_SECRETS=memory CHLOE_REPORTS_DIR="$out/reports" ./bin/Chloe-server > "$out/server.log" 2>&1 &
+CHLOE_CONFIG_DIR="$out/config" CHLOE_SECRETS=memory CHLOE_REPORTS_DIR="$out/reports" CHLOE_EXPORT_DIR="$out/exports" ./bin/Chloe-server > "$out/server.log" 2>&1 &
 trap 'pkill -f Chloe-server || true' EXIT
 sleep 1.5
 cd e2e && LITE="$out/lite" node "${1:-smoke}.mjs" "$out/shots"

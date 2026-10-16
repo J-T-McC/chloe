@@ -45,6 +45,10 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
   const [tick, setTick] = useState(0);
   const [present, setPresent] = useState(false);
   const [error, setError] = useState("");
+  // An export in progress (pages captured so far), and the file the last one wrote.
+  const [exporting, setExporting] = useState<{ done: number; total: number } | null>(null);
+  const [exported, setExported] = useState("");
+  const cancelExport = useRef(false);
   // Parameter values changed on this dashboard, for this session only.
   const [overrides, setOverrides] = useState<ParamValues>({});
   const usedParams = useMemo(() => dashboardParams(w, draft), [w, draft]);
@@ -205,15 +209,29 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
         </button>
         <button
           title="Export this page as PNG, or every page as PDF"
+          disabled={!!exporting}
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             const run = async (format: "png" | "pdf") => {
               setError("");
+              setExported("");
               try {
-                const pngs = await renderPages(path, draft, format === "png" ? [Math.min(pageIdx, pages.length - 1)] : pages.map((_, i) => i), 2, overrides);
-                await BI.SaveExport(format === "png" ? `${draft.name} – ${page.name || `Page ${pageIdx + 1}`}` : draft.name, format, pngs);
+                // Ask where first: drawing every page takes a while, and a cancelled dialog shouldn't.
+                const file = await BI.ChooseExportFile(format === "png" ? `${draft.name} – ${page.name || `Page ${pageIdx + 1}`}` : draft.name, format);
+                if (!file) return;
+                const which = format === "png" ? [Math.min(pageIdx, pages.length - 1)] : pages.map((_, i) => i);
+                cancelExport.current = false;
+                setExporting({ done: 0, total: which.length });
+                const pngs = await renderPages(path, draft, which, 2, overrides, {
+                  page: (done, total) => setExporting({ done, total }),
+                  cancelled: () => cancelExport.current,
+                });
+                await BI.WriteExport(file, format, pngs);
+                setExported(file);
               } catch (err) {
-                setError(errorText(err));
+                if (!cancelExport.current) setError(errorText(err));
+              } finally {
+                setExporting(null);
               }
             };
             openMenu({ clientX: r.left, clientY: r.bottom + 2, preventDefault() {} }, [
@@ -234,6 +252,24 @@ export function DashboardEditor({ tab }: { tab: Tab }) {
         </label>
       </div>
       {error && <div className="error-banner">{error}</div>}
+      {exporting && (
+        <div className="notice-banner" role="status">
+          <span>
+            Exporting{exporting.total > 1 ? ` page ${Math.min(exporting.done + 1, exporting.total)} of ${exporting.total}` : ""}…
+          </span>
+          <progress max={exporting.total} value={exporting.done} />
+          <button onClick={() => (cancelExport.current = true)}>Cancel</button>
+        </div>
+      )}
+      {exported && !exporting && (
+        <div className="notice-banner" role="status">
+          <span>Saved {exported}</span>
+          <button onClick={() => BI.Reveal(exported).catch((e) => setError(errorText(e)))}>Show in Finder</button>
+          <button onClick={() => setExported("")} aria-label="Dismiss">
+            ✕
+          </button>
+        </div>
+      )}
       <ParamBar params={usedParams} values={values} onChange={setParam} />
       <Split
         id="bi-dash-pages"
