@@ -165,7 +165,7 @@ func (d *delimited) Close() error { return d.w.Flush() }
 type jsonWriter struct {
 	w     *bufio.Writer
 	lines bool
-	cols  []model.ResultColumn
+	names [][]byte // column names as JSON strings
 	kinds []valueKind
 	n     int
 }
@@ -194,9 +194,10 @@ func kindOf(t string) valueKind {
 }
 
 func (j *jsonWriter) Begin(cols []model.ResultColumn) error {
-	j.cols = cols
+	j.names = make([][]byte, len(cols))
 	j.kinds = make([]valueKind, len(cols))
 	for i, c := range cols {
+		j.names[i], _ = json.Marshal(c.Name)
 		j.kinds[i] = kindOf(c.Type)
 	}
 	if !j.lines {
@@ -243,8 +244,7 @@ func (j *jsonWriter) Write(row []*string) error {
 		if i > 0 {
 			j.w.WriteByte(',')
 		}
-		name, _ := json.Marshal(j.cols[i].Name)
-		j.w.Write(name)
+		j.w.Write(j.names[i])
 		j.w.WriteByte(':')
 		j.w.Write(j.value(v, j.kinds[i]))
 	}
@@ -299,6 +299,10 @@ func (s *sqlWriter) Begin(cols []model.ResultColumn) error {
 }
 
 var (
+	// Replacers are built once: building one per cell cost more than the replacing.
+	mysqlEscaper = strings.NewReplacer(`\`, `\\`, `'`, `''`, "\n", `\n`, "\r", `\r`, "\x00", `\0`)
+	mdEscaper    = strings.NewReplacer("|", `\|`, "\n", "<br>", "\r", "")
+
 	// Raw numbers must be finite decimals: ParseFloat also takes NaN, Inf and hex floats.
 	decimalRe  = regexp.MustCompile(`^[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$`)
 	mysqlHexRe = regexp.MustCompile(`^0x[0-9A-Fa-f]*$`)
@@ -346,7 +350,7 @@ func Literal(v *string, typ string, dialect string) string {
 		}
 		return *v // MySQL hex literal
 	}
-	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `''`, "\n", `\n`, "\r", `\r`, "\x00", `\0`).Replace(*v) + "'"
+	return "'" + mysqlEscaper.Replace(*v) + "'"
 }
 
 func (s *sqlWriter) Write(row []*string) error {
@@ -457,7 +461,7 @@ func (x *xlsxWriter) Close() error {
 type mdWriter struct{ w *bufio.Writer }
 
 func mdCell(s string) string {
-	return strings.NewReplacer("|", `\|`, "\n", "<br>", "\r", "").Replace(s)
+	return mdEscaper.Replace(s)
 }
 
 func (m *mdWriter) Begin(cols []model.ResultColumn) error {

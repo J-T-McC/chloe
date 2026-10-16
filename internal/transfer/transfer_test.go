@@ -219,3 +219,10 @@ func TestLiteralQuotesUntrustedValues(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkLiteralMySQLString(b *testing.B) {
+	v := "O'Brien\nline two"
+	for b.Loop() {
+		Literal(&v, "VARCHAR(40)", "mysql")
+	}
+}
