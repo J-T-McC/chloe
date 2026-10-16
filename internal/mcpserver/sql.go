@@ -394,8 +394,6 @@ var readOnlyStart = map[string][]string{
 	"sqlite":   {"SELECT", "WITH", "EXPLAIN", "VALUES"},
 }
 
-var outfileRe = regexp.MustCompile(`(?i)\bINTO\s+(OUTFILE|DUMPFILE)\b`)
-
 // checkReadOnly accepts exactly one read statement. The read-only transaction
 // it then runs in is what really stops writes; this keeps out statements that
 // would end that transaction (MySQL DDL commits implicitly) or write files.
@@ -409,8 +407,10 @@ func checkReadOnly(d driver.Dialect, sql string) (string, error) {
 	if !slices.Contains(readOnlyStart[d.Name], kw) {
 		return "", fmt.Errorf("run_query only runs read statements (%s); use the row tools to change data", strings.Join(readOnlyStart[d.Name], ", "))
 	}
-	if d.Name == "mysql" && outfileRe.MatchString(s) {
-		return "", errors.New("run_query can't write files")
+	if d.Name == "mysql" {
+		if err := sqlcommon.MySQLReadHazard(s); err != nil {
+			return "", fmt.Errorf("run_query: %w", err)
+		}
 	}
 	return s, nil
 }

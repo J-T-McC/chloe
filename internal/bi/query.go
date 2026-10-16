@@ -3,7 +3,6 @@ package bi
 import (
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -189,8 +188,6 @@ var sourceStart = map[string][]string{
 	"sqlite":   {"SELECT", "WITH", "VALUES"},
 }
 
-var outfileRe = regexp.MustCompile(`(?i)\bINTO\s+(OUTFILE|DUMPFILE)\b`)
-
 // CheckSQL accepts exactly one read statement for a query data source and returns
 // it without its delimiter. Data sources also always run in a read-only
 // transaction; this keeps out what would end that transaction or write files.
@@ -203,8 +200,10 @@ func CheckSQL(d driver.Dialect, sql string) (string, error) {
 	if kw := sqlcommon.LeadingKeyword(s); !slices.Contains(sourceStart[d.Name], kw) {
 		return "", fmt.Errorf("a data source query reads data: it starts with %s", strings.Join(sourceStart[d.Name], ", "))
 	}
-	if d.Name == "mysql" && outfileRe.MatchString(s) {
-		return "", errors.New("a data source query can't write files")
+	if d.Name == "mysql" {
+		if err := sqlcommon.MySQLReadHazard(s); err != nil {
+			return "", fmt.Errorf("a data source query: %w", err)
+		}
 	}
 	return s, nil
 }
