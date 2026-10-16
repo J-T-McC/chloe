@@ -3,8 +3,11 @@ package bi
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
+
+	"chloe/internal/driver"
 )
 
 // A data source's time zone: its date/time fields are bucketed and filtered as
@@ -68,6 +71,15 @@ func InZone(s, tz string) (string, bool) {
 
 // col is a field as the chart sees it: a date/time converted to the data
 // source's time zone (dates without a time aren't shifted).
+// newQB starts a query over src. The zone is written into the SQL, so it is checked here
+// as well as when the source is saved: a workspace file may not have come through Chloe.
+func newQB(d driver.Dialect, src DataSource, args []any) (qb, error) {
+	if err := CheckTimezone(src.Timezone); err != nil {
+		return qb{}, err
+	}
+	return qb{d: d, tz: src.Timezone, args: slices.Clone(args)}, nil
+}
+
 func (b *qb) col(f Field) string {
 	col := b.d.QuoteIdent(f.Name)
 	t := strings.ToLower(f.DBType)

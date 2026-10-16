@@ -262,7 +262,10 @@ func PreviewQuery(d driver.Dialect, from Source, src DataSource, limit int) (Stm
 	if err != nil {
 		return Stmt{}, err
 	}
-	b := qb{d: d, tz: src.Timezone, args: slices.Clone(from.Args)}
+	b, err := newQB(d, src, from.Args)
+	if err != nil {
+		return Stmt{}, err
+	}
 	cols := "*"
 	if src.Projection != nil && len(src.Projection.Fields) > 0 || len(src.CustomFields) > 0 {
 		vis := src.Visible()
@@ -316,7 +319,10 @@ func chartQuery(d driver.Dialect, from Source, src DataSource, c Chart, limit in
 	if err != nil {
 		return Stmt{}, nil, nil, err
 	}
-	b := qb{d: d, tz: src.Timezone, args: slices.Clone(from.Args)}
+	b, err := newQB(d, src, from.Args)
+	if err != nil {
+		return Stmt{}, nil, nil, err
+	}
 	var sel, group []string
 	var groupAt []int
 	var cols []Column
