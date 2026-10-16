@@ -49,12 +49,12 @@ func (Driver) Open(ctx context.Context, c model.Connection, d tunnel.Dialer) (dr
 	cfg.ReadTimeout = seconds(a.ReadTimeoutSec, 0)
 	cfg.WriteTimeout = seconds(a.WriteTimeoutSec, 0)
 	cfg.ParseTime = false // keep server text for DATETIME so zero dates and precision survive
-	cfg.InterpolateParams = true
 	cfg.ConnectionAttributes = "program_name:Chloe"
 	charset := "utf8mb4"
 	if a.Encoding != "" && a.Encoding != "auto" {
 		charset = a.Encoding
 	}
+	cfg.InterpolateParams = interpolateSafe(charset)
 	if err := cfg.Apply(gomysql.Charset(charset, ""), gomysql.EnableCompression(a.Compression)); err != nil {
 		return nil, err
 	}
@@ -399,3 +399,15 @@ func (s *Session) Exec(ctx context.Context, stmt string, args ...any) (int64, er
 }
 
 func (s *Session) Close() error { return sqlcommon.DiscardConn(s.conn) }
+
+// interpolateSafe reports whether arguments can be spliced into the SQL client-side. In
+// multibyte encodings such as gbk, big5 or sjis the backslash the driver adds before a quote
+// can be read as the second byte of a character, freeing the quote, so those connections
+// send arguments as server-side prepared statements instead.
+func interpolateSafe(charset string) bool {
+	switch strings.ToLower(charset) {
+	case "utf8", "utf8mb3", "utf8mb4", "latin1", "ascii", "binary":
+		return true
+	}
+	return false
+}

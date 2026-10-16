@@ -9,6 +9,7 @@ import (
 
 	"chloe/internal/driver/sqlcommon"
 	"chloe/internal/model"
+	"chloe/internal/sqlq"
 )
 
 // DDL reconstructs CREATE statements. PostgreSQL has no SHOW CREATE TABLE, so table
@@ -143,7 +144,7 @@ func (c *Conn) tableDDL(ctx context.Context, ref model.ObjectRef, schema string)
 	return strings.TrimRight(b.String(), "\n") + "\n", nil
 }
 
-func quoteLiteral(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+func quoteLiteral(s string) string { return sqlq.PGString(s) }
 
 // typeDDL renders enum, domain, composite and range types.
 func typeDDL(ctx context.Context, db *sql.DB, schema, name string) (string, error) {

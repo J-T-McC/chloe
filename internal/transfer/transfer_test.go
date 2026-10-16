@@ -76,7 +76,7 @@ func TestExportSQL(t *testing.T) {
 	if got != want {
 		t.Fatalf("got\n%s\nwant\n%s", got, want)
 	}
-	if Literal(p(`\x0102`), "bytea", "postgres") != `'\x0102'::bytea` {
+	if Literal(p(`\x0102`), "bytea", "postgres") != `E'\\x0102'::bytea` {
 		t.Fatal("bytea literal")
 	}
 }
@@ -191,5 +191,31 @@ func TestInferTypes(t *testing.T) {
 	want := []string{"int", "decimal(5,1)", "boolean", "date", "datetime", "varchar(50)", "bigint"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
+// Display values come from the database, so anything that isn't a well-formed number,
+// boolean or hex string must come out quoted.
+func TestLiteralQuotesUntrustedValues(t *testing.T) {
+	p := func(s string) *string { return &s }
+	for _, c := range []struct{ v, typ, dialect, want string }{
+		{"0x0aFF", "BLOB", "sqlite", "X'0aFF'"},
+		{"0x'); DROP TABLE users; --", "BLOB", "sqlite", "'0x''); DROP TABLE users; --'"},
+		{"0xABC", "BLOB", "sqlite", "'0xABC'"},
+		{"0xABC", "VARBINARY(4)", "mysql", "0xABC"},
+		{"0x", "BLOB", "mysql", "X''"},
+		{"0x1 OR 1=1", "BLOB", "mysql", "'0x1 OR 1=1'"},
+		{"-1.5e3", "INT", "mysql", "-1.5e3"},
+		{"NaN", "DOUBLE", "postgres", "'NaN'"},
+		{"0x1p3", "DOUBLE", "sqlite", "'0x1p3'"},
+		{"1; DROP TABLE x", "INTEGER", "sqlite", "'1; DROP TABLE x'"},
+		{"true", "BOOLEAN", "postgres", "true"},
+		{"t) OR (1=1", "BOOLEAN", "postgres", "'t) OR (1=1'"},
+		{`\'; DROP TABLE x; --`, "TEXT", "postgres", `E'\\''; DROP TABLE x; --'`},
+		{`\x01'`, "BYTEA", "postgres", `E'\\x01'''`},
+	} {
+		if got := Literal(p(c.v), c.typ, c.dialect); got != c.want {
+			t.Errorf("Literal(%q, %s, %s) = %s, want %s", c.v, c.typ, c.dialect, got, c.want)
+		}
 	}
 }

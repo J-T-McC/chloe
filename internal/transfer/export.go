@@ -8,12 +8,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/xuri/excelize/v2"
 
 	"chloe/internal/model"
+	"chloe/internal/sqlq"
 )
 
 type Format string
@@ -296,7 +298,17 @@ func (s *sqlWriter) Begin(cols []model.ResultColumn) error {
 	return nil
 }
 
-// Literal renders a display value as a SQL literal for the dialect.
+var (
+	// Raw numbers must be finite decimals: ParseFloat also takes NaN, Inf and hex floats.
+	decimalRe  = regexp.MustCompile(`^[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$`)
+	mysqlHexRe = regexp.MustCompile(`^0x[0-9A-Fa-f]*$`)
+	blobHexRe  = regexp.MustCompile(`^0x(?:[0-9A-Fa-f]{2})*$`)
+	byteaHexRe = regexp.MustCompile(`^\\x[0-9A-Fa-f]*$`)
+)
+
+// Literal renders a display value as a SQL literal for the dialect. Display values come
+// from the database (SQLite lets any column hold text), so a value is only written raw
+// once it is known to be a number, boolean or hex string; anything else is quoted.
 func Literal(v *string, typ string, dialect string) string {
 	if v == nil {
 		return "NULL"
@@ -304,29 +316,35 @@ func Literal(v *string, typ string, dialect string) string {
 	t := strings.ToUpper(typ)
 	switch kindOf(t) {
 	case kindNumber:
-		if _, err := strconv.ParseFloat(*v, 64); err == nil {
+		if decimalRe.MatchString(*v) {
 			return *v
 		}
 	case kindBool:
 		if dialect == "postgres" {
-			return *v
+			switch strings.ToLower(*v) {
+			case "t", "f", "true", "false":
+				return *v
+			}
 		}
 	}
 	if dialect == "sqlite" {
 		// Standard strings (no backslash escapes) and X'…' blobs.
-		if strings.HasPrefix(*v, "0x") && strings.Contains(t, "BLOB") {
+		if strings.Contains(t, "BLOB") && blobHexRe.MatchString(*v) {
 			return "X'" + (*v)[2:] + "'"
 		}
 		return "'" + strings.ReplaceAll(*v, "'", "''") + "'"
 	}
-	if strings.HasPrefix(*v, "0x") && (strings.Contains(t, "BLOB") || strings.Contains(t, "BINARY") || t == "BIT" || t == "GEOMETRY") {
-		return *v // MySQL hex literal
-	}
-	if t == "BYTEA" && strings.HasPrefix(*v, `\x`) {
-		return "'" + *v + "'::bytea"
-	}
 	if dialect == "postgres" {
-		return "'" + strings.ReplaceAll(*v, "'", "''") + "'"
+		if t == "BYTEA" && byteaHexRe.MatchString(*v) {
+			return sqlq.PGString(*v) + "::bytea"
+		}
+		return sqlq.PGString(*v)
+	}
+	if (strings.Contains(t, "BLOB") || strings.Contains(t, "BINARY") || t == "BIT" || t == "GEOMETRY") && mysqlHexRe.MatchString(*v) {
+		if *v == "0x" {
+			return "X''"
+		}
+		return *v // MySQL hex literal
 	}
 	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `''`, "\n", `\n`, "\r", `\r`, "\x00", `\0`).Replace(*v) + "'"
 }
