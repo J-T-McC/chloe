@@ -163,9 +163,9 @@ func TestSSHKnownHostsOtherKeyType(t *testing.T) {
 			if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			old := knownHostsPath
-			knownHostsPath = path
-			defer func() { knownHostsPath = old }()
+			oldKnown, oldPinned := knownHostsPath, PinnedHostsPath
+			knownHostsPath, PinnedHostsPath = path, filepath.Join(t.TempDir(), "known_hosts")
+			defer func() { knownHostsPath, PinnedHostsPath = oldKnown, oldPinned }()
 
 			cfg := model.SSHConfig{Enabled: true, Host: "127.0.0.1", Port: port, User: "u", Password: "pw"}
 			s, err := newSSH(context.Background(), cfg, 5*time.Second)
@@ -179,5 +179,47 @@ func TestSSHKnownHostsOtherKeyType(t *testing.T) {
 				s.Close()
 			}
 		})
+	}
+}
+
+// A host seen for the first time is pinned in Chloe's known_hosts, and a server
+// presenting a different key afterwards is refused.
+func TestSSHPinsFirstSeenHostKey(t *testing.T) {
+	_, first, _ := ed25519.GenerateKey(rand.Reader)
+	_, second, _ := ed25519.GenerateKey(rand.Reader)
+	port := testServer(t, signer(t, first))
+
+	oldKnown, oldPinned := knownHostsPath, PinnedHostsPath
+	knownHostsPath = filepath.Join(t.TempDir(), "missing")
+	PinnedHostsPath = filepath.Join(t.TempDir(), "chloe", "known_hosts")
+	defer func() { knownHostsPath, PinnedHostsPath = oldKnown, oldPinned }()
+
+	cfg := model.SSHConfig{Enabled: true, Host: "127.0.0.1", Port: port, User: "u", Password: "pw"}
+	s, err := newSSH(context.Background(), cfg, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	b, err := os.ReadFile(PinnedHostsPath)
+	if err != nil || !strings.Contains(string(b), "ssh-ed25519") {
+		t.Fatalf("host key not pinned: %q %v", b, err)
+	}
+
+	// Same key again: accepted, nothing more recorded.
+	if s, err = newSSH(context.Background(), cfg, 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	if b2, _ := os.ReadFile(PinnedHostsPath); string(b2) != string(b) {
+		t.Fatalf("known host pinned again:\n%s", b2)
+	}
+
+	cfg.Port = testServer(t, signer(t, second))
+	pinned := knownhosts.Line([]string{net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.Port))}, signer(t, first).PublicKey())
+	if err := os.WriteFile(PinnedHostsPath, []byte(pinned+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = newSSH(context.Background(), cfg, 5*time.Second); err == nil || !strings.Contains(err.Error(), "mismatch") {
+		t.Fatalf("want a key mismatch, got %v", err)
 	}
 }

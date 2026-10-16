@@ -114,10 +114,11 @@ func (t *SSH) getClient(ctx context.Context) (*ssh.Client, error) {
 	if t.client != nil {
 		return t.client, nil
 	}
-	auth, err := authMethods(t.cfg)
+	auth, closeAuth, err := authMethods(t.cfg)
 	if err != nil {
 		return nil, err
 	}
+	defer closeAuth()
 	port := t.cfg.Port
 	if port == 0 {
 		port = 22
@@ -175,33 +176,36 @@ func keepAlive(c *ssh.Client, stop chan struct{}) {
 	}
 }
 
-func authMethods(cfg model.SSHConfig) ([]ssh.AuthMethod, error) {
+// authMethods returns the methods to offer and a func that releases what they hold (the
+// agent socket), to call once the handshake is over.
+func authMethods(cfg model.SSHConfig) ([]ssh.AuthMethod, func(), error) {
+	none := func() {}
 	switch cfg.Auth {
 	case model.SSHPublicKey:
 		key, err := publicKey(cfg)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return []ssh.AuthMethod{key}, nil
+		return []ssh.AuthMethod{key}, none, nil
 	case model.SSHPasswordPublicKey:
 		// Servers configured with "AuthenticationMethods publickey,password" need both.
 		key, err := publicKey(cfg)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return append([]ssh.AuthMethod{key}, passwordAuth(cfg.Password)...), nil
+		return append([]ssh.AuthMethod{key}, passwordAuth(cfg.Password)...), none, nil
 	case model.SSHAgent:
 		sock := os.Getenv("SSH_AUTH_SOCK")
 		if sock == "" {
-			return nil, errors.New("SSH agent not available (SSH_AUTH_SOCK is not set)")
+			return nil, nil, errors.New("SSH agent not available (SSH_AUTH_SOCK is not set)")
 		}
 		conn, err := net.Dial("unix", sock)
 		if err != nil {
-			return nil, fmt.Errorf("connect to SSH agent: %w", err)
+			return nil, nil, fmt.Errorf("connect to SSH agent: %w", err)
 		}
-		return []ssh.AuthMethod{ssh.PublicKeysCallback(agent.NewClient(conn).Signers)}, nil
+		return []ssh.AuthMethod{ssh.PublicKeysCallback(agent.NewClient(conn).Signers)}, func() { conn.Close() }, nil
 	default:
-		return passwordAuth(cfg.Password), nil
+		return passwordAuth(cfg.Password), none, nil
 	}
 }
 
@@ -243,27 +247,79 @@ func passwordAuth(pw string) []ssh.AuthMethod {
 // knownHostsPath is a variable so tests can point it elsewhere.
 var knownHostsPath = "~/.ssh/known_hosts"
 
-// hostKeyCheck verifies against known_hosts when present. Unknown hosts are accepted
-// (trust on first use, like Navicat); mismatched keys are rejected.
+// PinnedHostsPath is Chloe's own known_hosts, where the key of a host seen for the first
+// time is recorded. main sets it under the config directory; empty disables SSH.
+var PinnedHostsPath string
+
+var pinMu sync.Mutex
+
+// hostKeyCheck verifies the server's key against ~/.ssh/known_hosts and Chloe's pinned
+// hosts. A host in neither is trusted on first use and its key pinned; from then on a
+// different key is rejected.
 //
 // When the host is known it also returns the host key algorithms to ask for, limited to
 // the key types on record. Otherwise the server may present a key type we have no entry
 // for (Go prefers ECDSA, ssh-keyscan often records only ed25519), which knownhosts
 // reports as a mismatch. OpenSSH orders algorithms the same way.
 func hostKeyCheck(addr string, remote net.Addr) (ssh.HostKeyCallback, []string) {
-	cb, err := knownhosts.New(expandHome(knownHostsPath))
-	if err != nil {
-		return ssh.InsecureIgnoreHostKey(), nil
+	if PinnedHostsPath == "" {
+		return func(string, net.Addr, ssh.PublicKey) error {
+			return errors.New("ssh: no file to record host keys in")
+		}, nil
+	}
+	var files []string
+	for _, f := range []string{expandHome(knownHostsPath), PinnedHostsPath} {
+		if _, err := os.Stat(f); err == nil {
+			files = append(files, f)
+		}
+	}
+	var cb ssh.HostKeyCallback
+	if len(files) > 0 {
+		var err error
+		if cb, err = knownhosts.New(files...); err != nil {
+			return func(string, net.Addr, ssh.PublicKey) error {
+				return fmt.Errorf("ssh: read known hosts: %w", err)
+			}, nil
+		}
 	}
 	check := func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		if cb == nil {
+			return pin(hostname, key)
+		}
 		err := cb(hostname, remote, key)
 		var ke *knownhosts.KeyError
-		if errors.As(err, &ke) && len(ke.Want) == 0 {
-			return nil // host not in known_hosts
+		if !errors.As(err, &ke) {
+			return err
 		}
-		return err
+		if len(ke.Want) == 0 {
+			return pin(hostname, key)
+		}
+		w := ke.Want[0]
+		return fmt.Errorf("ssh: host key mismatch for %s: the server sent %s, but %s:%d records another key. "+
+			"If the server's key was changed on purpose, delete that line and connect again", hostname, ssh.FingerprintSHA256(key), w.Filename, w.Line)
+	}
+	if cb == nil {
+		return check, nil
 	}
 	return check, knownAlgorithms(cb, addr, remote)
+}
+
+// pin records a first-seen host key in PinnedHostsPath.
+func pin(hostname string, key ssh.PublicKey) error {
+	pinMu.Lock()
+	defer pinMu.Unlock()
+	if err := os.MkdirAll(filepath.Dir(PinnedHostsPath), 0o700); err != nil {
+		return fmt.Errorf("ssh: record host key: %w", err)
+	}
+	f, err := os.OpenFile(PinnedHostsPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("ssh: record host key: %w", err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(knownhosts.Line([]string{knownhosts.Normalize(hostname)}, key) + "\n"); err != nil {
+		return fmt.Errorf("ssh: record host key: %w", err)
+	}
+	return nil
 }
 
 // knownAlgorithms lists the host key algorithms matching the key types known_hosts holds

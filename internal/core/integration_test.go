@@ -20,6 +20,7 @@ import (
 	_ "chloe/internal/driver/sqlite"
 	"chloe/internal/model"
 	"chloe/internal/store"
+	"chloe/internal/tunnel"
 )
 
 type engine struct {
@@ -333,6 +334,9 @@ func TestIntegrationConnectionFeatures(t *testing.T) {
 // TestIntegrationSSHTunnel connects through the chloe-sshd container, which reaches
 // the databases by their compose service names.
 func TestIntegrationSSHTunnel(t *testing.T) {
+	old := tunnel.PinnedHostsPath
+	tunnel.PinnedHostsPath = filepath.Join(t.TempDir(), "known_hosts")
+	t.Cleanup(func() { tunnel.PinnedHostsPath = old })
 	key, _ := filepath.Abs("../../testdata/sshd/id_ed25519")
 	auths := []model.SSHConfig{
 		{Enabled: true, Host: "127.0.0.1", Port: 2222, User: "tunnel", Auth: model.SSHPassword, Password: "chloe", SavePassword: true},

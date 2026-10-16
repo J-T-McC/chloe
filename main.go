@@ -17,6 +17,7 @@ import (
 	"chloe/internal/mcpbridge"
 	"chloe/internal/mcpserver"
 	"chloe/internal/store"
+	"chloe/internal/tunnel"
 	"chloe/services"
 )
 
@@ -30,6 +31,7 @@ var icon []byte
 
 func main() {
 	dir := configDir()
+	tunnel.PinnedHostsPath = filepath.Join(dir, "known_hosts")
 	// `Chloe mcp` is the stdio bridge MCP clients launch: it relays to the running
 	// app and never opens a window, the store or the keychain.
 	if len(os.Args) > 1 && os.Args[1] == "mcp" {
