@@ -113,6 +113,8 @@ type Events interface {
 	OpenBI(path, id string)
 	// Render has the UI draw dashboard pages (0-based) and returns them as PNGs.
 	Render(ctx context.Context, path, dashboard string, pages []int, scale float64, params map[string]string) ([][]byte, error)
+	// RenderHTML has the window build an HTML report of dashboard pages (0-based).
+	RenderHTML(ctx context.Context, path, dashboard string, pages []int, params map[string]string) ([]byte, error)
 }
 
 // Build is the commit Chloe was built from (set by the build; "dev" otherwise),

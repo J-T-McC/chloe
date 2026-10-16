@@ -1,6 +1,8 @@
 .task
 bin
 frontend/dist
+# Built by `npm run build:report` (vite.report.config.ts) before the app
+frontend/public/report
 node_modules/
 build/linux/appimage/build
 build/windows/nsis/MicrosoftEdgeWebview2Setup.exe

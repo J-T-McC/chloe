@@ -153,7 +153,9 @@ statistics catalogs get around name checks), so share connections that log in as
 - [x] Dashboards: pages (16:9 slides or scrolling reports) of charts and Markdown on a 12-column grid, auto refresh,
   present; MCP tools to build them, refresh them and write notes on them
 - [x] Export: PNG per page and PDF of every page, in the designer and over MCP (agents get the images to check pages)
-- [x] Reports: PNG/PDF export (snapshots dropped; HTML export and print only if asked for)
+- [x] Reports: PNG/PDF export (snapshots dropped; print only if asked for)
+- [x] HTML export: one self-contained file with the viewer, pages and data; opens offline, tooltips and page tabs
+  work, clicks highlight (Export menu and `export_dashboard` `format: html`)
 - [x] Chart types: Waterfall, Tornado, Treemap, Scatter, Heatmap, Trend, KPI, Gauge, Pivot Table
 - [x] Dynamic date filters (this/last/next period, period to date, last n quarters)
 - [x] Parameters ([$name] in queries as bound values, filters, titles and text; dashboard controls; MCP)

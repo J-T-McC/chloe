@@ -428,6 +428,11 @@ await step("agent builds a report and writes notes", async () => {
   if (!file.includes("/reports/Agent report/Daily p1 ") || readFileSync(file).length !== Buffer.from(img.data, "base64").length) throw new Error("export file: " + file);
   const pdf = await tool("export_dashboard", { workspace: "Agent report", dashboard: "Daily", format: "pdf" });
   if (pdf.isError || !readFileSync(pdf.structuredContent.files[0]).subarray(0, 4).equals(Buffer.from("%PDF"))) throw new Error("pdf: " + text(pdf));
+  // An HTML report to share: the viewer, the pages and the data, in one file.
+  const html = await tool("export_dashboard", { workspace: "Agent report", dashboard: "Daily", format: "html" });
+  if (html.isError) throw new Error("html: " + text(html));
+  const report = readFileSync(html.structuredContent.files[0], "utf8");
+  if (!report.startsWith("<!doctype html>") || !report.includes('id="chloe-report"') || !report.includes('"name":"Daily"')) throw new Error("html report: " + report.slice(0, 200));
   await mcpTab();
 });
 

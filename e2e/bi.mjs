@@ -324,6 +324,41 @@ await step("pages, report size and present", async () => {
   check((await ws.locator(".bi-deps").innerText()).includes("Sales overview"), "chart used by");
 });
 
+await step("HTML report: one file that draws the pages without Chloe", async () => {
+  await page.locator(".tab", { hasText: "Sales overview" }).click();
+  await dash().getByRole("button", { name: "Export" }).click();
+  await page.locator(".menu-item", { hasText: "All Pages as HTML" }).click();
+  const saved = dash().locator(".notice-banner", { hasText: "Saved" });
+  await saved.waitFor({ timeout: 30_000 });
+  check((await saved.innerText()).includes("Sales overview.html"), "saved html path");
+  await saved.getByRole("button", { name: "Dismiss" }).click();
+  const file = new URL("./.out/exports/Sales overview.html", import.meta.url);
+  const html = readFileSync(file, "utf8");
+  check(html.startsWith("<!doctype html>") && !html.includes("SELECT"), "no SQL in the report");
+  // A fresh page, from disk, with no network: the report draws on its own.
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+  const report = await ctx.newPage();
+  const requests = [];
+  report.on("request", (r) => r.url().startsWith("file:") || r.url().startsWith("data:") || requests.push(r.url()));
+  const errors = [];
+  report.on("pageerror", (e) => errors.push(e.message));
+  await report.goto(file.href);
+  await report.locator(".bi-echart svg").first().waitFor();
+  check((await report.title()) === "Sales overview", "report title");
+  check((await report.locator(".report-meta").innerText()).includes("data as of"), "as of");
+  check((await report.getByTestId("bi-value").innerText()).length > 0, "value tile");
+  check(!(await report.getByTestId("bi-text").locator("img").count()), "text still sanitized");
+  await report.screenshot({ path: `${out}/bi-report-html.png` });
+  await report.getByRole("button", { name: "Page 2" }).click();
+  await report.getByText("More below.").waitFor();
+  await report.keyboard.press("ArrowLeft");
+  await report.locator(".bi-echart svg").first().waitFor();
+  await report.getByRole("button", { name: "All pages" }).click();
+  check((await report.locator(".report-page").count()) === 2, "all pages");
+  check(!requests.length && !errors.length, `offline and clean: ${requests} ${errors}`);
+  await ctx.close();
+});
+
 // Phase 3 chart types, each built in a fresh chart from the workspace tab.
 const newChart = async (type) => {
   await page.locator(".tab", { hasText: "Sales (BI)" }).click();
@@ -532,6 +567,30 @@ await step("click to filter, controls and highlight on a dashboard", async () =>
   await page.waitForTimeout(800);
   check((await value()) === "$376", "highlight changed the value: " + (await value()));
   check((await dash().getByTestId("bi-picks").innerText()).includes("Highlighting"), "highlight chip");
+  // In an HTML report a click highlights (nothing can query again) and the
+  // control shows its values but is off.
+  await page.keyboard.press("Escape");
+  await dash().locator(".bi-dash-canvas-wrap").click({ position: { x: 4, y: 4 } });
+  await dash().getByLabel("Chart interaction").selectOption("filter");
+  await dash().getByRole("button", { name: "Export" }).click();
+  await page.locator(".menu-item", { hasText: "All Pages as HTML" }).click();
+  const saved = dash().locator(".notice-banner", { hasText: "Saved" });
+  await saved.waitFor({ timeout: 30_000 });
+  const name = (await saved.innerText()).match(/exports\/(.*\.html)/)[1];
+  await saved.getByRole("button", { name: "Dismiss" }).click();
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+  const report = await ctx.newPage();
+  await report.goto(new URL(`./.out/exports/${name}`, import.meta.url).href);
+  const bars = report.locator(".bi-tile", { has: report.locator(".bi-chart-title", { hasText: "Monthly" }) }).locator(".bi-echart svg");
+  await bars.waitFor();
+  check(await report.getByLabel("Control from").isDisabled(), "control off in the report");
+  await report.waitForTimeout(600);
+  await bars.locator("path[fill]:not([fill='none'])").nth(1).click({ force: true });
+  await report.getByTestId("bi-picks").waitFor();
+  check((await report.getByTestId("bi-picks").innerText()).includes("Highlighting"), "report highlights");
+  check((await report.getByTestId("bi-value").innerText()) === "$376", "report value kept");
+  await report.screenshot({ path: `${out}/bi-report-interaction.png` });
+  await ctx.close();
 });
 
 await step("joined tables and custom fields in a new data source", async () => {

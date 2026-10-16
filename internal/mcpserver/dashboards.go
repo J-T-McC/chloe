@@ -88,7 +88,7 @@ type DashboardOpened struct {
 type ExportArgs struct {
 	DashboardArgs
 	Page       string            `json:"page,omitempty" jsonschema:"a page number (1 = first) or name; default every page"`
-	Format     string            `json:"format,omitempty" jsonschema:"png (the default: one image per page, also returned to you so you can see the page) or pdf (one file of the pages)"`
+	Format     string            `json:"format,omitempty" jsonschema:"png (the default: one image per page, also returned to you so you can see the page), pdf (one file of the pages) or html (one self-contained file: the pages drawn as in Chloe, with tooltips and page tabs, and the data as of now; it opens in any browser without Chloe)"`
 	Parameters map[string]string `json:"parameters,omitempty" jsonschema:"parameter values to draw the pages with, by name; the saved values don't change"`
 }
 
@@ -396,7 +396,7 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 		})
 
 	addRich(s, srv, ep, &mcp.Tool{Name: "export_dashboard", Description: "Draws a dashboard's pages as Chloe shows them and saves them in the user's Chloe Reports folder: PNG images " +
-		"(returned to you too, so you can check how a page looks: text that's cut off, crowded charts, empty space) or a PDF. Needs Chloe's window open.",
+		"(returned to you too, so you can check how a page looks: text that's cut off, crowded charts, empty space), a PDF, or an interactive HTML report to share. Needs Chloe's window open.",
 		Annotations: &mcp.ToolAnnotations{Title: "Export dashboard", DestructiveHint: &f, OpenWorldHint: &f}},
 		func(ctx context.Context, c *call, in ExportArgs) (ExportOut, []mcp.Content, error) {
 			p, w, err := c.workspace(in.Workspace)
@@ -411,8 +411,8 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 			if format == "" {
 				format = "png"
 			}
-			if format != "png" && format != "pdf" {
-				return ExportOut{}, nil, fmt.Errorf("format is png or pdf, not %q", in.Format)
+			if format != "png" && format != "pdf" && format != "html" {
+				return ExportOut{}, nil, fmt.Errorf("format is png, pdf or html, not %q", in.Format)
 			}
 			var pages []int
 			if in.Page != "" {
@@ -449,16 +449,32 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 			if _, err := w.Values(in.Parameters); err != nil {
 				return ExportOut{}, nil, err
 			}
-			pngs, err := c.s.events.Render(ctx, p, d.ID, pages, scale, in.Parameters)
-			if err != nil {
-				return ExportOut{}, nil, err
-			}
 			dir := filepath.Join(bi.ReportsDir(), fileSafe(w.Name))
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return ExportOut{}, nil, err
 			}
 			stamp := time.Now().Format("2006-01-02 150405")
 			out := ExportOut{Files: []string{}, Format: format}
+			if format == "html" {
+				html, err := c.s.events.RenderHTML(ctx, p, d.ID, pages, in.Parameters)
+				if err != nil {
+					return ExportOut{}, nil, err
+				}
+				f := filepath.Join(dir, fmt.Sprintf("%s %s.html", fileSafe(d.Name), stamp))
+				if err := os.WriteFile(f, html, 0o644); err != nil {
+					return ExportOut{}, nil, err
+				}
+				for _, pi := range pages {
+					out.Pages = append(out.Pages, pi+1)
+				}
+				out.Files = append(out.Files, f)
+				c.act.SQL = f
+				return out, nil, nil
+			}
+			pngs, err := c.s.events.Render(ctx, p, d.ID, pages, scale, in.Parameters)
+			if err != nil {
+				return ExportOut{}, nil, err
+			}
 			var content []mcp.Content
 			for i, pi := range pages {
 				out.Pages = append(out.Pages, pi+1)

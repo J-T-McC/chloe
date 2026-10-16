@@ -177,7 +177,13 @@ func TestDashboardTools(t *testing.T) {
 	if data, _ := os.ReadFile(pdf["files"].([]any)[0].(string)); !bytes.HasPrefix(data, []byte("%PDF")) || f.events.rendered[len(f.events.rendered)-1] != "[0]@2" {
 		t.Fatalf("pdf export: %v", pdf)
 	}
-	f.call(t, "export_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly report", "format": "gif"}, "png or pdf")
+	html := f.call(t, "export_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly report", "format": "html"}, "")
+	if p := html["files"].([]any)[0].(string); !strings.HasSuffix(p, ".html") || f.events.rendered[len(f.events.rendered)-1] != "[0]@html" {
+		t.Fatalf("html export: %v %v", html, f.events.rendered)
+	} else if data, _ := os.ReadFile(p); !bytes.HasPrefix(data, []byte("<!doctype html>")) {
+		t.Fatalf("html file: %.80s", data)
+	}
+	f.call(t, "export_dashboard", map[string]any{"workspace": "Ops", "dashboard": "Weekly report", "format": "gif"}, "png, pdf or html")
 
 	// Slides: rows that don't fit are named; notes are never cut off; notes follow
 	// their page by name when pages move.

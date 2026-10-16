@@ -6,7 +6,8 @@ import { toPng } from "html-to-image";
 import { useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 import { B, BI, Events, arr, errorText } from "../../api";
-import { PAGE_WIDTH, PageCanvas } from "./DashboardEditor";
+import { PAGE_WIDTH, PageCanvas } from "./Canvas";
+import { buildReport } from "./reportExport";
 import { ParamValues, paramValues } from "./Parameters";
 import { ChartTheme } from "./theme";
 
@@ -81,6 +82,12 @@ export function ExportHost() {
     () =>
       Events.On("bi:render", (ev) => {
         const r = ev.data;
+        if (r.format === "html") {
+          buildReport(r.path, r.dashboard, { pages: arr(r.pages), overrides: (r.params ?? {}) as Record<string, string>, since: r.since || 0 })
+            .then((html) => BI.Rendered(r.id, [html], ""))
+            .catch((e) => BI.Rendered(r.id, [], errorText(e)));
+          return;
+        }
         renderPages(r.path, r.dashboard, arr(r.pages), r.scale || 1, (r.params ?? {}) as Record<string, string>, { since: r.since || 0 })
           .then((pngs) => BI.Rendered(r.id, pngs, ""))
           .catch((e) => BI.Rendered(r.id, [], errorText(e)));

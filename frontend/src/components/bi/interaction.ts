@@ -3,7 +3,7 @@
 // targets. Both become extra filters on the charts they reach, added when the
 // chart is read; the stored charts never change.
 import type { B } from "../../api";
-import { arr } from "../../api";
+import { arr } from "../../arr";
 
 /** A clicked point: the tile, its chart and the dimension value. */
 export interface Pick {

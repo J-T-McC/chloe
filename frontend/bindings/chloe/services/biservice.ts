@@ -124,7 +124,7 @@ export function Rename(path: string, name: string): $CancellablePromise<string> 
 
 /**
  * Rendered is the window's answer to a render request: PNG data URLs (or
- * base64), one per page, or the error it hit.
+ * base64), one per page, or the HTML report; or the error it hit.
  */
 export function Rendered(id: string, pages: string[] | null, errText: string): $CancellablePromise<void> {
     return $Call.ByID(2137889060, id, pages, errText);
