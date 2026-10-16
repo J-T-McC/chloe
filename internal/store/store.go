@@ -68,8 +68,14 @@ func Open(dir string, secrets Secrets) (*Store, error) {
 		return nil, err
 	}
 	sealed := isSealed(data)
+	if !sealed {
+		if err := s.refusePlain(filepath.Base(s.path)); err != nil {
+			s.locked = fmt.Sprintf("Saved connections are locked: %v. Chloe left %s untouched; restore it from a backup or remove it.", err, s.path)
+			return s, nil
+		}
+	}
 	if sealed {
-		plain, err := s.openFile(data)
+		plain, err := s.openFile(filepath.Base(s.path), data)
 		if err != nil {
 			s.locked = fmt.Sprintf("Saved connections are locked: %v. Chloe left %s untouched; allow Chloe to use its keychain item and restart.", err, s.path)
 			return s, nil
@@ -389,7 +395,7 @@ func (s *Store) flushLocked() error {
 		return err
 	}
 	if s.encrypts() {
-		if data, err = s.sealFile(data); err != nil {
+		if data, err = s.sealFile(filepath.Base(s.path), data); err != nil {
 			return err
 		}
 	}

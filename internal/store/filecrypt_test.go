@@ -66,3 +66,39 @@ func TestEphemeralSecretsKeepPlainFile(t *testing.T) {
 		t.Fatal("memory secrets should keep a readable file for tests")
 	}
 }
+
+func TestPlainOrSwappedFilesRefusedOnceKeyed(t *testing.T) {
+	dir := t.TempDir()
+	kc := &persistentSecrets{}
+	s, err := Open(dir, kc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Save(model.Connection{Name: "a", Type: model.MySQL, Host: "db"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.writeDoc(mcpFile, map[string]any{"x": 1}); err != nil {
+		t.Fatal(err)
+	}
+	// A planted plain MCP settings file is refused.
+	sealedMCP, _ := os.ReadFile(filepath.Join(dir, mcpFile))
+	os.WriteFile(filepath.Join(dir, mcpFile), []byte(`{"endpoints":[{"danger":true}]}`), 0o600)
+	var v map[string]any
+	if err := s.readDoc(mcpFile, &v); err == nil {
+		t.Fatal("plain file accepted")
+	}
+	// A sealed file under another name doesn't open.
+	os.WriteFile(filepath.Join(dir, "queries.json"), sealedMCP, 0o600)
+	if err := s.readDoc("queries.json", &v); err == nil {
+		t.Fatal("swapped file accepted")
+	}
+	// A plain connections file locks the store instead of being read.
+	conns := filepath.Join(dir, "connections.json")
+	os.WriteFile(conns, []byte(`{"version":2,"connections":[{"id":"z","name":"evil","type":"mysql"}]}`), 0o600)
+	if s2, err := Open(dir, kc); err != nil || s2.Locked() == "" || len(s2.List()) != 0 {
+		t.Fatalf("plain connections: %v %q %d", err, s2.Locked(), len(s2.List()))
+	}
+	if _, err := s.OpenData([]byte("plain"), "p"); err == nil {
+		t.Fatal("plain data accepted")
+	}
+}

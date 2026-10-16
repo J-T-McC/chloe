@@ -247,7 +247,12 @@ func Write(p string, w Workspace) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(p, data, 0o644)
+	// Data source SQL and connection ids stay private to the user (files
+	// written by earlier releases were 0644).
+	if err := os.WriteFile(p, data, 0o600); err != nil {
+		return err
+	}
+	return os.Chmod(p, 0o600)
 }
 
 func copyDir(from, to string) error {
