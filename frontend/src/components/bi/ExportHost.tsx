@@ -27,6 +27,8 @@ interface Job {
 export interface RenderProgress {
   page?(done: number, total: number): void;
   cancelled?(): boolean;
+  /** Draw with data read at or after this time (ms); 0 takes recent data. */
+  since?: number;
 }
 
 // A page that can't be captured shouldn't hold up every export after it.
@@ -79,7 +81,7 @@ export function ExportHost() {
     () =>
       Events.On("bi:render", (ev) => {
         const r = ev.data;
-        renderPages(r.path, r.dashboard, arr(r.pages), r.scale || 1, (r.params ?? {}) as Record<string, string>)
+        renderPages(r.path, r.dashboard, arr(r.pages), r.scale || 1, (r.params ?? {}) as Record<string, string>, { since: r.since || 0 })
           .then((pngs) => BI.Rendered(r.id, pngs, ""))
           .catch((e) => BI.Rendered(r.id, [], errorText(e)));
       }),
@@ -143,7 +145,7 @@ export function ExportHost() {
   }
   return (
     <div className="bi-export-stage" ref={stage} style={{ width: PAGE_WIDTH }} aria-hidden>
-      <PageCanvas key={`${job.dashboard.id}/${index}`} page={page} charts={job.charts} path={job.path} theme={job.theme} tick={0} still overrides={job.overrides} values={job.values} />
+      <PageCanvas key={`${job.dashboard.id}/${index}`} page={page} charts={job.charts} path={job.path} theme={job.theme} tick={job.progress?.since ?? 0} still overrides={job.overrides} values={job.values} />
     </div>
   );
 }

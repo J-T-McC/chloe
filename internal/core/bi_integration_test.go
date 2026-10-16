@@ -4,10 +4,15 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"chloe/internal/bi"
+	"chloe/internal/core"
+	"chloe/internal/driver"
 	"chloe/internal/model"
 )
 
@@ -77,6 +82,9 @@ func TestBIChartsAcrossEngines(t *testing.T) {
 				t.Fatal(err)
 			}
 			// A time zone moves values across days: Jan 20 00:00 UTC is Monday evening in Los Angeles.
+			// Live charts read a cached copy of the source (SQLite) or the database
+			// itself; both must agree.
+			reads := map[string]core.BIRead{"cached": {}, "uncached": {Uncached: true}}
 			for _, mode := range []string{bi.ModeLive, bi.ModeArchive} {
 				src, err := m.BISaveSource(ctx, p, bi.DataSource{Meta: bi.Meta{Name: "Zoned " + mode}, ConnID: id, Database: e.database, Schema: e.schema, SQL: sql(ts), Mode: mode, Timezone: "America/Los_Angeles"})
 				if err != nil {
@@ -85,9 +93,11 @@ func TestBIChartsAcrossEngines(t *testing.T) {
 				w, _ := bi.Read(p)
 				c := bi.Chart{DataSource: src.ID, Type: "bar", Dimension: []bi.ChartField{{Field: "placed_at", Aggregate: "weekday_x"}}, Value: []bi.ChartField{{Field: "region", Aggregate: "count"}},
 					Filters: []bi.Filter{{Field: "placed_at", Op: "<", Values: []string{"2026-01-31"}}}}
-				data, err := m.BIChartData(ctx, w, c, nil)
-				if want := [][]any{{"Sun", 1.0}, {"Mon", 1.0}}; err != nil || !reflect.DeepEqual(data.Rows, want) {
-					t.Errorf("%s zoned: %v %v\n%s", mode, err, data.Rows, data.SQL)
+				for how, opt := range reads {
+					data, err := m.BIChartData(ctx, w, c, nil, opt)
+					if want := [][]any{{"Sun", 1.0}, {"Mon", 1.0}}; err != nil || !reflect.DeepEqual(data.Rows, want) {
+						t.Errorf("%s %s zoned: %v %v\n%s", mode, how, err, data.Rows, data.SQL)
+					}
 				}
 			}
 			for _, mode := range []string{bi.ModeLive, bi.ModeArchive} {
@@ -99,13 +109,15 @@ func TestBIChartsAcrossEngines(t *testing.T) {
 				for _, tc := range charts {
 					c := tc.c
 					c.DataSource = src.ID
-					data, err := m.BIChartData(ctx, w, c, nil)
-					if err != nil {
-						t.Errorf("%s %s: %v", mode, tc.name, err)
-						continue
-					}
-					if !reflect.DeepEqual(data.Rows, tc.want) {
-						t.Errorf("%s %s:\n got %v\nwant %v\n%s", mode, tc.name, data.Rows, tc.want, data.SQL)
+					for how, opt := range reads {
+						data, err := m.BIChartData(ctx, w, c, nil, opt)
+						if err != nil {
+							t.Errorf("%s %s %s: %v", mode, how, tc.name, err)
+							continue
+						}
+						if !reflect.DeepEqual(data.Rows, tc.want) {
+							t.Errorf("%s %s %s:\n got %v\nwant %v\n%s", mode, how, tc.name, data.Rows, tc.want, data.SQL)
+						}
 					}
 				}
 			}
@@ -130,7 +142,7 @@ func TestBIJoinsAcrossEngines(t *testing.T) {
 		}
 		w, _ := bi.Read(p)
 		data, err := m.BIChartData(ctx, w, bi.Chart{DataSource: src.ID, Type: "bar", Dimension: []bi.ChartField{{Field: "customers.full_name"}},
-			Value: []bi.ChartField{{Field: "id", Aggregate: "count"}}, Sort: &bi.ChartSort{By: "dimension"}}, nil)
+			Value: []bi.ChartField{{Field: "id", Aggregate: "count"}}, Sort: &bi.ChartSort{By: "dimension"}}, nil, core.BIRead{})
 		if err != nil || len(data.Rows) == 0 {
 			t.Fatalf("%s: %v %v\n%s", e.conn.Type, data.Rows, err, data.SQL)
 		}
@@ -138,5 +150,69 @@ func TestBIJoinsAcrossEngines(t *testing.T) {
 	}
 	if len(results) == 2 && results[0] != results[1] {
 		t.Errorf("engines differ:\n%s\n%s", results[0], results[1])
+	}
+}
+
+// A chart read that's given up on is stopped on the server, not left running
+// there, and at most BIMaxSessions BI reads use the server at once.
+func TestBIReadsOnTheServer(t *testing.T) {
+	for _, e := range engines() {
+		t.Run(string(e.conn.Type), func(t *testing.T) {
+			m, id := setup(t, e)
+			sleep, running := "SELECT SLEEP(30) AS s", "SELECT COUNT(*) FROM information_schema.processlist WHERE info LIKE CONCAT('%SLE', 'EP(30)%')"
+			if e.conn.Type == model.PostgreSQL {
+				sleep, running = "SELECT pg_sleep(30)::text AS s", "SELECT COUNT(*) FROM pg_stat_activity WHERE query LIKE '%pg_' || 'sleep(30)%' AND state = 'active'"
+			}
+			w := bi.New("slow")
+			w.DataSources = []bi.DataSource{{Meta: bi.Meta{ID: "slow", Name: "Slow"}, ConnID: id, Database: e.database, Schema: e.schema, SQL: sleep,
+				Mode: bi.ModeLive, Fields: []bi.Field{{Name: "s", Type: bi.TypeString}}}}
+			chart := bi.Chart{DataSource: "slow", Type: "value", Value: []bi.ChartField{{Field: "s", Aggregate: "count"}}}
+			count := func() int {
+				t.Helper()
+				var n int
+				err := m.WithSession(context.Background(), id, e.database, e.schema, func(ds driver.Session, _ driver.Dialect) error {
+					rows, err := ds.Query(context.Background(), running)
+					if err != nil {
+						return err
+					}
+					defer rows.Close()
+					cells := make([]*string, 1)
+					if rows.Next(cells) {
+						n, _ = strconv.Atoi(*cells[0])
+					}
+					return rows.Err()
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return n
+			}
+			// Six charts at once, given up on after a second: no more than BIMaxSessions
+			// reach the server, and none is still running afterwards.
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			var wg sync.WaitGroup
+			peak := 0
+			for range 6 {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					_, _ = m.BIChartData(ctx, w, chart, nil, core.BIRead{Uncached: true})
+				}()
+			}
+			time.Sleep(600 * time.Millisecond)
+			peak = count()
+			wg.Wait()
+			if peak == 0 || peak > core.BIMaxSessions {
+				t.Errorf("%d reads on the server at once, want 1..%d", peak, core.BIMaxSessions)
+			}
+			deadline := time.Now().Add(time.Second)
+			for count() > 0 {
+				if time.Now().After(deadline) {
+					t.Fatal("abandoned reads still running on the server")
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		})
 	}
 }

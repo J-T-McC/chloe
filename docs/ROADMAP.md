@@ -25,7 +25,16 @@ Export (`ExportHost.tsx`, `DashboardEditor.tsx`, `services/render.go`):
 - [x] A failed capture names its page instead of reading `[object Event]`
 - [ ] Tall report pages (~2,100px+) still fail to capture; capture them in slices or lower the pixel ratio
 - [ ] Exporting all pages fails as a whole when one page fails
-- [ ] Export re-runs every chart's query; reuse the data the open dashboard already has
+- [x] Export re-runs every chart's query: live sources are now cached and shared (see Performance)
+
+Performance (`core/bipool.go`, `core/bicache.go`): a 7-page dashboard ran the server out of connections
+- [x] Every chart opened (and logged in on) a new server connection, all at once with no limit: BI reads now share
+  4 warm sessions per connection, queued
+- [x] A read past its 30 s limit kept running on the server: it's now cancelled there
+- [x] Every chart re-ran its source's query: a live source is read once into memory for 5 minutes, shared by every
+  chart and page; Refresh reads it again once
+- [ ] Skip auto refresh while a dashboard's tab isn't showing
+- [ ] Drop a connection's cached sources when Chloe itself writes to it (grid edits, query tabs)
 
 Charts (`options.ts`, `ChartView.tsx`, `styles.css`):
 - [ ] `bar_line` / `stacked_bar_line` split by a series drop their secondary (line) fields: the series pivot only

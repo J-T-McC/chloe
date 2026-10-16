@@ -48,7 +48,10 @@ A chart uses exactly one data source. When a chart changes, every dashboard that
   - **Joined tables** (phase 3): drag a second table onto the first and pick the join type and fields, as in Navicat.
     Joins stay within one database. Cross-connection joins are out: they would need a local copy of both tables.
 - **Mode**:
-  - **Live**: rows are read when a chart is shown or refreshed.
+  - **Live**: rows are read when a chart is shown or refreshed. A read is kept for 5 minutes and shared: every
+    chart on the source, on any page, aggregates that copy, so a page reads each source once and going back to a
+    page reads nothing. **Refresh Data** (and auto refresh) reads each source again once, from then on. Sources
+    over 500 000 rows, and charts the copy can't express (PostgreSQL Median), are aggregated by the database.
   - **Archive**: rows are read once into a snapshot, and charts read the snapshot until **Refresh Data**. Navicat
     stores these as SQLite files in the workspace; Chloe does the same.
 - **Apply and Refresh Data** runs the source and fills the preview. The preview shows field names and types
@@ -269,8 +272,15 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 
 ## Implementation notes (phase 1)
 - `internal/bi` holds the workspace format, the chart type catalog and the query builder; `core/bi.go` runs live
-  sources (read-only sessions, 30 s) and archive snapshots (an in-memory SQLite database, serialized, gzipped and
+  sources and archive snapshots (an in-memory SQLite database, serialized, gzipped and
   sealed with the keychain key in `bi/data/<workspace id>/<source id>.archive`, cached in memory while in use).
+- Live reads (`core/bipool.go`) use at most 4 sessions per connection (one fewer than its session limit), kept warm
+  for a minute and queued for, instead of a new server login per chart. Each read is a read-only transaction with a
+  30 s limit; a read given up on is cancelled on the server (MySQL `KILL QUERY`, PostgreSQL `pg_cancel_backend`).
+- Live sources are cached (`core/bicache.go`) as in-memory archives keyed by connection, database, bound query and
+  fields; concurrent charts wait for one read. `ChartData` takes `since` (the last Refresh): a copy read before it
+  isn't used. MCP `get_chart_data` and `refresh_dashboard` read as of the call (one read per source per call);
+  `include_sql` reads the database directly so the SQL is the chart's own. `export_dashboard` reads as of the call.
 - Columns are typed from the database's type names; untyped columns, and text columns whose sampled values are all
   dates (SQLite stores dates as text), are typed from up to 200 sample rows.
 - Date buckets come back as sortable text (`2026-03`, `2026-Q1`; a week as the date of its Sunday, `2026-09-13`) and

@@ -236,6 +236,12 @@ export interface Data {
     "ranAt": string;
 
     /**
+     * Cached is set when a live source's rows came from a copy read at RanAt
+     * rather than from the database just now.
+     */
+    "cached"?: boolean;
+
+    /**
      * Params are the parameter values the read used, for titles and text.
      */
     "params"?: Values;

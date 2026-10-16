@@ -33,6 +33,9 @@ type RenderRequest struct {
 	Scale     float64 `json:"scale"`
 	// Params are parameter values to draw with (not saved).
 	Params map[string]string `json:"params,omitempty"`
+	// Since asks for data read at or after this time (Unix ms): an agent's
+	// export shows the data as it is now, each source read once for it.
+	Since int64 `json:"since,omitempty"`
 }
 
 func init() { application.RegisterEvent[RenderRequest](EventBIRender) }
@@ -56,7 +59,7 @@ func (MCPEvents) Render(ctx context.Context, path, dashboard string, pages []int
 	if app == nil {
 		return nil, errors.New("Chloe's window isn't available to draw the dashboard")
 	}
-	req := RenderRequest{ID: uuid.NewString(), Path: path, Dashboard: dashboard, Pages: pages, Scale: scale, Params: params}
+	req := RenderRequest{ID: uuid.NewString(), Path: path, Dashboard: dashboard, Pages: pages, Scale: scale, Params: params, Since: time.Now().UnixMilli()}
 	ch := make(chan renderResult, 1)
 	renders.Lock()
 	renders.pending[req.ID] = ch

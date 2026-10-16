@@ -59,4 +59,6 @@ Sample data lives in `testdata/seed_*` (`seed_mongo.js` runs in mongosh). To reb
 - Data Transfer (`core/datatransfer.go`) converts tables with `design.Convert(t, from, to)`: types, defaults (literal
   re-quoting), auto increment ↔ identity ↔ `INTEGER PRIMARY KEY`, unnamed SQLite constraints. Cells arrive as display
   strings, so `convertValue` turns hex back into bytes and booleans/timestamps into what the target takes.
+- Live BI sources are cached for 5 minutes (`core/bicache.go`): a test that changes data and reads a chart again
+  needs `core.BIRead{Since: time.Now()}` (what Refresh sends) or `Uncached`.
 - Wails sets the macOS Dock icon before launch finishes, so `main.go` sets it again on ApplicationStarted.

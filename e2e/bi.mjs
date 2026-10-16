@@ -152,6 +152,19 @@ await step("a value chart from New Chart", async () => {
   await page.waitForTimeout(200);
   check((await editor().getByTestId("bi-value").innerText()) === "$930", "decimals");
   check((await editor().locator(".bi-value-label").innerText()) === "Sum of Total", "label: " + (await editor().locator(".bi-value-label").innerText()));
+  // A live source is read once and kept: another chart of it (here the same
+  // chart as a KPI) draws from that copy until Refresh reads the source again.
+  const shown = () => editor().getByTestId("bi-value").innerText();
+  execFileSync("sqlite3", [`${dir}/sales.db`, "INSERT INTO orders (region, total, placed_at) VALUES ('North', 1000, '2026-04-03')"]);
+  await editor().getByRole("radio", { name: "KPI" }).click();
+  await page.waitForTimeout(600);
+  check((await shown()) === "$930", "kept copy: " + (await shown()));
+  await editor().getByRole("button", { name: "Refresh" }).click();
+  await editor().getByTestId("bi-value").filter({ hasText: /^\$1,930$/ }).waitFor({ timeout: 8000 });
+  execFileSync("sqlite3", [`${dir}/sales.db`, "DELETE FROM orders WHERE total = 1000"]);
+  await editor().getByRole("button", { name: "Refresh" }).click();
+  await editor().getByRole("radio", { name: "Value" }).click();
+  await editor().getByTestId("bi-value").filter({ hasText: /^\$930$/ }).waitFor({ timeout: 8000 });
   // Names are unique per kind: a chart may share its data source's name.
   await editor().getByLabel("Chart name").fill("orders");
   await editor().getByRole("button", { name: "Save" }).click();

@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"chloe/internal/bi"
 	"chloe/internal/core"
@@ -63,7 +64,7 @@ func TestBIChartsOnSQLite(t *testing.T) {
 	chart := bi.Chart{Meta: bi.Meta{Name: "Revenue"}, DataSource: "orders", Type: "line",
 		Dimension: []bi.ChartField{{Field: "placed_at", Aggregate: "month"}},
 		Value:     []bi.ChartField{{Field: "total", Aggregate: "sum"}, {Field: "id", Aggregate: "count"}}}
-	data, err := m.BIChartData(ctx, w, chart, nil)
+	data, err := m.BIChartData(ctx, w, chart, nil, core.BIRead{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +94,7 @@ func TestBIChartsOnSQLite(t *testing.T) {
 	}
 
 	// An incomplete chart isn't an error.
-	if d, err := m.BIChartData(ctx, w, bi.Chart{DataSource: "orders", Type: "bar"}, nil); err != nil || d.Complete {
+	if d, err := m.BIChartData(ctx, w, bi.Chart{DataSource: "orders", Type: "bar"}, nil, core.BIRead{}); err != nil || d.Complete {
 		t.Errorf("incomplete: %+v %v", d, err)
 	}
 }
@@ -125,7 +126,7 @@ func TestBIArchive(t *testing.T) {
 		t.Error("the archive is stored in the clear")
 	}
 	chart := bi.Chart{DataSource: "c", Type: "bar", Dimension: []bi.ChartField{{Field: "email"}}, Value: []bi.ChartField{{Field: "total", Aggregate: "sum"}}}
-	data, err := m.BIChartData(ctx, w, chart, nil)
+	data, err := m.BIChartData(ctx, w, chart, nil, core.BIRead{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,18 +136,18 @@ func TestBIArchive(t *testing.T) {
 	}
 	// Dates were normalised, so buckets work on the snapshot.
 	chart.Dimension = []bi.ChartField{{Field: "placed_at", Aggregate: "quarter"}}
-	if data, err = m.BIChartData(ctx, w, chart, nil); err != nil || !reflect.DeepEqual(data.Rows, [][]any{{"2024-Q1", 30.5}, {"2024-Q2", 157.25}}) {
+	if data, err = m.BIChartData(ctx, w, chart, nil, core.BIRead{}); err != nil || !reflect.DeepEqual(data.Rows, [][]any{{"2024-Q1", 30.5}, {"2024-Q2", 157.25}}) {
 		t.Fatalf("archive buckets: %+v %v", data.Rows, err)
 	}
 	// Live changes don't reach the snapshot until it's refreshed.
 	exec(t, m, id, "UPDATE orders SET total = 0")
-	if data, _ = m.BIChartData(ctx, w, chart, nil); data.Rows[0][1] != 30.5 {
+	if data, _ = m.BIChartData(ctx, w, chart, nil, core.BIRead{}); data.Rows[0][1] != 30.5 {
 		t.Errorf("snapshot changed: %+v", data.Rows)
 	}
 	if src, err = m.BIArchive(ctx, w, src); err != nil {
 		t.Fatal(err)
 	}
-	if data, _ = m.BIChartData(ctx, w, chart, nil); data.Rows[0][1] != 0.0 {
+	if data, _ = m.BIChartData(ctx, w, chart, nil, core.BIRead{}); data.Rows[0][1] != 0.0 {
 		t.Errorf("refresh: %+v", data.Rows)
 	}
 	prev, err := m.BIPreview(ctx, w, src, 2)
@@ -178,7 +179,7 @@ func TestBIJoinedTables(t *testing.T) {
 	}
 	w, _ := bi.Read(p)
 	chart := bi.Chart{DataSource: src.ID, Type: "bar", Dimension: []bi.ChartField{{Field: "who"}}, Value: []bi.ChartField{{Field: "total", Aggregate: "sum"}}}
-	data, err := m.BIChartData(ctx, w, chart, nil)
+	data, err := m.BIChartData(ctx, w, chart, nil, core.BIRead{})
 	if want := [][]any{{"Ada", 132.75}, {"bob@example.com", 55.0}}; err != nil || !reflect.DeepEqual(data.Rows, want) {
 		t.Fatalf("joined: %v %v\n%s", data.Rows, err, data.SQL)
 	}
@@ -188,7 +189,7 @@ func TestBIJoinedTables(t *testing.T) {
 		t.Fatal(err)
 	}
 	w, _ = bi.Read(p)
-	if data, err = m.BIChartData(ctx, w, chart, nil); err != nil || len(data.Rows) != 2 {
+	if data, err = m.BIChartData(ctx, w, chart, nil, core.BIRead{}); err != nil || len(data.Rows) != 2 {
 		t.Fatalf("archived: %v %v", data.Rows, err)
 	}
 	for _, bad := range []bi.Join{
@@ -240,5 +241,86 @@ func TestBIFieldTypesWithoutRows(t *testing.T) {
 	if _, err := m.BISaveSource(ctx, p, bi.DataSource{Meta: bi.Meta{Name: "Bad"}, ConnID: id, Database: "main", Table: "orders", Mode: bi.ModeLive,
 		Joins: []bi.Join{{Table: "customers", Type: "left", On: []bi.JoinOn{{Left: "nosuch", Right: "id"}}}}}); err == nil || strings.Contains(err.Error(), "t0.") {
 		t.Errorf("bad left column: %v", err)
+	}
+}
+
+// Charts on a live source share one read of it until Refresh asks for data read
+// after a time; Uncached reads the database itself.
+func TestBISourceCache(t *testing.T) {
+	m, id := biSetup(t)
+	ctx := context.Background()
+	w := bi.New("Sales")
+	src := bi.DataSource{Meta: bi.Meta{ID: "orders", Name: "Orders"}, ConnID: id, Database: "main", Table: "orders", Mode: bi.ModeLive}
+	fields, err := m.BIFields(ctx, bi.Workspace{}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src.Fields = fields
+	w.DataSources = append(w.DataSources, src)
+	count := bi.Chart{DataSource: "orders", Type: "value", Value: []bi.ChartField{{Field: "id", Aggregate: "count"}}}
+	total := bi.Chart{DataSource: "orders", Type: "value", Value: []bi.ChartField{{Field: "total", Aggregate: "sum"}}}
+	read := func(c bi.Chart, opt core.BIRead) bi.Data {
+		t.Helper()
+		d, err := m.BIChartData(ctx, w, c, nil, opt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	first := read(count, core.BIRead{})
+	if !first.Cached || first.Rows[0][0] != 5.0 {
+		t.Fatalf("first read: %+v", first)
+	}
+	exec(t, m, id, `INSERT INTO orders (customer_id, total, placed_at) VALUES (2, 1000, '2024-06-01');`)
+	// Another chart on the source, and the same chart again, use the copy.
+	if d := read(total, core.BIRead{}); !d.Cached || d.RanAt != first.RanAt || d.Rows[0][0] != 187.75 {
+		t.Fatalf("second chart: %+v", d)
+	}
+	if d := read(count, core.BIRead{}); d.Rows[0][0] != 5.0 {
+		t.Fatalf("again: %+v", d)
+	}
+	if d := read(count, core.BIRead{Uncached: true}); d.Cached || d.Rows[0][0] != 6.0 {
+		t.Fatalf("uncached: %+v", d)
+	}
+	// Refresh: data read from now on; the next chart reuses that read.
+	refresh := core.BIRead{Since: time.Now()}
+	if d := read(count, refresh); !d.Cached || d.Rows[0][0] != 6.0 {
+		t.Fatalf("refreshed: %+v", d)
+	}
+	exec(t, m, id, `DELETE FROM orders WHERE total = 1000;`)
+	if d := read(total, refresh); d.Rows[0][0] != 1187.75 {
+		t.Fatalf("same refresh: %+v", d)
+	}
+	// A source too big to keep is aggregated by its database.
+	core.BICacheMaxRows = 2
+	t.Cleanup(func() { core.BICacheMaxRows = 500_000 })
+	if d := read(count, core.BIRead{Since: time.Now()}); d.Cached || d.Rows[0][0] != 5.0 {
+		t.Fatalf("too big: %+v", d)
+	}
+}
+
+// A read that runs past its deadline is cancelled on the server and frees its
+// session for the next one.
+func TestBISessionCancelled(t *testing.T) {
+	m, id := biSetup(t)
+	old := core.BIMaxSessions
+	core.BIMaxSessions = 1
+	t.Cleanup(func() { core.BIMaxSessions = old })
+	w := bi.New("Slow")
+	slow := bi.DataSource{Meta: bi.Meta{ID: "slow", Name: "Slow"}, ConnID: id, Database: "main", Mode: bi.ModeLive,
+		SQL:    "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 100000000) SELECT i FROM n",
+		Fields: []bi.Field{{Name: "i", Type: bi.TypeNumber}}}
+	orders := bi.DataSource{Meta: bi.Meta{ID: "orders", Name: "Orders"}, ConnID: id, Database: "main", Table: "orders", Mode: bi.ModeLive}
+	w.DataSources = append(w.DataSources, slow, orders)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := m.BIChartData(ctx, w, bi.Chart{DataSource: "slow", Type: "value", Value: []bi.ChartField{{Field: "i", Aggregate: "sum"}}}, nil, core.BIRead{Uncached: true})
+	if err == nil || time.Since(start) > 5*time.Second {
+		t.Fatalf("slow read: %v after %v", err, time.Since(start))
+	}
+	d, err := m.BIChartData(context.Background(), w, bi.Chart{DataSource: "orders", Type: "value", Value: []bi.ChartField{{Field: "id", Aggregate: "count"}}}, nil, core.BIRead{Uncached: true})
+	if err != nil || d.Rows[0][0] != 5.0 {
+		t.Fatalf("next read: %v %v", d.Rows, err)
 	}
 }
