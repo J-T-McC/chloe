@@ -226,3 +226,13 @@ func BenchmarkLiteralMySQLString(b *testing.B) {
 		Literal(&v, "VARCHAR(40)", "mysql")
 	}
 }
+
+// Number cells that aren't JSON numbers (Postgres NaN and Infinity) are written as strings.
+func TestJSONNumbersStayValid(t *testing.T) {
+	var j jsonWriter
+	for v, want := range map[string]string{"9.50": "9.50", "-0.5e3": "-0.5e3", "NaN": `"NaN"`, "Infinity": `"Infinity"`, "+1": `"+1"`, ".5": `".5"`, "0x10": `"0x10"`} {
+		if got := string(j.value(&v, kindNumber)); got != want {
+			t.Errorf("value(%q) = %s, want %s", v, got, want)
+		}
+	}
+}
