@@ -116,6 +116,8 @@ func TestCheckReadOnly(t *testing.T) {
 		{mysqlD, "SHOW TABLES", ""},
 		{mysqlD, "/* hi */ WITH x AS (SELECT 1) SELECT * FROM x;", ""},
 		{mysqlD, "SELECT * FROM t INTO OUTFILE '/tmp/x'", "write files"},
+		{mysqlD, "SELECT * FROM t INTO/**/OUTFILE '/tmp/x'", "write files"},
+		{mysqlD, "/*!CREATE TABLE pwned AS*/ SELECT * FROM t", "executable comments"},
 		{mysqlD, "DROP TABLE t", "only runs read"},
 		{mysqlD, "SELECT 1; SELECT 2", "exactly one"},
 		{pgD, "SHOW search_path", ""},

@@ -95,7 +95,7 @@ parameters. A connection the endpoint can use is opened on demand (it needs a sa
   `= != < <= > >= like not_like in not_in between is_null is_not_null`.
 - `run_query` takes one statement starting with SELECT, WITH, EXPLAIN, SHOW, DESCRIBE, VALUES or TABLE (no PRAGMA)
   and runs it in a read-only transaction (`START TRANSACTION READ ONLY`, `BEGIN READ ONLY`, SQLite `query_only`).
-  MySQL also refuses `INTO OUTFILE/DUMPFILE`. Functions with side effects outside the data (e.g. PostgreSQL
+  MySQL also refuses `INTO OUTFILE/DUMPFILE` (however it is spaced or commented) and executable comments (`/*! … */`, which MySQL runs as code). Functions with side effects outside the data (e.g. PostgreSQL
   `pg_terminate_backend`) are limited only by the connection's database user, so share connections with a
   least-privileged user.
 - `update_rows` and `delete_rows` need a non-empty `where`. Each write call is one transaction.

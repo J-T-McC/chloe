@@ -123,8 +123,13 @@ func TestIntegrationEngines(t *testing.T) {
 			} else {
 				q["sql"] = "SELECT * FROM mcp_it FOR UPDATE"
 				f.call(t, "run_query", q, "READ ONLY transaction")
+				// MySQL runs executable comments, so DDL could hide behind a SELECT.
+				q["sql"] = "/*!CREATE TABLE mcp_it_pwned AS*/ SELECT * FROM mcp_it"
+				f.call(t, "run_query", q, "executable comments")
 				q["sql"] = "SHOW TABLES"
-				f.call(t, "run_query", q, "")
+				if out := f.call(t, "run_query", q, ""); strings.Contains(fmt.Sprint(rows(out)), "mcp_it_pwned") {
+					t.Fatal("an executable comment created a table")
+				}
 			}
 			args := at(nil)
 			delete(args, "table")
