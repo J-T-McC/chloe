@@ -240,6 +240,14 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
           ))}
         </div>
         <div className="modal-body form">
+          <ConnectionDiagram
+            probe={probe}
+            ssh={conn.ssh.enabled && !sqlite}
+            ssl={conn.ssl.enabled && !sqlite}
+            type={conn.type}
+            sshHost={conn.ssh.host}
+            dbHost={sqlite ? fileBase(conn.sqlite?.path) || "file" : conn.host}
+          />
           {section === "general" && (
             <>
               {preset && (
@@ -418,7 +426,6 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
 
           {section === "ssh" && (
             <>
-              <TunnelDiagram probe={probe} enabled={conn.ssh.enabled} type={conn.type} sshHost={conn.ssh.host} dbHost={conn.host} />
               <Field label="">
                 <Check label="Use SSH Tunnel" checked={conn.ssh.enabled} onChange={(v) => setSSH({ enabled: v })} />
               </Field>
@@ -698,31 +705,36 @@ function ToggleText({ label, value, def, disabled, hint, onChange }: { label: st
 type Probe = "idle" | "testing" | "ok" | "ssh-failed" | "db-failed";
 type Leg = "idle" | "active" | "ok" | "fail";
 
-// Errors raised before the tunnel is up (internal/tunnel): connect, handshake, keys, agent.
+// With a tunnel: errors raised before it is up (internal/tunnel): connect, handshake, keys, agent.
 // Anything else happened past the SSH server, on the way to or inside the database.
 const sshFailed = (msg: string) => /^(ssh connect|ssh handshake)|private key|ssh agent/i.test(msg);
 
-function TunnelDiagram({ probe, enabled, type, sshHost, dbHost }: { probe: Probe; enabled: boolean; type: DBType; sshHost: string; dbHost: string }) {
-  const legs: [Leg, Leg] =
+// Shown above every tab, like Navicat: Chloe → (SSH Server →) Database, lit by the last test.
+function ConnectionDiagram({ probe, ssh, ssl, type, sshHost, dbHost }: { probe: Probe; ssh: boolean; ssl: boolean; type: DBType; sshHost: string; dbHost: string }) {
+  const failed = probe === "ssh-failed" || probe === "db-failed";
+  // Without a tunnel every failure is on the one link to the database.
+  const [toServer, toDB]: [Leg, Leg] =
     probe === "testing" ? ["active", "active"]
     : probe === "ok" ? ["ok", "ok"]
-    : probe === "ssh-failed" ? ["fail", "idle"]
-    : probe === "db-failed" ? ["ok", "fail"]
+    : ssh && probe === "ssh-failed" ? ["fail", "idle"]
+    : failed ? ["ok", "fail"]
     : ["idle", "idle"];
-  const lit = enabled ? probe : "idle";
-  const [toServer, toDB] = enabled ? legs : (["idle", "idle"] as [Leg, Leg]);
-  const nodeState = (leg: Leg) => (leg === "ok" || leg === "fail" ? leg : "idle");
+  const nodeState = (leg: Leg): Leg => (leg === "active" ? "active" : leg === "ok" || leg === "fail" ? leg : "idle");
   return (
-    <div className={"tunnel-diagram" + (enabled ? "" : " off")} data-probe={lit}>
-      <TunnelNode label="Chloe" sub="this Mac" state={lit === "idle" ? "idle" : lit === "testing" ? "active" : "ok"}>
+    <div className="tunnel-diagram" data-probe={probe}>
+      <TunnelNode label="Chloe" sub="this Mac" state={probe === "idle" ? "idle" : probe === "testing" ? "active" : "ok"}>
         <Laptop size={22} />
       </TunnelNode>
-      <TunnelLink state={toServer} lock />
-      <TunnelNode label="SSH Server" sub={sshHost || "—"} state={toServer === "active" ? "active" : nodeState(toServer)}>
-        <Server size={22} />
-      </TunnelNode>
-      <TunnelLink state={toDB} />
-      <TunnelNode label="Database" sub={dbHost || "—"} state={toDB === "active" ? "active" : nodeState(toDB)}>
+      {ssh && (
+        <>
+          <TunnelLink state={toServer} lock />
+          <TunnelNode label="SSH Server" sub={sshHost || "—"} state={nodeState(toServer)}>
+            <Server size={22} />
+          </TunnelNode>
+        </>
+      )}
+      <TunnelLink state={toDB} lock={ssl} />
+      <TunnelNode label="Database" sub={dbHost || "—"} state={nodeState(toDB)}>
         <DBIcon type={type} size={24} />
       </TunnelNode>
     </div>
