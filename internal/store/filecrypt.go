@@ -78,7 +78,9 @@ func (s *Store) fileKey(create bool) ([]byte, error) {
 // fileAADFor binds a sealed file to its name, so one sealed file can't stand in
 // for another (version 2; version 1 files share fileAAD and are resealed when
 // next written).
-func fileAADFor(name string) []byte { return append(slices.Clone(fileAAD), append([]byte{0}, name...)...) }
+func fileAADFor(name string) []byte {
+	return append(slices.Clone(fileAAD), append([]byte{0}, name...)...)
+}
 
 // refusePlain is the error for a plain file where a sealed one belongs: once the
 // keychain holds Chloe's key everything it writes is sealed, so a plain file was
