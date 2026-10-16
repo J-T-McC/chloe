@@ -89,6 +89,19 @@ func TestIntegrationEngines(t *testing.T) {
 					t.Fatalf("%s: %v", plan, out)
 				}
 			}
+			// The server stops at the limit: ORDER BY and duplicate column names survive.
+			q["limit"] = 5
+			q["sql"] = "SELECT TABLE_NAME, TABLE_NAME FROM information_schema.COLUMNS ORDER BY TABLE_NAME DESC"
+			if e.conn.Type == model.PostgreSQL {
+				q["sql"] = "SELECT g, g FROM generate_series(1, 50) g ORDER BY g DESC"
+			}
+			out = f.call(t, "run_query", q, "")
+			if r := rows(out); len(r) != 5 || out["truncated"] != true || len(r[0]) != 2 {
+				t.Fatalf("limited read: %v", out)
+			} else if e.conn.Type == model.PostgreSQL && r[0][0] != "50" {
+				t.Fatalf("order lost: %v", r)
+			}
+			delete(q, "limit")
 			// A write hidden inside a SELECT, through a function, is stopped by the
 			// read-only transaction rather than the statement check.
 			if e.conn.Type == model.PostgreSQL {
