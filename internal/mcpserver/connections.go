@@ -207,6 +207,9 @@ func describe(c model.Connection, group string, level store.MCPLevel) string {
 			}
 		}
 		lines = append(lines, "SSL:      "+ssl)
+		if params := strings.TrimSpace(c.Advanced.ConnectionParams); params != "" {
+			lines = append(lines, "Params:   "+strings.ReplaceAll(params, "\n", ", "))
+		}
 	}
 	access := map[store.MCPLevel]string{store.MCPOff: "none", store.MCPRead: "read", store.MCPWrite: "read-write"}[level]
 	return strings.Join(append(lines, "Group:    "+group+" (this endpoint: "+access+")"), "\n")
