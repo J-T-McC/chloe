@@ -115,3 +115,17 @@ func TestParseMongo(t *testing.T) {
 		t.Errorf("plain %+v %v", c, err)
 	}
 }
+
+func TestTLSURLsVerifyCertificates(t *testing.T) {
+	for raw, want := range map[string]bool{
+		"rediss://:pw@cache.example:6380":                                 true,
+		"redis://cache.example:6379":                                      false,
+		"mongodb+srv://u:p@cluster0.abc.mongodb.net/app":                  true,
+		"mongodb+srv://u:p@cluster0.abc.mongodb.net/app?tlsInsecure=true": false,
+	} {
+		c, err := Parse(raw)
+		if err != nil || c.SSL.VerifyHost != want {
+			t.Errorf("%s: verify %v (%v), want %v", raw, c.SSL.VerifyHost, err, want)
+		}
+	}
+}
