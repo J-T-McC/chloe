@@ -213,7 +213,7 @@ func (j *jsonWriter) value(v *string, k valueKind) []byte {
 	}
 	switch k {
 	case kindNumber:
-		if _, err := strconv.ParseFloat(*v, 64); err == nil {
+		if jsonNumberRe.MatchString(*v) {
 			return []byte(*v)
 		}
 	case kindBool:
@@ -304,10 +304,12 @@ var (
 	mdEscaper    = strings.NewReplacer("|", `\|`, "\n", "<br>", "\r", "")
 
 	// Raw numbers must be finite decimals: ParseFloat also takes NaN, Inf and hex floats.
-	decimalRe  = regexp.MustCompile(`^[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$`)
-	mysqlHexRe = regexp.MustCompile(`^0x[0-9A-Fa-f]*$`)
-	blobHexRe  = regexp.MustCompile(`^0x(?:[0-9A-Fa-f]{2})*$`)
-	byteaHexRe = regexp.MustCompile(`^\\x[0-9A-Fa-f]*$`)
+	decimalRe = regexp.MustCompile(`^[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$`)
+	// JSON numbers: no NaN, Infinity, hex, leading + or bare decimal point (those are written as strings).
+	jsonNumberRe = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$`)
+	mysqlHexRe   = regexp.MustCompile(`^0x[0-9A-Fa-f]*$`)
+	blobHexRe    = regexp.MustCompile(`^0x(?:[0-9A-Fa-f]{2})*$`)
+	byteaHexRe   = regexp.MustCompile(`^\\x[0-9A-Fa-f]*$`)
 )
 
 // Literal renders a display value as a SQL literal for the dialect. Display values come
@@ -430,7 +432,7 @@ func (x *xlsxWriter) Write(row []*string) error {
 		case v == nil:
 			cells[i] = nil
 		case x.kinds[i] == kindNumber:
-			if f, err := strconv.ParseFloat(*v, 64); err == nil && len(*v) < 16 {
+			if f, err := strconv.ParseFloat(*v, 64); err == nil && len(*v) < 16 && decimalRe.MatchString(*v) {
 				cells[i] = f
 			} else {
 				cells[i] = *v // keep precision of large decimals as text
