@@ -616,7 +616,8 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 			return out, nil
 		})
 
-	add(s, srv, ep, readOnlyTool("describe_table", "Describe table", "Shows a table's or view's columns (type, nullable, default, primary key), indexes and foreign keys."),
+	add(s, srv, ep, readOnlyTool("describe_table", "Describe table", "Shows a table's or view's columns (type, nullable, default, primary key), indexes and foreign keys. "+
+		"Check it before writing a query: filters on indexed columns stay fast on big tables, and the foreign keys give the joins."),
 		func(ctx context.Context, c *call, in TableArgs) (model.TableDetail, error) {
 			t, err := c.resolve(ctx, in.Connection, in.Database, in.Schema, store.MCPRead)
 			if err != nil {
@@ -674,6 +675,8 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 
 	add(s, srv, ep, readOnlyTool("run_query", "Run read-only query",
 		"Runs one read-only SQL statement (SELECT, WITH, EXPLAIN, SHOW…) in a read-only transaction and returns its rows. "+
+			"Filter and aggregate in the SQL: at most 1000 rows come back. Use EXPLAIN (MySQL and PostgreSQL also EXPLAIN ANALYZE; SQLite EXPLAIN QUERY PLAN) "+
+			"to check that a query over a big table uses an index before running it or saving it. "+
 			"Not available on connections where some databases are hidden from this endpoint (except PostgreSQL)."),
 		func(ctx context.Context, c *call, in QueryArgs) (RowsOut, error) {
 			t, err := c.resolve(ctx, in.Connection, in.Database, in.Schema, store.MCPRead)
@@ -709,7 +712,8 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 	if !writes {
 		return
 	}
-	add(s, srv, ep, writeTool("insert_rows", "Insert rows", "Inserts rows into a table in one transaction. The user approves it in Chloe unless they've turned on danger mode.", false),
+	add(s, srv, ep, writeTool("insert_rows", "Insert rows", "Inserts rows into a table in one transaction. The user approves it in Chloe unless they've turned on danger mode. "+
+		"Send all the rows in one call (up to 1000): each call is one approval.", false),
 		func(ctx context.Context, c *call, in InsertArgs) (InsertOut, error) {
 			if len(in.Rows) == 0 {
 				return InsertOut{}, errors.New("rows is empty")
@@ -759,7 +763,8 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 			return out, err
 		})
 
-	add(s, srv, ep, writeTool("update_rows", "Update rows", "Changes columns of the rows matching the conditions, in one transaction. The user approves it in Chloe unless they've turned on danger mode.", true),
+	add(s, srv, ep, writeTool("update_rows", "Update rows", "Changes columns of the rows matching the conditions to the same values, in one transaction. The user approves it in Chloe unless they've turned on danger mode. "+
+		"Match on the primary key where you can; select_rows with the same conditions shows what will change.", true),
 		func(ctx context.Context, c *call, in UpdateArgs) (ChangedOut, error) {
 			var out ChangedOut
 			err := c.write(ctx, in.TableArgs, func(ctx context.Context, ds driver.Session, d driver.Dialect, b *builder) (int64, error) {

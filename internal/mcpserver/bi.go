@@ -289,7 +289,10 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 		})
 
 	add(s, srv, ep, &mcp.Tool{Name: "create_data_source", Description: "Adds a data source to a workspace: a table or view, or one read-only query, on a connection shared with you. " +
-		"Charts aggregate its rows. It always runs read-only; archive mode reads the rows once into a snapshot kept (encrypted) with the workspace.",
+		"Charts aggregate its rows. It always runs read-only; archive mode reads the rows once into a snapshot kept (encrypted) with the workspace. " +
+		"A live source's SQL runs inside every chart's query each time the chart is drawn, so check its plan with EXPLAIN first: " +
+		"filter on indexed columns inside the SQL (a [$parameter] for the time window) rather than on columns it computes, and group to the grain the charts need. " +
+		"See guide topic reports.",
 		Annotations: &mcp.ToolAnnotations{Title: "Create data source", DestructiveHint: &f, OpenWorldHint: &f}},
 		func(ctx context.Context, c *call, in CreateSourceArgs) (SourceOut, error) {
 			p, _, err := c.workspace(in.Workspace)

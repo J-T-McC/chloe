@@ -221,6 +221,13 @@ func TestIntegrationMongoReadOnlyAndMonitor(t *testing.T) {
 	if !strings.Contains(names, "mongo_find") || strings.Contains(names, "mongo_insert") || strings.Contains(names, "redis_") {
 		t.Fatalf("tools: %s", names)
 	}
+	if g := f.call(t, "guide", map[string]any{"topic": "mongodb"}, ""); !strings.Contains(g["text"].(string), "$match") {
+		t.Fatalf("mongodb topic: %v", g)
+	}
+	f.call(t, "guide", map[string]any{"topic": "redis"}, "this endpoint has mongodb")
+	if text := f.client.InitializeResult().Instructions; !strings.Contains(text, "mongo_describe") || strings.Contains(text, "describe_table") {
+		t.Fatalf("a MongoDB endpoint's instructions:\n%s", text)
+	}
 	if s := f.call(t, "server_status", map[string]any{"connection": "docs", "filter": "uptime"}, "")["values"].([]any); len(s) == 0 {
 		t.Fatal("server_status")
 	}

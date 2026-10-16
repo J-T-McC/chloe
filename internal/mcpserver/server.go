@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -406,16 +407,17 @@ func (s *Server) serverFor(id string) *mcp.Server {
 	// those engines, which change without the settings changing, so they're part
 	// of the cache key.
 	redisTools, mongoTools := s.sees(ep, model.Redis), s.sees(ep, model.MongoDB)
-	key := fmt.Sprintf("%s+%t+%t", id, redisTools, mongoTools)
+	// The instructions speak to the engines the endpoint sees (SQL until it sees any).
+	sqlDBs := s.sees(ep, sqlEngines...) || !redisTools && !mongoTools
+	key := fmt.Sprintf("%s+%t+%t+%t", id, redisTools, mongoTools, sqlDBs)
 	if srv, ok := s.servers[key]; ok {
 		return srv
 	}
-	srv := mcp.NewServer(&mcp.Implementation{Name: "chloe", Title: "Chloe", Version: Build}, &mcp.ServerOptions{
-		Instructions: "Chloe is a database client. These tools reach the connections the user has shared with this endpoint. " +
-			"Start with list_connections. Writes may wait for the user to approve them in Chloe. (Chloe build " + Build + ")",
-	})
-	writes := canWrite(ep)
+	o := offerFor(ep, sqlDBs, redisTools, mongoTools)
+	srv := mcp.NewServer(&mcp.Implementation{Name: "chloe", Title: "Chloe", Version: Build}, &mcp.ServerOptions{Instructions: o.instructions()})
+	writes := o.writes
 	s.addTools(srv, id, writes)
+	s.addGuideTool(srv, id, o)
 	if redisTools {
 		s.addRedisTools(srv, id, writes)
 	}
@@ -442,10 +444,10 @@ func (s *Server) serverFor(id string) *mcp.Server {
 	return srv
 }
 
-// sees reports whether an endpoint can see any connection of an engine.
-func (s *Server) sees(ep store.MCPEndpoint, typ model.DBType) bool {
+// sees reports whether an endpoint can see any connection of these engines.
+func (s *Server) sees(ep store.MCPEndpoint, types ...model.DBType) bool {
 	for _, conn := range s.m.Store.List() {
-		if conn.Type == typ && accessTo(ep, conn).visible() {
+		if slices.Contains(types, conn.Type) && accessTo(ep, conn).visible() {
 			return true
 		}
 	}

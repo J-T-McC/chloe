@@ -4,6 +4,7 @@
 #   make server && e2e/tester.sh        # then: node e2e/mcp-call.mjs <tool> '<json>'
 # TESTER_REDIS=1 also shares the Docker Redis (reseeded) read-write as "cache", with Monitor on;
 # TESTER_MONGO=1 does the same for the Docker MongoDB (reseeded) as "docs".
+# TESTER_WRITE=1 shares games read-write, with Saved queries on.
 # Writes are approved automatically and each approval dialog's text goes to e2e/.tester/approvals.log.
 # Stop it with: pkill -f Chloe-server; pkill -f tester-setup
 set -e
@@ -26,6 +27,13 @@ FROM n;
 WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 300)
 INSERT INTO users SELECT i, (i % 4 <> 0), strftime('%Y-%m-%d %H:%M:%S', '2026-09-12', '+' || (i * 9173 % 3000000) || ' seconds'),
   strftime('%Y-%m-%d %H:%M:%S', '2026-10-01', '+' || (i * 4111 % 1200000) || ' seconds') FROM n;
+-- A big table indexed only by room, so a filter on time or kind scans it.
+CREATE TABLE room_events (id INTEGER PRIMARY KEY, room_id INTEGER, kind TEXT, created_at TEXT);
+CREATE INDEX room_events_room_id ON room_events (room_id);
+WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 300000)
+INSERT INTO room_events SELECT i, 1 + i % 420,
+  CASE i % 9 WHEN 0 THEN 'join' WHEN 1 THEN 'leave' WHEN 2 THEN 'chat' WHEN 3 THEN 'win' ELSE 'move' END,
+  strftime('%Y-%m-%d %H:%M:%S', '2026-09-10', '+' || (i * 11 % 3500000) || ' seconds') FROM n;
 SQL
 if [ -n "$TESTER_REDIS" ]; then
   docker exec -i chloe-redis redis-cli -a chloe --no-auth-warning < testdata/seed_redis.txt >/dev/null
@@ -35,6 +43,6 @@ if [ -n "$TESTER_MONGO" ]; then
 fi
 CHLOE_CONFIG_DIR="$out/config" CHLOE_SECRETS=memory CHLOE_REPORTS_DIR="$out/reports" ./bin/Chloe-server > "$out/server.log" 2>&1 &
 sleep 1.5
-cd e2e && TESTER_REDIS="$TESTER_REDIS" TESTER_MONGO="$TESTER_MONGO" nohup node tester-setup.mjs "$out" > "$out/setup.log" 2>&1 &
+cd e2e && TESTER_REDIS="$TESTER_REDIS" TESTER_MONGO="$TESTER_MONGO" TESTER_WRITE="$TESTER_WRITE" nohup node tester-setup.mjs "$out" > "$out/setup.log" 2>&1 &
 for i in $(seq 1 60); do [ -f "$out/endpoint.json" ] && break; sleep 0.5; done
 cat "$out/endpoint.json" 2>/dev/null || (cat "$out/setup.log"; exit 1)

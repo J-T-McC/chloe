@@ -53,6 +53,23 @@ nothing runs, and the agent is told nobody answered (so it doesn't take silence 
 Creating a connection always asks, even in danger mode, and the password can be typed into the dialog instead of
 coming from the agent.
 
+## Instructions and guide
+Tools describe themselves one at a time; agents also need to know how they fit together and how to use them
+without hurting the user's servers (the Uptime dashboard's sources each scanned 100K+ rows of an unindexed table,
+once per chart, because nothing told the agent to look at the plan).
+- **Server instructions** (sent when a session starts; Claude Code puts them in the agent's system prompt) are built
+  per endpoint from what it's offered: the engines it can see (SQL, MongoDB, Redis), whether it can write, danger
+  mode, and its capabilities. They cover the order to work in (look at tables and indexes first), letting the
+  database aggregate (reads return at most 1000 rows), checking plans with EXPLAIN before slow or repeated queries,
+  suggesting a missing index instead of working around it, the DDL route (`open_query_tab` with Saved queries, else
+  SQL in the reply), approvals (batch writes; a decline is the user's answer), and one line each for Reports and
+  models. They name the Chloe build, so testers can tell which build they reach.
+- **`guide`** (read-only, always offered) returns one topic as Markdown: `sql`, `writes`, `reports`, `models`,
+  `mongodb`, `redis`, only those the endpoint has. The topics live in `internal/mcpserver/guide/*.md`.
+- Tool descriptions repeat the advice where it matters at the moment of the call (`describe_table`, `run_query`,
+  `insert_rows`, `update_rows`, `create_data_source`).
+- An agent sees changed instructions in a new session only.
+
 ## Tools
 Results are `{columns, rows, row_count, truncated}` with cells as display strings (as the grid shows them; binary as
 `0x…` hex; `null` for NULL). Default limit 100 rows, max 1000, ~256 KB per response, long cells cut at 4 KB. Every

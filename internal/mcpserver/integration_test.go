@@ -78,6 +78,17 @@ func TestIntegrationEngines(t *testing.T) {
 			if r := rows(out); r[0][0] != "23" {
 				t.Fatalf("sum: %v", out)
 			}
+			// The plans the guide tells agents to read run through run_query.
+			plans := []string{"EXPLAIN FORMAT=TREE SELECT * FROM mcp_it WHERE qty > 1", "EXPLAIN ANALYZE SELECT * FROM mcp_it WHERE qty > 1"}
+			if e.schema != "" {
+				plans = []string{"EXPLAIN SELECT * FROM mcp_it WHERE qty > 1", "EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM mcp_it WHERE qty > 1"}
+			}
+			for _, plan := range plans {
+				q["sql"] = plan
+				if out := f.call(t, "run_query", q, ""); len(rows(out)) == 0 {
+					t.Fatalf("%s: %v", plan, out)
+				}
+			}
 			// A write hidden inside a SELECT, through a function, is stopped by the
 			// read-only transaction rather than the statement check.
 			if e.conn.Type == model.PostgreSQL {

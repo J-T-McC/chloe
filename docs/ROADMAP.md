@@ -15,7 +15,8 @@ Order reflects dependencies: later features build on the earlier ones. Specs for
 6. Polish: Redis pub/sub, cluster and sentinel; Form view and hex/image cell editors; preferences window
    (history logging on/off, autosave interval)
 
-MCP server (6b): Redis and MongoDB tools are done.
+MCP server (6b): Redis and MongoDB tools are done. Agents get per-endpoint instructions and a `guide` tool (SQL, writes,
+reports, models, MongoDB, Redis) on how to work without hurting the server.
 
 ### BI fixes (found building the Uptime Command Center dashboard, 2026-10-15)
 Export (`ExportHost.tsx`, `DashboardEditor.tsx`, `services/render.go`):
