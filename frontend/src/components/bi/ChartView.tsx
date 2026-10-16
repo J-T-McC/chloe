@@ -10,7 +10,7 @@ import type { B } from "../../api";
 import { formatLabel, formatNumber, oneYear } from "./format";
 import { controlStyle } from "./interaction";
 import { buildOption, pickKey, pivot } from "./options";
-import { expandParams } from "./Parameters";
+import { expandParams } from "./params";
 import { ChartTheme, METER, STATUS, TOKENS } from "./theme";
 
 echarts.use([BarChart, LineChart, PieChart, TreemapChart, ScatterChart, HeatmapChart, GaugeChart, CustomChart, GridComponent, LegendComponent, TooltipComponent, VisualMapComponent, SVGRenderer]);
@@ -325,6 +325,8 @@ function ControlView({ chart, data, control }: { chart: B.Chart; data: B.Data; c
   const style = controlStyle(chart, col?.type);
   const value = control?.value ?? null;
   const set = (v: string[] | null) => control?.onChange(v);
+  // Without a page to filter (an HTML report), a Control shows its values only.
+  const off = !control;
   const label = (v: unknown) => formatLabel(v, col, chart.props?.dateFormat, { raw: chart.props?.labelCase === "raw" });
   if (style === "range") {
     const nums = col?.type === "number";
@@ -333,6 +335,7 @@ function ControlView({ chart, data, control }: { chart: B.Chart; data: B.Data; c
     const input = (i: 0 | 1) => (
       <input
         aria-label={i ? "Control to" : "Control from"}
+        disabled={off}
         type={nums ? "number" : "date"}
         value={value?.[i] ?? ""}
         placeholder={i ? hi : lo}
@@ -361,7 +364,7 @@ function ControlView({ chart, data, control }: { chart: B.Chart; data: B.Data; c
   if (style === "combo")
     return (
       <div className="bi-control" data-testid="bi-control">
-        <select aria-label={`Control ${col?.label ?? ""}`} value={value?.[0] ?? ""} onChange={(e) => set(e.target.value ? [e.target.value] : null)}>
+        <select aria-label={`Control ${col?.label ?? ""}`} disabled={off} value={value?.[0] ?? ""} onChange={(e) => set(e.target.value ? [e.target.value] : null)}>
           <option value="">All</option>
           {values.map((v) => (
             <option key={String(v)} value={String(v)}>
@@ -381,6 +384,7 @@ function ControlView({ chart, data, control }: { chart: B.Chart; data: B.Data; c
             <input
               type="checkbox"
               checked={on}
+              disabled={off}
               onChange={() => {
                 const next = on ? (value ?? []).filter((x) => x !== k) : [...(value ?? []), k];
                 set(next.length ? next : null);

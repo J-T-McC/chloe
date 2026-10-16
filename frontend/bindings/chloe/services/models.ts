@@ -89,6 +89,11 @@ export interface RenderRequest {
      * export shows the data as it is now, each source read once for it.
      */
     "since"?: number;
+
+    /**
+     * Format is "html" for an HTML report of the pages; otherwise PNGs.
+     */
+    "format"?: string;
 }
 
 /**

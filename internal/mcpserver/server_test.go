@@ -95,6 +95,14 @@ func (e *events) Render(_ context.Context, path, id string, pages []int, scale f
 	return out, nil
 }
 
+// RenderHTML returns a stand-in report naming the pages.
+func (e *events) RenderHTML(_ context.Context, path, id string, pages []int, _ map[string]string) ([]byte, error) {
+	e.mu.Lock()
+	e.rendered = append(e.rendered, fmt.Sprintf("%v@html", pages))
+	e.mu.Unlock()
+	return []byte(fmt.Sprintf("<!doctype html><title>%s</title><p>pages %v</p>", id, pages)), nil
+}
+
 func (e *events) Activity(mcpserver.Activity) {}
 func (e *events) Status(mcpserver.Status)     {}
 func (e *events) Settings(store.MCPSettings)  {}

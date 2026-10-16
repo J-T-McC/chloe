@@ -1,10 +1,10 @@
 // Markdown for dashboard text and agents' notes. Agents write it, so the HTML is
 // sanitized (no raw HTML, scripts or event handlers) and links open in the
 // system browser instead of navigating Chloe's window.
-import { Browser } from "@wailsio/runtime";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { useMemo } from "react";
+import { openLink } from "./links";
 
 const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -39,7 +39,7 @@ export function Markdown({ text, className }: { text: string; className?: string
         if (!a) return;
         e.preventDefault();
         const href = a.getAttribute("href");
-        if (href) Browser.OpenURL(href).catch(() => window.open(href, "_blank", "noopener"));
+        if (href) openLink(href);
       }}
     />
   );

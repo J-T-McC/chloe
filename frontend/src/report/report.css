@@ -1,0 +1,113 @@
+/* The report page scrolls and its text can be selected, unlike Chloe's window. */
+html,
+body,
+#root {
+  height: auto;
+  min-height: 100%;
+  overflow: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.report {
+  min-height: 100vh;
+}
+
+.report-bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  border-bottom: 1px solid;
+}
+
+.report-title h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.report-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.report-param {
+  border: 1px solid;
+  border-radius: 10px;
+  padding: 0 7px;
+}
+
+.report-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.report-tabs button {
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+.report-tabs button:hover {
+  opacity: 1;
+}
+
+.report-tabs button.on {
+  opacity: 1;
+  font-weight: 600;
+  border-color: currentColor;
+}
+
+.report-body {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 12px 16px 32px;
+}
+
+.report-page + .report-page {
+  margin-top: 28px;
+}
+
+.report-page-name {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+@media (max-width: 700px) {
+  .report-body {
+    padding: 8px;
+  }
+  .report-tabs {
+    margin-left: 0;
+  }
+}
+
+@media print {
+  .report-bar {
+    position: static;
+  }
+  .report-tabs {
+    display: none;
+  }
+  .report-page {
+    break-after: page;
+  }
+}

@@ -20,9 +20,9 @@ export function linkLabel(link?: DM.Link | null) {
 }
 
 /** "mcp:Claude Code" → "AI (Claude Code)". */
-export function createdByLabel(by?: string) {
-  return by?.startsWith("mcp:") ? `AI (${by.slice(4)})` : "";
-}
+import { createdByLabel } from "../../createdBy";
+
+export { createdByLabel };
 
 export function ModelsList() {
   const version = useModelLibrary((s) => s.version);

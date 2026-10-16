@@ -220,7 +220,7 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 | `edit_dashboard` | — | `workspace, dashboard, pages?, rename?` |
 | `refresh_dashboard` | Read on its sources | `workspace, dashboard, parameters?` → each chart's rows and the page text |
 | `set_notes` | — | `workspace, dashboard, page?, markdown` |
-| `export_dashboard` | Read on its sources | `workspace, dashboard, format` (pdf / png / html) |
+| `export_dashboard` | Read on its sources | `workspace, dashboard, format` (png / pdf / html) |
 | `open_dashboard` | — | `workspace, dashboard` (Chloe comes to the front) |
 | `open_chart` | — | `workspace, chart` (Chloe comes to the front) |
 | `edit_data_source` | Read | `workspace, data_source, rename?, table? or sql?, mode?, timezone?, filters?` (agent-made only) |
@@ -351,6 +351,13 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
 - Chloe's window draws exports: the page is laid out off screen at its 1280px size without animation, captured once
   every chart has its data (html-to-image), at twice the size for files. **Export** in the dashboard toolbar saves this
   page as PNG or every page as a PDF (pages embedded losslessly, 960pt wide).
+- **HTML** (Export > All Pages as HTML…, or `export_dashboard` with `format: html`): one self-contained file, about
+  1.1 MB plus the data, that opens in any browser offline. It carries the report viewer (`src/report`, built by
+  `vite.report.config.ts` into `public/report` before the app), the pages, the charts on them and each chart's data
+  as read at export (the same cache and `since` as the screen). Pages draw with the same `PageCanvas` and
+  `ChartView` as Chloe; tabs (← →) or All pages (for printing); tooltips and legends work. Clicks highlight instead
+  of filtering and Controls are shown but off, since nothing can query again. No connection, database name or SQL
+  goes in: sources carry their fields only and chart data drops its SQL.
 - `export_dashboard` (MCP) draws pages at their layout size, returns PNGs as images so the agent can see the page, and
   saves them (or a PDF) in the Reports folder (`~/Documents/Chloe Reports/<workspace>/`, `CHLOE_REPORTS_DIR` to move
   it). It needs Read on every source the pages' charts use, and Chloe's window open (the server asks the window to draw
@@ -384,9 +391,9 @@ opt-in per endpoint like the others (`docs/specs/mcp-server.md`).
      query in a workspace you pick.
    - MCP tools: `list_workspaces`, `get_workspace`, `create_workspace`, `create_data_source`, `create_chart`,
      `edit_chart`, `get_chart_data`, `open_chart`. ✅
-2. **Dashboards and reports** ✅: pages, charts, Markdown text, refresh and auto refresh, Present, Export (PDF, PNG),
-   and the MCP dashboard, notes and export tools. Snapshots were dropped; SVG/HTML export and print are not planned
-   unless asked for.
+2. **Dashboards and reports** ✅: pages, charts, Markdown text, refresh and auto refresh, Present, Export (PDF, PNG,
+   HTML), and the MCP dashboard, notes and export tools. Snapshots were dropped; SVG export and print are not
+   planned unless asked for.
 3. **The rest of Navicat's BI**: Waterfall, Tornado, Treemap, Scatter, Heatmap, Trend, KPI, Gauge, Pivot Table ✅; dynamic date filters ✅; parameters ✅; interaction and Control ✅; custom fields ✅; joined tables ✅; shapes and lock ✅;
    Control; interaction (cross-filter, highlight, controls); parameters; custom fields; joined tables; shapes, groups,
    lock, alignment guides; dynamic date filters.

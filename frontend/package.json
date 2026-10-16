@@ -4,9 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build:dev": "tsc && vite build --minify false --mode development",
-    "build": "tsc && vite build --mode production",
+    "dev": "npm run build:report && vite",
+    "build:report": "vite build --config vite.report.config.ts",
+    "build:dev": "tsc && npm run build:report && vite build --minify false --mode development",
+    "build": "tsc && npm run build:report && vite build --mode production",
     "preview": "vite preview"
   },
   "dependencies": {

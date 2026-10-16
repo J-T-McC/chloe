@@ -36,6 +36,8 @@ type RenderRequest struct {
 	// Since asks for data read at or after this time (Unix ms): an agent's
 	// export shows the data as it is now, each source read once for it.
 	Since int64 `json:"since,omitempty"`
+	// Format is "html" for an HTML report of the pages; otherwise PNGs.
+	Format string `json:"format,omitempty"`
 }
 
 func init() { application.RegisterEvent[RenderRequest](EventBIRender) }
@@ -48,21 +50,42 @@ type renderResult struct {
 	err   error
 }
 
+type pendingRender struct {
+	ch   chan renderResult
+	html bool
+}
+
 var renders = struct {
 	sync.Mutex
-	pending map[string]chan renderResult
-}{pending: map[string]chan renderResult{}}
+	pending map[string]pendingRender
+}{pending: map[string]pendingRender{}}
 
 // Render has the window draw dashboard pages and returns them as PNGs.
 func (MCPEvents) Render(ctx context.Context, path, dashboard string, pages []int, scale float64, params map[string]string) ([][]byte, error) {
+	return render(ctx, RenderRequest{Path: path, Dashboard: dashboard, Pages: pages, Scale: scale, Params: params})
+}
+
+// RenderHTML has the window build an HTML report of dashboard pages.
+func (MCPEvents) RenderHTML(ctx context.Context, path, dashboard string, pages []int, params map[string]string) ([]byte, error) {
+	out, err := render(ctx, RenderRequest{Path: path, Dashboard: dashboard, Pages: pages, Params: params, Format: "html"})
+	if err != nil {
+		return nil, err
+	}
+	if len(out) != 1 {
+		return nil, errors.New("the window sent no report")
+	}
+	return out[0], nil
+}
+
+func render(ctx context.Context, req RenderRequest) ([][]byte, error) {
 	app := application.Get()
 	if app == nil {
 		return nil, errors.New("Chloe's window isn't available to draw the dashboard")
 	}
-	req := RenderRequest{ID: uuid.NewString(), Path: path, Dashboard: dashboard, Pages: pages, Scale: scale, Params: params, Since: time.Now().UnixMilli()}
+	req.ID, req.Since = uuid.NewString(), time.Now().UnixMilli()
 	ch := make(chan renderResult, 1)
 	renders.Lock()
-	renders.pending[req.ID] = ch
+	renders.pending[req.ID] = pendingRender{ch: ch, html: req.Format == "html"}
 	renders.Unlock()
 	defer func() {
 		renders.Lock()
@@ -81,16 +104,25 @@ func (MCPEvents) Render(ctx context.Context, path, dashboard string, pages []int
 }
 
 // Rendered is the window's answer to a render request: PNG data URLs (or
-// base64), one per page, or the error it hit.
+// base64), one per page, or the HTML report; or the error it hit.
 func (s *BIService) Rendered(id string, pages []string, errText string) {
 	renders.Lock()
-	ch := renders.pending[id]
+	pr, ok := renders.pending[id]
 	renders.Unlock()
-	if ch == nil {
+	if !ok {
 		return
 	}
+	ch := pr.ch
 	if errText != "" {
 		ch <- renderResult{err: errors.New(errText)}
+		return
+	}
+	if pr.html {
+		out := make([][]byte, len(pages))
+		for i, p := range pages {
+			out[i] = []byte(p)
+		}
+		ch <- renderResult{pages: out}
 		return
 	}
 	out := make([][]byte, len(pages))
@@ -145,13 +177,19 @@ func (s *BIService) WriteExport(path, format string, pages []string) error {
 
 func exportExt(format string) (string, error) {
 	switch format {
-	case "png", "pdf":
+	case "png", "pdf", "html":
 		return "." + format, nil
 	}
-	return "", fmt.Errorf("export is png or pdf, not %q", format)
+	return "", fmt.Errorf("export is png, pdf or html, not %q", format)
 }
 
 func exportData(format string, pages []string) ([]byte, string, error) {
+	if format == "html" {
+		if len(pages) != 1 {
+			return nil, "", errors.New("an HTML report is one file")
+		}
+		return []byte(pages[0]), ".html", nil
+	}
 	pngs := make([][]byte, len(pages))
 	for i, p := range pages {
 		var err error
@@ -169,7 +207,7 @@ func exportData(format string, pages []string) ([]byte, string, error) {
 		data, err := bi.PDF(pngs, bi.PageWidth)
 		return data, ".pdf", err
 	}
-	return nil, "", fmt.Errorf("export is png or pdf, not %q", format)
+	return nil, "", fmt.Errorf("export is png, pdf or html, not %q", format)
 }
 
 func safeName(s string) string {

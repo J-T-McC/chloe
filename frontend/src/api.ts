@@ -41,8 +41,7 @@ export async function copyText(text: string): Promise<void> {
   }
 }
 
-/** Go nil slices arrive as null; normalise to an empty array. */
-export const arr = <T,>(x: T[] | null | undefined): T[] => x ?? [];
+export { arr } from "./arr";
 
 /** Error text from a rejected binding call. */
 export function errorText(e: unknown): string {
