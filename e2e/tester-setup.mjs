@@ -45,8 +45,9 @@ await page.getByLabel("Run MCP server").check();
 await page.getByRole("button", { name: "New Endpoint" }).click();
 await page.getByLabel("Endpoint name").fill("Tester");
 await page.getByLabel("Endpoint name").blur();
-await page.getByLabel("Access to games", { exact: true }).selectOption("read");
+await page.getByLabel("Access to games", { exact: true }).selectOption(process.env.TESTER_WRITE ? "write" : "read");
 await page.getByLabel("Reports").check();
+if (process.env.TESTER_WRITE) await page.getByLabel("Saved queries and query tabs").check();
 if (redis) await page.getByLabel("Access to cache", { exact: true }).selectOption("write");
 if (mongo) await page.getByLabel("Access to docs", { exact: true }).selectOption("write");
 if (redis || mongo) await page.getByLabel("Monitor", { exact: true }).check();
@@ -57,7 +58,7 @@ console.log("ready");
 // Show the BI library so opened dashboards have somewhere to go.
 await page.getByRole("button", { name: "BI", exact: true }).click();
 // Approve writes as they come, logging what the dialog showed.
-if (redis || mongo) {
+if (redis || mongo || process.env.TESTER_WRITE) {
   (async () => {
     for (;;) {
       const dlg = page.getByRole("dialog", { name: "Approve AI change" });

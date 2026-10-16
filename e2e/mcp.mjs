@@ -106,6 +106,15 @@ await step("list and select over MCP", async () => {
   if (s.row_count !== 3 || s.rows[0][1] !== "row 3") throw new Error(text(r));
 });
 
+await step("instructions and guide follow the endpoint", async () => {
+  const init = await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "1" } });
+  const ins = init.result.instructions;
+  for (const want of ["describe_table", "EXPLAIN", "approve each call", "more on: sql, writes."])
+    if (!ins.includes(want)) throw new Error(`instructions lack ${want}: ${ins}`);
+  const g = await tool("guide", { topic: "writes" });
+  if (!g.structuredContent.text.includes("One call, one approval")) throw new Error(text(g));
+});
+
 await step("write waits for approval, Approve runs it", async () => {
   const pending = tool("delete_rows", { connection: "big", table: "n", where: where(1) });
   await page.getByRole("dialog", { name: "Approve AI change" }).waitFor();
