@@ -93,7 +93,13 @@ func (Driver) Open(ctx context.Context, c model.Connection, d tunnel.Dialer) (dr
 	}
 	db := sql.OpenDB(connector)
 	stop := sqlcommon.ConfigurePool(db, a)
-	if err := db.PingContext(ctx); err != nil {
+	// The driver's Timeout only covers the dial; through an SSH tunnel the dial succeeds
+	// at once and a silent server would block the greeting read, so bound the whole
+	// first connection (dial, handshake, auth) by the connect timeout.
+	pctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
+	err = db.PingContext(pctx)
+	cancel()
+	if err != nil {
 		stop()
 		db.Close()
 		return nil, err
