@@ -319,3 +319,28 @@ func TestBISessionCancelled(t *testing.T) {
 		t.Fatalf("next read: %v %v", d.Rows, err)
 	}
 }
+
+// A live chart cut off at MaxChartRows says so, read fresh or from the cache.
+func TestBITruncatedChartSaysSo(t *testing.T) {
+	m, id := biSetup(t)
+	ctx := context.Background()
+	exec(t, m, id, `CREATE TABLE many (n INTEGER); WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 10001) INSERT INTO many SELECT n FROM c;`)
+	w := bi.New("Many")
+	src := bi.DataSource{Meta: bi.Meta{ID: "many", Name: "Many"}, ConnID: id, Database: "main", Table: "many", Mode: bi.ModeLive}
+	fields, err := m.BIFields(ctx, bi.Workspace{}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src.Fields = fields
+	w.DataSources = append(w.DataSources, src)
+	c := bi.Chart{DataSource: "many", Type: "bar", Dimension: []bi.ChartField{{Field: "n"}}, Value: []bi.ChartField{{Field: "n", Aggregate: "count"}}}
+	for _, cached := range []bool{false, true} {
+		d, err := m.BIChartData(ctx, w, c, nil, core.BIRead{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.Cached != cached || !d.Truncated || len(d.Rows) != bi.MaxChartRows {
+			t.Fatalf("cached %v: truncated %v, %d rows", d.Cached, d.Truncated, len(d.Rows))
+		}
+	}
+}
