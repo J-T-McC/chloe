@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { DBType, Explorer, Mongo, ObjectInfo, ObjectKind, Redis, arr, errorText } from "./api";
 import { KIND_LABEL } from "./components/icons";
 import { connById, useApp } from "./store";
+import { isPG } from "./dialect";
 
 export type NodeType = "group" | "conn" | "db" | "schema" | "folder" | "object";
 
@@ -58,7 +59,6 @@ const MONGO_FOLDERS = [ObjectKind.KindCollection, ObjectKind.KindView];
 
 export const isMongo = (connId: string) => connById(connId)?.type === DBType.MongoDB;
 
-export const isPG = (connId: string) => connById(connId)?.type === DBType.PostgreSQL;
 
 async function loadChildren(n: TreeNode): Promise<TreeNode[]> {
   const d = n.depth + 1;

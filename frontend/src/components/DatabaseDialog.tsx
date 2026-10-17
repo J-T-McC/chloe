@@ -11,6 +11,7 @@ import { Combobox } from "./Combobox";
 import { pickSQLiteFile } from "./ConnectionDialog";
 import { Modal, ModalFooter } from "./Modal";
 import { Field, Check } from "./form";
+import { isPG } from "../dialect";
 
 const useDbDialog = create<{ target?: { connId: string; name?: string } }>(() => ({}));
 
@@ -40,7 +41,7 @@ export function DatabaseDialog() {
 type DB = D.Database;
 
 function DatabaseDialogInner({ connId, editName }: { connId: string; editName?: string }) {
-  const pg = connById(connId)?.type === DBType.PostgreSQL;
+  const pg = isPG(connId);
   const sqlite = connById(connId)?.type === DBType.SQLite;
   const [meta, setMeta] = useState<D.DatabaseMeta | null>(null);
   const [original, setOriginal] = useState<DB | null>(null);

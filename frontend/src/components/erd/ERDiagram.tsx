@@ -1,16 +1,17 @@
 import { ReactFlowProvider, useReactFlow } from "@xyflow/react";
 import { Download, LayoutGrid, RefreshCw, Search } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DBType, Explorer, Layouts, ObjectKind, errorText } from "../../api";
+import { Explorer, Layouts, ObjectKind, errorText } from "../../api";
 import { ColumnMode, ErdModel, Positions, autoLayout, buildModel, tableSize } from "../../erd/model";
 import { tableMenu } from "../../menus";
-import { Tab, connById } from "../../store";
+import { Tab } from "../../store";
 import { designTable } from "../../tableActions";
 import { openMenu } from "../ContextMenu";
 import { DiagramCanvas } from "./DiagramCanvas";
 import { exportDiagram } from "./export";
 import { Toolbar } from "../Toolbar";
 import { Check } from "../form";
+import { isPG } from "../../dialect";
 
 interface Saved {
   positions: Positions;
@@ -30,7 +31,7 @@ function ERDiagramInner({ tab }: { tab: Tab }) {
   const connId = tab.connId!;
   const database = tab.database!;
   const schema = tab.schema;
-  const pg = connById(connId)?.type === DBType.PostgreSQL;
+  const pg = isPG(connId);
   const layoutKey = `erd:${connId}:${database}:${schema ?? ""}`;
   const [model, setModel] = useState<ErdModel | null>(null);
   const [mode, setMode] = useState<ColumnMode>("all");

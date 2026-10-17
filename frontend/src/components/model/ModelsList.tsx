@@ -10,7 +10,6 @@ import { alert, confirm, prompt } from "../Dialogs";
 import { Split } from "../Split";
 import { libraryChanged, listenModelLibrary, newModel, openModel, useModelLibrary } from "./actions";
 
-const DIALECT: Record<string, string> = { mysql: "MySQL", mariadb: "MariaDB", postgres: "PostgreSQL" };
 
 /** Where a model came from or was last synchronized to, for display. */
 export function linkLabel(link?: DM.Link | null) {
@@ -23,6 +22,7 @@ export function linkLabel(link?: DM.Link | null) {
 import { createdByLabel } from "../../createdBy";
 import { Toolbar } from "../Toolbar";
 import { useAsync } from "../useAsync";
+import { engineLabel } from "../../dialect";
 
 export { createdByLabel };
 
@@ -153,7 +153,7 @@ export function ModelsList() {
                       <Shapes size={13} /> {m.name}
                       {m.error && <span className="err"> (can't be read)</span>}
                     </td>
-                    <td>{DIALECT[m.dialect ?? ""] ?? m.dialect}</td>
+                    <td>{engineLabel(m.dialect)}</td>
                     <td className="num">{m.tables}</td>
                     <td className="muted">{linkLabel(m.link)}</td>
                     <td className="muted">{createdByLabel(m.createdBy)}</td>
@@ -187,7 +187,7 @@ function ModelInfo({ m }: { m: DM.Entry }) {
       </div>
       <dl>
         <dt>Type</dt>
-        <dd>{DIALECT[m.dialect ?? ""] ?? m.dialect}</dd>
+        <dd>{engineLabel(m.dialect)}</dd>
         {m.link && (
           <>
             <dt>Database</dt>

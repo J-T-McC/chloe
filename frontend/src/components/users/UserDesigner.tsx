@@ -7,12 +7,13 @@ import { Explorer, P, Users, arr, errorText } from "../../api";
 import { Tab, connById, useApp } from "../../store";
 import { Combobox } from "../Combobox";
 import { CodeBlock } from "../ObjectsPane";
-import { accountLabel, isPGConn } from "./actions";
+import { accountLabel } from "./actions";
 import { PrivilegesTab } from "./PrivilegesTab";
 import { Toolbar } from "../Toolbar";
 import { useAsync } from "../useAsync";
 import { useSavableTab } from "../useSavableTab";
 import { Field } from "../form";
+import { isPG } from "../../dialect";
 
 type Section = "general" | "advanced" | "members" | "server" | "privileges" | "sql";
 
@@ -24,7 +25,7 @@ function blank(pg: boolean): P.User {
 
 export function UserDesigner({ tab }: { tab: Tab }) {
   const connId = tab.connId!;
-  const pg = isPGConn(connId);
+  const pg = isPG(connId);
   const isNew = !tab.ref?.name;
   const noun = pg ? "role" : "user";
   const [original, setOriginal] = useState<P.User | null>(null);
