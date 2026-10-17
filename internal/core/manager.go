@@ -33,11 +33,12 @@ func (nopEvents) JobProgress(Job)                  {}
 
 // Settings that bound memory use.
 type Settings struct {
-	MaxResultRows int // rows buffered per result set
-	FirstPageRows int // rows to wait for before returning from Execute
+	MaxResultRows  int   // rows buffered per result set
+	MaxResultBytes int64 // about how much memory a result set's rows may take
+	FirstPageRows  int   // rows to wait for before returning from Execute
 }
 
-var DefaultSettings = Settings{MaxResultRows: 1_000_000, FirstPageRows: 200}
+var DefaultSettings = Settings{MaxResultRows: 1_000_000, MaxResultBytes: 256 << 20, FirstPageRows: 200}
 
 type Manager struct {
 	Store    *store.Store

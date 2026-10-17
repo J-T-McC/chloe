@@ -185,7 +185,7 @@ func (m *Manager) runStatement(ctx context.Context, s *session, st sqlsplit.Stat
 	s.filling.Add(1)
 	go func() {
 		defer s.filling.Done()
-		rs.fill(rows, m.settings.MaxResultRows, func(n int, done bool) { m.events.ResultProgress(id, n, done) })
+		rs.fill(rows, m.settings.MaxResultRows, m.settings.MaxResultBytes, func(n int, done bool) { m.events.ResultProgress(id, n, done) })
 	}()
 	if last {
 		rs.waitFor(m.settings.FirstPageRows)
