@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -34,9 +33,8 @@ func (nopEvents) JobProgress(Job)                  {}
 
 // Settings that bound memory use.
 type Settings struct {
-	MaxResultRows    int // rows buffered per result set
-	FirstPageRows    int // rows to wait for before returning from Execute
-	StatementTimeout time.Duration
+	MaxResultRows int // rows buffered per result set
+	FirstPageRows int // rows to wait for before returning from Execute
 }
 
 var DefaultSettings = Settings{MaxResultRows: 1_000_000, FirstPageRows: 200}
