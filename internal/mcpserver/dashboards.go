@@ -17,6 +17,7 @@ import (
 
 	"chloe/internal/bi"
 	"chloe/internal/core"
+	"chloe/internal/safefile"
 )
 
 type TileArg struct {
@@ -478,7 +479,7 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 					return ExportOut{}, nil, err
 				}
 				f := filepath.Join(dir, fmt.Sprintf("%s %s.html", fileSafe(d.Name), stamp))
-				if err := os.WriteFile(f, html, 0o644); err != nil {
+				if err := safefile.Write(f, html); err != nil {
 					return ExportOut{}, nil, err
 				}
 				for _, pi := range pages {
@@ -497,7 +498,7 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 				out.Pages = append(out.Pages, pi+1)
 				if format == "png" {
 					f := filepath.Join(dir, fmt.Sprintf("%s p%d %s.png", fileSafe(d.Name), pi+1, stamp))
-					if err := os.WriteFile(f, pngs[i], 0o644); err != nil {
+					if err := safefile.Write(f, pngs[i]); err != nil {
 						return ExportOut{}, nil, err
 					}
 					out.Files = append(out.Files, f)
@@ -510,7 +511,7 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 					return ExportOut{}, nil, err
 				}
 				f := filepath.Join(dir, fmt.Sprintf("%s %s.pdf", fileSafe(d.Name), stamp))
-				if err := os.WriteFile(f, data, 0o644); err != nil {
+				if err := safefile.Write(f, data); err != nil {
 					return ExportOut{}, nil, err
 				}
 				out.Files = append(out.Files, f)

@@ -18,6 +18,7 @@ import (
 
 	"chloe/internal/bi"
 	"chloe/internal/driver"
+	"chloe/internal/safefile"
 	// Archives are SQLite; the driver registers chloe_tz for data source time zones.
 	_ "chloe/internal/driver/sqlite"
 	"chloe/internal/model"
@@ -479,7 +480,7 @@ func (m *Manager) BIArchive(ctx context.Context, w bi.Workspace, src bi.DataSour
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return src, err
 	}
-	if err := writeFileAtomic(p, sealed); err != nil {
+	if err := safefile.Write(p, sealed); err != nil {
 		return src, err
 	}
 	archives.drop(p)
@@ -755,14 +756,6 @@ func deserialize(db *sql.DB, image []byte) error {
 		}
 		return d.Deserialize(image)
 	})
-}
-
-func writeFileAtomic(p string, data []byte) error {
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, p)
 }
 
 // --- saving ------------------------------------------------------------------

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+
+	"chloe/internal/safefile"
 )
 
 // Layouts persists small JSON documents (diagram positions, UI state) by key,
@@ -34,11 +36,7 @@ func (l *Layouts) Set(key, doc string) error {
 	if err := os.MkdirAll(l.dir, 0o700); err != nil {
 		return err
 	}
-	tmp := l.file(key) + ".tmp"
-	if err := os.WriteFile(tmp, []byte(doc), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, l.file(key))
+	return safefile.Write(l.file(key), []byte(doc))
 }
 
 func (l *Layouts) Delete(key string) error {

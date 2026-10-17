@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"chloe/internal/safefile"
 )
 
 // Ext is the workspace file extension.
@@ -255,10 +257,7 @@ func Write(p string, w Workspace) error {
 	}
 	// Data source SQL and connection ids stay private to the user (files
 	// written by earlier releases were 0644).
-	if err := os.WriteFile(p, data, 0o600); err != nil {
-		return err
-	}
-	return os.Chmod(p, 0o600)
+	return safefile.Write(p, data)
 }
 
 func copyDir(from, to string) error {
@@ -280,7 +279,7 @@ func copyDir(from, to string) error {
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(to, f.Name()), data, 0o600); err != nil {
+		if err := safefile.Write(filepath.Join(to, f.Name()), data); err != nil {
 			return err
 		}
 	}

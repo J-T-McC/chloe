@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"chloe/internal/design"
 	"chloe/internal/driver"
 	"chloe/internal/model"
+	"chloe/internal/safefile"
 	"chloe/internal/transfer"
 )
 
@@ -76,7 +76,7 @@ func (m *Manager) Export(connID string, req ExportRequest) (Job, error) {
 		}
 		defer ds.Close()
 		p.setPath(req.Path)
-		f, err := os.Create(req.Path)
+		f, err := safefile.Create(req.Path)
 		if err != nil {
 			return "", err
 		}
@@ -85,7 +85,7 @@ func (m *Manager) Export(connID string, req ExportRequest) (Job, error) {
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Exported %d rows to %s", n, req.Path), f.Sync()
+		return fmt.Sprintf("Exported %d rows to %s", n, req.Path), f.Commit()
 	}), nil
 }
 

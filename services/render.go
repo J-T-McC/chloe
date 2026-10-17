@@ -15,6 +15,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"chloe/internal/bi"
+	"chloe/internal/safefile"
 )
 
 // Dashboards are drawn by Chloe's window, so rendering one (for export, or for
@@ -172,7 +173,7 @@ func (s *BIService) WriteExport(path, format string, pages []string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return safefile.Write(path, data)
 }
 
 func exportExt(format string) (string, error) {

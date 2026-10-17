@@ -16,6 +16,7 @@ import (
 	"chloe/internal/design"
 	"chloe/internal/driver"
 	"chloe/internal/model"
+	"chloe/internal/safefile"
 	"chloe/internal/sqlq"
 	"chloe/internal/sqlsplit"
 	"chloe/internal/transfer"
@@ -42,7 +43,7 @@ func (m *Manager) Dump(connID string, req DumpRequest) (Job, error) {
 	}
 	return m.startJob("dump", "Dump "+what+" → "+baseName(req.Path), "rows", func(ctx context.Context, p *progress) (string, error) {
 		p.setPath(req.Path)
-		f, err := os.Create(req.Path)
+		f, err := safefile.Create(req.Path)
 		if err != nil {
 			return "", err
 		}
@@ -55,7 +56,7 @@ func (m *Manager) Dump(connID string, req DumpRequest) (Job, error) {
 		if err := w.Flush(); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Dumped %d tables (%d rows) to %s", d.tables, d.rows, req.Path), f.Sync()
+		return fmt.Sprintf("Dumped %d tables (%d rows) to %s", d.tables, d.rows, req.Path), f.Commit()
 	}), nil
 }
 
