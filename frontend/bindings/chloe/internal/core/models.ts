@@ -401,6 +401,10 @@ export interface Job {
     "unit": string;
     "errors": number;
     "message"?: string;
+
+    /**
+     * in job:progress events, null when unchanged since the last one
+     */
     "log": string[] | null;
     "path"?: string;
     "started": string;

@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -30,7 +31,7 @@ type Job struct {
 	Unit     string    `json:"unit"`  // "rows", "statements"
 	Errors   int       `json:"errors"`
 	Message  string    `json:"message,omitempty"`
-	Log      []string  `json:"log"`
+	Log      []string  `json:"log"` // in job:progress events, null when unchanged since the last one
 	Path     string    `json:"path,omitempty"`
 	Started  time.Time `json:"started"`
 	Finished time.Time `json:"finished,omitempty"`
@@ -43,6 +44,8 @@ type jobState struct {
 	job    Job
 	cancel context.CancelFunc
 	last   time.Time
+	lines  int // log lines written so far
+	sent   int // lines when the last event went out
 }
 
 // progress is the handle a job body uses to report.
@@ -89,6 +92,7 @@ func (p *progress) logf(format string, args ...any) {
 	p.st.mu.Lock()
 	line := time.Now().Format("15:04:05") + "  " + fmt.Sprintf(format, args...)
 	p.st.job.Log = append(p.st.job.Log, line)
+	p.st.lines++
 	if len(p.st.job.Log) > maxJobLog {
 		p.st.job.Log = p.st.job.Log[len(p.st.job.Log)-maxJobLog:]
 	}
@@ -112,7 +116,13 @@ func (p *progress) emit(force bool) {
 	}
 	p.st.last = time.Now()
 	snap := p.st.job
-	snap.Log = append([]string(nil), snap.Log...)
+	// Most events only move the count: the UI keeps the log it has.
+	if p.st.lines == p.st.sent {
+		snap.Log = nil
+	} else {
+		snap.Log = slices.Clone(snap.Log)
+		p.st.sent = p.st.lines
+	}
 	p.st.mu.Unlock()
 	p.m.events.JobProgress(snap)
 }
