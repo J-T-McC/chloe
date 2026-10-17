@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -59,20 +60,37 @@ func (c *Conn) LoadDesign(ctx context.Context, ref model.ObjectRef) (design.Tabl
 	if err != nil {
 		return t, err
 	}
-	rel, err := sqlcommon.QueryStrings(ctx, db, `SELECT c.oid, COALESCE(obj_description(c.oid, 'pg_class'), ''), c.relpersistence = 'u',
-		COALESCE((SELECT spcname FROM pg_tablespace WHERE oid = c.reltablespace), '')
-		FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = $2`, schema, ref.Name)
+	oid, err := loadRelation(ctx, db, &t)
 	if err != nil {
 		return t, err
 	}
-	if len(rel) == 0 {
-		return t, fmt.Errorf("table %s.%s not found", schema, ref.Name)
+	for _, load := range []func(context.Context, *sql.DB, string, *design.Table) error{loadColumns, loadConstraints, loadIndexes, loadTriggers} {
+		if err := load(ctx, db, oid, &t); err != nil {
+			return t, err
+		}
 	}
-	oid := rel[0][0].String
+	return t, nil
+}
+
+// loadRelation reads the table's comment and storage options and returns its oid.
+func loadRelation(ctx context.Context, db *sql.DB, t *design.Table) (string, error) {
+	schema := t.Schema
+	rel, err := sqlcommon.QueryStrings(ctx, db, `SELECT c.oid, COALESCE(obj_description(c.oid, 'pg_class'), ''), c.relpersistence = 'u',
+		COALESCE((SELECT spcname FROM pg_tablespace WHERE oid = c.reltablespace), '')
+		FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = $2`, schema, t.Name)
+	if err != nil {
+		return "", err
+	}
+	if len(rel) == 0 {
+		return "", fmt.Errorf("table %s.%s not found", schema, t.Name)
+	}
 	t.Comment = rel[0][1].String
 	t.Options.Unlogged = rel[0][2].String == "true"
 	t.Options.Tablespace = rel[0][3].String
+	return rel[0][0].String, nil
+}
 
+func loadColumns(ctx context.Context, db *sql.DB, oid string, t *design.Table) error {
 	cols, err := sqlcommon.QueryStrings(ctx, db, `SELECT a.attname, format_type(a.atttypid, a.atttypmod), NOT a.attnotnull,
 		CASE WHEN a.attgenerated = '' THEN pg_get_expr(d.adbin, d.adrelid) END,
 		CASE WHEN a.attgenerated <> '' THEN pg_get_expr(d.adbin, d.adrelid) END, a.attgenerated,
@@ -86,7 +104,7 @@ func (c *Conn) LoadDesign(ctx context.Context, ref model.ObjectRef) (design.Tabl
 		LEFT JOIN pg_sequence s ON a.attidentity <> '' AND s.seqrelid = pg_get_serial_sequence(a.attrelid::regclass::text, a.attname)::regclass
 		WHERE a.attrelid = $1 AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum`, oid)
 	if err != nil {
-		return t, err
+		return err
 	}
 	for _, r := range cols {
 		col := design.Column{Name: r[0].String, OrigName: r[0].String, Nullable: r[2].String == "true", Comment: r[8].String, Collation: r[7].String}
@@ -111,7 +129,11 @@ func (c *Conn) LoadDesign(ctx context.Context, ref model.ObjectRef) (design.Tabl
 		}
 		t.Columns = append(t.Columns, col)
 	}
+	return nil
+}
 
+// loadConstraints reads the primary key, uniques, checks and foreign keys.
+func loadConstraints(ctx context.Context, db *sql.DB, oid string, t *design.Table) error {
 	cons, err := sqlcommon.QueryStrings(ctx, db, `SELECT con.conname, con.contype, pg_get_constraintdef(con.oid, true),
 		array_to_string(ARRAY(SELECT a.attname FROM unnest(con.conkey) WITH ORDINALITY k(n, o) JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.n ORDER BY k.o), E'\x1f'),
 		COALESCE(rn.nspname, ''), COALESCE(rc.relname, ''),
@@ -121,16 +143,10 @@ func (c *Conn) LoadDesign(ctx context.Context, ref model.ObjectRef) (design.Tabl
 		LEFT JOIN pg_class rc ON rc.oid = con.confrelid LEFT JOIN pg_namespace rn ON rn.oid = rc.relnamespace
 		WHERE con.conrelid = $1 AND con.contype IN ('p','u','c','f') ORDER BY con.contype, con.conname`, oid)
 	if err != nil {
-		return t, err
-	}
-	split := func(s string) []string {
-		if s == "" {
-			return nil
-		}
-		return strings.Split(s, "\x1f")
+		return err
 	}
 	for _, r := range cons {
-		name, cols := r[0].String, split(r[3].String)
+		name, cols := r[0].String, splitList(r[3].String)
 		switch r[1].String {
 		case "p":
 			t.PrimaryKey = &design.PrimaryKey{Name: name, Columns: cols}
@@ -139,15 +155,19 @@ func (c *Conn) LoadDesign(ctx context.Context, ref model.ObjectRef) (design.Tabl
 		case "c":
 			t.Checks = append(t.Checks, design.Check{Name: name, OrigName: name, Expr: checkExpr(r[2].String)})
 		case "f":
-			fk := design.ForeignKey{Name: name, OrigName: name, Columns: cols, RefTable: r[5].String, RefColumns: split(r[6].String),
+			fk := design.ForeignKey{Name: name, OrigName: name, Columns: cols, RefTable: r[5].String, RefColumns: splitList(r[6].String),
 				OnUpdate: fkAction[r[7].String], OnDelete: fkAction[r[8].String]}
-			if r[4].String != schema {
+			if r[4].String != t.Schema {
 				fk.RefSchema = r[4].String
 			}
 			t.ForeignKeys = append(t.ForeignKeys, fk)
 		}
 	}
+	return nil
+}
 
+// loadIndexes reads the indexes that aren't a constraint's.
+func loadIndexes(ctx context.Context, db *sql.DB, oid string, t *design.Table) error {
 	idx, err := sqlcommon.QueryStrings(ctx, db, `SELECT ic.relname, i.indisunique, am.amname, COALESCE(pg_get_expr(i.indpred, i.indrelid, true), ''),
 		COALESCE(obj_description(ic.oid, 'pg_class'), ''),
 		array_to_string(ARRAY(SELECT pg_get_indexdef(i.indexrelid, k + 1, true) || E'\x1e' || (i.indkey[k] = 0)::text || E'\x1e' || ((i.indoption[k] & 1) = 1)::text
@@ -157,7 +177,7 @@ func (c *Conn) LoadDesign(ctx context.Context, ref model.ObjectRef) (design.Tabl
 		  AND NOT EXISTS (SELECT 1 FROM pg_constraint con WHERE con.conindid = i.indexrelid AND con.contype IN ('p','u','x'))
 		ORDER BY ic.relname`, oid)
 	if err != nil {
-		return t, err
+		return err
 	}
 	for _, r := range idx {
 		ix := design.Index{Name: r[0].String, OrigName: r[0].String, Where: r[3].String, Comment: r[4].String}
@@ -167,7 +187,7 @@ func (c *Conn) LoadDesign(ctx context.Context, ref model.ObjectRef) (design.Tabl
 		if m := strings.ToUpper(r[2].String); m != "BTREE" {
 			ix.Method = m
 		}
-		for _, part := range split(r[5].String) {
+		for _, part := range splitList(r[5].String) {
 			f := strings.Split(part, "\x1e")
 			ic := design.IndexColumn{Desc: f[2] == "true"}
 			if f[1] == "true" {
@@ -179,16 +199,27 @@ func (c *Conn) LoadDesign(ctx context.Context, ref model.ObjectRef) (design.Tabl
 		}
 		t.Indexes = append(t.Indexes, ix)
 	}
+	return nil
+}
 
+func loadTriggers(ctx context.Context, db *sql.DB, oid string, t *design.Table) error {
 	trs, err := sqlcommon.QueryStrings(ctx, db, `SELECT tgname, tgtype, pg_get_triggerdef(oid, true) FROM pg_trigger
 		WHERE tgrelid = $1 AND NOT tgisinternal ORDER BY tgname`, oid)
 	if err != nil {
-		return t, err
+		return err
 	}
 	for _, r := range trs {
 		t.Triggers = append(t.Triggers, parseTrigger(r[0].String, r[1].String, r[2].String))
 	}
-	return t, nil
+	return nil
+}
+
+// splitList splits an array_to_string(…, E'\x1f') list.
+func splitList(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, "\x1f")
 }
 
 // checkExpr unwraps pg_get_constraintdef's "CHECK ((expr))".
