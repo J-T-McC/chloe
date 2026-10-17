@@ -4,7 +4,7 @@
 import { ObjectKind, Query, errorText, type Draft, type MCPQueryTab, type SavedQuery } from "./api";
 import { alert, choose, confirm, prompt } from "./components/Dialogs";
 import { Tab, connById, useApp } from "./store";
-import { useTree } from "./tree";
+import { folderKey, useTree } from "./tree";
 
 // ---- editor text --------------------------------------------------------------------
 
@@ -31,14 +31,14 @@ export function queryTextChanged(tabId: string) {
 
 // ---- saved queries -------------------------------------------------------------------
 
-function folderKey(connId: string, database: string, schema?: string) {
-  return [connId, database, schema, "#" + ObjectKind.KindQuery].filter(Boolean).join("/");
+function queriesKey(connId: string, database: string, schema?: string) {
+  return folderKey(connId, database, schema, ObjectKind.KindQuery);
 }
 
 /** Reload the Queries folder (tree and Objects list) of a database. */
 export function refreshFolder(connId: string, database: string, schema?: string) {
   const tree = useTree.getState();
-  const key = folderKey(connId, database, schema);
+  const key = queriesKey(connId, database, schema);
   if (tree.children[key]) tree.refresh({ key, type: "folder", label: "", connId, database, schema, kind: ObjectKind.KindQuery, depth: 0, expandable: true });
   useApp.setState((s) => ({ objectsVersion: s.objectsVersion + 1 }));
 }

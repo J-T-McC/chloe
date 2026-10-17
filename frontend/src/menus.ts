@@ -3,7 +3,7 @@
 import { DBType, Design, Explorer, MaintainOp, ObjectKind, ObjectRef, TableAction, Transfer, arr, errorText, copyText } from "./api";
 import { newView, viewDesign } from "./components/designer/ViewDesigner";
 import { openSetPrivileges } from "./components/users/SetPrivilegesDialog";
-import { useTree } from "./tree";
+import { folderKey, useTree } from "./tree";
 import { MenuItem } from "./components/ContextMenu";
 import { alert, confirm } from "./components/Dialogs";
 import { newQuery, openObject, selectAllSQL } from "./components/Sidebar";
@@ -172,7 +172,7 @@ async function refreshMatView(connId: string, ref: ObjectRef, concurrently: bool
 
 function refreshFolder(connId: string, ref: ObjectRef) {
   const tree = useTree.getState();
-  const key = [connId, ref.database, ref.schema, "#" + ref.kind].filter(Boolean).join("/");
+  const key = folderKey(connId, ref.database, ref.schema, ref.kind);
   if (tree.children[key]) tree.refresh({ key, type: "folder", label: "", connId, database: ref.database, schema: ref.schema, kind: ref.kind, depth: 0, expandable: true });
 }
 
