@@ -119,6 +119,11 @@ async function loadChildren(n: TreeNode): Promise<TreeNode[]> {
   return [];
 }
 
+/** The tree key of an object folder, such as conn/db/schema/#table (the same as folders() builds). */
+export function folderKey(connId: string, database: string | undefined, schema: string | undefined, kind: string): string {
+  return [connId, database, schema, "#" + kind].filter(Boolean).join("/");
+}
+
 function folders(n: TreeNode, kinds: ObjectKind[]): TreeNode[] {
   return kinds.map((k) => ({
     key: `${n.key}/#${k}`,

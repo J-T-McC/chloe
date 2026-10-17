@@ -4,7 +4,7 @@ import { D, Design, ObjectKind, arr, errorText } from "../../api";
 import { Dialect, Table, newTable, normalize, toWire } from "../../designer/model";
 import { invalidateCatalog } from "../../editor/completion";
 import { Tab, connById, useApp } from "../../store";
-import { useTree } from "../../tree";
+import { folderKey, useTree } from "../../tree";
 import { connDialect } from "../../dialect";
 import { confirm } from "../Dialogs";
 import { CodeBlock } from "../ObjectsPane";
@@ -198,6 +198,6 @@ export function TableDesigner({ tab }: { tab: Tab }) {
 
 function refreshTablesFolder(connId: string, database: string, schema?: string) {
   const tree = useTree.getState();
-  const key = [connId, database, schema, "#table"].filter(Boolean).join("/");
+  const key = folderKey(connId, database, schema, "table");
   if (tree.children[key]) tree.refresh({ key, type: "folder", label: "", connId, database, schema, kind: ObjectKind.KindTable, depth: 0, expandable: true });
 }

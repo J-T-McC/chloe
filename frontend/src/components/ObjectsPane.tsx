@@ -12,7 +12,7 @@ import { objectsAreaMenu, openERD, tableChildMenu, tableMenu, viewMenu } from ".
 import { openExport, openImport } from "./transfer/state";
 import { editorTheme, monaco } from "../editor/monaco";
 import { connById, dbKey, useApp } from "../store";
-import { TreeNode, useTree } from "../tree";
+import { TreeNode, folderKey, useTree } from "../tree";
 import { openMenu } from "./ContextMenu";
 import { Split } from "./Split";
 import { KIND_LABEL, KindIcon } from "./icons";
@@ -191,8 +191,8 @@ function SqlObjectsPane() {
             setReload((x) => x + 1);
             // keep the tree in sync
             const tree = useTree.getState();
-            const key = [sel.connId, sel.database, sel.schema, "#" + kind].filter(Boolean).join("/");
-            if (tree.children[key]) tree.refresh({ key, type: "folder", label: "", connId: sel.connId, database: sel.database, schema: sel.schema, kind, depth: 0, expandable: true });
+            const key = kind && folderKey(sel.connId, sel.database, sel.schema, kind);
+            if (key && tree.children[key]) tree.refresh({ key, type: "folder", label: "", connId: sel.connId, database: sel.database, schema: sel.schema, kind, depth: 0, expandable: true });
           }}
         >
           <RefreshCw size={14} className={loading ? "spin" : ""} />

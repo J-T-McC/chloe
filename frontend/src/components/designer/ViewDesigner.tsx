@@ -8,7 +8,7 @@ import { autoTrigger, clearEditorContext, invalidateCatalog, preloadCatalog, reg
 import { beautifyEditor, registerFormatter } from "../../editor/format";
 import { Monaco, editorTheme, monaco } from "../../editor/monaco";
 import { Tab, connById, useApp } from "../../store";
-import { useTree } from "../../tree";
+import { folderKey, useTree } from "../../tree";
 import { connDialect, editorLanguage } from "../../dialect";
 import { confirm, prompt } from "../Dialogs";
 import { CodeBlock } from "../ObjectsPane";
@@ -376,7 +376,7 @@ export function newView(connId: string, database: string, schema?: string, mater
 function refreshViews(connId: string, database: string, schema?: string) {
   const tree = useTree.getState();
   for (const kind of [ObjectKind.KindView, ObjectKind.KindMatView]) {
-    const key = [connId, database, schema, "#" + kind].filter(Boolean).join("/");
+    const key = folderKey(connId, database, schema, kind);
     if (tree.children[key]) tree.refresh({ key, type: "folder", label: "", connId, database, schema, kind, depth: 0, expandable: true });
   }
 }

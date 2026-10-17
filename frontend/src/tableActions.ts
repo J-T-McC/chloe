@@ -4,7 +4,7 @@ import { Design, ObjectKind, ObjectRef, TableAction, arr, errorText } from "./ap
 import { alert, confirm, prompt } from "./components/Dialogs";
 import { invalidateCatalog } from "./editor/completion";
 import { connById, useApp } from "./store";
-import { useTree } from "./tree";
+import { folderKey, useTree } from "./tree";
 
 export function designTable(connId: string, ref: ObjectRef) {
   useApp.getState().openTab({ kind: "design", title: `${ref.name} (design)`, connId, database: ref.database, schema: ref.schema, ref: { ...ref, kind: ObjectKind.KindTable } });
@@ -64,7 +64,7 @@ export async function runTableAction(connId: string, ref: ObjectRef, action: Tab
 
 export function refreshFolder(connId: string, database: string, schema: string | undefined, kind: ObjectKind) {
   const tree = useTree.getState();
-  const key = [connId, database, schema, "#" + kind].filter(Boolean).join("/");
+  const key = folderKey(connId, database, schema, kind);
   if (tree.children[key]) tree.refresh({ key, type: "folder", label: "", connId, database, schema, kind, depth: 0, expandable: true });
 }
 
