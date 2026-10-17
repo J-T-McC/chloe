@@ -15,13 +15,24 @@ export interface GridEdits {
 
 export const emptyEdits = (): GridEdits => ({ updated: new Map(), inserted: new Set(), deleted: new Set() });
 
+/** A page of rows. cut lists the cells sent shortened, as [row in page, column]. */
+export interface GridPage {
+  rows: Cell[][];
+  cut?: (number[] | null)[] | null;
+}
+
+/** How many characters of a value the grid shows; longer ones are fetched cut to this. */
+export const MAX_CELL_CHARS = 300;
+
 export interface DataGridProps {
   columns: ResultColumn[];
   /** Number of rows available from the source (excluding inserted rows). */
   rowCount: number;
   /** Identity of the data; changing it clears the row cache. */
   dataKey: string;
-  fetchPage(offset: number, limit: number): Promise<Cell[][]>;
+  fetchPage(offset: number, limit: number): Promise<GridPage>;
+  /** Whole values for rows that came back cut, for editing and copying. */
+  fetchFull?(offset: number, limit: number): Promise<Cell[][]>;
   editable?: boolean;
   /** Columns that can't be edited even when the grid is (computed query result columns). */
   readOnlyColumns?: boolean[];
@@ -47,7 +58,14 @@ const ROW_H = 22;
 const PAGE = 500;
 const HEADER_H = 38; // two lines: name, then type
 const ROWHDR_W = 48;
-const MAX_CELL_CHARS = 300;
+// Pages kept in memory; the least recently shown go first.
+const MAX_PAGES = 20;
+
+interface CachedPage {
+  rows: Cell[][];
+  /** Cut cells as row-in-page * columns + column. */
+  cut: Set<number>;
+}
 
 interface Sel {
   r0: number;
@@ -58,14 +76,15 @@ interface Sel {
 
 export function DataGrid(p: DataGridProps) {
   const scroller = useRef<HTMLDivElement>(null);
-  const cache = useRef(new Map<number, Cell[][]>());
+  const cache = useRef(new Map<number, CachedPage>());
   const pending = useRef(new Set<number>());
   // Bumped whenever the caches reset, so a page fetched for older data is dropped.
   const generation = useRef(0);
   const [, bump] = useState(0);
   const [widths, setWidths] = useState<number[]>([]);
   const [sel, setSel] = useState<Sel | null>(null);
-  const [editing, setEditing] = useState<{ r: number; c: number; value: string; isNull: boolean } | null>(null);
+  // orig is the whole value being edited, so an unchanged commit is no change.
+  const [editing, setEditing] = useState<{ r: number; c: number; value: string; isNull: boolean; orig: Cell } | null>(null);
   const dragging = useRef(false);
 
   const inserted = p.edits ? [...p.edits.inserted].sort((a, b) => a - b) : [];
@@ -97,19 +116,33 @@ export function DataGrid(p: DataGridProps) {
   const v = useVirtualizer({ count: total, getScrollElement: () => scroller.current, estimateSize: () => ROW_H, overscan: 30 });
   const items = v.getVirtualItems();
 
-  // Fetch pages for visible rows.
+  const toCached = (pg: GridPage): CachedPage => ({ rows: pg.rows, cut: new Set((pg.cut ?? []).map((rc) => rc![0] * p.columns.length + rc![1])) });
+
+  // Fetch pages for visible rows; keep the most recently shown MAX_PAGES.
   useEffect(() => {
     if (!items.length) return;
     const first = Math.floor(items[0].index / PAGE);
     const last = Math.floor(Math.min(items[items.length - 1].index, p.rowCount - 1) / PAGE);
+    const c = cache.current;
     for (let pg = first; pg <= last; pg++) {
-      if (cache.current.has(pg) || pending.current.has(pg) || pg * PAGE >= p.rowCount) continue;
+      const hit = c.get(pg);
+      if (hit) {
+        c.delete(pg);
+        c.set(pg, hit);
+      }
+    }
+    for (const pg of c.keys()) {
+      if (c.size <= MAX_PAGES) break;
+      if (pg < first || pg > last) c.delete(pg);
+    }
+    for (let pg = first; pg <= last; pg++) {
+      if (c.has(pg) || pending.current.has(pg) || pg * PAGE >= p.rowCount) continue;
       pending.current.add(pg);
       const gen = generation.current;
       p.fetchPage(pg * PAGE, PAGE)
-        .then((rows) => {
+        .then((page) => {
           if (gen !== generation.current) return;
-          cache.current.set(pg, rows);
+          c.set(pg, toCached(page));
           bump((x) => x + 1);
         })
         .finally(() => {
@@ -120,7 +153,7 @@ export function DataGrid(p: DataGridProps) {
 
   // A partially filled last page needs refetching when more rows stream in.
   useEffect(() => {
-    for (const [pg, rows] of cache.current) {
+    for (const [pg, { rows }] of cache.current) {
       if (rows.length < PAGE && pg * PAGE + rows.length < p.rowCount) cache.current.delete(pg);
     }
     bump((x) => x + 1);
@@ -128,7 +161,17 @@ export function DataGrid(p: DataGridProps) {
 
   const baseRow = (r: number): Cell[] | undefined => {
     if (r >= p.rowCount) return undefined;
-    return cache.current.get(Math.floor(r / PAGE))?.[r % PAGE];
+    return cache.current.get(Math.floor(r / PAGE))?.rows[r % PAGE];
+  };
+
+  /** Whether the grid has only the start of a fetched value. */
+  const isCut = (r: number, c: number) =>
+    r < p.rowCount && !p.edits?.updated.get(r)?.has(c) && !!cache.current.get(Math.floor(r / PAGE))?.cut.has((r % PAGE) * p.columns.length + c);
+
+  /** The whole value of a cell, fetching it when the grid has it cut. */
+  const fullValue = async (r: number, c: number): Promise<Cell | undefined> => {
+    if (!isCut(r, c) || !p.fetchFull) return cellValue(r, c);
+    return (await p.fetchFull(r, 1))[0]?.[c];
   };
 
   const cellValue = useCallback(
@@ -174,21 +217,22 @@ export function DataGrid(p: DataGridProps) {
     c = Math.max(0, Math.min(p.columns.length - 1, c));
     setSel((s) => (extend && s ? { ...s, r1: r, c1: c } : { r0: r, c0: c, r1: r, c1: c }));
     scrollToCell(r, c);
-    p.onActiveCell?.(r, c, cellValue(r, c));
+    p.onActiveCell?.(r, c, isCut(r, c) ? undefined : cellValue(r, c));
   };
 
   const canEdit = (c: number) => !!p.editable && !p.readOnlyColumns?.[c];
 
   const startEdit = (r: number, c: number, initial?: string) => {
     if (!canEdit(c) || p.edits?.deleted.has(r)) return;
-    const cur = cellValue(r, c);
-    setEditing({ r, c, value: initial ?? cur ?? "", isNull: initial === undefined && cur === null });
+    const open = (cur: Cell) => setEditing({ r, c, value: initial ?? cur ?? "", isNull: initial === undefined && cur === null, orig: cur });
+    // Synchronous unless the value has to be fetched whole, so typed keys reach the editor.
+    if (isCut(r, c)) fullValue(r, c).then((v) => open(v ?? null));
+    else open(cellValue(r, c) ?? null);
   };
 
   const commitEdit = (value: Cell) => {
     if (!editing) return;
-    const prev = cellValue(editing.r, editing.c);
-    if (prev !== value) p.onEditCell?.(editing.r, editing.c, value);
+    if (editing.orig !== value) p.onEditCell?.(editing.r, editing.c, value);
     setEditing(null);
     scroller.current?.focus();
   };
@@ -196,7 +240,7 @@ export function DataGrid(p: DataGridProps) {
   const copySelection = async (withHeaders = false) => {
     if (!sel) return;
     const n = norm(sel);
-    await ensureLoaded(n.r0, n.r1);
+    const value = await loadWhole(n.r0, n.r1, n.c0, n.c1);
     // One cell copies as it is; a block is tab-separated, quoting fields that hold tabs, line breaks or quotes.
     const one = n.r0 === n.r1 && n.c0 === n.c1 && !withHeaders;
     const field = (v: string) => (one || !/[\t\n\r"]/.test(v) ? v : '"' + v.replace(/"/g, '""') + '"');
@@ -204,20 +248,39 @@ export function DataGrid(p: DataGridProps) {
     if (withHeaders) lines.push(p.columns.slice(n.c0, n.c1 + 1).map((c) => field(c.name)).join("\t"));
     for (let r = n.r0; r <= n.r1; r++) {
       const vals: string[] = [];
-      for (let c = n.c0; c <= n.c1; c++) vals.push(field(cellValue(r, c) ?? "NULL"));
+      for (let c = n.c0; c <= n.c1; c++) vals.push(field(value(r, c) ?? "NULL"));
       lines.push(vals.join("\t"));
     }
     await copyText(lines.join("\n"));
   };
 
-  const ensureLoaded = async (r0: number, r1: number) => {
-    const pages: number[] = [];
-    for (let pg = Math.floor(r0 / PAGE); pg <= Math.floor(Math.min(r1, p.rowCount - 1) / PAGE); pg++) if (!cache.current.has(pg)) pages.push(pg);
+  /** Reads rows r0..r1 whole for a copy: the pages it needs are held here, not in
+   *  the cache (which keeps only MAX_PAGES), and cut cells are fetched in full. */
+  const loadWhole = async (r0: number, r1: number, c0: number, c1: number) => {
+    const pages = new Map<number, Cell[][]>();
+    const last = Math.min(r1, p.rowCount - 1);
     await Promise.all(
-      pages.map(async (pg) => {
-        cache.current.set(pg, await p.fetchPage(pg * PAGE, PAGE));
+      range(Math.floor(r0 / PAGE), Math.floor(last / PAGE)).map(async (pg) => {
+        if (last < 0) return;
+        const page = cache.current.get(pg) ?? toCached(await p.fetchPage(pg * PAGE, PAGE));
+        const from = Math.max(r0, pg * PAGE), to = Math.min(last, pg * PAGE + PAGE - 1);
+        const needsWhole = p.fetchFull && [...page.cut].some((k) => {
+          const r = pg * PAGE + Math.floor(k / p.columns.length), c = k % p.columns.length;
+          return r >= from && r <= to && c >= c0 && c <= c1;
+        });
+        if (!needsWhole) return void pages.set(pg, page.rows);
+        const whole = await p.fetchFull!(from, to - from + 1);
+        const rows = page.rows.slice();
+        whole.forEach((row, i) => (rows[from - pg * PAGE + i] = row));
+        pages.set(pg, rows);
       }),
     );
+    return (r: number, c: number): Cell | undefined => {
+      const upd = p.edits?.updated.get(r);
+      if (upd?.has(c)) return upd.get(c)!;
+      if (r >= p.rowCount) return null;
+      return pages.get(Math.floor(r / PAGE))?.[r % PAGE]?.[c];
+    };
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -339,7 +402,7 @@ export function DataGrid(p: DataGridProps) {
     const items: MenuItem[] = [
       { label: "Copy", shortcut: "⌘C", onClick: () => copySelection() },
       { label: "Copy with Headers", shortcut: "⇧⌘C", onClick: () => copySelection(true) },
-      { label: "Copy Value", onClick: () => copyText(val ?? "NULL") },
+      { label: "Copy Value", onClick: async () => copyText((await fullValue(r, c)) ?? "NULL") },
     ];
     if (p.editable) {
       items.push(
@@ -446,7 +509,7 @@ export function DataGrid(p: DataGridProps) {
                       if (e.button !== 0) return;
                       dragging.current = true;
                       setSel((s) => (e.shiftKey && s ? { ...s, r1: r, c1: c } : { r0: r, c0: c, r1: r, c1: c }));
-                      p.onActiveCell?.(r, c, cellValue(r, c));
+                      p.onActiveCell?.(r, c, isCut(r, c) ? undefined : cellValue(r, c));
                     }}
                     onMouseEnter={() => dragging.current && setSel((s) => (s ? { ...s, r1: r, c1: c } : s))}
                     onDoubleClick={() => startEdit(r, c)}
@@ -478,7 +541,7 @@ export function DataGrid(p: DataGridProps) {
                     ) : val === null ? (
                       <span className="null">{p.nullText ?? "NULL"}</span>
                     ) : (
-                      displayValue(val)
+                      displayValue(val, isCut(r, c))
                     )}
                   </div>
                 );
@@ -521,8 +584,8 @@ function CellEditor(props: { value: string; isNull: boolean; onChange(v: string)
   );
 }
 
-function displayValue(v: string) {
-  const one = v.length > MAX_CELL_CHARS ? v.slice(0, MAX_CELL_CHARS) + "…" : v;
+function displayValue(v: string, cut: boolean) {
+  const one = cut || v.length > MAX_CELL_CHARS ? v.slice(0, MAX_CELL_CHARS) + "…" : v;
   return one.includes("\n") ? one.replace(/\n/g, "⏎ ") : one;
 }
 

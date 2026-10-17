@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Explorer, ObjectKind, Query, StatementResult, TableDetail, arr, errorText } from "../api";
 import { buildRowChanges } from "../gridChanges";
 import type { Tab } from "../store";
-import { Cell, DataGrid, GridEdits, emptyEdits } from "./DataGrid";
+import { Cell, DataGrid, GridEdits, GridPage, MAX_CELL_CHARS, emptyEdits } from "./DataGrid";
 import { confirm } from "./Dialogs";
 import { Split } from "./Split";
 import { ValuePanel } from "./ValuePanel";
@@ -88,7 +88,7 @@ export function TableViewer({ tab }: { tab: Tab }) {
   const activeKey = active ? `${result?.resultId}:${active.r}:${active.c}` : "";
   useEffect(() => {
     if (!panel || !active || active.value !== undefined || !result?.resultId || active.r >= (result?.rowCount ?? 0)) return;
-    Query.FetchRows(result.resultId, active.r, 1)
+    Query.FetchRows(result.resultId, active.r, 1, 0)
       .then((p) => setFetched({ key: activeKey, value: (arr(p.rows)[0] as Cell[] | undefined)?.[active.c] ?? null }))
       .catch(() => {});
   }, [panel, activeKey, active, result?.resultId, result?.rowCount]);
@@ -108,11 +108,15 @@ export function TableViewer({ tab }: { tab: Tab }) {
   const rowCount = result?.rowCount ?? 0;
 
   const fetchPage = useCallback(
-    async (offset: number, limit: number): Promise<Cell[][]> => {
-      if (!result?.resultId) return [];
-      const p = await Query.FetchRows(result.resultId, offset, limit);
-      return arr(p.rows) as Cell[][];
+    async (offset: number, limit: number): Promise<GridPage> => {
+      if (!result?.resultId) return { rows: [] };
+      const p = await Query.FetchRows(result.resultId, offset, limit, MAX_CELL_CHARS);
+      return { rows: arr(p.rows) as Cell[][], cut: p.cut };
     },
+    [result?.resultId],
+  );
+  const fetchFull = useCallback(
+    async (offset: number, limit: number) => (result?.resultId ? (arr((await Query.FetchRows(result.resultId, offset, limit, 0)).rows) as Cell[][]) : []),
     [result?.resultId],
   );
 
@@ -152,7 +156,7 @@ export function TableViewer({ tab }: { tab: Tab }) {
     if (!result?.resultId) return;
     const cols = columns.map((c) => c.name);
     const pkCols = arr(detail?.columns).filter((c) => c.primaryKey).map((c) => c.name);
-    const original = async (r: number) => arr((await Query.FetchRows(result.resultId!, r, 1)).rows)[0] as Cell[];
+    const original = async (r: number) => arr((await Query.FetchRows(result.resultId!, r, 1, 0)).rows)[0] as Cell[];
     const { changes, rows: changeRows } = await buildRowChanges(edits, (c) => cols[c], pkCols.length ? pkCols : cols, original, cols.length);
     if (!changes.length) return;
 
@@ -267,6 +271,7 @@ export function TableViewer({ tab }: { tab: Tab }) {
             rowCount={rowCount}
             dataKey={result.resultId ?? "none"}
             fetchPage={fetchPage}
+            fetchFull={fetchFull}
             editable={editable}
             edits={edits}
             onEditCell={onEditCell}

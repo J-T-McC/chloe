@@ -140,7 +140,7 @@ func TestIntegration(t *testing.T) {
 			if len(res) != 3 || res[0].Error != "" || res[1].Error != "" || res[2].Error != "" {
 				t.Fatalf("exec %+v", res)
 			}
-			page, err := m.FetchRows(res[0].ResultID, 0, 10)
+			page, err := m.FetchRows(res[0].ResultID, 0, 10, 0)
 			if err != nil || len(page.Rows) != 3 || *page.Rows[0][1] != "ada@example.com" {
 				t.Fatalf("page %+v %v", page, err)
 			}
@@ -166,7 +166,7 @@ func TestIntegration(t *testing.T) {
 			if err != nil || res[0].Error != "" {
 				t.Fatalf("big %+v %v", res, err)
 			}
-			page, _ = m.FetchRows(res[0].ResultID, 90, 50)
+			page, _ = m.FetchRows(res[0].ResultID, 90, 50, 0)
 			if len(page.Rows) != 10 || !page.Complete {
 				t.Fatalf("big page %d complete=%v", len(page.Rows), page.Complete)
 			}
@@ -263,7 +263,7 @@ func TestIntegrationConnectionFeatures(t *testing.T) {
 				check, want = "SHOW application_name", "chloe-init-test"
 			}
 			res, _ := m.Execute(ctx, sid, check, core.ExecOptions{})
-			page, _ := m.FetchRows(res[0].ResultID, 0, 1)
+			page, _ := m.FetchRows(res[0].ResultID, 0, 1, 0)
 			if len(page.Rows) != 1 || page.Rows[0][0] == nil || *page.Rows[0][0] != want {
 				t.Fatalf("initial query not applied: %+v", page.Rows)
 			}
@@ -438,7 +438,7 @@ func TestIntegrationMySQLPrefersTLS(t *testing.T) {
 	if err != nil || len(res) != 1 || res[0].Error != "" {
 		t.Fatalf("%v %+v", err, res)
 	}
-	page, err := m.FetchRows(res[0].ResultID, 0, 1)
+	page, err := m.FetchRows(res[0].ResultID, 0, 1, 0)
 	if err != nil || len(page.Rows) != 1 || page.Rows[0][1] == nil || *page.Rows[0][1] == "" {
 		t.Fatalf("not encrypted: %+v %v", page, err)
 	}

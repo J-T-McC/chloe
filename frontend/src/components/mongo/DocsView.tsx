@@ -62,7 +62,7 @@ function GridView(p: DocsViewProps) {
       revision={p.revision}
       nullText="(Null)"
       rowNumberOffset={p.rowOffset}
-      fetchPage={async (offset, limit) => docs.current.slice(offset, offset + limit).map((d) => p.fields.map((f) => cellText(field(d, f.name))))}
+      fetchPage={async (offset, limit) => ({ rows: docs.current.slice(offset, offset + limit).map((d) => p.fields.map((f) => cellText(field(d, f.name)))) })}
       editable={editable}
       onEditCell={async (r, c, value: Cell) => {
         const name = p.fields[c]?.name;

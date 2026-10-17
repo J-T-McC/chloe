@@ -206,7 +206,7 @@ func TestIntegrationDesigner(t *testing.T) {
 			// The row survived the column rename.
 			sid, _ := m.OpenSession(ctx, id, e.database, e.schema)
 			rows, _ := m.Execute(ctx, sid, "SELECT code, qty FROM dt_items2", core.ExecOptions{})
-			page, _ := m.FetchRows(rows[0].ResultID, 0, 5)
+			page, _ := m.FetchRows(rows[0].ResultID, 0, 5, 0)
 			if len(page.Rows) != 1 || *page.Rows[0][0] != "AB-1" || *page.Rows[0][1] != "1" {
 				t.Fatalf("data after alter %+v (trigger should have upper-cased the sku)", page.Rows)
 			}

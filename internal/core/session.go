@@ -214,7 +214,8 @@ func (m *Manager) Cancel(ctx context.Context, sessionID string) error {
 }
 
 // FetchRows returns a page of a buffered result, waiting for rows still streaming in.
-func (m *Manager) FetchRows(resultID string, offset, limit int) (model.RowPage, error) {
+// maxChars > 0 cuts longer values (the grid shows the start of each); 0 returns them whole.
+func (m *Manager) FetchRows(resultID string, offset, limit, maxChars int) (model.RowPage, error) {
 	m.mu.Lock()
 	rs, ok := m.results[resultID]
 	m.mu.Unlock()
@@ -224,7 +225,7 @@ func (m *Manager) FetchRows(resultID string, offset, limit int) (model.RowPage, 
 	if limit <= 0 || limit > 5000 {
 		limit = 5000
 	}
-	return rs.page(offset, limit), nil
+	return rs.page(offset, limit, maxChars), nil
 }
 
 // ResultStatus reports the buffered row count of a result.

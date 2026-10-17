@@ -30,4 +30,7 @@ type RowPage struct {
 	Rows     [][]*string `json:"rows"`
 	Total    int         `json:"total"`
 	Complete bool        `json:"complete"`
+	// Cut lists the cells shortened to the requested length, as [row, column]
+	// with row counted from Offset.
+	Cut [][]int `json:"cut,omitempty"`
 }

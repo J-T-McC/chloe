@@ -64,8 +64,8 @@ export function Execute(sessionID: string, script: string, opts: core$0.ExecOpti
     return $Call.ByID(4220720069, sessionID, script, opts);
 }
 
-export function FetchRows(resultID: string, offset: number, limit: number): $CancellablePromise<model$0.RowPage> {
-    return $Call.ByID(4287869759, resultID, offset, limit);
+export function FetchRows(resultID: string, offset: number, limit: number, maxChars: number): $CancellablePromise<model$0.RowPage> {
+    return $Call.ByID(4287869759, resultID, offset, limit, maxChars);
 }
 
 /**

@@ -1,8 +1,10 @@
 package core
 
 import (
+	"slices"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"chloe/internal/driver"
 	"chloe/internal/model"
@@ -107,7 +109,9 @@ func (rs *resultSet) waitFor(n int) {
 	rs.mu.Unlock()
 }
 
-func (rs *resultSet) page(offset, limit int) model.RowPage {
+// page returns rows [offset, offset+limit). With maxChars > 0, longer values are
+// cut to that many characters and listed in Cut; the buffered rows are untouched.
+func (rs *resultSet) page(offset, limit, maxChars int) model.RowPage {
 	rs.waitFor(offset + limit)
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
@@ -118,7 +122,44 @@ func (rs *resultSet) page(offset, limit int) model.RowPage {
 	} else {
 		p.Rows = [][]*string{}
 	}
+	if maxChars > 0 {
+		p.Rows, p.Cut = cutCells(p.Rows, maxChars)
+	}
 	return p
+}
+
+// cutCells shortens values longer than max characters, copying only the rows it changes.
+func cutCells(rows [][]*string, max int) ([][]*string, [][]int) {
+	var cut [][]int
+	out := rows
+	for i, row := range rows {
+		var copied []*string
+		for c, v := range row {
+			// A value of at most max bytes has at most max characters.
+			if v == nil || len(*v) <= max || utf8.RuneCountInString(*v) <= max {
+				continue
+			}
+			if copied == nil {
+				copied = slices.Clone(row)
+				if cut == nil {
+					out = slices.Clone(rows)
+				}
+				out[i] = copied
+			}
+			s := *v
+			n := 0
+			for j := range s {
+				if n == max {
+					s = s[:j]
+					break
+				}
+				n++
+			}
+			copied[c] = &s
+			cut = append(cut, []int{i, c})
+		}
+	}
+	return out, cut
 }
 
 func (rs *resultSet) snapshot() (count int, complete, truncated bool, err error) {

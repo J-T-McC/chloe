@@ -386,6 +386,12 @@ export interface RowPage {
     "rows": ((string | null)[] | null)[] | null;
     "total": number;
     "complete": boolean;
+
+    /**
+     * Cut lists the cells shortened to the requested length, as [row, column]
+     * with row counted from Offset.
+     */
+    "cut"?: (number[] | null)[] | null;
 }
 
 /**
