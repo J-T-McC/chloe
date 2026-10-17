@@ -1,6 +1,6 @@
 import { Activity, Bot, ChartColumn, ChevronDown, LayoutDashboard, Database, FilePlus2, History, Monitor, Moon, Network, PencilRuler, Plug, Shapes, Sun, Table2, TerminalSquare, UserRound, UsersRound, X } from "lucide-react";
 import { ThemePref, onThemeChange, setThemePref, themePref } from "./theme";
-import { memo, useEffect, useMemo, useLayoutEffect, useRef, useState } from "react";
+import { Suspense, lazy, memo, useEffect, useMemo, useLayoutEffect, useRef, useState } from "react";
 import { Events, ObjectKind } from "./api";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { ContextMenuHost } from "./components/ContextMenu";
@@ -33,14 +33,8 @@ import { UsersPane } from "./components/users/UsersPane";
 import { UserDesigner } from "./components/users/UserDesigner";
 import { SetPrivilegesDialog } from "./components/users/SetPrivilegesDialog";
 import { openUsers } from "./components/users/actions";
-import { ERDiagram } from "./components/erd/ERDiagram";
-import { ModelEditor } from "./components/model/ModelEditor";
-import { WorkspaceView } from "./components/bi/WorkspaceView";
-import { SourceEditor } from "./components/bi/SourceEditor";
-import { ChartEditor } from "./components/bi/ChartEditor";
-import { DashboardEditor } from "./components/bi/DashboardEditor";
 import { CreateChartDialog } from "./components/bi/CreateChartDialog";
-import { ExportHost } from "./components/bi/ExportHost";
+import { ExportGate } from "./components/bi/ExportGate";
 import { listenBI } from "./components/bi/actions";
 import { ChartTypeIcon } from "./components/bi/icons";
 import { MenuItem, openMenu } from "./components/ContextMenu";
@@ -59,6 +53,15 @@ import { openRedisConsole } from "./components/redis/actions";
 import { newTable } from "./tableActions";
 import { RevealTarget, useTree } from "./tree";
 import { Toolbar } from "./components/Toolbar";
+
+// The diagram, model and BI tabs bring xyflow, elkjs, echarts and react-grid-layout:
+// they load when such a tab first opens.
+const ERDiagram = lazy(() => import("./components/erd/ERDiagram").then((m) => ({ default: m.ERDiagram })));
+const ModelEditor = lazy(() => import("./components/model/ModelEditor").then((m) => ({ default: m.ModelEditor })));
+const WorkspaceView = lazy(() => import("./components/bi/WorkspaceView").then((m) => ({ default: m.WorkspaceView })));
+const SourceEditor = lazy(() => import("./components/bi/SourceEditor").then((m) => ({ default: m.SourceEditor })));
+const ChartEditor = lazy(() => import("./components/bi/ChartEditor").then((m) => ({ default: m.ChartEditor })));
+const DashboardEditor = lazy(() => import("./components/bi/DashboardEditor").then((m) => ({ default: m.DashboardEditor })));
 
 registerMongoLanguage();
 
@@ -198,7 +201,11 @@ export default function App() {
                 // Tabs mount when first shown (restored query tabs connect then) and stay
                 // mounted, so editors and grids keep their state.
                 <div key={t.id} className="tab-pane" style={{ display: t.id === active ? "flex" : "none" }}>
-                  {(seen.current.has(t.id) || t.id === active) && <TabContent tab={t} active={t.id === active} />}
+                  {(seen.current.has(t.id) || t.id === active) && (
+                    <Suspense fallback={<div className="center-hint">Loading…</div>}>
+                      <TabContent tab={t} active={t.id === active} />
+                    </Suspense>
+                  )}
                 </div>
               ))}
             </div>
@@ -221,7 +228,7 @@ export default function App() {
       <ApprovalHost />
       <HostKeyHost />
       <CreateChartDialog />
-      <ExportHost />
+      <ExportGate />
       <ContextMenuHost />
     </div>
   );

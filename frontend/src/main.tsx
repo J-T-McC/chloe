@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { Browser } from "@wailsio/runtime";
 import App from "./App";
-import { setChartReader } from "./components/bi/Canvas";
+import { setChartReader } from "./components/bi/reader";
 import { setOpenLink } from "./components/bi/links";
 import { BI } from "./api";
 import "./styles.css";
