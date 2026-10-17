@@ -59,8 +59,9 @@ export async function buildReport(path: string, dashboard: B.Dashboard | string,
         // The SQL stays behind: a report shows results, not how they were read.
         const { sql: _sql, ...rest } = await BI.ChartData(path, c, params, opt.since ?? 0);
         data[c.id] = rest as B.Data;
-      } catch (e) {
-        data[c.id] = { error: e instanceof Error ? e.message : String((e as { message?: unknown })?.message ?? e) };
+      } catch {
+        // Driver errors can name hosts, databases and SQL, which a report leaves out.
+        data[c.id] = { error: "This chart couldn't be read when the report was exported." };
       }
       opt.progress?.(++done, charts.length);
     }),
