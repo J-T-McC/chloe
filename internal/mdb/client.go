@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,6 +36,9 @@ type Client struct {
 	conns  atomic.Int64
 }
 
+// srvName is a DNS name: letters, digits, hyphens and dots.
+var srvName = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$`)
+
 // Options builds driver options from a connection profile.
 func Options(c model.Connection, d tunnel.Dialer) (*options.ClientOptions, error) {
 	m := c.Mongo
@@ -44,7 +48,10 @@ func Options(c model.Connection, d tunnel.Dialer) (*options.ClientOptions, error
 	}
 	switch {
 	case m.SRV:
-		// A bad SRV name is reported by Connect.
+		// The host goes into a URI, so only a DNS name may: a bad one is reported by Connect.
+		if !srvName.MatchString(c.Host) {
+			return nil, fmt.Errorf("%q isn't a DNS name for an SRV lookup", c.Host)
+		}
 		o.ApplyURI("mongodb+srv://" + c.Host + "/")
 	case m.Topology == "replicaset" || m.Topology == "shard":
 		hosts := make([]string, 0, len(m.Members))
