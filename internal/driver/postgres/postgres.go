@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
+	"golang.org/x/sync/singleflight"
 
 	"chloe/internal/driver"
 	"chloe/internal/driver/sqlcommon"
@@ -48,8 +50,10 @@ type Conn struct {
 	defaultDB string
 	version   string
 
-	mu    sync.Mutex
-	pools map[string]*pool
+	mu      sync.Mutex
+	pools   map[string]*pool
+	closed  bool
+	opening singleflight.Group // pools being opened, by database
 }
 
 type pool struct {
@@ -64,10 +68,42 @@ func (c *Conn) pool(ctx context.Context, database string) (*sql.DB, error) {
 		database = c.defaultDB
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if p, ok := c.pools[database]; ok {
+		c.mu.Unlock()
 		return p.db, nil
 	}
+	c.mu.Unlock()
+	// Open and ping without the lock: a server that doesn't answer mustn't hold
+	// up calls on the pools already open. Callers for the same database share one try.
+	v, err, _ := c.opening.Do(database, func() (any, error) {
+		c.mu.Lock()
+		if p, ok := c.pools[database]; ok {
+			c.mu.Unlock()
+			return p.db, nil
+		}
+		c.mu.Unlock()
+		p, err := c.open(ctx, database)
+		if err != nil {
+			return nil, err
+		}
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.closed {
+			p.stopKeepalive()
+			p.db.Close()
+			return nil, errors.New("the connection was closed")
+		}
+		c.pools[database] = p
+		return p.db, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.(*sql.DB), nil
+}
+
+// open opens and pings a new pool for a database.
+func (c *Conn) open(ctx context.Context, database string) (*pool, error) {
 	cfg, err := pgx.ParseConfig(c.dsn(database))
 	if err != nil {
 		return nil, err
@@ -91,8 +127,7 @@ func (c *Conn) pool(ctx context.Context, database string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
-	c.pools[database] = &pool{db: db, stopKeepalive: stop}
-	return db, nil
+	return &pool{db: db, stopKeepalive: stop}, nil
 }
 
 func (c *Conn) dsn(database string) string {
@@ -146,6 +181,7 @@ func (c *Conn) dsn(database string) string {
 func (c *Conn) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.closed = true
 	for k, p := range c.pools {
 		p.stopKeepalive()
 		p.db.Close()
