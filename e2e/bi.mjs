@@ -687,7 +687,8 @@ await step("trend against the same days of last week; a percentage axis stops at
   await page.waitForTimeout(900);
   const delta = await editor().getByTestId("bi-delta").innerText();
   // Up to today's weekday last week: just its Sunday (10), unless today is Saturday.
-  const sat = new Date().getDay() === 6;
+  // The source has no time zone, so "today" is the UTC date, not the browser's.
+  const sat = new Date().getUTCDay() === 6;
   check(sat ? delta.includes("▼ -90") : delta.includes("▲ +10 (+100.0%)"), "same days: " + delta);
   check(/vs \w{3} \d+–\w{3} \d+/.test(delta), "same days span: " + delta);
   await shot("bi-trend-same-days");
