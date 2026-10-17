@@ -79,8 +79,6 @@ type SQLOut struct {
 }
 
 func (s *Server) addModelTools(srv *mcp.Server, ep string) {
-	f := false
-	t := true
 	add(s, srv, ep, readOnlyTool("list_models", "List models",
 		"Lists the data models (ER diagrams) in Chloe's library. You can read and copy all of them, and edit the ones created over MCP."),
 		func(ctx context.Context, c *call, _ NoArgs) (ModelsOut, error) {
@@ -110,9 +108,9 @@ func (s *Server) addModelTools(srv *mcp.Server, ep string) {
 			return out, nil
 		})
 
-	add(s, srv, ep, &mcp.Tool{Name: "create_model", Description: "Creates a model you can edit: empty (name and dialect), reverse engineered from a database (connection, database, schema, tables), " +
-		"or a copy of another model (copy_of). It's saved in Chloe's model library.",
-		Annotations: &mcp.ToolAnnotations{Title: "Create model", DestructiveHint: &f, OpenWorldHint: &f}},
+	add(s, srv, ep, writeTool("create_model", "Create model",
+		"Creates a model you can edit: empty (name and dialect), reverse engineered from a database (connection, database, schema, tables), "+
+			"or a copy of another model (copy_of). It's saved in Chloe's model library.", false),
 		func(ctx context.Context, c *call, in CreateModelArgs) (ModelInfo, error) {
 			var m datamodel.Model
 			switch {
@@ -158,9 +156,9 @@ func (s *Server) addModelTools(srv *mcp.Server, ep string) {
 			return c.modelInfo(p, m), nil
 		})
 
-	add(s, srv, ep, &mcp.Tool{Name: "edit_model", Description: "Changes a model created over MCP: adds or replaces tables (set_tables), drops tables, or renames it. " +
-		"Other tables are kept. The user's own models can't be edited; copy one with create_model first. It never touches a database.",
-		Annotations: &mcp.ToolAnnotations{Title: "Edit model", DestructiveHint: &t, OpenWorldHint: &f}},
+	add(s, srv, ep, writeTool("edit_model", "Edit model",
+		"Changes a model created over MCP: adds or replaces tables (set_tables), drops tables, or renames it. "+
+			"Other tables are kept. The user's own models can't be edited; copy one with create_model first. It never touches a database.", true),
 		func(ctx context.Context, c *call, in EditModelArgs) (ModelInfo, error) {
 			p, m, err := c.model(in.Model)
 			if err != nil {
@@ -260,8 +258,8 @@ func (s *Server) addModelTools(srv *mcp.Server, ep string) {
 			return SQLOut{Statements: nonNil(plan.Statements()), Unchanged: plan.Unchanged, Warnings: plan.Warnings}, nil
 		})
 
-	add(s, srv, ep, &mcp.Tool{Name: "open_model", Description: "Opens a model's diagram in Chloe for the user.",
-		Annotations: &mcp.ToolAnnotations{Title: "Open model", DestructiveHint: &f, OpenWorldHint: &f}},
+	add(s, srv, ep, writeTool("open_model", "Open model",
+		"Opens a model's diagram in Chloe for the user.", false),
 		func(ctx context.Context, c *call, in ModelArgs) (ModelInfo, error) {
 			p, m, err := c.model(in.Model)
 			if err != nil {

@@ -83,10 +83,9 @@ func (s *Server) addQueryTools(srv *mcp.Server, ep string) {
 			return SavedQueryOut{Name: q.Name, SQL: q.SQL, Modified: q.Modified}, nil
 		})
 
-	f := false
-	add(s, srv, ep, &mcp.Tool{Name: "save_query", Description: "Saves SQL as a new query in a database's Queries folder, where the user can open and run it. " +
-		"It never runs the SQL and never replaces an existing query: pick a name that isn't taken (see list_saved_queries).",
-		Annotations: &mcp.ToolAnnotations{Title: "Save query", DestructiveHint: &f, OpenWorldHint: &f}},
+	add(s, srv, ep, writeTool("save_query", "Save query",
+		"Saves SQL as a new query in a database's Queries folder, where the user can open and run it. "+
+			"It never runs the SQL and never replaces an existing query: pick a name that isn't taken (see list_saved_queries).", false),
 		func(ctx context.Context, c *call, in SaveQueryArgs) (SavedQueryOut, error) {
 			t, err := c.lookup(in.Connection, in.Database, in.Schema, store.MCPRead)
 			if err != nil {
@@ -111,9 +110,9 @@ func (s *Server) addQueryTools(srv *mcp.Server, ep string) {
 			return SavedQueryOut{Name: q.Name, Modified: q.Modified}, nil
 		})
 
-	add(s, srv, ep, &mcp.Tool{Name: "open_query_tab", Description: "Opens a query tab in Chloe with SQL for the user to review, edit and run, or opens one of their saved queries. " +
-		"Nothing runs and you don't see the results; tell the user what the SQL does.",
-		Annotations: &mcp.ToolAnnotations{Title: "Open query tab", DestructiveHint: &f, OpenWorldHint: &f}},
+	add(s, srv, ep, writeTool("open_query_tab", "Open query tab",
+		"Opens a query tab in Chloe with SQL for the user to review, edit and run, or opens one of their saved queries. "+
+			"Nothing runs and you don't see the results; tell the user what the SQL does.", false),
 		func(ctx context.Context, c *call, in OpenTabArgs) (OpenedOut, error) {
 			t, err := c.lookup(in.Connection, in.Database, in.Schema, store.MCPRead)
 			if err != nil {

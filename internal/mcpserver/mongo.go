@@ -345,12 +345,8 @@ func (c *call) mongoDB(ctx context.Context, connection, database string, need st
 	if database == "" {
 		return mongoTarget{}, errors.New("database is required (see mongo_databases)")
 	}
-	have := a.db(database)
-	if have == store.MCPOff {
-		return mongoTarget{}, fmt.Errorf("database %q of %s isn't shared with this endpoint (see mongo_databases)", database, conn.Name)
-	}
-	if !atLeast(have, need) {
-		return mongoTarget{}, fmt.Errorf("this endpoint can only read %s/%s; ask the user to allow writes in Chloe's MCP Server settings", conn.Name, database)
+	if err := a.require(conn.Name, database, database, "mongo_databases", need); err != nil {
+		return mongoTarget{}, err
 	}
 	cl, err := c.mongoClient(ctx, conn)
 	if err != nil {
