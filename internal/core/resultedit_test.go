@@ -78,10 +78,10 @@ func TestPatchResult(t *testing.T) {
 
 	// Apply an edit to the table, then patch the buffer the same way the grid does.
 	name := "Ada King"
-	if _, err := m.ApplyChanges(ctx, id, e.Ref, []core.RowChange{{Kind: core.ChangeUpdate, Key: map[string]*string{"id": ptr("1")}, Values: map[string]*string{"name": &name}}}); err != nil {
+	if _, err := m.ApplyChanges(ctx, id, e.Ref, []core.RowChange{{Kind: core.ChangeUpdate, Key: map[string]*string{"id": new("1")}, Values: map[string]*string{"name": &name}}}); err != nil {
 		t.Fatal(err)
 	}
-	st, err := m.PatchResult(rid, core.ResultPatch{Updated: map[int]map[int]*string{0: {1: &name}}, Deleted: []int{1}, Inserted: [][]*string{{nil, ptr("new")}}})
+	st, err := m.PatchResult(rid, core.ResultPatch{Updated: map[int]map[int]*string{0: {1: &name}}, Deleted: []int{1}, Inserted: [][]*string{{nil, new("new")}}})
 	if err != nil || st.RowCount != 2 {
 		t.Fatalf("%+v %v", st, err)
 	}
@@ -96,8 +96,6 @@ func TestPatchResult(t *testing.T) {
 		t.Fatal("update not applied")
 	}
 }
-
-func ptr(s string) *string { return &s }
 
 // TestIntegrationResultEdit checks the mapping on MySQL (backticks, case-insensitive
 // names, db.table) and PostgreSQL (folding, schema.table), then edits through it.
@@ -132,7 +130,7 @@ func TestIntegrationResultEdit(t *testing.T) {
 			// Edit through the mapping and restore.
 			for _, name := range []string{"Ada Edited", "Ada Lovelace"} {
 				v := name
-				if _, err := m.ApplyChanges(ctx, id, target.Ref, []core.RowChange{{Kind: core.ChangeUpdate, Key: map[string]*string{"id": ptr("1")}, Values: map[string]*string{"full_name": &v}}}); err != nil {
+				if _, err := m.ApplyChanges(ctx, id, target.Ref, []core.RowChange{{Kind: core.ChangeUpdate, Key: map[string]*string{"id": new("1")}, Values: map[string]*string{"full_name": &v}}}); err != nil {
 					t.Fatal(err)
 				}
 			}

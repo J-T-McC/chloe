@@ -12,8 +12,6 @@ import (
 	"chloe/internal/sqlq"
 )
 
-func sp(s string) *string { return &s }
-
 // designFixture is a table using most designer features, for each engine.
 func designFixture(e engine) design.Table {
 	pg := e.conn.Type == model.PostgreSQL
@@ -21,11 +19,11 @@ func designFixture(e engine) design.Table {
 		Database: e.database, Schema: e.schema, Name: "dt_items", Comment: "designer test",
 		Columns: []design.Column{
 			{Name: "id", Type: "int", AutoIncrement: !pg},
-			{Name: "sku", Type: "varchar", Length: "32", Default: sp(`'it''s \\'`)},
+			{Name: "sku", Type: "varchar", Length: "32", Default: new(`'it''s \\'`)},
 			{Name: "title", Type: "varchar", Length: "200", Nullable: true, Comment: "display title"},
-			{Name: "price", Type: "decimal", Length: "10", Scale: "2", Default: sp("0.00")},
+			{Name: "price", Type: "decimal", Length: "10", Scale: "2", Default: new("0.00")},
 			{Name: "customer_id", Type: "int", Nullable: true},
-			{Name: "created_at", Type: "timestamp", Default: sp("CURRENT_TIMESTAMP")},
+			{Name: "created_at", Type: "timestamp", Default: new("CURRENT_TIMESTAMP")},
 		},
 		PrimaryKey: &design.PrimaryKey{Columns: []string{"id"}},
 		Indexes: []design.Index{
@@ -152,11 +150,11 @@ func TestIntegrationDesigner(t *testing.T) {
 			edit.Comment = "renamed"
 			edit.Columns[1].Name = "code"
 			edit.Columns[1].Length = "64"
-			edit.Columns[3].Default = sp("1.00")
+			edit.Columns[3].Default = new("1.00")
 			edit.Columns = slices.DeleteFunc(edit.Columns, func(c design.Column) bool { return c.Name == "customer_id" })
 			edit.ForeignKeys = nil
 			edit.Indexes = slices.DeleteFunc(edit.Indexes, func(ix design.Index) bool { return ix.Name == "dt_items_customer" })
-			edit.Columns = append(edit.Columns, design.Column{Name: "qty", Type: "int", Default: sp("1")})
+			edit.Columns = append(edit.Columns, design.Column{Name: "qty", Type: "int", Default: new("1")})
 			edit.Indexes[indexOf(edit.Indexes, "dt_items_sku")].Columns = []design.IndexColumn{{Name: "code"}}
 			for i := range edit.Indexes {
 				if edit.Indexes[i].Name == "dt_items_title_price" {

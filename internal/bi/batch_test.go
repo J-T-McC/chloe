@@ -45,10 +45,8 @@ func TestBatchQuery(t *testing.T) {
 	if _, _, err := BatchQuery(pg, from, src, charts, []int{100, 1}); err == nil {
 		t.Error("charts with different filters batched")
 	}
-	rows := [][]*string{{s("0"), s("2026-01"), s("paid"), s("9"), nil}, {s("1"), nil, nil, nil, s("12")}}
+	rows := [][]*string{{new("0"), new("2026-01"), new("paid"), new("9"), nil}, {new("1"), nil, nil, nil, new("12")}}
 	if got, err := SplitBatch(rows, 1, BatchPart{Offset: 3, Width: 1}); err != nil || len(got) != 1 || *got[0][0] != "12" {
 		t.Errorf("split: %v %v", got, err)
 	}
 }
-
-func s(v string) *string { return &v }

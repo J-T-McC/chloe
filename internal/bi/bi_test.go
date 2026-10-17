@@ -164,9 +164,8 @@ func TestCheckSQL(t *testing.T) {
 }
 
 func TestShape(t *testing.T) {
-	s := func(v string) *string { return &v }
 	cols := []Column{{Role: "dimension", Type: TypeString}, {Role: "value", Type: TypeNumber}}
-	raw := [][]*string{{s("a"), s("1")}, {s("b"), s("5")}, {s("c"), s("3")}, {s("d"), nil}, {nil, s("2")}}
+	raw := [][]*string{{new("a"), new("1")}, {new("b"), new("5")}, {new("c"), new("3")}, {new("d"), nil}, {nil, new("2")}}
 	c := Chart{Type: "bar", Value: []ChartField{{Field: "x"}}}
 	got := Shape(c, cols, raw)
 	// Categories: biggest first.
@@ -178,7 +177,7 @@ func TestShape(t *testing.T) {
 		t.Errorf("top 2 + others: %v", got)
 	}
 	c = Chart{Type: "line", Value: []ChartField{{Field: "x", Op: "cumulative"}}}
-	months := [][]*string{{s("2026-02"), s("2")}, {s("2026-01"), s("1")}, {s("2026-03"), s("4")}}
+	months := [][]*string{{new("2026-02"), new("2")}, {new("2026-01"), new("1")}, {new("2026-03"), new("4")}}
 	dcols := []Column{{Role: "dimension", Type: TypeString, Aggregate: "month"}, {Role: "value", Type: TypeNumber}}
 	if got, want := Shape(c, dcols, months), [][]any{{"2026-01", 1.0}, {"2026-02", 3.0}, {"2026-03", 7.0}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("cumulative: %v", got)
@@ -282,10 +281,9 @@ func TestHumanize(t *testing.T) {
 }
 
 func TestTableSort(t *testing.T) {
-	s := func(v string) *string { return &v }
 	cols := []Column{{Role: "column", Field: "game", Type: TypeString}, {Role: "column", Field: "rooms", Label: "Count of Rooms", Aggregate: "count", Type: TypeNumber},
 		{Role: "column", Field: "events", Label: "Average of Events", Aggregate: "avg", Type: TypeNumber}}
-	raw := [][]*string{{s("Alpha"), s("3"), s("9")}, {s("Bravo"), s("10"), s("1")}, {s("Charlie"), s("5"), s("4")}}
+	raw := [][]*string{{new("Alpha"), new("3"), new("9")}, {new("Bravo"), new("10"), new("1")}, {new("Charlie"), new("5"), new("4")}}
 	c := Chart{Type: "table", Value: []ChartField{{Field: "game"}, {Field: "rooms", Aggregate: "count"}, {Field: "events", Aggregate: "avg"}}}
 	names := func(rows [][]any) (out []any) {
 		for _, r := range rows {
@@ -317,9 +315,8 @@ func TestTableSort(t *testing.T) {
 }
 
 func TestFillPeriods(t *testing.T) {
-	s := func(v string) *string { return &v }
 	cols := []Column{{Role: "dimension", Aggregate: "day", Type: TypeDateTime}, {Role: "series", Type: TypeString}, {Role: "value", Aggregate: "count", Type: TypeNumber}}
-	raw := [][]*string{{s("2026-09-28"), s("won"), s("2")}, {s("2026-10-01"), s("won"), s("1")}, {s("2026-10-01"), s("lost"), s("4")}}
+	raw := [][]*string{{new("2026-09-28"), new("won"), new("2")}, {new("2026-10-01"), new("won"), new("1")}, {new("2026-10-01"), new("lost"), new("4")}}
 	c := Chart{Type: "stacked_bar", Value: []ChartField{{Field: "id", Aggregate: "count"}}}
 	got := Shape(c, cols, raw)
 	var days []string
@@ -337,7 +334,7 @@ func TestFillPeriods(t *testing.T) {
 	// Weeks across a new year, and averages left empty.
 	cols[0].Aggregate = "week"
 	c = Chart{Type: "line", Value: []ChartField{{Field: "x", Aggregate: "avg"}}}
-	got = Shape(c, []Column{cols[0], cols[2]}, [][]*string{{s("2025-12-14"), s("1")}, {s("2026-01-04"), s("2")}})
+	got = Shape(c, []Column{cols[0], cols[2]}, [][]*string{{new("2025-12-14"), new("1")}, {new("2026-01-04"), new("2")}})
 	var labels []any
 	for _, r := range got {
 		labels = append(labels, r[0])
@@ -347,7 +344,7 @@ func TestFillPeriods(t *testing.T) {
 	}
 	// Top N or a value sort leaves the periods alone.
 	c.Top = 1
-	if got = Shape(c, []Column{cols[0], cols[2]}, [][]*string{{s("2025-12-14"), s("1")}, {s("2026-01-04"), s("2")}}); len(got) != 1 {
+	if got = Shape(c, []Column{cols[0], cols[2]}, [][]*string{{new("2025-12-14"), new("1")}, {new("2026-01-04"), new("2")}}); len(got) != 1 {
 		t.Errorf("top: %v", got)
 	}
 }
@@ -380,9 +377,8 @@ func TestInLast(t *testing.T) {
 }
 
 func TestFillSeries(t *testing.T) {
-	s := func(v string) *string { return &v }
 	cols := []Column{{Role: "dimension", Aggregate: "day", Type: TypeDateTime}, {Role: "series", Type: TypeString}, {Role: "value", Type: TypeNumber}}
-	raw := [][]*string{{s("2026-09-15"), s("anonymous"), s("2")}, {s("2026-09-17"), s("anonymous"), s("1")}, {s("2026-09-17"), s("signed in"), s("3")}}
+	raw := [][]*string{{new("2026-09-15"), new("anonymous"), new("2")}, {new("2026-09-17"), new("anonymous"), new("1")}, {new("2026-09-17"), new("signed in"), new("3")}}
 	c := Chart{Type: "stacked_bar", Value: []ChartField{{Field: "id", Aggregate: "count"}}}
 	got := Shape(c, cols, raw)
 	pairs := map[string]any{}
@@ -397,7 +393,7 @@ func TestFillSeries(t *testing.T) {
 	// Categories too, also with Top N.
 	cols[0] = Column{Role: "dimension", Type: TypeString}
 	c.Top = 5
-	got = Shape(c, cols, [][]*string{{s("x"), s("a"), s("1")}, {s("y"), s("b"), s("1")}})
+	got = Shape(c, cols, [][]*string{{new("x"), new("a"), new("1")}, {new("y"), new("b"), new("1")}})
 	if len(got) != 4 {
 		t.Errorf("categories: %v", got)
 	}
@@ -406,12 +402,11 @@ func TestFillSeries(t *testing.T) {
 func TestWindowAndNames(t *testing.T) {
 	defer func(f func() time.Time) { now = f }(now)
 	now = func() time.Time { return time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC) }
-	s := func(v string) *string { return &v }
 	src := ordersSource()
 	c := Chart{Type: "bar", Dimension: []ChartField{{Field: "placed_at", Aggregate: "day"}}, Value: []ChartField{{Field: "id", Aggregate: "count"}},
 		Filters: []Filter{{Field: "placed_at", Op: "in_last", Values: []string{"7", "day"}}}}
 	cols := []Column{{Role: "dimension", Aggregate: "day", Type: TypeDateTime}, {Role: "value", Type: TypeNumber}}
-	rows := ShapeRange(c, cols, [][]*string{{s("2026-10-11"), s("3")}}, FilterWindow(src, c))
+	rows := ShapeRange(c, cols, [][]*string{{new("2026-10-11"), new("3")}}, FilterWindow(src, c))
 	if len(rows) != 7 || rows[0][0] != "2026-10-09" || rows[6][0] != "2026-10-15" || rows[6][1] != 0.0 {
 		t.Errorf("window fill: %v", rows)
 	}
@@ -422,7 +417,7 @@ func TestWindowAndNames(t *testing.T) {
 	// Weekdays and months are named once in order.
 	c = Chart{Type: "bar", Dimension: []ChartField{{Field: "placed_at", Aggregate: "weekday_x"}}, Value: []ChartField{{Field: "id", Aggregate: "count"}}}
 	cols[0].Aggregate = "weekday_x"
-	rows = Shape(c, cols, [][]*string{{s("3"), s("5")}, {s("0"), s("1")}, {s("6"), s("2")}})
+	rows = Shape(c, cols, [][]*string{{new("3"), new("5")}, {new("0"), new("1")}, {new("6"), new("2")}})
 	if got := []any{rows[0][0], rows[1][0], rows[2][0]}; !reflect.DeepEqual(got, []any{"Sun", "Wed", "Sat"}) {
 		t.Errorf("weekdays: %v", got)
 	}
@@ -433,7 +428,7 @@ func TestWindowAndNames(t *testing.T) {
 	if err != nil || !strings.Contains(q.SQL, `strftime('%w', "placed_at") AS "c0"`) || !strings.Contains(q.SQL, "GROUP BY 1") || tc[0].Aggregate != "weekday_x" {
 		t.Errorf("table bucket: %v %s", err, q.SQL)
 	}
-	if rows = Shape(tbl, tc, [][]*string{{s("1"), s("4")}}); rows[0][0] != "Mon" {
+	if rows = Shape(tbl, tc, [][]*string{{new("1"), new("4")}}); rows[0][0] != "Mon" {
 		t.Errorf("table weekday name: %v", rows)
 	}
 	tbl.Value[0].Aggregate = "sum"
@@ -494,18 +489,17 @@ func TestTimezone(t *testing.T) {
 }
 
 func TestBetweenWindow(t *testing.T) {
-	s := func(v string) *string { return &v }
 	src := ordersSource()
 	c := Chart{Type: "bar", Dimension: []ChartField{{Field: "placed_at", Aggregate: "day"}}, Value: []ChartField{{Field: "id", Aggregate: "count"}},
 		Filters: []Filter{{Field: "placed_at", Op: "between", Values: []string{"2026-10-10", "2026-10-20"}}}}
 	cols := []Column{{Role: "dimension", Aggregate: "day", Type: TypeDateTime}, {Role: "value", Type: TypeNumber}}
-	rows := ShapeRange(c, cols, [][]*string{{s("2026-10-12"), s("3")}, {s("2026-10-14"), s("1")}}, FilterWindow(src, c))
+	rows := ShapeRange(c, cols, [][]*string{{new("2026-10-12"), new("3")}, {new("2026-10-14"), new("1")}}, FilterWindow(src, c))
 	if len(rows) != 11 || rows[0][0] != "2026-10-10" || rows[10][0] != "2026-10-20" {
 		t.Errorf("between: %v", rows)
 	}
 	// An open end stops at the data; < excludes its day.
 	c.Filters = []Filter{{Field: "placed_at", Op: "<", Values: []string{"2026-10-17"}}}
-	rows = ShapeRange(c, cols, [][]*string{{s("2026-10-12"), s("3")}}, FilterWindow(src, c))
+	rows = ShapeRange(c, cols, [][]*string{{new("2026-10-12"), new("3")}}, FilterWindow(src, c))
 	if len(rows) != 5 || rows[4][0] != "2026-10-16" {
 		t.Errorf("before: %v", rows)
 	}
@@ -625,9 +619,8 @@ func TestDashboards(t *testing.T) {
 }
 
 func TestSeriesOrderStable(t *testing.T) {
-	s := func(v string) *string { return &v }
 	cols := []Column{{Role: "dimension", Type: TypeString}, {Role: "series", Type: TypeString}, {Role: "value", Type: TypeNumber}}
-	raw := [][]*string{{s("Frontier"), s("ended early"), s("9")}, {s("Frontier"), s("finished"), s("1")}, {s("Warriors"), s("finished"), s("9")}, {s("Warriors"), s("stuck"), s("2")}}
+	raw := [][]*string{{new("Frontier"), new("ended early"), new("9")}, {new("Frontier"), new("finished"), new("1")}, {new("Warriors"), new("finished"), new("9")}, {new("Warriors"), new("stuck"), new("2")}}
 	c := Chart{Type: "stacked_hbar", Value: []ChartField{{Field: "id", Aggregate: "count"}}}
 	got := Shape(c, cols, raw)
 	var order []string
@@ -706,9 +699,8 @@ func TestPDF(t *testing.T) {
 }
 
 func TestTiesAlphabetical(t *testing.T) {
-	s := func(v string) *string { return &v }
 	cols := []Column{{Role: "dimension", Type: TypeString}, {Role: "value", Type: TypeNumber}}
-	got := Shape(Chart{Type: "hbar", Value: []ChartField{{Field: "x"}}}, cols, [][]*string{{s("yacht"), s("2")}, {s("cats"), s("2")}, {s("smear"), s("5")}, {s("warriors"), s("2")}})
+	got := Shape(Chart{Type: "hbar", Value: []ChartField{{Field: "x"}}}, cols, [][]*string{{new("yacht"), new("2")}, {new("cats"), new("2")}, {new("smear"), new("5")}, {new("warriors"), new("2")}})
 	var order []any
 	for _, r := range got {
 		order = append(order, r[0])
@@ -726,12 +718,11 @@ func TestTiesAlphabetical(t *testing.T) {
 func TestOpenEndedWindow(t *testing.T) {
 	defer func(f func() time.Time) { now = f }(now)
 	now = func() time.Time { return time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC) }
-	s := func(v string) *string { return &v }
 	src := ordersSource()
 	c := Chart{Type: "bar", Dimension: []ChartField{{Field: "placed_at", Aggregate: "day"}}, Value: []ChartField{{Field: "id", Aggregate: "count"}},
 		Filters: []Filter{{Field: "placed_at", Op: ">=", Values: []string{"2026-10-12"}}}}
 	cols := []Column{{Role: "dimension", Aggregate: "day", Type: TypeDateTime}, {Role: "value", Type: TypeNumber}}
-	rows := ShapeRange(c, cols, [][]*string{{s("2026-10-13"), s("2")}}, FilterWindow(src, c))
+	rows := ShapeRange(c, cols, [][]*string{{new("2026-10-13"), new("2")}}, FilterWindow(src, c))
 	if len(rows) != 4 || rows[0][0] != "2026-10-12" || rows[3][0] != "2026-10-15" {
 		t.Errorf(">= fills to today: %v", rows)
 	}
@@ -812,16 +803,15 @@ func TestPhase3Types(t *testing.T) {
 		t.Fatalf("scatter: %s %+v", q.SQL, cols)
 	}
 	// Its points stay as read: no filled series, no Others point.
-	s := func(v string) *string { return &v }
 	pcols := []Column{{Role: "dimension", Type: TypeString}, {Role: "series", Type: TypeString}, {Role: "value", Type: TypeNumber}, {Role: "target", Type: TypeNumber}}
-	raw := [][]*string{{s("a"), s("x"), s("1"), s("2")}, {s("b"), s("y"), s("3"), s("4")}, {s("c"), s("y"), s("5"), s("6")}}
+	raw := [][]*string{{new("a"), new("x"), new("1"), new("2")}, {new("b"), new("y"), new("3"), new("4")}, {new("c"), new("y"), new("5"), new("6")}}
 	sc.Series, sc.Top, sc.Others = []ChartField{{Field: "status"}}, 2, true
 	if got := Shape(sc, pcols, raw); len(got) != 2 || got[0][0] != "c" {
 		t.Errorf("scatter shape: %v", got)
 	}
 	// A heatmap fills every cell, so the grid has no holes.
 	hm := Chart{Type: "heatmap", Dimension: []ChartField{{Field: "customer"}}, Series: []ChartField{{Field: "status"}}, Value: sum}
-	if got := Shape(hm, pcols[:3], [][]*string{{s("a"), s("x"), s("1")}, {s("b"), s("y"), s("3")}}); len(got) != 4 {
+	if got := Shape(hm, pcols[:3], [][]*string{{new("a"), new("x"), new("1")}, {new("b"), new("y"), new("3")}}); len(got) != 4 {
 		t.Errorf("heatmap fill: %v", got)
 	}
 	// KPI and gauge read one row; their target is an aggregate too.
@@ -830,7 +820,7 @@ func TestPhase3Types(t *testing.T) {
 	if err != nil || strings.Contains(q.SQL, "GROUP BY") || len(cols) != 2 {
 		t.Fatalf("kpi: %s %v", q.SQL, err)
 	}
-	if got := Shape(kpi, cols, [][]*string{{s("10"), s("40")}}); !reflect.DeepEqual(got, [][]any{{10.0, 40.0}}) {
+	if got := Shape(kpi, cols, [][]*string{{new("10"), new("40")}}); !reflect.DeepEqual(got, [][]any{{10.0, 40.0}}) {
 		t.Errorf("kpi shape: %v", got)
 	}
 	// Trend needs a date grouped by period.
@@ -905,8 +895,7 @@ func TestDynamicDates(t *testing.T) {
 	if err != nil || !strings.Contains(q.SQL, `"placed_at" >= ? AND "placed_at" < ?`) || !reflect.DeepEqual(q.Args, []any{"2026-04-01", "2026-05-01"}) {
 		t.Fatalf("query: %s %v %v", q.SQL, q.Args, err)
 	}
-	s := func(v string) *string { return &v }
-	rows := ShapeRange(c, cols, [][]*string{{s("2026-04-10"), s("5")}}, FilterWindow(src, c))
+	rows := ShapeRange(c, cols, [][]*string{{new("2026-04-10"), new("5")}}, FilterWindow(src, c))
 	if len(rows) != 30 || rows[0][0] != "2026-04-01" || rows[29][0] != "2026-04-30" {
 		t.Errorf("filled %d days: %v … %v", len(rows), rows[0], rows[len(rows)-1])
 	}
@@ -919,8 +908,7 @@ func TestControlChart(t *testing.T) {
 	if err != nil || q.SQL != `SELECT "status" AS "c0" FROM "orders" AS s GROUP BY 1 ORDER BY 1 LIMIT 100` || len(cols) != 1 {
 		t.Fatalf("control: %s %v", q.SQL, err)
 	}
-	s := func(v string) *string { return &v }
-	if got := Shape(c, cols, [][]*string{{s("open")}, {s("paid")}}); !reflect.DeepEqual(got, [][]any{{"open"}, {"paid"}}) {
+	if got := Shape(c, cols, [][]*string{{new("open")}, {new("paid")}}); !reflect.DeepEqual(got, [][]any{{"open"}, {"paid"}}) {
 		t.Errorf("control rows: %v", got)
 	}
 	w := New("w")
@@ -944,14 +932,13 @@ func TestTesterFixes(t *testing.T) {
 	if _, err := (Chart{Type: "gauge", Value: []ChartField{{Field: "total", Aggregate: "sum"}}, Props: Props{Min: &lo, Max: &hi}}).Check(src, "sqlite"); err == nil {
 		t.Error("gauge min above max")
 	}
-	s := func(v string) *string { return &v }
 	cols := []Column{{Role: "dimension", Type: TypeString}}
-	if got := Shape(Chart{Type: "control"}, cols, [][]*string{{s("Cats")}, {s("Yacht")}, {s("frontier")}}); fmt.Sprint(got) != "[[Cats] [frontier] [Yacht]]" {
+	if got := Shape(Chart{Type: "control"}, cols, [][]*string{{new("Cats")}, {new("Yacht")}, {new("frontier")}}); fmt.Sprint(got) != "[[Cats] [frontier] [Yacht]]" {
 		t.Errorf("control order: %v", got)
 	}
 	// Top N keeps the largest, even on a date dimension.
 	dcols := []Column{{Role: "dimension", Type: TypeString, Aggregate: "day"}, {Role: "value", Type: TypeNumber}}
-	got := Shape(Chart{Type: "treemap", Top: 1, Value: []ChartField{{Field: "x", Aggregate: "sum"}}}, dcols, [][]*string{{s("2026-01-01"), s("1")}, {s("2026-01-02"), s("9")}})
+	got := Shape(Chart{Type: "treemap", Top: 1, Value: []ChartField{{Field: "x", Aggregate: "sum"}}}, dcols, [][]*string{{new("2026-01-01"), new("1")}, {new("2026-01-02"), new("9")}})
 	if len(got) != 1 || got[0][0] != "2026-01-02" {
 		t.Errorf("top by value: %v", got)
 	}

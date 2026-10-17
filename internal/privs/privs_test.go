@@ -21,10 +21,8 @@ func sqls(t *testing.T, dialect string, old *User, u User) []string {
 	return out
 }
 
-func pw(s string) *string { return &s }
-
 func TestMySQLCreateAndAlter(t *testing.T) {
-	u := User{Name: "app", Host: "%", Password: pw("s3cr'et"), Plugin: "caching_sha2_password", SSLType: "SSL", MaxQueries: 100, Locked: true,
+	u := User{Name: "app", Host: "%", Password: new("s3cr'et"), Plugin: "caching_sha2_password", SSLType: "SSL", MaxQueries: 100, Locked: true,
 		MemberOf: []string{"reader@%"},
 		Privileges: []Grant{
 			{Level: Global, Privilege: "PROCESS"},
@@ -74,7 +72,7 @@ func TestMySQLCreateAndAlter(t *testing.T) {
 }
 
 func TestPostgresCreateAndAlter(t *testing.T) {
-	u := User{Name: "app", CanLogin: true, Inherit: true, ConnLimit: -1, Password: pw("x"), ValidUntil: "2030-01-01", Comment: "app login",
+	u := User{Name: "app", CanLogin: true, Inherit: true, ConnLimit: -1, Password: new("x"), ValidUntil: "2030-01-01", Comment: "app login",
 		MemberOf: []string{"readers"},
 		Privileges: []Grant{
 			{Level: Database, Database: "shop", Privilege: "CONNECT"},

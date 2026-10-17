@@ -11,21 +11,19 @@ func gens() map[string]Generator {
 	return map[string]Generator{"mysql": MySQL{}, "postgres": Postgres{}, "sqlite": SQLite{}}
 }
 
-func strp(s string) *string { return &s }
-
 func base() Table {
 	return Table{Name: "t", Columns: []Column{{Name: "id", Type: "integer"}, {Name: "v", Type: "varchar", Length: "20", Nullable: true}}}
 }
 
 func TestRejectsSmuggledSQL(t *testing.T) {
 	cases := map[string]func(*Table){
-		"default":       func(t *Table) { t.Columns[0].Default = strp("0; DROP TABLE users") },
-		"default quote": func(t *Table) { t.Columns[0].Default = strp("'x") },
+		"default":       func(t *Table) { t.Columns[0].Default = new("0; DROP TABLE users") },
+		"default quote": func(t *Table) { t.Columns[0].Default = new("'x") },
 		"default comment": func(t *Table) {
-			t.Columns[0].Default = strp("0 /*")
+			t.Columns[0].Default = new("0 /*")
 		},
-		"default line comment": func(t *Table) { t.Columns[0].Default = strp("0 --") },
-		"default paren":        func(t *Table) { t.Columns[0].Default = strp("0)") },
+		"default line comment": func(t *Table) { t.Columns[0].Default = new("0 --") },
+		"default paren":        func(t *Table) { t.Columns[0].Default = new("0)") },
 		"type":                 func(t *Table) { t.Columns[0].Type = "int); DROP TABLE users; --" },
 		"type space":           func(t *Table) { t.Columns[0].Type = "int DEFAULT 1" + ";" },
 		"length":               func(t *Table) { t.Columns[1].Length = "20); DROP TABLE users; --" },
@@ -59,7 +57,7 @@ func TestRejectsSmuggledSQL(t *testing.T) {
 		},
 		// Two fields that are each "one piece" only because a quote stays open.
 		"split across fields": func(t *Table) {
-			t.Columns[0].Default = strp("'a")
+			t.Columns[0].Default = new("'a")
 			t.Checks = []Check{{Name: "c", Expr: "x'; DROP TABLE users; --"}}
 		},
 	}
