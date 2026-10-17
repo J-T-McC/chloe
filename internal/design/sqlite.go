@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"chloe/internal/sqlsplit"
 )
 
 // SQLite generates SQLite DDL. SQLite's ALTER TABLE only renames tables and
@@ -183,6 +185,10 @@ func (SQLite) validate(t Table) error {
 }
 
 func (g SQLite) Create(t Table) ([]string, error) {
+	return checked(t, sqlsplit.SQLite, func() ([]string, error) { return g.create(t) })
+}
+
+func (g SQLite) create(t Table) ([]string, error) {
 	if err := Validate(t); err != nil {
 		return nil, err
 	}
@@ -271,6 +277,10 @@ func addable(c Column) bool {
 }
 
 func (g SQLite) Alter(old, nw Table) ([]string, error) {
+	return checked(nw, sqlsplit.SQLite, func() ([]string, error) { return g.alter(old, nw) })
+}
+
+func (g SQLite) alter(old, nw Table) ([]string, error) {
 	if err := Validate(nw); err != nil {
 		return nil, err
 	}
