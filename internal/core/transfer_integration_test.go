@@ -46,7 +46,7 @@ func queryAll(t *testing.T, m *core.Manager, id, db, schema, q string) [][]*stri
 	if err != nil || res[0].Error != "" {
 		t.Fatalf("%s: %v %+v", q, err, res)
 	}
-	page, _ := m.FetchRows(res[0].ResultID, 0, 5000)
+	page, _ := m.FetchRows(res[0].ResultID, 0, 5000, 0)
 	return page.Rows
 }
 

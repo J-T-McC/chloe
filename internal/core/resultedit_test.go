@@ -85,13 +85,13 @@ func TestPatchResult(t *testing.T) {
 	if err != nil || st.RowCount != 2 {
 		t.Fatalf("%+v %v", st, err)
 	}
-	page, _ := m.FetchRows(rid, 0, 10)
+	page, _ := m.FetchRows(rid, 0, 10, 0)
 	got := []string{deref(page.Rows[0][1]), deref(page.Rows[1][1])}
 	if !slices.Equal(got, []string{"Ada King", "new"}) {
 		t.Fatalf("rows %q", got)
 	}
 	check, _ := m.Execute(ctx, sid, "SELECT name FROM customers WHERE id = 1", core.ExecOptions{})
-	p2, _ := m.FetchRows(check[0].ResultID, 0, 1)
+	p2, _ := m.FetchRows(check[0].ResultID, 0, 1, 0)
 	if deref(p2.Rows[0][0]) != "Ada King" {
 		t.Fatal("update not applied")
 	}

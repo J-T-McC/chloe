@@ -300,8 +300,8 @@ func (s *QueryService) Cancel(ctx context.Context, sessionID string) error {
 	return s.M.Cancel(ctx, sessionID)
 }
 
-func (s *QueryService) FetchRows(resultID string, offset, limit int) (model.RowPage, error) {
-	return s.M.FetchRows(resultID, offset, limit)
+func (s *QueryService) FetchRows(resultID string, offset, limit, maxChars int) (model.RowPage, error) {
+	return s.M.FetchRows(resultID, offset, limit, maxChars)
 }
 
 func (s *QueryService) ResultStatus(resultID string) (model.StatementResult, error) {

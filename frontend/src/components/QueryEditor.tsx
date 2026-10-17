@@ -5,7 +5,7 @@ import { autoTrigger, clearEditorContext, invalidateCatalog, preloadCatalog, reg
 import { beautifyEditor, registerFormatter } from "../editor/format";
 import { Monaco, editorTheme, monaco } from "../editor/monaco";
 import { Tab, connById, useApp } from "../store";
-import { Cell, DataGrid, GridEdits, emptyEdits } from "./DataGrid";
+import { Cell, DataGrid, GridEdits, MAX_CELL_CHARS, emptyEdits } from "./DataGrid";
 import { confirm } from "./Dialogs";
 import { buildRowChanges } from "../gridChanges";
 import { Split } from "./Split";
@@ -379,7 +379,11 @@ export function ResultGrid({
   onPatched?(status: StatementResult): void;
 }) {
   const id = result.resultId!;
-  const fetchPage = useCallback(async (offset: number, limit: number) => arr((await Query.FetchRows(id, offset, limit)).rows) as Cell[][], [id]);
+  const fetchPage = useCallback(async (offset: number, limit: number) => {
+    const p = await Query.FetchRows(id, offset, limit, MAX_CELL_CHARS);
+    return { rows: arr(p.rows) as Cell[][], cut: p.cut };
+  }, [id]);
+  const fetchFull = useCallback(async (offset: number, limit: number) => arr((await Query.FetchRows(id, offset, limit, 0)).rows) as Cell[][], [id]);
   const [panel, setPanel] = useState(() => readFlag("valuePanel"));
   const [active, setActive] = useState<{ r: number; c: number; value?: Cell } | null>(null);
   const [fetched, setFetched] = useState<{ key: string; value: Cell } | null>(null);
@@ -390,7 +394,7 @@ export function ResultGrid({
   const activeKey = active ? `${id}:${active.r}:${active.c}` : "";
   useEffect(() => {
     if (!panel || !active || active.value !== undefined) return;
-    Query.FetchRows(id, active.r, 1)
+    Query.FetchRows(id, active.r, 1, 0)
       .then((p) => setFetched({ key: activeKey, value: (arr(p.rows)[0] as Cell[] | undefined)?.[active.c] ?? null }))
       .catch(() => {});
   }, [panel, active, activeKey, id]);
@@ -448,7 +452,7 @@ export function ResultGrid({
   const apply = async () => {
     if (!editable || !target || !dirty) return;
     setError("");
-    const original = async (r: number) => arr((await Query.FetchRows(id, r, 1)).rows)[0] as Cell[];
+    const original = async (r: number) => arr((await Query.FetchRows(id, r, 1, 0)).rows)[0] as Cell[];
     const { changes, rows } = await buildRowChanges(e, (c) => mapped[c] || undefined, arr(target.key), original, columns.length);
     if (!changes.length) return update(() => emptyEdits());
     const res = await Query.ApplyChanges(connId, target.ref, changes);
@@ -518,6 +522,7 @@ export function ResultGrid({
             dataKey={id}
             revision={revision}
             fetchPage={fetchPage}
+            fetchFull={fetchFull}
             editable={editable}
             readOnlyColumns={readOnlyColumns}
             edits={editable ? e : undefined}
