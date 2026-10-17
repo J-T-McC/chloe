@@ -137,7 +137,7 @@ func (s *Store) Export(ids []string, passphrase string) ([]byte, error) {
 			}
 			sets = append(sets, secretSet{full.Password, full.SSH.Password, full.SSH.Passphrase})
 		}
-		f.Connections = append(f.Connections, stripSecrets(c))
+		f.Connections = append(f.Connections, c.WithoutSecrets())
 		if c.Group != "" {
 			groups[c.Group] = true
 		}
@@ -220,7 +220,7 @@ func (s *Store) Import(data []byte, passphrase string) (int, error) {
 		c = withoutLaunchSettings(c)
 		if f.Secrets != nil {
 			// Passwords only come from the sealed block; version 1 files kept them in the clear.
-			c = stripSecrets(c)
+			c = c.WithoutSecrets()
 			if i < len(sets) {
 				c.Password, c.SSH.Password, c.SSH.Passphrase = sets[i].Password, sets[i].SSHPassword, sets[i].SSHPassphrase
 			}
