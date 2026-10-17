@@ -1,5 +1,6 @@
 import { Copy, Download, FilePlus2, Network, PencilRuler, Plus, RefreshCw, Table2, Trash2, Upload } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DBType, Explorer, ObjectInfo, ObjectKind, ObjectRef, TableAction, arr, copyText } from "../api";
 import { RedisBrowser } from "./redis/RedisBrowser";
 import { RedisDatabases } from "./redis/RedisDatabases";
@@ -59,7 +60,9 @@ function SqlObjectsPane() {
   const needsSchema = connById(sel?.connId)?.type === "postgres" && !sel?.schema;
   const listKey = [sel?.connId, sel?.database, sel?.schema, kind].join("/");
   // Multi-selection by name (⌘-click toggles, ⇧-click extends); "picked" is the last one.
-  const pickedNames = pick?.key === listKey ? pick.names : [];
+  const pickedNames = useMemo(() => (pick?.key === listKey ? pick.names : []), [pick, listKey]);
+  // Looked up per row: with thousands of tables an array scan per row (⌘A) was quadratic.
+  const pickedSet = useMemo(() => new Set(pickedNames), [pickedNames]);
   const setPicked = (o: ObjectInfo | null) => setPick(o ? { key: listKey, names: [o.name], anchor: o.name } : null);
 
   const listable = !!(sel?.database && kind && connected && dbOpen && !needsSchema);
@@ -70,7 +73,7 @@ function SqlObjectsPane() {
     [] as ObjectInfo[],
     { keep: listKey },
   );
-  const pickedList = objects.filter((o) => pickedNames.includes(o.name));
+  const pickedList = useMemo(() => objects.filter((o) => pickedSet.has(o.name)), [objects, pickedSet]);
   const picked = pickedList.find((o) => o.name === pickedNames[pickedNames.length - 1]) ?? null;
   useEffect(() => setPicked(null), [listKey, listable, reload, objectsVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -84,6 +87,15 @@ function SqlObjectsPane() {
     const list = objects.filter((o) => !f || o.name.toLowerCase().includes(f));
     return [...list].sort((a, b) => (sortKey === "name" ? a.name.localeCompare(b.name) : ((b[sortKey] as number) ?? 0) > ((a[sortKey] as number) ?? 0) ? 1 : -1));
   }, [objects, filter, sortKey]);
+
+  // Only the rows in view are drawn: a schema can hold thousands of tables.
+  const scroller = useRef<HTMLDivElement>(null);
+  const rowsV = useVirtualizer({ count: shown.length, getScrollElement: () => scroller.current, estimateSize: () => 24, overscan: 20 });
+  // An object selected in the tree is scrolled into view.
+  useEffect(() => {
+    const i = sel?.object ? shown.findIndex((o) => o.name === sel.object!.name) : -1;
+    if (i >= 0) rowsV.scrollToIndex(i, { align: "auto" });
+  }, [sel?.object, shown]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!sel || (!sel.connId && sel.group === undefined)) return <Welcome />;
   if (!sel.connId) return <div className="center-hint">Group “{sel.group}” — select a connection.</div>;
@@ -121,7 +133,7 @@ function SqlObjectsPane() {
   const refOfObj = (o: ObjectInfo): ObjectRef => ({ database: sel.database!, schema: o.schema || sel.schema, name: o.name, kind: o.kind, signature: o.signature });
   const clickRow = (e: React.MouseEvent, o: ObjectInfo) => {
     if (e.metaKey || e.ctrlKey) {
-      const names = pickedNames.includes(o.name) ? pickedNames.filter((n) => n !== o.name) : [...pickedNames, o.name];
+      const names = pickedSet.has(o.name) ? pickedNames.filter((n) => n !== o.name) : [...pickedNames, o.name];
       return setPick({ key: listKey, names, anchor: o.name });
     }
     if (e.shiftKey && pick?.anchor) {
@@ -134,6 +146,9 @@ function SqlObjectsPane() {
     }
     setPicked(o);
   };
+  const vItems = rowsV.getVirtualItems();
+  const padTop = vItems[0]?.start ?? 0;
+  const padBottom = rowsV.getTotalSize() - (vItems[vItems.length - 1]?.end ?? 0);
   const tableRefs = pickedList.map((o) => ({ database: sel.database!, schema: o.schema || sel.schema, name: o.name, kind: o.kind }));
   const showRows = kind === ObjectKind.KindTable || kind === ObjectKind.KindMatView;
 
@@ -215,6 +230,7 @@ function SqlObjectsPane() {
         first={
         <div
           className="object-list"
+          ref={scroller}
           tabIndex={0}
           onContextMenu={(e) => openMenu(e, objectsAreaMenu(sel.connId, sel.database!, sel.schema, kind))}
           onMouseDown={(e) => e.target === e.currentTarget && setPicked(null)}
@@ -266,31 +282,38 @@ function SqlObjectsPane() {
               </tr>
             </thead>
             <tbody>
-              {shown.map((o) => (
-                <tr
-                  key={o.name + (o.signature ?? "")}
-                  className={pickedNames.includes(o.name) ? "selected" : ""}
-                  onClick={(e) => clickRow(e, o)}
-                  onDoubleClick={() => openObject(asNode(o))}
-                  onContextMenu={(e) => {
-                    const names = pickedNames.includes(o.name) ? pickedNames : [o.name];
-                    if (!pickedNames.includes(o.name)) setPicked(o);
-                    const refs = objects.filter((x) => names.includes(x.name)).map(refOfObj);
-                    openMenu(e, objectMenu(sel.connId, refs, o.comment));
-                  }}
-                >
-                  <td>
-                    <KindIcon kind={o.kind} /> {o.name}
-                    {o.signature ? <span className="muted">({o.signature})</span> : null}
-                  </td>
-                  {showRows && <td className="num">{(o.rows ?? 0).toLocaleString()}</td>}
-                  {showRows && <td className="num">{formatBytes(o.dataSize ?? 0)}</td>}
-                  {kind === ObjectKind.KindTable && sel.schema === undefined && <td>{o.engine}</td>}
-                  {(kind === ObjectKind.KindFunction || kind === ObjectKind.KindProcedure) && <td>{o.returnType}</td>}
-                  <td>{showModified ? o.modified || o.created : o.owner}</td>
-                  <td className="muted">{o.comment || (o.engine && kind === ObjectKind.KindTrigger ? o.engine : "")}</td>
-                </tr>
-              ))}
+              {padTop > 0 && <tr style={{ height: padTop }} />}
+              {vItems.map((vr) => {
+                const o = shown[vr.index];
+                return (
+                  <tr
+                    key={o.name + (o.signature ?? "")}
+                    ref={rowsV.measureElement}
+                    data-index={vr.index}
+                    className={pickedSet.has(o.name) ? "selected" : ""}
+                    onClick={(e) => clickRow(e, o)}
+                    onDoubleClick={() => openObject(asNode(o))}
+                    onContextMenu={(e) => {
+                      const names = new Set(pickedSet.has(o.name) ? pickedNames : [o.name]);
+                      if (!pickedSet.has(o.name)) setPicked(o);
+                      const refs = objects.filter((x) => names.has(x.name)).map(refOfObj);
+                      openMenu(e, objectMenu(sel.connId, refs, o.comment));
+                    }}
+                  >
+                    <td>
+                      <KindIcon kind={o.kind} /> {o.name}
+                      {o.signature ? <span className="muted">({o.signature})</span> : null}
+                    </td>
+                    {showRows && <td className="num">{(o.rows ?? 0).toLocaleString()}</td>}
+                    {showRows && <td className="num">{formatBytes(o.dataSize ?? 0)}</td>}
+                    {kind === ObjectKind.KindTable && sel.schema === undefined && <td>{o.engine}</td>}
+                    {(kind === ObjectKind.KindFunction || kind === ObjectKind.KindProcedure) && <td>{o.returnType}</td>}
+                    <td>{showModified ? o.modified || o.created : o.owner}</td>
+                    <td className="muted">{o.comment || (o.engine && kind === ObjectKind.KindTrigger ? o.engine : "")}</td>
+                  </tr>
+                );
+              })}
+              {padBottom > 0 && <tr style={{ height: padBottom }} />}
             </tbody>
           </table>
           {!loading && !shown.length && !error && <div className="center-hint">No {KIND_LABEL[kind!]?.toLowerCase()}.</div>}
