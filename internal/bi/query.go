@@ -192,20 +192,7 @@ var sourceStart = map[string][]string{
 // it without its delimiter. Data sources also always run in a read-only
 // transaction; this keeps out what would end that transaction or write files.
 func CheckSQL(d driver.Dialect, sql string) (string, error) {
-	stmts := sqlsplit.Split(sql, d.Split)
-	if len(stmts) != 1 {
-		return "", fmt.Errorf("a data source query is exactly one statement (got %d)", len(stmts))
-	}
-	s := strings.TrimSpace(stmts[0].SQL)
-	if kw := sqlcommon.LeadingKeyword(s); !slices.Contains(sourceStart[d.Name], kw) {
-		return "", fmt.Errorf("a data source query reads data: it starts with %s", strings.Join(sourceStart[d.Name], ", "))
-	}
-	if d.Name == "mysql" {
-		if err := sqlcommon.MySQLReadHazard(s); err != nil {
-			return "", fmt.Errorf("a data source query: %w", err)
-		}
-	}
-	return s, nil
+	return sqlcommon.OneRead(sql, d.Split, sourceStart[d.Name], "a data source query")
 }
 
 // Source is a FROM target: a table, or a query in parentheses with the values
