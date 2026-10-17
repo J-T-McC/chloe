@@ -35,7 +35,7 @@ const runSQL = async (sql) => {
   await page.waitForTimeout(600);
 };
 
-await page.goto("http://localhost:8080/");
+await page.goto(process.env.BASE ?? "http://localhost:8080/");
 await page.waitForTimeout(600);
 
 await step("connection and a drifted schema", async () => {

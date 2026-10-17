@@ -22,7 +22,7 @@ const step = async (name, fn) => {
 const field = (l) => page.locator(".field", { has: page.locator(`label:text-is("${l}")`) }).locator("input").first();
 const row = (text) => page.locator(".tree-row", { hasText: text });
 
-await page.goto("http://localhost:8080/");
+await page.goto(process.env.BASE ?? "http://localhost:8080/");
 for (const [label, type, port, user] of [
   ["MySQL", "MySQL", "33306", "root"],
   ["PostgreSQL", "PostgreSQL", "55432", "postgres"],

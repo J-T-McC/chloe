@@ -57,7 +57,7 @@ const drag = async (from, to, where = "middle") => {
   return row(from).dragTo(page.locator(".sidebar .tree"), { targetPosition: { x: 100, y: box.height - 20 } });
 };
 
-await page.goto("http://localhost:8080/");
+await page.goto(process.env.BASE ?? "http://localhost:8080/");
 await page.waitForTimeout(500);
 
 await step("connections and groups", async () => {

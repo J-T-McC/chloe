@@ -4,7 +4,7 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1300, height: 860 } });
 page.setDefaultTimeout(10000);
 page.on("pageerror", (e) => console.log("PAGE ERROR", e.message));
-await page.goto("http://localhost:8080/");
+await page.goto(process.env.BASE ?? "http://localhost:8080/");
 const field = (l) => page.locator(".field", { has: page.locator(`label:text-is("${l}")`) }).locator("input").first();
 async function conn(type, name, port, user) {
   await page.getByRole("button", { name: "Connection" }).first().click();

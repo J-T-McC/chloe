@@ -20,7 +20,7 @@ const field = (l) => page.locator(".field", { has: page.locator(`label:text-is("
 const texts = async (sel) => (await page.locator(sel).allInnerTexts()).map((x) => x.replace(/\s+/g, " ").trim());
 const tab = () => page.locator(".tab-pane:visible");
 
-await page.goto("http://localhost:8080/");
+await page.goto(process.env.BASE ?? "http://localhost:8080/");
 
 await step("create connection", async () => {
   await page.getByRole("button", { name: "Connection" }).first().click();

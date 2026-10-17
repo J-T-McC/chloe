@@ -26,7 +26,7 @@ const field = (l) => page.locator(".field", { has: page.locator(`label:text-is("
 const wizard = () => page.locator(".modal.data-transfer");
 const schema = "from_mysql_" + Date.now().toString(36);
 
-await page.goto("http://localhost:8080/");
+await page.goto(process.env.BASE ?? "http://localhost:8080/");
 await page.waitForTimeout(600);
 
 for (const [label, type, port, user] of [

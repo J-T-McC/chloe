@@ -14,7 +14,7 @@ const file = `${process.env.LITE}/shared-connections.json`;
 writeFileSync(file, JSON.stringify({ format: "chloe-connections", version: 1, connections: [
   { name: "Shared PG", type: "postgres", host: "127.0.0.1", port: 55432, user: "postgres",
     advanced: { autoConnect: true, initialQueries: "SELECT 1", connectionParams: "application_name=x", cleartextAuth: true } }] }));
-await page.goto("http://localhost:8080/");
+await page.goto(process.env.BASE ?? "http://localhost:8080/");
 
 await step("import dialog explains what's left off", async () => {
   await page.locator(".sidebar").click({ button: "right", position: { x: 100, y: 500 } });

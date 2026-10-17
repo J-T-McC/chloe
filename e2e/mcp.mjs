@@ -43,7 +43,7 @@ const tool = async (name, args) => {
 const text = (r) => r.content.map((c) => c.text).join("");
 const where = (id) => [{ column: "id", op: "=", value: id }];
 
-await page.goto("http://localhost:8080/");
+await page.goto(process.env.BASE ?? "http://localhost:8080/");
 
 await step("create connection", async () => {
   await page.getByRole("button", { name: "Connection" }).first().click();

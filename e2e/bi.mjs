@@ -47,7 +47,7 @@ const editor = () => page.locator(".bi-chart-editor:visible");
 const shelf = (s) => editor().locator(`.bi-shelf[data-shelf="${s}"]`);
 const drag = (f, s) => editor().locator(".bi-field", { hasText: new RegExp(`^${f}$`) }).dragTo(shelf(s));
 const bars = () => editor().locator(".bi-echart svg path[fill]:not([fill='none'])");
-await page.goto("http://localhost:8080/");
+await page.goto(process.env.BASE ?? "http://localhost:8080/");
 
 await step("connect to the SQLite file", async () => {
   await page.getByRole("button", { name: "Connection" }).first().click();
