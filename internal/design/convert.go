@@ -1,6 +1,7 @@
 package design
 
 import (
+	"cmp"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -313,7 +314,7 @@ func (c *converter) targetType(k kind) (string, string, string) {
 		case "float64":
 			return "double", "", ""
 		case "char":
-			return "char", orDefault(k.length, "1"), ""
+			return "char", cmp.Or(k.length, "1"), ""
 		case "varchar":
 			if k.length == "" {
 				return "longtext", "", ""
@@ -325,9 +326,9 @@ func (c *converter) targetType(k kind) (string, string, string) {
 			}
 			return "longtext", "", ""
 		case "binary":
-			return "binary", orDefault(k.length, "1"), ""
+			return "binary", cmp.Or(k.length, "1"), ""
 		case "varbinary":
-			return "varbinary", orDefault(k.length, "255"), ""
+			return "varbinary", cmp.Or(k.length, "255"), ""
 		case "blob":
 			return "longblob", "", ""
 		case "date":
@@ -364,7 +365,7 @@ func (c *converter) targetType(k kind) (string, string, string) {
 		case "float64":
 			return "double precision", "", ""
 		case "char":
-			return "character", orDefault(k.length, "1"), ""
+			return "character", cmp.Or(k.length, "1"), ""
 		case "varchar":
 			return "character varying", k.length, ""
 		case "text":
@@ -412,13 +413,6 @@ func (c *converter) targetType(k kind) (string, string, string) {
 		}
 	}
 	return "text", "", ""
-}
-
-func orDefault(s, d string) string {
-	if s == "" {
-		return d
-	}
-	return s
 }
 
 // fsp is a MySQL fractional-seconds precision (0–6).

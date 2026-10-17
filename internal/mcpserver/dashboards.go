@@ -361,9 +361,7 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 					r.Error = err.Error()
 					continue
 				}
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+				wg.Go(func() {
 					// Read as of now: results from before the call aren't used.
 					data, err := c.s.m.BIChartData(ctx, w, *ch, in.Parameters, core.BIRead{Since: started})
 					if err != nil {
@@ -371,7 +369,7 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 						return
 					}
 					r.Columns, r.Rows, r.Complete, r.Truncated, r.Mode, r.AsOf, r.Previous = data.Columns, data.Rows, data.Complete, data.Truncated, data.Mode, data.RanAt, data.Previous
-				}()
+				})
 			}
 			wg.Wait()
 			for i, ch := range charts {
