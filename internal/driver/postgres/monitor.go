@@ -61,8 +61,8 @@ func (c *Conn) KillProcess(ctx context.Context, id string, queryOnly bool) error
 	if queryOnly {
 		fn = "pg_cancel_backend"
 	}
-	var ok bool
-	if err := db.QueryRowContext(ctx, "SELECT "+fn+"($1)", pid).Scan(&ok); err != nil {
+	ok, err := c.signal(ctx, db, "", fn, int64(pid))
+	if err != nil {
 		return err
 	}
 	if !ok {

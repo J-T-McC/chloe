@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -58,6 +59,7 @@ type Conn struct {
 
 type pool struct {
 	db            *sql.DB
+	cfg           *pgx.ConnConfig // to connect outside the pool when it's full
 	stopKeepalive func()
 }
 
@@ -127,7 +129,7 @@ func (c *Conn) open(ctx context.Context, database string) (*pool, error) {
 		db.Close()
 		return nil, err
 	}
-	return &pool{db: db, stopKeepalive: stop}, nil
+	return &pool{db: db, cfg: cfg, stopKeepalive: stop}, nil
 }
 
 func (c *Conn) dsn(database string) string {
@@ -507,8 +509,42 @@ func (s *Session) Query(ctx context.Context, stmt string, args ...any) (driver.R
 }
 
 func (s *Session) Cancel(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, "SELECT pg_cancel_backend($1)", s.pid)
+	_, err := s.c.signal(ctx, s.db, s.database, "pg_cancel_backend", s.pid)
 	return err
+}
+
+// signalTimeout bounds a cancel or terminate, which callers often send without
+// a deadline.
+const signalTimeout = 10 * time.Second
+
+// signal runs pg_cancel_backend or pg_terminate_backend for a backend. When
+// every connection of the session limit is taken, waiting for one could wait
+// on the very statement being cancelled, so it connects outside the pool.
+func (c *Conn) signal(ctx context.Context, db *sql.DB, database, fn string, pid int64) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, signalTimeout)
+	defer cancel()
+	q := "SELECT " + fn + "($1)"
+	var ok bool
+	if st := db.Stats(); st.MaxOpenConnections == 0 || st.InUse < st.MaxOpenConnections {
+		err := db.QueryRowContext(ctx, q, pid).Scan(&ok)
+		return ok, err
+	}
+	if database == "" {
+		database = c.defaultDB
+	}
+	c.mu.Lock()
+	p := c.pools[database]
+	c.mu.Unlock()
+	if p == nil {
+		return false, errors.New("the connection was closed")
+	}
+	conn, err := pgx.ConnectConfig(ctx, p.cfg.Copy())
+	if err != nil {
+		return false, err
+	}
+	defer conn.Close(context.Background())
+	err = conn.QueryRow(ctx, q, pid).Scan(&ok)
+	return ok, err
 }
 
 // Use changes the search_path. Switching database requires a new session, which the
