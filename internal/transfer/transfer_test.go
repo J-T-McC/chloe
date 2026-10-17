@@ -12,13 +12,11 @@ import (
 	"chloe/internal/model"
 )
 
-func p(s string) *string { return &s }
-
 var cols = []model.ResultColumn{{Name: "id", Type: "INT"}, {Name: "name", Type: "VARCHAR"}, {Name: "price", Type: "DECIMAL"}, {Name: "meta", Type: "JSON"}}
 var rows = [][]*string{
-	{p("1"), p("Ada, \"the\" first"), p("9.50"), p(`{"a":1}`)},
-	{p("2"), nil, p("10"), nil},
-	{p("3"), p("multi\nline"), p("0"), p("not json")},
+	{new("1"), new("Ada, \"the\" first"), new("9.50"), new(`{"a":1}`)},
+	{new("2"), nil, new("10"), nil},
+	{new("3"), new("multi\nline"), new("0"), new("not json")},
 }
 
 func export(t *testing.T, o ExportOptions) string {
@@ -76,7 +74,7 @@ func TestExportSQL(t *testing.T) {
 	if got != want {
 		t.Fatalf("got\n%s\nwant\n%s", got, want)
 	}
-	if Literal(p(`\x0102`), "bytea", "postgres") != `E'\\x0102'::bytea` {
+	if Literal(new(`\x0102`), "bytea", "postgres") != `E'\\x0102'::bytea` {
 		t.Fatal("bytea literal")
 	}
 }
@@ -184,8 +182,8 @@ func TestExcelRoundTrip(t *testing.T) {
 
 func TestInferTypes(t *testing.T) {
 	data := [][]*string{
-		{p("1"), p("1.5"), p("true"), p("2026-01-02"), p("2026-01-02 10:00:00"), p("hello"), p("9999999999")},
-		{p("-20"), p("10"), p("false"), p("2025-12-31"), p("2026-01-02T10:00:00Z"), p(""), p("1")},
+		{new("1"), new("1.5"), new("true"), new("2026-01-02"), new("2026-01-02 10:00:00"), new("hello"), new("9999999999")},
+		{new("-20"), new("10"), new("false"), new("2025-12-31"), new("2026-01-02T10:00:00Z"), new(""), new("1")},
 	}
 	got := InferTypes(data, 7, "mysql")
 	want := []string{"int", "decimal(5,1)", "boolean", "date", "datetime", "varchar(50)", "bigint"}
@@ -197,7 +195,6 @@ func TestInferTypes(t *testing.T) {
 // Display values come from the database, so anything that isn't a well-formed number,
 // boolean or hex string must come out quoted.
 func TestLiteralQuotesUntrustedValues(t *testing.T) {
-	p := func(s string) *string { return &s }
 	for _, c := range []struct{ v, typ, dialect, want string }{
 		{"0x0aFF", "BLOB", "sqlite", "X'0aFF'"},
 		{"0x'); DROP TABLE users; --", "BLOB", "sqlite", "'0x''); DROP TABLE users; --'"},
@@ -214,7 +211,7 @@ func TestLiteralQuotesUntrustedValues(t *testing.T) {
 		{`\'; DROP TABLE x; --`, "TEXT", "postgres", `E'\\''; DROP TABLE x; --'`},
 		{`\x01'`, "BYTEA", "postgres", `E'\\x01'''`},
 	} {
-		if got := Literal(p(c.v), c.typ, c.dialect); got != c.want {
+		if got := Literal(new(c.v), c.typ, c.dialect); got != c.want {
 			t.Errorf("Literal(%q, %s, %s) = %s, want %s", c.v, c.typ, c.dialect, got, c.want)
 		}
 	}

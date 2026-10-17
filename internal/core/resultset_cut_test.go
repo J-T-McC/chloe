@@ -9,9 +9,8 @@ import (
 )
 
 func TestCutCells(t *testing.T) {
-	s := func(v string) *string { return &v }
 	long, wide := "abcdefgh", "héllo wörld"
-	rows := [][]*string{{s("ok"), nil}, {s(long), s("x")}, {s(wide), s("é")}}
+	rows := [][]*string{{new("ok"), nil}, {new(long), new("x")}, {new(wide), new("é")}}
 	before := *rows[1][0]
 	out, cut := cutCells(rows, 5)
 	if !slices.EqualFunc(cut, [][]int{{1, 0}, {2, 0}}, slices.Equal) {

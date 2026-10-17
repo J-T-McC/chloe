@@ -5,15 +5,13 @@ import (
 	"testing"
 )
 
-func s(v string) *string { return &v }
-
 func baseTable() Table {
 	return Table{
 		Database: "shop", Schema: "app", Name: "items", OrigName: "items",
 		Columns: []Column{
 			{Name: "id", OrigName: "id", Type: "int", AutoIncrement: true},
 			{Name: "sku", OrigName: "sku", Type: "varchar", Length: "32"},
-			{Name: "price", OrigName: "price", Type: "decimal", Length: "10", Scale: "2", Default: s("0")},
+			{Name: "price", OrigName: "price", Type: "decimal", Length: "10", Scale: "2", Default: new("0")},
 			{Name: "note", OrigName: "note", Type: "text", Nullable: true},
 		},
 		PrimaryKey: &PrimaryKey{Name: "items_pkey", Columns: []string{"id"}},
@@ -64,7 +62,7 @@ func TestMySQLAlter(t *testing.T) {
 	// rename sku -> code, widen it, move note before price, add a column, drop nothing
 	nw.Columns[1].Name, nw.Columns[1].Length = "code", "64"
 	nw.Columns[2], nw.Columns[3] = nw.Columns[3], nw.Columns[2]
-	nw.Columns = append(nw.Columns, Column{Name: "qty", Type: "int", Default: s("1")})
+	nw.Columns = append(nw.Columns, Column{Name: "qty", Type: "int", Default: new("1")})
 	nw.Indexes[0].Columns = []IndexColumn{{Name: "code"}}
 	nw.PrimaryKey.Columns = []string{"id", "code"}
 	got := joiner(t)(MySQL{}.Alter(old, nw))

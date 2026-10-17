@@ -15,21 +15,20 @@ import (
 )
 
 func TestCompareKeys(t *testing.T) {
-	s := func(v string) *string { return &v }
 	cases := []struct {
 		a, b    *string
 		numeric bool
 		want    int
 	}{
-		{s("9"), s("10"), true, -1},
-		{s("-5"), s("2"), true, -1},
-		{s("1.50"), s("1.5"), true, 1}, // equal values, so bytes decide
-		{s("99999999999999999999"), s("100000000000000000000"), true, -1},
-		{s("9"), s("10"), false, 1},
-		{s("B"), s("a"), false, -1},
-		{nil, s("0"), true, -1},
+		{new("9"), new("10"), true, -1},
+		{new("-5"), new("2"), true, -1},
+		{new("1.50"), new("1.5"), true, 1}, // equal values, so bytes decide
+		{new("99999999999999999999"), new("100000000000000000000"), true, -1},
+		{new("9"), new("10"), false, 1},
+		{new("B"), new("a"), false, -1},
+		{nil, new("0"), true, -1},
 		{nil, nil, false, 0},
-		{s("x"), s("x"), false, 0},
+		{new("x"), new("x"), false, 0},
 	}
 	for _, c := range cases {
 		if got := compareKeys([]*string{c.a}, []*string{c.b}, []bool{c.numeric}); got != c.want {

@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-func sp(s string) *string { return &s }
-
 func col(t *testing.T, tb Table, name string) Column {
 	t.Helper()
 	for _, c := range tb.Columns {
@@ -29,17 +27,17 @@ func TestConvertMySQLToPostgres(t *testing.T) {
 	src := Table{Name: "orders", Database: "shop",
 		Columns: []Column{
 			{Name: "id", Type: "int", Unsigned: true, AutoIncrement: true},
-			{Name: "flag", Type: "tinyint", Length: "1", Default: sp("1")},
-			{Name: "qty", Type: "smallint", Default: sp("0")},
-			{Name: "total", Type: "decimal", Length: "10", Scale: "2", Default: sp("0.00")},
-			{Name: "note", Type: "varchar", Length: "200", Default: sp(`'it''s a \\ path'`), Charset: "utf8mb4", Collation: "utf8mb4_bin"},
+			{Name: "flag", Type: "tinyint", Length: "1", Default: new("1")},
+			{Name: "qty", Type: "smallint", Default: new("0")},
+			{Name: "total", Type: "decimal", Length: "10", Scale: "2", Default: new("0.00")},
+			{Name: "note", Type: "varchar", Length: "200", Default: new(`'it''s a \\ path'`), Charset: "utf8mb4", Collation: "utf8mb4_bin"},
 			{Name: "body", Type: "longtext"},
-			{Name: "status", Type: "enum", Length: "'new','paid','shipped'", Default: sp("'new'")},
-			{Name: "created", Type: "datetime", Length: "6", Default: sp("CURRENT_TIMESTAMP(6)"), OnUpdateNow: true},
+			{Name: "status", Type: "enum", Length: "'new','paid','shipped'", Default: new("'new'")},
+			{Name: "created", Type: "datetime", Length: "6", Default: new("CURRENT_TIMESTAMP(6)"), OnUpdateNow: true},
 			{Name: "photo", Type: "blob"},
 			{Name: "meta", Type: "json"},
 			{Name: "big", Type: "bigint", Unsigned: true},
-			{Name: "bits", Type: "bit", Length: "1", Default: sp("b'0'")},
+			{Name: "bits", Type: "bit", Length: "1", Default: new("b'0'")},
 		},
 		PrimaryKey:  &PrimaryKey{Columns: []string{"id"}},
 		Indexes:     []Index{{Name: "ft", Kind: "fulltext", Columns: []IndexColumn{{Name: "body"}}}, {Name: "by_note", Columns: []IndexColumn{{Name: "note", Length: "20"}}, Method: "BTREE"}},
@@ -88,13 +86,13 @@ func TestConvertMySQLToPostgres(t *testing.T) {
 func TestConvertPostgresToMySQL(t *testing.T) {
 	src := Table{Name: "customers", Schema: "public",
 		Columns: []Column{
-			{Name: "id", Type: "integer", Default: sp("nextval('customers_id_seq'::regclass)")},
+			{Name: "id", Type: "integer", Default: new("nextval('customers_id_seq'::regclass)")},
 			{Name: "email", Type: "text"},
-			{Name: "name", Type: "character varying", Default: sp("'anon'::character varying")},
-			{Name: "active", Type: "boolean", Default: sp("true")},
-			{Name: "joined", Type: "timestamp with time zone", Default: sp("now()")},
-			{Name: "tags", Type: "text[]", Default: sp("'{}'::text[]")},
-			{Name: "uid", Type: "uuid", Default: sp("gen_random_uuid()")},
+			{Name: "name", Type: "character varying", Default: new("'anon'::character varying")},
+			{Name: "active", Type: "boolean", Default: new("true")},
+			{Name: "joined", Type: "timestamp with time zone", Default: new("now()")},
+			{Name: "tags", Type: "text[]", Default: new("'{}'::text[]")},
+			{Name: "uid", Type: "uuid", Default: new("gen_random_uuid()")},
 			{Name: "score", Type: "numeric"},
 			{Name: "raw", Type: "bytea"},
 		},
@@ -135,12 +133,12 @@ func TestConvertSQLite(t *testing.T) {
 	src := Table{Name: "items",
 		Columns: []Column{
 			{Name: "id", Type: "INTEGER"},
-			{Name: "name", Type: "VARCHAR", Length: "40", Default: sp("'x'")},
+			{Name: "name", Type: "VARCHAR", Length: "40", Default: new("'x'")},
 			{Name: "price", Type: "REAL"},
-			{Name: "added", Type: "DATETIME", Default: sp("CURRENT_TIMESTAMP")},
+			{Name: "added", Type: "DATETIME", Default: new("CURRENT_TIMESTAMP")},
 			{Name: "blobby", Type: ""},
 			{Name: "n", Type: "NUMERIC"},
-			{Name: "ok", Type: "BOOLEAN", Default: sp("1")},
+			{Name: "ok", Type: "BOOLEAN", Default: new("1")},
 		},
 		PrimaryKey: &PrimaryKey{Columns: []string{"id"}},
 	}
