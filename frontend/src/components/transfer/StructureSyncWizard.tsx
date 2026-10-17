@@ -1,17 +1,16 @@
 // Structure Synchronization (Tools menu): compare the tables and views of two
 // databases/schemas of the same engine and deploy the changes to the target.
-import { ArrowLeftRight, ArrowRight, Copy, FilePlus2, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
-import { DBType, Transfer, arr, errorText, type Endpoint, type StructItem, copyText } from "../../api";
+import { DBType, Transfer, arr, errorText, type Endpoint, type StructItem } from "../../api";
 import { connDialect } from "../../dialect";
-import { connById, useApp } from "../../store";
-import { ConnIcon, KindIcon } from "../icons";
+import { useApp } from "../../store";
+import { KindIcon } from "../icons";
 import { CodeBlock } from "../ObjectsPane";
-import { newQuery } from "../Sidebar";
 import { Split } from "../Split";
-import { EndpointPicker, JobProgress } from "./shared";
-import { track, useTransfer } from "./state";
+import { JobProgress } from "./shared";
+import { DeployStep, EndpointPair, EndpointsHeader, WizardFooter, WizardSteps, emptyEnd, presetEnd, useWizardJob } from "./wizard";
 import { Toolbar } from "../Toolbar";
 import { Modal } from "../Modal";
 import { Check } from "../form";
@@ -19,7 +18,7 @@ import { Check } from "../form";
 const useSS = create<{ open: boolean; source?: Endpoint }>(() => ({ open: false }));
 
 export function openStructureSync(source?: Partial<Endpoint>) {
-  useSS.setState({ open: true, source: source?.connId ? { connId: source.connId, database: source.database ?? "", schema: source.schema ?? "" } : undefined });
+  useSS.setState({ open: true, source: presetEnd(source) });
 }
 
 // Navicat compares the same engine only (MySQL and MariaDB count as one); SQLite isn't supported.
@@ -34,7 +33,6 @@ const STEPS: [Step, string][] = [
 ];
 const OP_LABEL: Record<string, string> = { create: "Create", modify: "Modify", drop: "Drop", same: "Same" };
 const key = (it: StructItem) => `${it.kind}:${it.name}`;
-const emptyEnd = (): Endpoint => ({ connId: "", database: "", schema: "" });
 
 export function StructureSyncWizard() {
   const { open, source: preset } = useSS();
@@ -50,16 +48,15 @@ export function StructureSyncWizard() {
   const [script, setScript] = useState<string[]>([]);
   const [continueOnError, setContinueOnError] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [jobId, setJobId] = useState("");
   const [error, setError] = useState("");
-  const job = useTransfer((s) => s.jobs.find((j) => j.id === jobId));
+  const { job, running, reset, start: startJob, stop } = useWizardJob();
 
   useEffect(() => {
     if (!open) return;
     setStep("general");
     setError("");
     setItems([]);
-    setJobId("");
+    reset();
     setSource(preset ?? emptyEnd());
     setTarget(emptyEnd());
   }, [open, preset]);
@@ -69,7 +66,6 @@ export function StructureSyncWizard() {
   if (!open) return null;
   const close = () => useSS.setState({ open: false });
   const conns = connections.filter((c) => TYPES.includes(c.type));
-  const running = job?.status === "running";
   const pg = target.connId && connDialect(target.connId) === "postgres";
 
   const compare = async () => {
@@ -103,62 +99,23 @@ export function StructureSyncWizard() {
   const start = async () => {
     setError("");
     try {
-      const j = await track(Transfer.Deploy({ target, statements: script, continueOnError, title: "Structure Synchronization" }));
-      useTransfer.setState({ jobsOpen: false });
-      setJobId(j.id);
+      await startJob(Transfer.Deploy({ target, statements: script, continueOnError, title: "Structure Synchronization" }));
       setStep("log");
     } catch (e) {
       setError(errorText(e));
     }
   };
 
-  const header = (e: Endpoint) => {
-    const c = connById(e.connId);
-    return c ? (
-      <span className="dt-end">
-        <ConnIcon type={c.type} preset={c.preset} size={20} />
-        <span>
-          <strong>{c.name}</strong>
-          <span className="muted">{[e.database, e.schema].filter(Boolean).join(".") || "—"}</span>
-        </span>
-      </span>
-    ) : (
-      <span className="dt-end muted">Not chosen</span>
-    );
-  };
   const scriptText = script.join(";\n\n") + (script.length ? ";" : "");
 
   return (
     <Modal title="Structure Synchronization" className="wizard wide data-transfer structure-sync" onClose={running || busy ? undefined : close}>
-      <div className="dt-header">
-        {header(source)}
-        <ArrowRight size={18} className="muted" />
-        {header(target)}
-      </div>
-      <div className="wizard-steps">
-        {STEPS.map(([s, label], i) => (
-          <span key={s} className={step === s ? "active" : ""}>
-            {i + 1}. {label}
-          </span>
-        ))}
-      </div>
+      <EndpointsHeader source={source} target={target} />
+      <WizardSteps steps={STEPS} step={step} />
       <div className="modal-body dt-body">
         {step === "general" && (
           <>
-            <div className="dt-general">
-              <EndpointPicker title="Source" value={source} onChange={setSource} conns={conns} />
-              <button
-                className="dt-swap"
-                title="Swap source and target"
-                onClick={() => {
-                  setSource(target);
-                  setTarget(source);
-                }}
-              >
-                <ArrowLeftRight size={16} />
-              </button>
-              <EndpointPicker title="Target" value={target} onChange={setTarget} conns={conns} />
-            </div>
+            <EndpointPair source={source} target={target} setSource={setSource} setTarget={setTarget} conns={conns} />
             <fieldset className="ss-options">
               <legend>Compare Options</legend>
               <Check label="Compare tables" checked={opts.compareTables} onChange={(v) => setOpts({ ...opts, compareTables: v })} />
@@ -185,66 +142,36 @@ export function StructureSyncWizard() {
           />
         )}
         {step === "deploy" && (
-          <div className="ss-deploy">
-            <Toolbar>
-              <button onClick={() => copyText(scriptText)}>
-                <Copy size={14} /> Copy Script
-              </button>
-              <button
-                onClick={() => {
-                  newQuery(target.connId, target.database, target.schema || undefined, scriptText);
-                  close();
-                }}
-              >
-                <FilePlus2 size={14} /> Open in Query Editor
-              </button>
-              <span className="spacer" />
-              <Check label="Continue on error" checked={continueOnError} onChange={(v) => setContinueOnError(v)} />
-              <span className="muted">{script.length} statement(s)</span>
-            </Toolbar>
-            <div className="ss-script">
-              <CodeBlock code={scriptText} />
-            </div>
-          </div>
+          <DeployStep script={scriptText} count={script.length} target={target} onClose={close}>
+            <Check label="Continue on error" checked={continueOnError} onChange={setContinueOnError} />
+          </DeployStep>
         )}
         {step === "log" && job && <JobProgress job={job} />}
       </div>
       {error && <div className="status-line err">{error}</div>}
-      <div className="modal-footer">
-        <span className="spacer" />
-        {step === "log" ? (
-          running ? (
-            <button onClick={() => Transfer.CancelJob(jobId)}>Stop</button>
+      <WizardFooter
+        last={step === "log"}
+        running={running}
+        onStop={stop}
+        onClose={close}
+        after={<button onClick={compare}>Recompare</button>}
+        onBack={step !== "general" ? () => setStep(step === "deploy" ? "results" : "general") : undefined}
+        next={
+          step === "general" ? (
+            <button className="primary" disabled={busy || (!opts.compareTables && !opts.compareViews)} onClick={compare}>
+              {busy ? "Comparing…" : "Compare"}
+            </button>
+          ) : step === "results" ? (
+            <button className="primary" disabled={!chosen.length} onClick={toDeploy}>
+              Next
+            </button>
           ) : (
-            <>
-              <button onClick={compare}>Recompare</button>
-              <button className="primary" onClick={close}>
-                Close
-              </button>
-            </>
+            <button className="primary" onClick={start}>
+              Start
+            </button>
           )
-        ) : (
-          <>
-            <button onClick={close}>Cancel</button>
-            {step !== "general" && <button onClick={() => setStep(step === "deploy" ? "results" : "general")}>Back</button>}
-            {step === "general" && (
-              <button className="primary" disabled={busy || (!opts.compareTables && !opts.compareViews)} onClick={compare}>
-                {busy ? "Comparing…" : "Compare"}
-              </button>
-            )}
-            {step === "results" && (
-              <button className="primary" disabled={!chosen.length} onClick={toDeploy}>
-                Next
-              </button>
-            )}
-            {step === "deploy" && (
-              <button className="primary" onClick={start}>
-                Start
-              </button>
-            )}
-          </>
-        )}
-      </div>
+        }
+      />
     </Modal>
   );
 }

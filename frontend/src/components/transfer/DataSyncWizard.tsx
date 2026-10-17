@@ -1,17 +1,14 @@
 // Data Synchronization (Tools menu): compare the rows of two databases of the same
 // engine by primary key and make the target's rows match the source's.
-import { ArrowLeftRight, ArrowRight, Copy, FilePlus2, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { create } from "zustand";
-import { DBType, Transfer, arr, errorText, type DataSyncPage, type DataSyncResult, type DataSyncTable, type Endpoint, copyText } from "../../api";
+import { DBType, Transfer, arr, errorText, type DataSyncPage, type DataSyncResult, type DataSyncTable, type Endpoint } from "../../api";
 import { connDialect } from "../../dialect";
-import { connById, useApp } from "../../store";
-import { ConnIcon } from "../icons";
-import { CodeBlock } from "../ObjectsPane";
-import { newQuery } from "../Sidebar";
+import { useApp } from "../../store";
 import { Split } from "../Split";
-import { EndpointPicker, JobProgress } from "./shared";
-import { track, useTransfer } from "./state";
+import { JobProgress } from "./shared";
+import { DeployStep, EndpointPair, EndpointsHeader, WizardFooter, WizardSteps, emptyEnd, presetEnd, useWizardJob } from "./wizard";
 import { Toolbar } from "../Toolbar";
 import { Modal } from "../Modal";
 import { Check } from "../form";
@@ -19,7 +16,7 @@ import { Check } from "../form";
 const useDS = create<{ open: boolean; source?: Endpoint }>(() => ({ open: false }));
 
 export function openDataSync(source?: Partial<Endpoint>) {
-  useDS.setState({ open: true, source: source?.connId ? { connId: source.connId, database: source.database ?? "", schema: source.schema ?? "" } : undefined });
+  useDS.setState({ open: true, source: presetEnd(source) });
 }
 
 const TYPES: string[] = [DBType.MySQL, DBType.MariaDB, DBType.PostgreSQL, DBType.SQLite];
@@ -34,7 +31,6 @@ const STEPS: [Step, string][] = [
 type Act = "insert" | "update" | "delete";
 const ACTS: Act[] = ["insert", "update", "delete"];
 const PAGE = 100;
-const emptyEnd = (): Endpoint => ({ connId: "", database: "", schema: "" });
 
 export function DataSyncWizard() {
   const { open, source: preset } = useDS();
@@ -54,16 +50,15 @@ export function DataSyncWizard() {
   const [continueOnError, setContinueOnError] = useState(false);
   const [useTx, setUseTx] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [jobId, setJobId] = useState("");
   const [error, setError] = useState("");
-  const job = useTransfer((s) => s.jobs.find((j) => j.id === jobId));
+  const { job, running, reset, start: startJob, stop } = useWizardJob();
 
   useEffect(() => {
     if (!open) return;
     setStep("general");
     setError("");
     setCmp(null);
-    setJobId("");
+    reset();
     setSource(preset ?? emptyEnd());
     setTarget(emptyEnd());
   }, [open, preset]);
@@ -78,7 +73,6 @@ export function DataSyncWizard() {
     useDS.setState({ open: false });
   };
   const conns = connections.filter((c) => TYPES.includes(c.type));
-  const running = job?.status === "running";
 
   const loadMapping = async () => {
     setError("");
@@ -140,63 +134,24 @@ export function DataSyncWizard() {
   const start = async () => {
     setError("");
     try {
-      const j = await track(Transfer.DeployDataSync({ id: cmp!.id, tables: selections(), continueOnError, useTransaction: useTx }));
-      useTransfer.setState({ jobsOpen: false });
-      setJobId(j.id);
+      await startJob(Transfer.DeployDataSync({ id: cmp!.id, tables: selections(), continueOnError, useTransaction: useTx }));
       setStep("log");
     } catch (e) {
       setError(errorText(e));
     }
   };
 
-  const header = (e: Endpoint) => {
-    const c = connById(e.connId);
-    return c ? (
-      <span className="dt-end">
-        <ConnIcon type={c.type} preset={c.preset} size={20} />
-        <span>
-          <strong>{c.name}</strong>
-          <span className="muted">{[e.database, e.schema].filter(Boolean).join(".") || "—"}</span>
-        </span>
-      </span>
-    ) : (
-      <span className="dt-end muted">Not chosen</span>
-    );
-  };
   const scriptText = script.join(";\n") + (script.length ? ";" : "");
   const PREVIEW = 2000;
 
   return (
     <Modal title="Data Synchronization" className="wizard wide data-transfer data-sync" onClose={running || busy ? undefined : close}>
-      <div className="dt-header">
-        {header(source)}
-        <ArrowRight size={18} className="muted" />
-        {header(target)}
-      </div>
-      <div className="wizard-steps">
-        {STEPS.map(([s, label], i) => (
-          <span key={s} className={step === s ? "active" : ""}>
-            {i + 1}. {label}
-          </span>
-        ))}
-      </div>
+      <EndpointsHeader source={source} target={target} />
+      <WizardSteps steps={STEPS} step={step} />
       <div className="modal-body dt-body">
         {step === "general" && (
           <>
-            <div className="dt-general">
-              <EndpointPicker title="Source" value={source} onChange={setSource} conns={conns} />
-              <button
-                className="dt-swap"
-                title="Swap source and target"
-                onClick={() => {
-                  setSource(target);
-                  setTarget(source);
-                }}
-              >
-                <ArrowLeftRight size={16} />
-              </button>
-              <EndpointPicker title="Target" value={target} onChange={setTarget} conns={conns} />
-            </div>
+            <EndpointPair source={source} target={target} setSource={setSource} setTarget={setTarget} conns={conns} />
             <fieldset className="ss-options">
               <legend>Options</legend>
               {ACTS.map((a) => (
@@ -261,72 +216,47 @@ export function DataSyncWizard() {
           <Results cmp={cmp} chosen={chosen} setChosen={setChosen} sel={sel} setSel={setSel} showSame={showSame} setShowSame={setShowSame} onRecompare={compare} busy={busy} />
         )}
         {step === "deploy" && (
-          <div className="ss-deploy">
-            <Toolbar>
-              <button onClick={() => copyText(scriptText)}>
-                <Copy size={14} /> Copy Script
-              </button>
-              <button
-                onClick={() => {
-                  newQuery(target.connId, target.database, target.schema || undefined, scriptText);
-                  close();
-                }}
-              >
-                <FilePlus2 size={14} /> Open in Query Editor
-              </button>
-              <span className="spacer" />
-              <Check label="Use transaction" checked={useTx} onChange={(v) => setUseTx(v)} />
-              <Check label="Continue on error" checked={continueOnError} onChange={(v) => setContinueOnError(v)} />
-              <span className="muted">{script.length.toLocaleString()} statement(s)</span>
-            </Toolbar>
-            <div className="ss-script">
-              <CodeBlock code={script.length > PREVIEW ? script.slice(0, PREVIEW).join(";\n") + `;\n-- … ${script.length - PREVIEW} more statement(s)` : scriptText} />
-            </div>
-          </div>
+          <DeployStep
+            script={scriptText}
+            shown={script.length > PREVIEW ? script.slice(0, PREVIEW).join(";\n") + `;\n-- … ${script.length - PREVIEW} more statement(s)` : undefined}
+            count={script.length}
+            target={target}
+            onClose={close}
+          >
+            <Check label="Use transaction" checked={useTx} onChange={setUseTx} />
+            <Check label="Continue on error" checked={continueOnError} onChange={setContinueOnError} />
+          </DeployStep>
         )}
         {step === "log" && job && <JobProgress job={job} />}
       </div>
       {error && <div className="status-line err">{error}</div>}
-      <div className="modal-footer">
-        <span className="spacer" />
-        {step === "log" ? (
-          running ? (
-            <button onClick={() => Transfer.CancelJob(jobId)}>Stop</button>
+      <WizardFooter
+        last={step === "log"}
+        running={running}
+        onStop={stop}
+        onClose={close}
+        after={<button onClick={compare}>Recompare</button>}
+        onBack={step !== "general" ? () => setStep(step === "deploy" ? "results" : step === "results" ? "mapping" : "general") : undefined}
+        next={
+          step === "general" ? (
+            <button className="primary" disabled={busy} onClick={loadMapping}>
+              Next
+            </button>
+          ) : step === "mapping" ? (
+            <button className="primary" disabled={busy} onClick={compare}>
+              {busy ? "Comparing…" : "Compare & Preview"}
+            </button>
+          ) : step === "results" ? (
+            <button className="primary" onClick={toDeploy}>
+              Next
+            </button>
           ) : (
-            <>
-              <button onClick={compare}>Recompare</button>
-              <button className="primary" onClick={close}>
-                Close
-              </button>
-            </>
+            <button className="primary" onClick={start}>
+              Start
+            </button>
           )
-        ) : (
-          <>
-            <button onClick={close}>Cancel</button>
-            {step !== "general" && <button onClick={() => setStep(step === "deploy" ? "results" : step === "results" ? "mapping" : "general")}>Back</button>}
-            {step === "general" && (
-              <button className="primary" disabled={busy} onClick={loadMapping}>
-                Next
-              </button>
-            )}
-            {step === "mapping" && (
-              <button className="primary" disabled={busy} onClick={compare}>
-                {busy ? "Comparing…" : "Compare & Preview"}
-              </button>
-            )}
-            {step === "results" && (
-              <button className="primary" onClick={toDeploy}>
-                Next
-              </button>
-            )}
-            {step === "deploy" && (
-              <button className="primary" onClick={start}>
-                Start
-              </button>
-            )}
-          </>
-        )}
-      </div>
+        }
+      />
     </Modal>
   );
 }
