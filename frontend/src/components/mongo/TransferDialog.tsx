@@ -5,6 +5,7 @@ import { create } from "zustand";
 import { Mongo, Transfer, errorText } from "../../api";
 import { track } from "../transfer/state";
 import { collectionsChanged } from "./actions";
+import { Modal, ModalFooter } from "../Modal";
 
 interface Request {
   kind: "export" | "import";
@@ -70,76 +71,67 @@ function ExportDialog({ req, onClose }: { req: Request; onClose(): void }) {
   };
 
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === "Escape" && onClose()}>
-        <div className="modal-title">Export — {req.coll}</div>
-        <div className="modal-body form">
+    <Modal title={`Export — ${req.coll}`} onClose={onClose}>
+      <div className="modal-body form">
+        <div className="field">
+          <label>Format</label>
+          <div className="field-input">
+            <select value={format} onChange={(e) => setFormat(e.target.value)}>
+              <option value="json">JSON (array)</option>
+              <option value="jsonl">JSON Lines (mongoexport)</option>
+              <option value="csv">CSV</option>
+            </select>
+          </div>
+        </div>
+        {format !== "csv" ? (
           <div className="field">
-            <label>Format</label>
+            <label>Extended JSON</label>
             <div className="field-input">
-              <select value={format} onChange={(e) => setFormat(e.target.value)}>
-                <option value="json">JSON (array)</option>
-                <option value="jsonl">JSON Lines (mongoexport)</option>
-                <option value="csv">CSV</option>
+              <select value={canonical ? "canonical" : "relaxed"} onChange={(e) => setCanonical(e.target.value === "canonical")}>
+                <option value="relaxed">Relaxed (readable numbers and dates)</option>
+                <option value="canonical">Canonical (every type kept)</option>
               </select>
             </div>
           </div>
-          {format !== "csv" ? (
-            <div className="field">
-              <label>Extended JSON</label>
-              <div className="field-input">
-                <select value={canonical ? "canonical" : "relaxed"} onChange={(e) => setCanonical(e.target.value === "canonical")}>
-                  <option value="relaxed">Relaxed (readable numbers and dates)</option>
-                  <option value="canonical">Canonical (every type kept)</option>
-                </select>
-              </div>
-            </div>
-          ) : (
-            <div className="field">
-              <label>Fields</label>
-              <div className="field-input">
-                <input value={fields} spellCheck={false} placeholder="(all, from the first 1,000 documents) e.g. _id, email, address.city" onChange={(e) => setFields(e.target.value)} />
-              </div>
-            </div>
-          )}
+        ) : (
           <div className="field">
-            <label>Filter</label>
+            <label>Fields</label>
             <div className="field-input">
-              <input value={filter} spellCheck={false} placeholder="{ } (all documents)" onChange={(e) => setFilter(e.target.value)} />
+              <input value={fields} spellCheck={false} placeholder="(all, from the first 1,000 documents) e.g. _id, email, address.city" onChange={(e) => setFields(e.target.value)} />
             </div>
           </div>
-          <div className="field">
-            <label>Sort</label>
-            <div className="field-input">
-              <input value={sort} spellCheck={false} placeholder="{ _id: 1 }" onChange={(e) => setSort(e.target.value)} />
-            </div>
-          </div>
-          <div className="field">
-            <label>Limit</label>
-            <div className="field-input">
-              <input className="narrow" value={limit} placeholder="(none)" onChange={(e) => setLimit(e.target.value.replace(/\D/g, ""))} />
-            </div>
-          </div>
-          <div className="field">
-            <label>File</label>
-            <div className="field-input row">
-              <input value={path} placeholder="(choose when exporting)" onChange={(e) => setPath(e.target.value)} />
-              <button onClick={browse}>
-                <FolderOpen size={13} />
-              </button>
-            </div>
+        )}
+        <div className="field">
+          <label>Filter</label>
+          <div className="field-input">
+            <input value={filter} spellCheck={false} placeholder="{ } (all documents)" onChange={(e) => setFilter(e.target.value)} />
           </div>
         </div>
-        {error && <div className="status-line err">{error}</div>}
-        <div className="modal-footer">
-          <span className="spacer" />
-          <button onClick={onClose}>Cancel</button>
-          <button className="primary" onClick={start}>
-            Export
-          </button>
+        <div className="field">
+          <label>Sort</label>
+          <div className="field-input">
+            <input value={sort} spellCheck={false} placeholder="{ _id: 1 }" onChange={(e) => setSort(e.target.value)} />
+          </div>
+        </div>
+        <div className="field">
+          <label>Limit</label>
+          <div className="field-input">
+            <input className="narrow" value={limit} placeholder="(none)" onChange={(e) => setLimit(e.target.value.replace(/\D/g, ""))} />
+          </div>
+        </div>
+        <div className="field">
+          <label>File</label>
+          <div className="field-input row">
+            <input value={path} placeholder="(choose when exporting)" onChange={(e) => setPath(e.target.value)} />
+            <button onClick={browse}>
+              <FolderOpen size={13} />
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+      {error && <div className="status-line err">{error}</div>}
+      <ModalFooter onCancel={onClose} onOk={start} okLabel="Export" />
+    </Modal>
   );
 }
 
@@ -171,76 +163,67 @@ function ImportDialog({ req, onClose }: { req: Request; onClose(): void }) {
   };
 
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === "Escape" && onClose()}>
-        <div className="modal-title">Import — {req.coll}</div>
-        <div className="modal-body form">
-          <div className="field">
-            <label>File</label>
-            <div className="field-input row">
-              <input value={path} placeholder="Choose a .json, .jsonl or .csv file" onChange={(e) => setPath(e.target.value)} />
-              <button onClick={choose}>
-                <FolderOpen size={13} />
-              </button>
-            </div>
-          </div>
-          <div className="field">
-            <label>Format</label>
-            <div className="field-input">
-              <select value={format} onChange={(e) => setFormat(e.target.value)}>
-                <option value="json">JSON (an array or one document per line; Extended JSON)</option>
-                <option value="csv">CSV (header row; dotted names nest)</option>
-              </select>
-            </div>
-          </div>
-          <div className="field">
-            <label>Import Mode</label>
-            <div className="field-input">
-              <select value={mode} onChange={(e) => setMode(e.target.value)}>
-                <option value="append">Append: add the documents</option>
-                <option value="upsert">Append/Update: replace documents with the same _id</option>
-                <option value="copy">Copy: delete every document first</option>
-              </select>
-            </div>
-          </div>
-          {format === "csv" && (
-            <>
-              <div className="field">
-                <label />
-                <div className="field-input">
-                  <label className="check">
-                    <input type="checkbox" checked={infer} onChange={(e) => setInfer(e.target.checked)} /> Read numbers, booleans and JSON values
-                  </label>
-                </div>
-              </div>
-              <div className="field">
-                <label />
-                <div className="field-input">
-                  <label className="check">
-                    <input type="checkbox" checked={skipEmpty} onChange={(e) => setSkipEmpty(e.target.checked)} /> Leave out empty values
-                  </label>
-                </div>
-              </div>
-            </>
-          )}
-          <div className="field">
-            <label />
-            <div className="field-input">
-              <label className="check">
-                <input type="checkbox" checked={stop} onChange={(e) => setStop(e.target.checked)} /> Stop at the first error
-              </label>
-            </div>
+    <Modal title={`Import — ${req.coll}`} onClose={onClose}>
+      <div className="modal-body form">
+        <div className="field">
+          <label>File</label>
+          <div className="field-input row">
+            <input value={path} placeholder="Choose a .json, .jsonl or .csv file" onChange={(e) => setPath(e.target.value)} />
+            <button onClick={choose}>
+              <FolderOpen size={13} />
+            </button>
           </div>
         </div>
-        {error && <div className="status-line err">{error}</div>}
-        <div className="modal-footer">
-          <span className="spacer" />
-          <button onClick={onClose}>Cancel</button>
-          <button className="primary" onClick={start}>
-            Import
-          </button>
+        <div className="field">
+          <label>Format</label>
+          <div className="field-input">
+            <select value={format} onChange={(e) => setFormat(e.target.value)}>
+              <option value="json">JSON (an array or one document per line; Extended JSON)</option>
+              <option value="csv">CSV (header row; dotted names nest)</option>
+            </select>
+          </div>
+        </div>
+        <div className="field">
+          <label>Import Mode</label>
+          <div className="field-input">
+            <select value={mode} onChange={(e) => setMode(e.target.value)}>
+              <option value="append">Append: add the documents</option>
+              <option value="upsert">Append/Update: replace documents with the same _id</option>
+              <option value="copy">Copy: delete every document first</option>
+            </select>
+          </div>
+        </div>
+        {format === "csv" && (
+          <>
+            <div className="field">
+              <label />
+              <div className="field-input">
+                <label className="check">
+                  <input type="checkbox" checked={infer} onChange={(e) => setInfer(e.target.checked)} /> Read numbers, booleans and JSON values
+                </label>
+              </div>
+            </div>
+            <div className="field">
+              <label />
+              <div className="field-input">
+                <label className="check">
+                  <input type="checkbox" checked={skipEmpty} onChange={(e) => setSkipEmpty(e.target.checked)} /> Leave out empty values
+                </label>
+              </div>
+            </div>
+          </>
+        )}
+        <div className="field">
+          <label />
+          <div className="field-input">
+            <label className="check">
+              <input type="checkbox" checked={stop} onChange={(e) => setStop(e.target.checked)} /> Stop at the first error
+            </label>
+          </div>
         </div>
       </div>
-    </div>
+      {error && <div className="status-line err">{error}</div>}
+      <ModalFooter onCancel={onClose} onOk={start} okLabel="Import" />
+    </Modal>
   );
 }

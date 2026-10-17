@@ -2,6 +2,7 @@
 // window.confirm aren't reliable, so the app renders its own.
 import { useEffect, useRef, useState } from "react";
 import { create } from "zustand";
+import { Modal } from "./Modal";
 
 interface Request {
   kind: "prompt" | "confirm" | "alert" | "choose";
@@ -58,43 +59,33 @@ export function DialogHost() {
   const cancel = () => done(req.kind === "prompt" || req.kind === "choose" ? null : false);
 
   return (
-    <div className="modal-backdrop" onMouseDown={cancel}>
-      <div
-        className="modal small"
-        onMouseDown={(e) => e.stopPropagation()}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") cancel();
-          if (e.key === "Enter") ok();
-        }}
-      >
-        <div className="modal-title">{req.title}</div>
-        <div className="modal-body">
-          {req.message && <p className="dialog-message">{req.message}</p>}
-          {req.kind === "prompt" && (
-            <input ref={input} autoFocus type={req.password ? "password" : "text"} value={value} onChange={(e) => setValue(e.target.value)} />
-          )}
-        </div>
-        <div className="modal-footer">
-          {req.kind === "choose" ? (
-            [buttons.length <= 2 && <span key="" className="spacer" />, ...buttons.map((b, i) => (
-              <span key={b} style={{ display: "contents" }}>
-                <button className={i === buttons.length - 1 ? "primary" : ""} autoFocus={i === buttons.length - 1} onClick={() => done(b)}>
-                  {b}
-                </button>
-                {i === 0 && buttons.length > 2 && <span className="spacer" />}
-              </span>
-            ))]
-          ) : (
-            <>
-              <span className="spacer" />
-              {req.kind !== "alert" && <button onClick={cancel}>Cancel</button>}
-              <button className={req.danger ? "danger" : "primary"} onClick={ok} autoFocus={req.kind !== "prompt"}>
-                {req.okLabel ?? "OK"}
-              </button>
-            </>
-          )}
-        </div>
+    <Modal title={req.title} className="small" onClose={cancel} onKeyDown={(e) => e.key === "Enter" && ok()}>
+      <div className="modal-body">
+        {req.message && <p className="dialog-message">{req.message}</p>}
+        {req.kind === "prompt" && (
+          <input ref={input} autoFocus type={req.password ? "password" : "text"} value={value} onChange={(e) => setValue(e.target.value)} />
+        )}
       </div>
-    </div>
+      <div className="modal-footer">
+        {req.kind === "choose" ? (
+          [buttons.length <= 2 && <span key="" className="spacer" />, ...buttons.map((b, i) => (
+            <span key={b} style={{ display: "contents" }}>
+              <button className={i === buttons.length - 1 ? "primary" : ""} autoFocus={i === buttons.length - 1} onClick={() => done(b)}>
+                {b}
+              </button>
+              {i === 0 && buttons.length > 2 && <span className="spacer" />}
+            </span>
+          ))]
+        ) : (
+          <>
+            <span className="spacer" />
+            {req.kind !== "alert" && <button onClick={cancel}>Cancel</button>}
+            <button className={req.danger ? "danger" : "primary"} onClick={ok} autoFocus={req.kind !== "prompt"}>
+              {req.okLabel ?? "OK"}
+            </button>
+          </>
+        )}
+      </div>
+    </Modal>
   );
 }

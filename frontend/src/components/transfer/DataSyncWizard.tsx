@@ -13,6 +13,7 @@ import { Split } from "../Split";
 import { EndpointPicker, JobProgress } from "./shared";
 import { track, useTransfer } from "./state";
 import { Toolbar } from "../Toolbar";
+import { Modal } from "../Modal";
 
 const useDS = create<{ open: boolean; source?: Endpoint }>(() => ({ open: false }));
 
@@ -165,174 +166,171 @@ export function DataSyncWizard() {
   const PREVIEW = 2000;
 
   return (
-    <div className="modal-backdrop" onMouseDown={() => !running && !busy && close()}>
-      <div className="modal wizard wide data-transfer data-sync" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === "Escape" && !running && close()}>
-        <div className="modal-title">Data Synchronization</div>
-        <div className="dt-header">
-          {header(source)}
-          <ArrowRight size={18} className="muted" />
-          {header(target)}
-        </div>
-        <div className="wizard-steps">
-          {STEPS.map(([s, label], i) => (
-            <span key={s} className={step === s ? "active" : ""}>
-              {i + 1}. {label}
-            </span>
-          ))}
-        </div>
-        <div className="modal-body dt-body">
-          {step === "general" && (
-            <>
-              <div className="dt-general">
-                <EndpointPicker title="Source" value={source} onChange={setSource} conns={conns} />
-                <button
-                  className="dt-swap"
-                  title="Swap source and target"
-                  onClick={() => {
-                    setSource(target);
-                    setTarget(source);
-                  }}
-                >
-                  <ArrowLeftRight size={16} />
-                </button>
-                <EndpointPicker title="Target" value={target} onChange={setTarget} conns={conns} />
+    <Modal title="Data Synchronization" className="wizard wide data-transfer data-sync" onClose={running || busy ? undefined : close}>
+      <div className="dt-header">
+        {header(source)}
+        <ArrowRight size={18} className="muted" />
+        {header(target)}
+      </div>
+      <div className="wizard-steps">
+        {STEPS.map(([s, label], i) => (
+          <span key={s} className={step === s ? "active" : ""}>
+            {i + 1}. {label}
+          </span>
+        ))}
+      </div>
+      <div className="modal-body dt-body">
+        {step === "general" && (
+          <>
+            <div className="dt-general">
+              <EndpointPicker title="Source" value={source} onChange={setSource} conns={conns} />
+              <button
+                className="dt-swap"
+                title="Swap source and target"
+                onClick={() => {
+                  setSource(target);
+                  setTarget(source);
+                }}
+              >
+                <ArrowLeftRight size={16} />
+              </button>
+              <EndpointPicker title="Target" value={target} onChange={setTarget} conns={conns} />
+            </div>
+            <fieldset className="ss-options">
+              <legend>Options</legend>
+              {ACTS.map((a) => (
+                <label key={a} className="check">
+                  <input type="checkbox" checked={acts[a]} onChange={(e) => setActs({ ...acts, [a]: e.target.checked })} /> {a[0].toUpperCase() + a.slice(1)}
+                </label>
+              ))}
+            </fieldset>
+          </>
+        )}
+        {step === "mapping" && (
+          <div className="dsync-mapping">
+            <Toolbar>
+              <button onClick={() => setMapped(new Set(mapping.filter((t) => t.target && t.key?.length).map((t) => t.source)))}>Select All</button>
+              <button onClick={() => setMapped(new Set())}>Deselect All</button>
+              <span className="spacer" />
+              <span className="muted">{mapped.size} of {mapping.length} table(s) mapped</span>
+            </Toolbar>
+            <div className="dsync-grid">
+              <div className="dsync-row head">
+                <span />
+                <span>Source Table</span>
+                <span>Target Table</span>
+                <span>Key</span>
+                <span>Condition</span>
               </div>
-              <fieldset className="ss-options">
-                <legend>Options</legend>
-                {ACTS.map((a) => (
-                  <label key={a} className="check">
-                    <input type="checkbox" checked={acts[a]} onChange={(e) => setActs({ ...acts, [a]: e.target.checked })} /> {a[0].toUpperCase() + a.slice(1)}
-                  </label>
-                ))}
-              </fieldset>
-            </>
-          )}
-          {step === "mapping" && (
-            <div className="dsync-mapping">
-              <Toolbar>
-                <button onClick={() => setMapped(new Set(mapping.filter((t) => t.target && t.key?.length).map((t) => t.source)))}>Select All</button>
-                <button onClick={() => setMapped(new Set())}>Deselect All</button>
-                <span className="spacer" />
-                <span className="muted">{mapped.size} of {mapping.length} table(s) mapped</span>
-              </Toolbar>
-              <div className="dsync-grid">
-                <div className="dsync-row head">
-                  <span />
-                  <span>Source Table</span>
-                  <span>Target Table</span>
-                  <span>Key</span>
-                  <span>Condition</span>
+              {mapping.map((t, i) => (
+                <div key={t.source} className={"dsync-row" + (t.message && !t.target ? " same" : "")}>
+                  <input
+                    type="checkbox"
+                    aria-label={`Map ${t.source}`}
+                    disabled={!t.target || !t.key?.length}
+                    checked={mapped.has(t.source)}
+                    onChange={(e) => {
+                      const n = new Set(mapped);
+                      e.target.checked ? n.add(t.source) : n.delete(t.source);
+                      setMapped(n);
+                    }}
+                  />
+                  <span>{t.source}</span>
+                  <span>
+                    <select
+                      value={t.target}
+                      onChange={(e) => setMapping(mapping.map((x, j) => (j === i ? { ...x, target: e.target.value, message: e.target.value ? (x.key?.length ? "" : x.message) : "Unmapped" } : x)))}
+                    >
+                      <option value="">(not mapped)</option>
+                      {targets.concat(t.target && !targets.includes(t.target) ? [t.target] : []).map((n) => (
+                        <option key={n}>{n}</option>
+                      ))}
+                    </select>
+                  </span>
+                  <span className={t.target && t.key?.length ? "" : "muted"}>{!t.target ? t.message || "Not mapped" : t.key?.length ? t.key.join(", ") : t.message}</span>
+                  <span>
+                    <input className="mono" placeholder="(all rows)" disabled={!t.target} value={t.condition ?? ""} onChange={(e) => setMapping(mapping.map((x, j) => (j === i ? { ...x, condition: e.target.value } : x)))} />
+                  </span>
                 </div>
-                {mapping.map((t, i) => (
-                  <div key={t.source} className={"dsync-row" + (t.message && !t.target ? " same" : "")}>
-                    <input
-                      type="checkbox"
-                      aria-label={`Map ${t.source}`}
-                      disabled={!t.target || !t.key?.length}
-                      checked={mapped.has(t.source)}
-                      onChange={(e) => {
-                        const n = new Set(mapped);
-                        e.target.checked ? n.add(t.source) : n.delete(t.source);
-                        setMapped(n);
-                      }}
-                    />
-                    <span>{t.source}</span>
-                    <span>
-                      <select
-                        value={t.target}
-                        onChange={(e) => setMapping(mapping.map((x, j) => (j === i ? { ...x, target: e.target.value, message: e.target.value ? (x.key?.length ? "" : x.message) : "Unmapped" } : x)))}
-                      >
-                        <option value="">(not mapped)</option>
-                        {targets.concat(t.target && !targets.includes(t.target) ? [t.target] : []).map((n) => (
-                          <option key={n}>{n}</option>
-                        ))}
-                      </select>
-                    </span>
-                    <span className={t.target && t.key?.length ? "" : "muted"}>{!t.target ? t.message || "Not mapped" : t.key?.length ? t.key.join(", ") : t.message}</span>
-                    <span>
-                      <input className="mono" placeholder="(all rows)" disabled={!t.target} value={t.condition ?? ""} onChange={(e) => setMapping(mapping.map((x, j) => (j === i ? { ...x, condition: e.target.value } : x)))} />
-                    </span>
-                  </div>
-                ))}
-              </div>
+              ))}
             </div>
-          )}
-          {step === "results" && cmp && (
-            <Results cmp={cmp} chosen={chosen} setChosen={setChosen} sel={sel} setSel={setSel} showSame={showSame} setShowSame={setShowSame} onRecompare={compare} busy={busy} />
-          )}
-          {step === "deploy" && (
-            <div className="ss-deploy">
-              <Toolbar>
-                <button onClick={() => copyText(scriptText)}>
-                  <Copy size={14} /> Copy Script
-                </button>
-                <button
-                  onClick={() => {
-                    newQuery(target.connId, target.database, target.schema || undefined, scriptText);
-                    close();
-                  }}
-                >
-                  <FilePlus2 size={14} /> Open in Query Editor
-                </button>
-                <span className="spacer" />
-                <label className="check">
-                  <input type="checkbox" checked={useTx} onChange={(e) => setUseTx(e.target.checked)} /> Use transaction
-                </label>
-                <label className="check">
-                  <input type="checkbox" checked={continueOnError} onChange={(e) => setContinueOnError(e.target.checked)} /> Continue on error
-                </label>
-                <span className="muted">{script.length.toLocaleString()} statement(s)</span>
-              </Toolbar>
-              <div className="ss-script">
-                <CodeBlock code={script.length > PREVIEW ? script.slice(0, PREVIEW).join(";\n") + `;\n-- … ${script.length - PREVIEW} more statement(s)` : scriptText} />
-              </div>
+          </div>
+        )}
+        {step === "results" && cmp && (
+          <Results cmp={cmp} chosen={chosen} setChosen={setChosen} sel={sel} setSel={setSel} showSame={showSame} setShowSame={setShowSame} onRecompare={compare} busy={busy} />
+        )}
+        {step === "deploy" && (
+          <div className="ss-deploy">
+            <Toolbar>
+              <button onClick={() => copyText(scriptText)}>
+                <Copy size={14} /> Copy Script
+              </button>
+              <button
+                onClick={() => {
+                  newQuery(target.connId, target.database, target.schema || undefined, scriptText);
+                  close();
+                }}
+              >
+                <FilePlus2 size={14} /> Open in Query Editor
+              </button>
+              <span className="spacer" />
+              <label className="check">
+                <input type="checkbox" checked={useTx} onChange={(e) => setUseTx(e.target.checked)} /> Use transaction
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={continueOnError} onChange={(e) => setContinueOnError(e.target.checked)} /> Continue on error
+              </label>
+              <span className="muted">{script.length.toLocaleString()} statement(s)</span>
+            </Toolbar>
+            <div className="ss-script">
+              <CodeBlock code={script.length > PREVIEW ? script.slice(0, PREVIEW).join(";\n") + `;\n-- … ${script.length - PREVIEW} more statement(s)` : scriptText} />
             </div>
-          )}
-          {step === "log" && job && <JobProgress job={job} />}
-        </div>
-        {error && <div className="status-line err">{error}</div>}
-        <div className="modal-footer">
-          <span className="spacer" />
-          {step === "log" ? (
-            running ? (
-              <button onClick={() => Transfer.CancelJob(jobId)}>Stop</button>
-            ) : (
-              <>
-                <button onClick={compare}>Recompare</button>
-                <button className="primary" onClick={close}>
-                  Close
-                </button>
-              </>
-            )
+          </div>
+        )}
+        {step === "log" && job && <JobProgress job={job} />}
+      </div>
+      {error && <div className="status-line err">{error}</div>}
+      <div className="modal-footer">
+        <span className="spacer" />
+        {step === "log" ? (
+          running ? (
+            <button onClick={() => Transfer.CancelJob(jobId)}>Stop</button>
           ) : (
             <>
-              <button onClick={close}>Cancel</button>
-              {step !== "general" && <button onClick={() => setStep(step === "deploy" ? "results" : step === "results" ? "mapping" : "general")}>Back</button>}
-              {step === "general" && (
-                <button className="primary" disabled={busy} onClick={loadMapping}>
-                  Next
-                </button>
-              )}
-              {step === "mapping" && (
-                <button className="primary" disabled={busy} onClick={compare}>
-                  {busy ? "Comparing…" : "Compare & Preview"}
-                </button>
-              )}
-              {step === "results" && (
-                <button className="primary" onClick={toDeploy}>
-                  Next
-                </button>
-              )}
-              {step === "deploy" && (
-                <button className="primary" onClick={start}>
-                  Start
-                </button>
-              )}
+              <button onClick={compare}>Recompare</button>
+              <button className="primary" onClick={close}>
+                Close
+              </button>
             </>
-          )}
-        </div>
+          )
+        ) : (
+          <>
+            <button onClick={close}>Cancel</button>
+            {step !== "general" && <button onClick={() => setStep(step === "deploy" ? "results" : step === "results" ? "mapping" : "general")}>Back</button>}
+            {step === "general" && (
+              <button className="primary" disabled={busy} onClick={loadMapping}>
+                Next
+              </button>
+            )}
+            {step === "mapping" && (
+              <button className="primary" disabled={busy} onClick={compare}>
+                {busy ? "Comparing…" : "Compare & Preview"}
+              </button>
+            )}
+            {step === "results" && (
+              <button className="primary" onClick={toDeploy}>
+                Next
+              </button>
+            )}
+            {step === "deploy" && (
+              <button className="primary" onClick={start}>
+                Start
+              </button>
+            )}
+          </>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 }
 

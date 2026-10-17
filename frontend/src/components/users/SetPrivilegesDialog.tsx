@@ -8,6 +8,7 @@ import { useApp } from "../../store";
 import { Combobox } from "../Combobox";
 import { accountLabel, isPGConn } from "./actions";
 import { Toolbar } from "../Toolbar";
+import { Modal, ModalFooter } from "../Modal";
 
 type Target = Omit<P.Grant, "privilege" | "grantable">;
 
@@ -101,68 +102,59 @@ function Inner({ connId, target, title }: { connId: string; target: Target; titl
   const set = (i: number, patch: Partial<Row>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
 
   return (
-    <div className="modal-backdrop" onMouseDown={close}>
-      <div className="modal wizard wide set-privs" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="modal-title">Set Privileges — {title}</div>
-        <Toolbar>
-          <div style={{ width: 260 }}>
-            <Combobox value={adding} options={options} placeholder={`Add ${pg ? "role" : "user"}…`} strict onChange={setAdding} />
-          </div>
-          <button
-            disabled={!adding}
-            onClick={() => {
-              const a = accounts.find((x) => rowKey(x) === adding);
-              if (a) setRows((rs) => [...rs, { name: a.name, host: a.host || undefined, privs: {}, grantable: false }]);
-              setAdding("");
-            }}
-          >
-            <Plus size={14} /> Add
-          </button>
-        </Toolbar>
-        <div className="modal-body set-privs-body">
-          <table className="redis-table privs-table">
-            <thead>
-              <tr>
-                <th>{pg ? "Role" : "User"}</th>
-                {privList.map((p) => (
-                  <th key={p}>{p}</th>
-                ))}
-                <th>Grant Option</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={rowKey(r)}>
-                  <td>{rowKey(r)}</td>
-                  {privList.map((p) => (
-                    <td key={p}>
-                      <input type="checkbox" checked={!!r.privs[p]} onChange={(e) => set(i, { privs: { ...r.privs, [p]: e.target.checked } })} />
-                    </td>
-                  ))}
-                  <td>
-                    <input type="checkbox" checked={r.grantable} onChange={(e) => set(i, { grantable: e.target.checked })} />
-                  </td>
-                  <td>
-                    <button className="icon" title="Revoke everything" onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}>
-                      <X size={13} />
-                    </button>
-                  </td>
-                </tr>
+    <Modal title={`Set Privileges — ${title}`} className="wizard wide set-privs" onClose={close}>
+      <Toolbar>
+        <div style={{ width: 260 }}>
+          <Combobox value={adding} options={options} placeholder={`Add ${pg ? "role" : "user"}…`} strict onChange={setAdding} />
+        </div>
+        <button
+          disabled={!adding}
+          onClick={() => {
+            const a = accounts.find((x) => rowKey(x) === adding);
+            if (a) setRows((rs) => [...rs, { name: a.name, host: a.host || undefined, privs: {}, grantable: false }]);
+            setAdding("");
+          }}
+        >
+          <Plus size={14} /> Add
+        </button>
+      </Toolbar>
+      <div className="modal-body set-privs-body">
+        <table className="redis-table privs-table">
+          <thead>
+            <tr>
+              <th>{pg ? "Role" : "User"}</th>
+              {privList.map((p) => (
+                <th key={p}>{p}</th>
               ))}
-            </tbody>
-          </table>
-          {!rows.length && <div className="center-hint">No {pg ? "role" : "user"} has privileges on this object. Add one above.</div>}
-        </div>
-        {error && <div className="status-line err">{error}</div>}
-        <div className="modal-footer">
-          <span className="spacer" />
-          <button onClick={close}>Cancel</button>
-          <button className="primary" disabled={busy} onClick={save}>
-            {busy ? "Saving…" : "OK"}
-          </button>
-        </div>
+              <th>Grant Option</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={rowKey(r)}>
+                <td>{rowKey(r)}</td>
+                {privList.map((p) => (
+                  <td key={p}>
+                    <input type="checkbox" checked={!!r.privs[p]} onChange={(e) => set(i, { privs: { ...r.privs, [p]: e.target.checked } })} />
+                  </td>
+                ))}
+                <td>
+                  <input type="checkbox" checked={r.grantable} onChange={(e) => set(i, { grantable: e.target.checked })} />
+                </td>
+                <td>
+                  <button className="icon" title="Revoke everything" onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}>
+                    <X size={13} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!rows.length && <div className="center-hint">No {pg ? "role" : "user"} has privileges on this object. Add one above.</div>}
       </div>
-    </div>
+      {error && <div className="status-line err">{error}</div>}
+      <ModalFooter onCancel={close} onOk={save} okLabel={busy ? "Saving…" : "OK"} okDisabled={busy} />
+    </Modal>
   );
 }

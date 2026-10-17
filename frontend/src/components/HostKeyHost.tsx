@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { Events, HostKeys, arr, type HostKeyPrompt } from "../api";
+import { Modal } from "./Modal";
 
 const useHostKeys = create<{ queue: HostKeyPrompt[] }>(() => ({ queue: [] }));
 
@@ -36,29 +37,26 @@ export function HostKeyHost() {
   };
 
   return (
-    <div className="modal-backdrop">
-      <div className="modal small host-key" role="dialog" aria-label="Trust SSH server" onKeyDown={(e) => e.key === "Escape" && answer(false)}>
-        <div className="modal-title">Trust this SSH server?</div>
-        <div className="modal-body">
-          <p className="dialog-message">
-            Chloe hasn't connected to <strong>{p.host}</strong> before. Its {keyName(p.keyType)} key fingerprint is:
-          </p>
-          <pre className="host-key-fingerprint">{p.fingerprint}</pre>
-          <p className="hint">
-            Check it with the server's administrator (on the server, <code>ssh-keygen -lf</code> on its host key prints it). Once trusted, Chloe
-            remembers the key and refuses to connect if it changes.
-          </p>
-        </div>
-        <div className="modal-footer">
-          <span className="spacer" />
-          <button disabled={busy} onClick={() => answer(false)}>
-            Cancel
-          </button>
-          <button className="primary" autoFocus disabled={busy} onClick={() => answer(true)}>
-            Trust and Connect
-          </button>
-        </div>
+    <Modal title="Trust this SSH server?" className="small host-key" label="Trust SSH server" backdropCloses={false} onClose={() => answer(false)}>
+      <div className="modal-body">
+        <p className="dialog-message">
+          Chloe hasn't connected to <strong>{p.host}</strong> before. Its {keyName(p.keyType)} key fingerprint is:
+        </p>
+        <pre className="host-key-fingerprint">{p.fingerprint}</pre>
+        <p className="hint">
+          Check it with the server's administrator (on the server, <code>ssh-keygen -lf</code> on its host key prints it). Once trusted, Chloe
+          remembers the key and refuses to connect if it changes.
+        </p>
       </div>
-    </div>
+      <div className="modal-footer">
+        <span className="spacer" />
+        <button disabled={busy} onClick={() => answer(false)}>
+          Cancel
+        </button>
+        <button className="primary" autoFocus disabled={busy} onClick={() => answer(true)}>
+          Trust and Connect
+        </button>
+      </div>
+    </Modal>
   );
 }

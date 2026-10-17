@@ -9,6 +9,7 @@ import { alert, confirm } from "./Dialogs";
 import { CodeBlock } from "./ObjectsPane";
 import { Combobox } from "./Combobox";
 import { pickSQLiteFile } from "./ConnectionDialog";
+import { Modal, ModalFooter } from "./Modal";
 
 const useDbDialog = create<{ target?: { connId: string; name?: string } }>(() => ({}));
 
@@ -104,107 +105,98 @@ function DatabaseDialogInner({ connId, editName }: { connId: string; editName?: 
   );
 
   return (
-    <div className="modal-backdrop" onMouseDown={close}>
-      <div className="modal database-dialog" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === "Escape" && close()}>
-        <div className="modal-title">{sqlite ? "Attach Database" : editing ? `Edit Database — ${editName}` : "New Database"}</div>
-        <div className="seg-tabs centered">
-          <button className={tab === "general" ? "active" : ""} onClick={() => setTab("general")}>
-            General
-          </button>
-          <button className={tab === "sql" ? "active" : ""} onClick={() => setTab("sql")}>
-            SQL Preview
-          </button>
-        </div>
-        {tab === "general" ? (
-          <div className="modal-body form">
-            <div className="field">
-              <label>Database Name</label>
-              <div className="field-input">
-                <input autoFocus value={d.name} disabled={editing && !pg} onChange={(e) => set({ name: e.target.value })} onKeyDown={(e) => e.key === "Enter" && ok()} />
-              </div>
-            </div>
-            {sqlite && (
-              <>
-                <div className="field">
-                  <label>Database File</label>
-                  <div className="field-input row">
-                    <input value={d.file ?? ""} placeholder={d.create ? "where to create the file" : "path to a .db / .sqlite file"} onChange={(e) => set({ file: e.target.value })} />
-                    <button
-                      title="Browse…"
-                      onClick={async () => {
-                        const p = await pickSQLiteFile(!!d.create);
-                        if (p) set({ file: p, name: d.name || (p.split(/[\\/]/).pop() ?? "").replace(/\.[^.]*$/, "") });
-                      }}
-                    >
-                      Browse…
-                    </button>
-                  </div>
-                </div>
-                <div className="field">
-                  <label />
-                  <div className="field-input">
-                    <label className="check">
-                      <input type="checkbox" checked={!!d.create} onChange={(e) => set({ create: e.target.checked })} /> Create a new database file
-                    </label>
-                  </div>
-                </div>
-              </>
-            )}
-            {!pg && !sqlite && (
-              <>
-                {select("Character Set", d.charset, arr(meta?.charsets), (v) => set({ charset: v || undefined, collation: undefined }), meta?.defaultCharset ? `(default: ${meta.defaultCharset})` : "")}
-                {select("Collation", d.collation, collations.map((c) => c.name), (v) => set({ collation: v || undefined }), !d.charset && meta?.defaultCollation ? `(default: ${meta.defaultCollation})` : collations.find((c) => c.default) ? `(default: ${collations.find((c) => c.default)!.name})` : "")}
-              </>
-            )}
-            {pg && (
-              <>
-                {select("Owner", d.owner, arr(meta?.owners), (v) => set({ owner: v || undefined }), "(current user)")}
-                {select("Template", d.template, arr(meta?.templates), (v) => set({ template: v || undefined }), "(template1)", editing)}
-                {select("Encoding", d.encoding, arr(meta?.encodings), (v) => set({ encoding: v || undefined }), "(template's)", editing)}
-                {select("Collation", d.collation, arr(meta?.locales), (v) => set({ collation: v || undefined }), "(template's)", editing)}
-                {select("Character Type", d.ctype, arr(meta?.locales), (v) => set({ ctype: v || undefined }), "(template's)", editing)}
-                {select("Tablespace", d.tablespace, arr(meta?.tablespaces), (v) => set({ tablespace: v || undefined }), "(default)")}
-                <div className="field">
-                  <label>Connection Limit</label>
-                  <div className="field-input">
-                    <input
-                      type="number"
-                      min={-1}
-                      placeholder="-1 (no limit)"
-                      value={d.connLimit ?? ""}
-                      onChange={(e) => set({ connLimit: e.target.value === "" || Number(e.target.value) < 0 ? undefined : Number(e.target.value) })}
-                    />
-                  </div>
-                </div>
-                <div className="field">
-                  <label>Comment</label>
-                  <div className="field-input">
-                    <textarea rows={3} value={d.comment ?? ""} onChange={(e) => set({ comment: e.target.value || undefined })} />
-                  </div>
-                </div>
-                {!editing && (d.encoding || d.collation || d.ctype) && !d.template && (
-                  <div className="muted small">A different encoding or locale than template1's usually needs template0.</div>
-                )}
-              </>
-            )}
-          </div>
-        ) : (
-          <div className="modal-body">{sql.length ? <CodeBlock code={sql.join(";\n\n") + ";"} /> : <div className="center-hint">No changes.</div>}</div>
-        )}
-        {error && (
-          <div className="status-line err">
-            {error.text}
-            {error.sql && <pre>{error.sql}</pre>}
-          </div>
-        )}
-        <div className="modal-footer">
-          <span className="spacer" />
-          <button onClick={close}>Cancel</button>
-          <button className="primary" disabled={busy || !d.name.trim()} onClick={ok}>
-            OK
-          </button>
-        </div>
+    <Modal title={sqlite ? "Attach Database" : editing ? `Edit Database — ${editName}` : "New Database"} className="database-dialog" onClose={close}>
+      <div className="seg-tabs centered">
+        <button className={tab === "general" ? "active" : ""} onClick={() => setTab("general")}>
+          General
+        </button>
+        <button className={tab === "sql" ? "active" : ""} onClick={() => setTab("sql")}>
+          SQL Preview
+        </button>
       </div>
-    </div>
+      {tab === "general" ? (
+        <div className="modal-body form">
+          <div className="field">
+            <label>Database Name</label>
+            <div className="field-input">
+              <input autoFocus value={d.name} disabled={editing && !pg} onChange={(e) => set({ name: e.target.value })} onKeyDown={(e) => e.key === "Enter" && ok()} />
+            </div>
+          </div>
+          {sqlite && (
+            <>
+              <div className="field">
+                <label>Database File</label>
+                <div className="field-input row">
+                  <input value={d.file ?? ""} placeholder={d.create ? "where to create the file" : "path to a .db / .sqlite file"} onChange={(e) => set({ file: e.target.value })} />
+                  <button
+                    title="Browse…"
+                    onClick={async () => {
+                      const p = await pickSQLiteFile(!!d.create);
+                      if (p) set({ file: p, name: d.name || (p.split(/[\\/]/).pop() ?? "").replace(/\.[^.]*$/, "") });
+                    }}
+                  >
+                    Browse…
+                  </button>
+                </div>
+              </div>
+              <div className="field">
+                <label />
+                <div className="field-input">
+                  <label className="check">
+                    <input type="checkbox" checked={!!d.create} onChange={(e) => set({ create: e.target.checked })} /> Create a new database file
+                  </label>
+                </div>
+              </div>
+            </>
+          )}
+          {!pg && !sqlite && (
+            <>
+              {select("Character Set", d.charset, arr(meta?.charsets), (v) => set({ charset: v || undefined, collation: undefined }), meta?.defaultCharset ? `(default: ${meta.defaultCharset})` : "")}
+              {select("Collation", d.collation, collations.map((c) => c.name), (v) => set({ collation: v || undefined }), !d.charset && meta?.defaultCollation ? `(default: ${meta.defaultCollation})` : collations.find((c) => c.default) ? `(default: ${collations.find((c) => c.default)!.name})` : "")}
+            </>
+          )}
+          {pg && (
+            <>
+              {select("Owner", d.owner, arr(meta?.owners), (v) => set({ owner: v || undefined }), "(current user)")}
+              {select("Template", d.template, arr(meta?.templates), (v) => set({ template: v || undefined }), "(template1)", editing)}
+              {select("Encoding", d.encoding, arr(meta?.encodings), (v) => set({ encoding: v || undefined }), "(template's)", editing)}
+              {select("Collation", d.collation, arr(meta?.locales), (v) => set({ collation: v || undefined }), "(template's)", editing)}
+              {select("Character Type", d.ctype, arr(meta?.locales), (v) => set({ ctype: v || undefined }), "(template's)", editing)}
+              {select("Tablespace", d.tablespace, arr(meta?.tablespaces), (v) => set({ tablespace: v || undefined }), "(default)")}
+              <div className="field">
+                <label>Connection Limit</label>
+                <div className="field-input">
+                  <input
+                    type="number"
+                    min={-1}
+                    placeholder="-1 (no limit)"
+                    value={d.connLimit ?? ""}
+                    onChange={(e) => set({ connLimit: e.target.value === "" || Number(e.target.value) < 0 ? undefined : Number(e.target.value) })}
+                  />
+                </div>
+              </div>
+              <div className="field">
+                <label>Comment</label>
+                <div className="field-input">
+                  <textarea rows={3} value={d.comment ?? ""} onChange={(e) => set({ comment: e.target.value || undefined })} />
+                </div>
+              </div>
+              {!editing && (d.encoding || d.collation || d.ctype) && !d.template && (
+                <div className="muted small">A different encoding or locale than template1's usually needs template0.</div>
+              )}
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="modal-body">{sql.length ? <CodeBlock code={sql.join(";\n\n") + ";"} /> : <div className="center-hint">No changes.</div>}</div>
+      )}
+      {error && (
+        <div className="status-line err">
+          {error.text}
+          {error.sql && <pre>{error.sql}</pre>}
+        </div>
+      )}
+      <ModalFooter onCancel={close} onOk={ok} okDisabled={busy || !d.name.trim()} />
+    </Modal>
   );
 }

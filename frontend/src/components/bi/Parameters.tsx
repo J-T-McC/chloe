@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { B, BI, arr, errorText } from "../../api";
 import { ParamValues, paramRefs } from "./params";
+import { Modal, ModalFooter } from "../Modal";
 
 export { expandParams, paramRefs, paramValues } from "./params";
 export type { ParamValues } from "./params";
@@ -104,75 +105,66 @@ export function ParameterDialog({ path, param, onClose }: { path: string; param:
     }
   };
   return (
-    <div className="modal-backdrop">
-      <div className="modal bi-param-dialog" role="dialog" aria-label={param ? "Edit Parameter" : "New Parameter"} onKeyDown={(e) => e.key === "Escape" && onClose(false)}>
-        <div className="modal-title">{param ? "Edit Parameter" : "New Parameter"}</div>
-        <div className="modal-body">
+    <Modal title={param ? "Edit Parameter" : "New Parameter"} className="bi-param-dialog" label={param ? "Edit Parameter" : "New Parameter"} backdropCloses={false} onClose={() => onClose(false)}>
+      <div className="modal-body">
+        <label className="bi-prop">
+          Name
+          <input aria-label="Parameter name" autoFocus value={p.name} onChange={(e) => set({ name: e.target.value })} placeholder="e.g. region" />
+        </label>
+        <p className="hint">
+          Refer to it as <code>[${p.name || "name"}]</code> in a data source query (where a value goes; it's bound, never pasted), as a filter value, in a chart title or in dashboard text.
+        </p>
+        <div className="bi-prop-row">
           <label className="bi-prop">
-            Name
-            <input aria-label="Parameter name" autoFocus value={p.name} onChange={(e) => set({ name: e.target.value })} placeholder="e.g. region" />
+            Data type
+            <select aria-label="Parameter type" value={p.type} onChange={(e) => set({ type: e.target.value, allowed: e.target.value !== "number" && p.allowed === "range" ? "" : p.allowed })}>
+              <option value="string">Text</option>
+              <option value="number">Number</option>
+              <option value="datetime">Date</option>
+            </select>
           </label>
-          <p className="hint">
-            Refer to it as <code>[${p.name || "name"}]</code> in a data source query (where a value goes; it's bound, never pasted), as a filter value, in a chart title or in dashboard text.
-          </p>
+          <label className="bi-prop">
+            Allowed values
+            <select aria-label="Allowed values" value={p.allowed ?? ""} onChange={(e) => set({ allowed: e.target.value })}>
+              <option value="">Any</option>
+              <option value="list">List</option>
+              {p.type === "number" && <option value="range">Range</option>}
+            </select>
+          </label>
+        </div>
+        {p.allowed === "list" && (
+          <label className="bi-prop">
+            Values, one per line (value = description)
+            <textarea aria-label="Parameter list" rows={4} value={listText} onChange={(e) => setListText(e.target.value)} />
+          </label>
+        )}
+        {p.allowed === "range" && (
           <div className="bi-prop-row">
             <label className="bi-prop">
-              Data type
-              <select aria-label="Parameter type" value={p.type} onChange={(e) => set({ type: e.target.value, allowed: e.target.value !== "number" && p.allowed === "range" ? "" : p.allowed })}>
-                <option value="string">Text</option>
-                <option value="number">Number</option>
-                <option value="datetime">Date</option>
-              </select>
+              Minimum
+              <input aria-label="Parameter minimum" type="number" value={p.min ?? ""} onChange={(e) => set({ min: e.target.value })} />
             </label>
             <label className="bi-prop">
-              Allowed values
-              <select aria-label="Allowed values" value={p.allowed ?? ""} onChange={(e) => set({ allowed: e.target.value })}>
-                <option value="">Any</option>
-                <option value="list">List</option>
-                {p.type === "number" && <option value="range">Range</option>}
-              </select>
+              Maximum
+              <input aria-label="Parameter maximum" type="number" value={p.max ?? ""} onChange={(e) => set({ max: e.target.value })} />
+            </label>
+            <label className="bi-prop">
+              Step
+              <input aria-label="Parameter step" type="number" value={p.step ?? ""} onChange={(e) => set({ step: e.target.value })} />
             </label>
           </div>
-          {p.allowed === "list" && (
-            <label className="bi-prop">
-              Values, one per line (value = description)
-              <textarea aria-label="Parameter list" rows={4} value={listText} onChange={(e) => setListText(e.target.value)} />
-            </label>
-          )}
-          {p.allowed === "range" && (
-            <div className="bi-prop-row">
-              <label className="bi-prop">
-                Minimum
-                <input aria-label="Parameter minimum" type="number" value={p.min ?? ""} onChange={(e) => set({ min: e.target.value })} />
-              </label>
-              <label className="bi-prop">
-                Maximum
-                <input aria-label="Parameter maximum" type="number" value={p.max ?? ""} onChange={(e) => set({ max: e.target.value })} />
-              </label>
-              <label className="bi-prop">
-                Step
-                <input aria-label="Parameter step" type="number" value={p.step ?? ""} onChange={(e) => set({ step: e.target.value })} />
-              </label>
-            </div>
-          )}
-          <label className="bi-prop">
-            Current value
-            <input aria-label="Parameter value" value={p.value} onChange={(e) => set({ value: e.target.value })} />
-          </label>
-          <label className="bi-prop">
-            Remarks
-            <input aria-label="Parameter remarks" value={p.remarks ?? ""} onChange={(e) => set({ remarks: e.target.value })} />
-          </label>
-          {error && <div className="error-banner">{error}</div>}
-        </div>
-        <div className="modal-footer">
-          <span className="spacer" />
-          <button onClick={() => onClose(false)}>Cancel</button>
-          <button className="primary" disabled={busy || !p.name.trim()} onClick={save}>
-            Save
-          </button>
-        </div>
+        )}
+        <label className="bi-prop">
+          Current value
+          <input aria-label="Parameter value" value={p.value} onChange={(e) => set({ value: e.target.value })} />
+        </label>
+        <label className="bi-prop">
+          Remarks
+          <input aria-label="Parameter remarks" value={p.remarks ?? ""} onChange={(e) => set({ remarks: e.target.value })} />
+        </label>
+        {error && <div className="error-banner">{error}</div>}
       </div>
-    </div>
+      <ModalFooter onCancel={() => onClose(false)} onOk={save} okLabel="Save" okDisabled={busy || !p.name.trim()} />
+    </Modal>
   );
 }

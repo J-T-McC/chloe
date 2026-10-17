@@ -3,6 +3,7 @@
 import { FolderOpen } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Connections, Transfer, errorText } from "../api";
+import { Modal, ModalFooter } from "./Modal";
 
 const MIN_PASSPHRASE = 8;
 
@@ -60,83 +61,71 @@ export function ExportConnectionsDialog({
   };
 
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
-      <div
-        className="modal"
-        onMouseDown={(e) => e.stopPropagation()}
-        onKeyDown={(e) => (
-          e.stopPropagation(),
-          e.key === "Escape" && onClose()
-        )}
-      >
-        <div className="modal-title">Export Connections</div>
-        <div className="modal-body form">
-          <div className="field">
-            <label>File</label>
-            <div className="field-input row">
+    <Modal
+      title="Export Connections"
+      onClose={onClose}
+      onKeyDown={(e) => e.stopPropagation()}
+    >
+      <div className="modal-body form">
+        <div className="field">
+          <label>File</label>
+          <div className="field-input row">
+            <input
+              value={path}
+              placeholder="(choose when exporting)"
+              onChange={(e) => setPath(e.target.value)}
+            />
+            <button onClick={browse}>
+              <FolderOpen size={13} />
+            </button>
+          </div>
+        </div>
+        <div className="field">
+          <label />
+          <div className="field-input">
+            <label className="check">
               <input
-                value={path}
-                placeholder="(choose when exporting)"
-                onChange={(e) => setPath(e.target.value)}
-              />
-              <button onClick={browse}>
-                <FolderOpen size={13} />
-              </button>
-            </div>
+                type="checkbox"
+                checked={withSecrets}
+                onChange={(e) => setWithSecrets(e.target.checked)}
+              />{" "}
+              Include passwords
+            </label>
           </div>
-          <div className="field">
-            <label />
-            <div className="field-input">
-              <label className="check">
+        </div>
+        {withSecrets && (
+          <>
+            <div className="field">
+              <label>Passphrase</label>
+              <div className="field-input">
                 <input
-                  type="checkbox"
-                  checked={withSecrets}
-                  onChange={(e) => setWithSecrets(e.target.checked)}
-                />{" "}
-                Include passwords
-              </label>
+                  type="password"
+                  autoFocus
+                  value={pass}
+                  onChange={(e) => setPass(e.target.value)}
+                />
+              </div>
             </div>
-          </div>
-          {withSecrets && (
-            <>
-              <div className="field">
-                <label>Passphrase</label>
-                <div className="field-input">
-                  <input
-                    type="password"
-                    autoFocus
-                    value={pass}
-                    onChange={(e) => setPass(e.target.value)}
-                  />
-                </div>
+            <div className="field">
+              <label>Confirm Passphrase</label>
+              <div className="field-input">
+                <input
+                  type="password"
+                  value={again}
+                  onChange={(e) => setAgain(e.target.value)}
+                />
               </div>
-              <div className="field">
-                <label>Confirm Passphrase</label>
-                <div className="field-input">
-                  <input
-                    type="password"
-                    value={again}
-                    onChange={(e) => setAgain(e.target.value)}
-                  />
-                </div>
-              </div>
-              <p className="dialog-message muted">
-                Passwords are encrypted with this passphrase. It's needed to
-                import them and can't be recovered.
-              </p>
-            </>
-          )}
-        </div>
-        {error && <div className="status-line err">{error}</div>}
-        <div className="modal-footer">
-          <span className="spacer" />
-          <button onClick={onClose}>Cancel</button>
-          <button className="primary" onClick={start}>
-            Export
-          </button>
-        </div>
+            </div>
+            <p className="dialog-message muted">
+              Passwords are encrypted with this passphrase. It's needed to
+              import them and can't be recovered.
+            </p>
+          </>
+        )}
       </div>
-    </div>
+      {error && <div className="status-line err">{error}</div>}
+      <ModalFooter onCancel={onClose} onOk={start} okLabel="Export" />
+    </Modal>
   );
 }
 
@@ -195,66 +184,59 @@ export function ImportConnectionsDialog({
   };
 
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
-      <div
-        className="modal"
-        onMouseDown={(e) => e.stopPropagation()}
-        onKeyDown={(e) => (
-          e.stopPropagation(),
-          e.key === "Escape" && onClose()
+    <Modal
+      title="Import Connections"
+      onClose={onClose}
+      onKeyDown={(e) => e.stopPropagation()}
+    >
+      <div className="modal-body form">
+        <div className="field">
+          <label>File</label>
+          <div className="field-input row">
+            <input
+              value={path}
+              placeholder="Choose a Chloe connections file"
+              onChange={(e) => setPath(e.target.value)}
+            />
+            <button onClick={browse}>
+              <FolderOpen size={13} />
+            </button>
+          </div>
+        </div>
+        <p className="dialog-message muted">
+          Auto connect, initial queries, extra connection parameters and cleartext passwords are left off; turn
+          them on per connection after checking them.
+        </p>
+        {info && (
+          <p className="dialog-message muted">
+            {info.connections} connection(s)
+            {info.encrypted
+              ? ", with passwords encrypted by a passphrase."
+              : ", without passwords."}
+          </p>
         )}
-      >
-        <div className="modal-title">Import Connections</div>
-        <div className="modal-body form">
+        {info?.encrypted && (
           <div className="field">
-            <label>File</label>
-            <div className="field-input row">
+            <label>Passphrase</label>
+            <div className="field-input">
               <input
-                value={path}
-                placeholder="Choose a Chloe connections file"
-                onChange={(e) => setPath(e.target.value)}
+                type="password"
+                autoFocus
+                value={pass}
+                placeholder="Leave empty to import without passwords"
+                onChange={(e) => setPass(e.target.value)}
               />
-              <button onClick={browse}>
-                <FolderOpen size={13} />
-              </button>
             </div>
           </div>
-          <p className="dialog-message muted">
-            Auto connect, initial queries, extra connection parameters and cleartext passwords are left off; turn
-            them on per connection after checking them.
-          </p>
-          {info && (
-            <p className="dialog-message muted">
-              {info.connections} connection(s)
-              {info.encrypted
-                ? ", with passwords encrypted by a passphrase."
-                : ", without passwords."}
-            </p>
-          )}
-          {info?.encrypted && (
-            <div className="field">
-              <label>Passphrase</label>
-              <div className="field-input">
-                <input
-                  type="password"
-                  autoFocus
-                  value={pass}
-                  placeholder="Leave empty to import without passwords"
-                  onChange={(e) => setPass(e.target.value)}
-                />
-              </div>
-            </div>
-          )}
-        </div>
-        {error && <div className="status-line err">{error}</div>}
-        <div className="modal-footer">
-          <span className="spacer" />
-          <button onClick={onClose}>Cancel</button>
-          <button className="primary" disabled={!path} onClick={start}>
-            Import
-          </button>
-        </div>
+        )}
       </div>
-    </div>
+      {error && <div className="status-line err">{error}</div>}
+      <ModalFooter
+        onCancel={onClose}
+        onOk={start}
+        okLabel="Import"
+        okDisabled={!path}
+      />
+    </Modal>
   );
 }
