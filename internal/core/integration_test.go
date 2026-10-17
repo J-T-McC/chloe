@@ -445,22 +445,29 @@ func TestIntegrationMySQLPrefersTLS(t *testing.T) {
 	}
 }
 
-// With every connection of the session limit taken, Cancel still kills the
-// running MySQL statement instead of waiting for a pooled connection.
-func TestIntegrationMySQLCancelAtSessionLimit(t *testing.T) {
-	e := engines()[0]
-	e.conn.Advanced.SessionLimit = 1
-	m, id := setup(t, e)
-	ctx := context.Background()
-	sid, err := m.OpenSession(ctx, id, e.database, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer m.CloseSession(sid)
-	go func() { time.Sleep(500 * time.Millisecond); _ = m.Cancel(ctx, sid) }()
-	start := time.Now()
-	_, _ = m.Execute(ctx, sid, "select sleep(10)", core.ExecOptions{})
-	if d := time.Since(start); d > 5*time.Second {
-		t.Fatalf("cancel took %s", d)
+// With every connection of the session limit taken, Cancel still stops the
+// running statement instead of waiting for a pooled connection.
+func TestIntegrationCancelAtSessionLimit(t *testing.T) {
+	for _, e := range engines() {
+		t.Run(e.conn.Name, func(t *testing.T) {
+			e.conn.Advanced.SessionLimit = 1
+			m, id := setup(t, e)
+			ctx := context.Background()
+			sid, err := m.OpenSession(ctx, id, e.database, e.schema)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer m.CloseSession(sid)
+			sleep := "select sleep(10)"
+			if e.conn.Type == model.PostgreSQL {
+				sleep = "select pg_sleep(10)"
+			}
+			go func() { time.Sleep(500 * time.Millisecond); _ = m.Cancel(ctx, sid) }()
+			start := time.Now()
+			_, _ = m.Execute(ctx, sid, sleep, core.ExecOptions{})
+			if d := time.Since(start); d > 5*time.Second {
+				t.Fatalf("cancel took %s", d)
+			}
+		})
 	}
 }
