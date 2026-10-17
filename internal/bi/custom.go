@@ -191,7 +191,7 @@ func withCustom(d driver.Dialect, from Source, src DataSource) (Source, error) {
 		var layer []any
 		bind := func(v any) string {
 			layer = append(layer, v)
-			if d.Name == "postgres" {
+			if d.NumberedParams() {
 				return d.Placeholder(len(args) + len(layer))
 			}
 			return d.Placeholder(len(layer))
@@ -204,7 +204,7 @@ func withCustom(d driver.Dialect, from Source, src DataSource) (Source, error) {
 		// A later custom field may use this one, so each gets its own layer. Its
 		// values come first in the text, so before the inner ones for ? dialects.
 		inner = "(SELECT s.*, " + expr + " AS " + d.QuoteIdent(cf.Name) + " FROM " + inner + " AS s)"
-		if d.Name == "postgres" {
+		if d.NumberedParams() {
 			args = append(args, layer...)
 		} else {
 			args = append(layer, args...)

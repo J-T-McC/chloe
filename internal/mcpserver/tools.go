@@ -758,7 +758,7 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 				ctx, cancel := context.WithTimeout(ctx, statementTimeout)
 				defer cancel()
 				return n, with(func(ds driver.Session) error {
-					return tx(ctx, ds, func() error {
+					return driver.InTx(ctx, ds, func() error {
 						pk := b.primaryKey()
 						for i, q := range stmts {
 							key, err := insertOne(ctx, ds, d, b, q, in.Rows[i], pk)
@@ -884,7 +884,7 @@ func (c *call) matchingThenRun(ctx context.Context, with sessionFn, d driver.Dia
 	defer cancel()
 	var n int64
 	err = with(func(ds driver.Session) error {
-		return tx(ctx, ds, func() error {
+		return driver.InTx(ctx, ds, func() error {
 			if keys == nil && c.asked {
 				v, err := scalar(ctx, ds, cq)
 				if err != nil {
@@ -905,19 +905,6 @@ func (c *call) matchingThenRun(ctx context.Context, with sessionFn, d driver.Dia
 		})
 	})
 	return n, err
-}
-
-// tx runs fn in a transaction, rolling back when it fails.
-func tx(ctx context.Context, ds driver.Session, fn func() error) error {
-	if _, err := ds.Exec(ctx, "BEGIN"); err != nil {
-		return err
-	}
-	if err := fn(); err != nil {
-		_, _ = ds.Exec(context.Background(), "ROLLBACK")
-		return err
-	}
-	_, err := ds.Exec(ctx, "COMMIT")
-	return err
 }
 
 // insertOne runs one INSERT and returns the new row's primary key: from

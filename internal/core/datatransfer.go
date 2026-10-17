@@ -501,20 +501,14 @@ func (t *transferRun) dropTable(name string) string {
 
 // foreignKeysOff lets rows load in any order and tables drop while referenced.
 func (t *transferRun) foreignKeysOff(ctx context.Context) {
-	switch t.to.Name {
-	case "mysql":
-		_, _ = t.ds.Exec(ctx, "SET FOREIGN_KEY_CHECKS = 0")
-	case "sqlite":
-		_, _ = t.ds.Exec(ctx, "PRAGMA foreign_keys = OFF")
+	if q := t.to.ForeignKeyChecks(false); q != "" {
+		_, _ = t.ds.Exec(ctx, q)
 	}
 }
 
 func (t *transferRun) foreignKeysOn(ctx context.Context) {
-	switch t.to.Name {
-	case "mysql":
-		_, _ = t.ds.Exec(ctx, "SET FOREIGN_KEY_CHECKS = 1")
-	case "sqlite":
-		_, _ = t.ds.Exec(ctx, "PRAGMA foreign_keys = ON")
+	if q := t.to.ForeignKeyChecks(true); q != "" {
+		_, _ = t.ds.Exec(ctx, q)
 	}
 }
 
@@ -655,9 +649,6 @@ func (t *transferRun) createTargetDatabase(ctx context.Context) error {
 
 // ---- rows ------------------------------------------------------------------------------------
 
-// maxParams keeps a multi-row INSERT under every engine's placeholder limit.
-const maxParams = 30000
-
 func (t *transferRun) copyRows(ctx context.Context, src, dst design.Table) error {
 	var srcCols, dstCols []string
 	var dstDesign []design.Column
@@ -694,7 +685,7 @@ func (t *transferRun) copyRows(ctx context.Context, src, dst design.Table) error
 
 	t.log(dst.Name, "Transfer records")
 	if t.o.UseTransaction {
-		if _, err := t.exec(ctx, t.beginSQL()); err != nil {
+		if _, err := t.exec(ctx, t.to.Begin()); err != nil {
 			return err
 		}
 	}
@@ -712,7 +703,7 @@ func (t *transferRun) copyRows(ctx context.Context, src, dst design.Table) error
 
 	perStmt := 1
 	if t.o.ExtendedInserts {
-		perStmt = min(500, max(1, maxParams/len(dstCols)))
+		perStmt = min(500, max(1, t.to.MaxParams()/len(dstCols)))
 	}
 	overriding := t.to.Name == "postgres" && slices.ContainsFunc(dstDesign, func(c design.Column) bool { return c.Identity == "always" })
 	head := t.insertHead(table, dstCols, overriding)
@@ -763,13 +754,6 @@ func (t *transferRun) copyRows(ctx context.Context, src, dst design.Table) error
 	}
 	t.log(dst.Name, "%d record(s) transferred", copied)
 	return nil
-}
-
-func (t *transferRun) beginSQL() string {
-	if t.to.Name == "mysql" {
-		return "START TRANSACTION"
-	}
-	return "BEGIN"
 }
 
 func (t *transferRun) insertHead(table string, cols []string, overriding bool) string {

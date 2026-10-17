@@ -52,40 +52,30 @@ func (m *Manager) ApplyChanges(ctx context.Context, connID string, ref model.Obj
 	}
 	defer ds.Close()
 
-	if _, err := ds.Exec(ctx, "BEGIN"); err != nil {
-		return nil, err
-	}
 	results := make([]ChangeResult, len(changes))
-	failed := false
-	for i, ch := range changes {
-		q, args, err := buildChange(d, ref, ch)
-		results[i].SQL = q
-		if err != nil {
-			results[i].Error = err.Error()
-			failed = true
-			break
+	rolledBack := errors.New("changes rolled back")
+	err = driver.InTx(ctx, ds, func() error {
+		for i, ch := range changes {
+			q, args, err := buildChange(d, ref, ch)
+			results[i].SQL = q
+			if err != nil {
+				results[i].Error = err.Error()
+				return rolledBack
+			}
+			n, err := ds.Exec(ctx, q, args...)
+			results[i].RowsAffected = n
+			if err != nil {
+				results[i].Error = err.Error()
+				return rolledBack
+			}
+			if ch.Kind != ChangeInsert && n > 1 {
+				results[i].Error = fmt.Sprintf("statement would affect %d rows; the table needs a primary key to edit safely", n)
+				return rolledBack
+			}
 		}
-		n, err := ds.Exec(ctx, q, args...)
-		results[i].RowsAffected = n
-		if err != nil {
-			results[i].Error = err.Error()
-			failed = true
-			break
-		}
-		if ch.Kind != ChangeInsert && n > 1 {
-			results[i].Error = fmt.Sprintf("statement would affect %d rows; the table needs a primary key to edit safely", n)
-			failed = true
-			break
-		}
-	}
-	if failed {
-		_, _ = ds.Exec(ctx, "ROLLBACK")
-		return results, errors.New("changes rolled back")
-	}
-	if _, err := ds.Exec(ctx, "COMMIT"); err != nil {
-		return results, err
-	}
-	return results, nil
+		return nil
+	})
+	return results, err
 }
 
 func buildChange(d driver.Dialect, ref model.ObjectRef, ch RowChange) (string, []any, error) {
