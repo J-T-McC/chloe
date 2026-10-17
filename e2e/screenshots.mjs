@@ -2,7 +2,7 @@
 import { chromium } from "playwright";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { MONGO, MYSQL, PG, REDIS } from "./lib/db.mjs";
+import { MONGO, MYSQL, PG, REDIS, MCP_PORT } from "./lib/db.mjs";
 
 const out = process.argv[2];
 const browser = await chromium.launch();
@@ -162,7 +162,7 @@ await step("redis", async () => {
 });
 
 // MCP: an endpoint's access, then a write waiting for approval (denied).
-const MCP_URL = "http://127.0.0.1:47199/mcp";
+const MCP_URL = `http://127.0.0.1:${MCP_PORT}/mcp`;
 const token = () => JSON.parse(readFileSync(`${process.env.LITE}/../config/mcp.json`, "utf8")).endpoints[0].token;
 const callTool = (name, args) =>
   fetch(MCP_URL, {
@@ -173,7 +173,7 @@ const callTool = (name, args) =>
 
 await step("mcp server", async () => {
   await page.locator(".mcp-button").click();
-  await page.getByLabel("Port").fill("47199");
+  await page.getByLabel("Port").fill(String(MCP_PORT));
   await page.getByLabel("Port").press("Enter");
   await page.getByLabel("Run MCP server").check();
   await page.getByText(`Listening on ${MCP_URL}`).waitFor();

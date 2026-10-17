@@ -3,10 +3,10 @@ import { chromium } from "playwright";
 import { readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import { MONGO, REDIS } from "./lib/db.mjs";
+import { MCP_PORT, MONGO, REDIS } from "./lib/db.mjs";
 const out = process.argv[2];
 const dir = process.env.LITE;
-const PORT = 47199; // not the default, so a running desktop Chloe can't collide
+const PORT = MCP_PORT;
 const URL = `http://127.0.0.1:${PORT}/mcp`;
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1400, height: 880 } });
