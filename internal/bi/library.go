@@ -5,14 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/google/uuid"
 
+	"chloe/internal/filelib"
 	"chloe/internal/safefile"
 )
 
@@ -35,31 +33,17 @@ type Entry struct {
 	Error       string `json:"error,omitempty"` // the file couldn't be read
 }
 
-// locks serialize read-modify-write cycles on one workspace file: the designer
-// and MCP agents change objects of the same workspace.
-var locks sync.Map
-
-func lock(p string) func() {
-	m, _ := locks.LoadOrStore(filepath.Clean(p), &sync.Mutex{})
-	mu := m.(*sync.Mutex)
-	mu.Lock()
-	return mu.Unlock
+func (l Library) lib() filelib.Lib[Workspace] {
+	return filelib.Lib[Workspace]{Dir: l.Dir, Ext: Ext, Kind: "workspace", Read: Read, Write: Write,
+		Name: func(w *Workspace) string { return w.Name }, SetName: func(w *Workspace, n string) { w.Name = n }}
 }
 
 // List reads every workspace in the library, by name.
 func (l Library) List() []Entry {
 	out := []Entry{}
-	files, _ := os.ReadDir(l.Dir)
-	for _, f := range files {
-		if f.IsDir() || filepath.Ext(f.Name()) != Ext {
-			continue
-		}
-		p := filepath.Join(l.Dir, f.Name())
-		e := Entry{Path: p, Name: strings.TrimSuffix(f.Name(), Ext)}
-		if info, err := f.Info(); err == nil {
-			e.Modified = info.ModTime().UTC().Format(time.RFC3339)
-		}
-		if w, err := Read(p); err != nil {
+	for _, f := range l.lib().Files() {
+		e := Entry{Path: f.Path, Name: f.Base, Modified: f.Modified}
+		if w, err := Read(f.Path); err != nil {
 			e.Error = err.Error()
 		} else {
 			e.Name, e.DataSources, e.Charts, e.Dashboards, e.CreatedBy = w.Name, len(w.DataSources), len(w.Charts), len(w.Dashboards), w.CreatedBy
@@ -71,10 +55,7 @@ func (l Library) List() []Entry {
 }
 
 // Contains reports whether p is a workspace file in the library.
-func (l Library) Contains(p string) bool {
-	p = filepath.Clean(p)
-	return filepath.Dir(p) == filepath.Clean(l.Dir) && filepath.Ext(p) == Ext
-}
+func (l Library) Contains(p string) bool { return l.lib().Contains(p) }
 
 // Find returns the library workspace with this name (case-insensitive) or path.
 func (l Library) Find(nameOrPath string) (string, error) {
@@ -99,53 +80,16 @@ func (l Library) Find(nameOrPath string) (string, error) {
 }
 
 // Create saves a new workspace under a file named after it and returns the path.
-func (l Library) Create(w Workspace) (string, error) {
-	if strings.TrimSpace(w.Name) == "" {
-		return "", errors.New("a workspace needs a name")
-	}
-	if err := os.MkdirAll(l.Dir, 0o755); err != nil {
-		return "", err
-	}
-	p := l.freePath(w.Name)
-	return p, Write(p, w)
-}
+func (l Library) Create(w Workspace) (string, error) { return l.lib().Create(w) }
 
 // Update reads a library workspace, lets fn change it, and writes it back,
 // holding the workspace's lock throughout.
 func (l Library) Update(p string, fn func(*Workspace) error) (Workspace, error) {
-	if !l.Contains(p) {
-		return Workspace{}, errors.New("not a workspace in Chloe's library")
-	}
-	defer lock(p)()
-	w, err := Read(p)
-	if err != nil {
-		return w, err
-	}
-	if err := fn(&w); err != nil {
-		return w, err
-	}
-	return w, Write(p, w)
+	return l.lib().Update(p, fn)
 }
 
 // Rename renames a workspace, file included, and returns its new path.
-func (l Library) Rename(p, name string) (string, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return "", errors.New("a workspace needs a name")
-	}
-	w, err := l.Update(p, func(w *Workspace) error { w.Name = name; return nil })
-	if err != nil {
-		return "", err
-	}
-	if fileName(name) == fileName(strings.TrimSuffix(filepath.Base(p), Ext)) {
-		return p, nil
-	}
-	np := l.freePath(name)
-	if err := Write(np, w); err != nil {
-		return "", err
-	}
-	return np, os.Remove(p)
-}
+func (l Library) Rename(p, name string) (string, error) { return l.lib().Rename(p, name) }
 
 // Duplicate copies a workspace, archived data included, under a new name.
 func (l Library) Duplicate(p string) (string, error) {
@@ -177,25 +121,20 @@ func (l Library) Delete(p string) error {
 
 // Import copies a workspace file into the library, as a new workspace.
 func (l Library) Import(src string) (string, error) {
-	w, err := Read(src)
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(w.Name) == "" {
-		w.Name = strings.TrimSuffix(filepath.Base(src), filepath.Ext(src))
-	}
-	// A shared file wasn't checked by this Chloe; its sources must pass what editing checks.
-	for _, d := range w.DataSources {
-		if err := d.Validate(); err != nil {
-			return "", fmt.Errorf("data source %q: %w", d.Name, err)
+	return l.lib().Import(src, func(w *Workspace) error {
+		// A shared file wasn't checked by this Chloe; its sources must pass what editing checks.
+		for _, d := range w.DataSources {
+			if err := d.Validate(); err != nil {
+				return fmt.Errorf("data source %q: %w", d.Name, err)
+			}
 		}
-	}
-	// Archived data stays behind; the copy's archive sources read again on refresh.
-	w.ID = uuid.NewString()
-	for i := range w.DataSources {
-		w.DataSources[i].RefreshedAt, w.DataSources[i].ArchiveRows = "", 0
-	}
-	return l.Create(w)
+		// Archived data stays behind; the copy's archive sources read again on refresh.
+		w.ID = uuid.NewString()
+		for i := range w.DataSources {
+			w.DataSources[i].RefreshedAt, w.DataSources[i].ArchiveRows = "", 0
+		}
+		return nil
+	})
 }
 
 // DataDir is the folder of a workspace's archived data.
@@ -204,30 +143,6 @@ func (l Library) DataDir(id string) string { return filepath.Join(l.Dir, "data",
 // ArchivePath is where a data source's archive snapshot is kept.
 func (l Library) ArchivePath(workspaceID, sourceID string) string {
 	return filepath.Join(l.DataDir(workspaceID), sourceID+".archive")
-}
-
-func (l Library) freePath(name string) string {
-	base := fileName(name)
-	p := filepath.Join(l.Dir, base+Ext)
-	for i := 2; ; i++ {
-		if _, err := os.Stat(p); errors.Is(err, os.ErrNotExist) {
-			return p
-		}
-		p = filepath.Join(l.Dir, fmt.Sprintf("%s %d%s", base, i, Ext))
-	}
-}
-
-var unsafeName = regexp.MustCompile(`[^\pL\pN\p{Pd} ._()]+`)
-
-func fileName(name string) string {
-	base := strings.Trim(unsafeName.ReplaceAllString(name, "-"), " .-")
-	if base == "" {
-		base = "workspace"
-	}
-	if len(base) > 80 {
-		base = base[:80]
-	}
-	return base
 }
 
 // Read loads a workspace file.

@@ -91,17 +91,7 @@ func (s *ModelService) Rename(path, name string) (string, error) {
 
 // Duplicate copies a library model under a new name and returns the copy's path.
 func (s *ModelService) Duplicate(path string) (string, error) {
-	lib := s.M.Store.Models()
-	if !lib.Contains(path) {
-		return "", errors.New("not a model in Chloe's library")
-	}
-	mdl, err := datamodel.Read(path)
-	if err != nil {
-		return "", err
-	}
-	mdl.Name += " copy"
-	mdl.CreatedBy = ""
-	return lib.Create(mdl)
+	return s.M.Store.Models().Duplicate(path)
 }
 
 // Delete removes a library model.
