@@ -1077,6 +1077,37 @@ func zadd(k string, zs []redis.Z) []string {
 // editCommands builds the commands of a redis_edit for a key of type old
 // ("none" when it doesn't exist), the type they work on and the element count.
 func editCommands(k, old string, in RedisEditArgs) (string, [][]string, int64, error) {
+	typ, err := editType(k, old, in)
+	if err != nil {
+		return "", nil, 0, err
+	}
+	e := &redisEdit{k: k}
+	switch typ {
+	case "string":
+		err = e.stringEdits(in)
+	case "hash":
+		err = e.hashEdits(in)
+	case "list":
+		err = e.listEdits(in)
+	case "set", "zset":
+		err = e.setEdits(typ, in)
+	case "stream":
+		err = e.streamEdits(in)
+	default:
+		err = fmt.Errorf("redis_edit can't change a %s", typ)
+	}
+	if err != nil {
+		return "", nil, 0, err
+	}
+	if len(e.cmds) == 0 {
+		return "", nil, 0, fmt.Errorf("nothing to change for a %s: pass the options for that type", typ)
+	}
+	return typ, e.cmds, e.n, nil
+}
+
+// editType is the type of value a redis_edit changes: the one its options are
+// for, or the key's own. One call changes one type, of the key's type.
+func editType(k, old string, in RedisEditArgs) (string, error) {
 	want := map[string]bool{}
 	note := func(typ string, used bool) {
 		if used {
@@ -1090,7 +1121,7 @@ func editCommands(k, old string, in RedisEditArgs) (string, [][]string, int64, e
 	note("zset", len(in.AddScored) > 0 || len(in.IncrScores) > 0)
 	note("stream", in.AddEntry != nil)
 	if len(want) > 1 {
-		return "", nil, 0, fmt.Errorf("one call changes one type of value; got changes for %s", strings.Join(slices.Sorted(maps.Keys(want)), " and "))
+		return "", fmt.Errorf("one call changes one type of value; got changes for %s", strings.Join(slices.Sorted(maps.Keys(want)), " and "))
 	}
 	typ := old
 	for t := range want {
@@ -1098,139 +1129,148 @@ func editCommands(k, old string, in RedisEditArgs) (string, [][]string, int64, e
 	}
 	switch {
 	case len(in.Remove) > 0 && typ == "none":
-		return "", nil, 0, fmt.Errorf("no key %q", redisText(k, 200))
+		return "", fmt.Errorf("no key %q", redisText(k, 200))
 	case len(in.Remove) > 0 && !slices.Contains([]string{"list", "set", "zset"}, typ):
-		return "", nil, 0, fmt.Errorf("remove works on lists, sets and sorted sets; %q is a %s", redisText(k, 200), typ)
+		return "", fmt.Errorf("remove works on lists, sets and sorted sets; %q is a %s", redisText(k, 200), typ)
 	case typ == "none":
-		return "", nil, 0, errors.New("nothing to change: pass incr, set_fields, delete_fields, incr_fields, push, add, add_scored, incr_scores, remove or add_entry")
+		return "", errors.New("nothing to change: pass incr, set_fields, delete_fields, incr_fields, push, add, add_scored, incr_scores, remove or add_entry")
 	case old != "none" && old != typ:
-		return "", nil, 0, fmt.Errorf("%q is a %s, not a %s", redisText(k, 200), old, typ)
+		return "", fmt.Errorf("%q is a %s, not a %s", redisText(k, 200), old, typ)
+	case old == "none" && len(in.DeleteFields) > 0:
+		return "", fmt.Errorf("no key %q to delete fields from", redisText(k, 200))
 	}
-	if old == "none" && len(in.DeleteFields) > 0 {
-		return "", nil, 0, fmt.Errorf("no key %q to delete fields from", redisText(k, 200))
+	return typ, nil
+}
+
+// redisEdit collects a redis_edit's commands and how many elements they change.
+type redisEdit struct {
+	k    string
+	cmds [][]string
+	n    int64
+}
+
+func (e *redisEdit) add(n int64, cmd ...string) {
+	e.cmds = append(e.cmds, cmd)
+	e.n += n
+}
+
+func (e *redisEdit) stringEdits(in RedisEditArgs) error {
+	if in.Incr == nil {
+		return nil
 	}
-	var cmds [][]string
-	var n int64
-	switch typ {
-	case "string":
-		if in.Incr == nil {
-			break
-		}
-		by, err := redisArg(in.Incr)
+	by, err := redisArg(in.Incr)
+	if err != nil {
+		return fmt.Errorf("incr: %w", err)
+	}
+	name, err := incrName(by, "INCRBY", "INCRBYFLOAT")
+	if err != nil {
+		return fmt.Errorf("incr: %w", err)
+	}
+	e.add(1, name, e.k, by)
+	return nil
+}
+
+func (e *redisEdit) hashEdits(in RedisEditArgs) error {
+	for _, f := range slices.Sorted(maps.Keys(in.IncrFields)) {
+		by, err := redisArg(in.IncrFields[f])
 		if err != nil {
-			return "", nil, 0, fmt.Errorf("incr: %w", err)
+			return fmt.Errorf("incr_fields %q: %w", f, err)
 		}
-		name, err := incrName(by, "INCRBY", "INCRBYFLOAT")
+		name, err := incrName(by, "HINCRBY", "HINCRBYFLOAT")
 		if err != nil {
-			return "", nil, 0, fmt.Errorf("incr: %w", err)
+			return fmt.Errorf("incr_fields %q: %w", f, err)
 		}
-		cmds, n = [][]string{{name, k, by}}, 1
-	case "hash":
-		for _, f := range slices.Sorted(maps.Keys(in.IncrFields)) {
-			by, err := redisArg(in.IncrFields[f])
-			if err != nil {
-				return "", nil, 0, fmt.Errorf("incr_fields %q: %w", f, err)
-			}
-			name, err := incrName(by, "HINCRBY", "HINCRBYFLOAT")
-			if err != nil {
-				return "", nil, 0, fmt.Errorf("incr_fields %q: %w", f, err)
-			}
-			cmds = append(cmds, []string{name, k, f, by})
-			n++
+		e.add(1, name, e.k, f, by)
+	}
+	if len(in.SetFields) > 0 {
+		set, _, err := setCommands(e.k, "hash", in.SetFields)
+		if err != nil {
+			return err
 		}
-		if len(in.SetFields) > 0 {
-			set, _, err := setCommands(k, "hash", in.SetFields)
-			if err != nil {
-				return "", nil, 0, err
-			}
-			cmds = append(cmds, set...)
-			n += int64(len(in.SetFields))
+		e.cmds = append(e.cmds, set...)
+		e.n += int64(len(in.SetFields))
+	}
+	if len(in.DeleteFields) > 0 {
+		e.add(int64(len(in.DeleteFields)), append([]string{"HDEL", e.k}, in.DeleteFields...)...)
+	}
+	return nil
+}
+
+func (e *redisEdit) listEdits(in RedisEditArgs) error {
+	if len(in.Push) > 0 {
+		vals, err := redisArgs(in.Push)
+		if err != nil {
+			return err
 		}
-		if len(in.DeleteFields) > 0 {
-			cmds = append(cmds, append([]string{"HDEL", k}, in.DeleteFields...))
-			n += int64(len(in.DeleteFields))
+		name := "RPUSH"
+		if in.PushHead {
+			name = "LPUSH"
 		}
-	case "list":
-		if len(in.Push) > 0 {
-			vals, err := redisArgs(in.Push)
-			if err != nil {
-				return "", nil, 0, err
-			}
-			name := "RPUSH"
-			if in.PushHead {
-				name = "LPUSH"
-			}
-			cmds = append(cmds, append([]string{name, k}, vals...))
-			n += int64(len(vals))
+		e.add(int64(len(vals)), append([]string{name, e.k}, vals...)...)
+	}
+	vals, err := redisArgs(in.Remove)
+	if err != nil {
+		return err
+	}
+	for _, v := range vals {
+		e.add(1, "LREM", e.k, "0", v)
+	}
+	return nil
+}
+
+func (e *redisEdit) setEdits(typ string, in RedisEditArgs) error {
+	if len(in.Add) > 0 {
+		vals, err := redisArgs(in.Add)
+		if err != nil {
+			return err
 		}
+		e.add(int64(len(vals)), append([]string{"SADD", e.k}, vals...)...)
+	}
+	if len(in.AddScored) > 0 {
+		zs, err := scores(in.AddScored)
+		if err != nil {
+			return err
+		}
+		// CH counts rescored members too, so the result reports real changes.
+		e.add(int64(len(zs)), append([]string{"ZADD", e.k, "CH"}, zadd(e.k, zs)[2:]...)...)
+	}
+	if len(in.IncrScores) > 0 {
+		zs, err := scores(in.IncrScores)
+		if err != nil {
+			return fmt.Errorf("incr_scores: %w", err)
+		}
+		for _, z := range zs {
+			e.add(1, "ZINCRBY", e.k, strconv.FormatFloat(z.Score, 'g', -1, 64), z.Member.(string))
+		}
+	}
+	if len(in.Remove) > 0 {
 		vals, err := redisArgs(in.Remove)
 		if err != nil {
-			return "", nil, 0, err
+			return err
 		}
-		for _, v := range vals {
-			cmds = append(cmds, []string{"LREM", k, "0", v})
+		name := "SREM"
+		if typ == "zset" {
+			name = "ZREM"
 		}
-		n += int64(len(vals))
-	case "set", "zset":
-		if len(in.Add) > 0 {
-			vals, err := redisArgs(in.Add)
-			if err != nil {
-				return "", nil, 0, err
-			}
-			cmds = append(cmds, append([]string{"SADD", k}, vals...))
-			n += int64(len(vals))
-		}
-		if len(in.AddScored) > 0 {
-			zs, err := scores(in.AddScored)
-			if err != nil {
-				return "", nil, 0, err
-			}
-			// CH counts rescored members too, so the result reports real changes.
-			cmds = append(cmds, append([]string{"ZADD", k, "CH"}, zadd(k, zs)[2:]...))
-			n += int64(len(zs))
-		}
-		if len(in.IncrScores) > 0 {
-			zs, err := scores(in.IncrScores)
-			if err != nil {
-				return "", nil, 0, fmt.Errorf("incr_scores: %w", err)
-			}
-			for _, z := range zs {
-				cmds = append(cmds, []string{"ZINCRBY", k, strconv.FormatFloat(z.Score, 'g', -1, 64), z.Member.(string)})
-			}
-			n += int64(len(zs))
-		}
-		if len(in.Remove) > 0 {
-			vals, err := redisArgs(in.Remove)
-			if err != nil {
-				return "", nil, 0, err
-			}
-			name := "SREM"
-			if typ == "zset" {
-				name = "ZREM"
-			}
-			cmds = append(cmds, append([]string{name, k}, vals...))
-			n += int64(len(vals))
-		}
-	case "stream":
-		if len(in.AddEntry) == 0 {
-			return "", nil, 0, errors.New("add_entry needs at least one field")
-		}
-		cmd := []string{"XADD", k, "*"}
-		for _, f := range slices.Sorted(maps.Keys(in.AddEntry)) {
-			s, err := redisArg(in.AddEntry[f])
-			if err != nil {
-				return "", nil, 0, fmt.Errorf("field %q: %w", f, err)
-			}
-			cmd = append(cmd, f, s)
-		}
-		cmds, n = [][]string{cmd}, 1
-	default:
-		return "", nil, 0, fmt.Errorf("redis_edit can't change a %s", typ)
+		e.add(int64(len(vals)), append([]string{name, e.k}, vals...)...)
 	}
-	if len(cmds) == 0 {
-		return "", nil, 0, fmt.Errorf("nothing to change for a %s: pass the options for that type", typ)
+	return nil
+}
+
+func (e *redisEdit) streamEdits(in RedisEditArgs) error {
+	if len(in.AddEntry) == 0 {
+		return errors.New("add_entry needs at least one field")
 	}
-	return typ, cmds, n, nil
+	cmd := []string{"XADD", e.k, "*"}
+	for _, f := range slices.Sorted(maps.Keys(in.AddEntry)) {
+		s, err := redisArg(in.AddEntry[f])
+		if err != nil {
+			return fmt.Errorf("field %q: %w", f, err)
+		}
+		cmd = append(cmd, f, s)
+	}
+	e.add(1, cmd...)
+	return nil
 }
 
 // errKeyChanged reports a key that changed between the approval and the write.
