@@ -1,12 +1,11 @@
-import { Activity, Bot, ChartColumn, ChevronDown, LayoutDashboard, Database, FilePlus2, History, Monitor, Moon, Network, PencilRuler, Plug, Shapes, Sun, Table2, TerminalSquare, UserRound, UsersRound, X } from "lucide-react";
+import { Activity, ChartColumn, ChevronDown, Database, FilePlus2, Monitor, Moon, PencilRuler, Plug, Shapes, Sun, Table2, UsersRound, X } from "lucide-react";
 import { ThemePref, onThemeChange, setThemePref, themePref } from "./theme";
-import { Suspense, lazy, memo, useEffect, useMemo, useLayoutEffect, useRef, useState } from "react";
+import { Suspense, memo, useEffect, useMemo, useLayoutEffect, useRef, useState } from "react";
 import { Events, ObjectKind } from "./api";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { ContextMenuHost } from "./components/ContextMenu";
 import { DialogHost } from "./components/Dialogs";
 import { DatabaseDialog } from "./components/DatabaseDialog";
-import { KindIcon } from "./components/icons";
 import { ManageConnections } from "./components/ManageConnections";
 import { Split } from "./components/Split";
 import { ExecuteFileDialog } from "./components/transfer/ExecuteFileDialog";
@@ -16,53 +15,30 @@ import { DataTransferWizard, openDataTransfer } from "./components/transfer/Data
 import { StructureSyncWizard, openStructureSync } from "./components/transfer/StructureSyncWizard";
 import { DataSyncWizard, openDataSync } from "./components/transfer/DataSyncWizard";
 import { JobsButton } from "./components/transfer/JobsPanel";
-import { ServerMonitor } from "./components/ServerMonitor";
-import { TableDesigner } from "./components/designer/TableDesigner";
-import { ViewDesigner } from "./components/designer/ViewDesigner";
-import { RedisConsole } from "./components/redis/RedisConsole";
-import { CollectionViewer } from "./components/mongo/CollectionViewer";
-import { CollectionDesigner } from "./components/mongo/CollectionDesigner";
 import { DocEditorHost } from "./components/mongo/DocEditor";
 import { MongoTransferHost } from "./components/mongo/TransferDialog";
-import { MongoConsole } from "./components/mongo/MongoConsole";
-import { MongoQuery } from "./components/mongo/MongoQuery";
 import { designCollection, openMongoUsers } from "./components/mongo/actions";
-import { MongoUsers } from "./components/mongo/MongoUsers";
 import { registerMongoLanguage } from "./editor/mongo";
-import { UsersPane } from "./components/users/UsersPane";
-import { UserDesigner } from "./components/users/UserDesigner";
 import { SetPrivilegesDialog } from "./components/users/SetPrivilegesDialog";
 import { openUsers } from "./components/users/actions";
 import { CreateChartDialog } from "./components/bi/CreateChartDialog";
 import { ExportGate } from "./components/bi/ExportGate";
 import { listenBI } from "./components/bi/actions";
-import { ChartTypeIcon } from "./components/bi/icons";
 import { MenuItem, openMenu } from "./components/ContextMenu";
 import { DBType } from "./api";
-import { DDLView, ObjectsPane } from "./components/ObjectsPane";
-import { QueryEditor } from "./components/QueryEditor";
-import { HistoryLog, openHistoryLog } from "./components/HistoryLog";
-import { MCPButton, MCPServer, openMCPServer } from "./components/mcp/MCPServer";
+import { openHistoryLog } from "./components/HistoryLog";
+import { MCPButton, openMCPServer } from "./components/mcp/MCPServer";
 import { ApprovalHost } from "./components/mcp/ApprovalHost";
 import { HostKeyHost } from "./components/HostKeyHost";
 import { requestCloseTabs, saveQueryTab } from "./queries";
 import { Sidebar, useInitialLoad } from "./components/Sidebar";
 import { newQuery, openMonitor, selectAllSQL } from "./actions/tabs";
-import { TableViewer } from "./components/TableViewer";
 import { Tab, connById, useApp } from "./store";
 import { openRedisConsole } from "./components/redis/actions";
 import { newTable } from "./tableActions";
 import { RevealTarget, useTree } from "./tree";
 import { Toolbar } from "./components/Toolbar";
-
-// The diagram, model and BI tabs bring xyflow, elkjs, echarts and react-grid-layout:
-// they load when such a tab first opens.
-const ERDiagram = lazy(() => import("./components/erd/ERDiagram").then((m) => ({ default: m.ERDiagram })));
-const ModelEditor = lazy(() => import("./components/model/ModelEditor").then((m) => ({ default: m.ModelEditor })));
-const WorkspaceView = lazy(() => import("./components/bi/WorkspaceView").then((m) => ({ default: m.WorkspaceView })));
-const SourceEditor = lazy(() => import("./components/bi/SourceEditor").then((m) => ({ default: m.SourceEditor })));
-const ChartEditor = lazy(() => import("./components/bi/ChartEditor").then((m) => ({ default: m.ChartEditor })));
-const DashboardEditor = lazy(() => import("./components/bi/DashboardEditor").then((m) => ({ default: m.DashboardEditor })));
+import { TAB_KINDS, tabIcon } from "./tabKinds";
 
 registerMongoLanguage();
 
@@ -238,54 +214,7 @@ export default function App() {
 // Memoised: App re-renders on every tree click and tab switch, and a tab only
 // needs to when its own tab object (kept by updateTab) or active flag changes.
 const TabContent = memo(function TabContent({ tab, active }: { tab: Tab; active: boolean }) {
-  switch (tab.kind) {
-    case "history":
-      return <HistoryLog active={active} />;
-    case "mcp":
-      return <MCPServer />;
-    case "objects":
-      return <ObjectsPane />;
-    case "query":
-      return <QueryEditor tab={tab} />;
-    case "table":
-      return <TableViewer tab={tab} />;
-    case "ddl":
-      return <DDLView connId={tab.connId!} objRef={tab.ref!} />;
-    case "monitor":
-      return <ServerMonitor tab={tab} active={active} />;
-    case "design":
-      return <TableDesigner tab={tab} />;
-    case "erd":
-      return <ERDiagram tab={tab} />;
-    case "model":
-      return <ModelEditor tab={tab} />;
-    case "bi":
-      return <WorkspaceView tab={tab} />;
-    case "bisource":
-      return <SourceEditor tab={tab} />;
-    case "bichart":
-      return <ChartEditor tab={tab} />;
-    case "bidash":
-      return <DashboardEditor tab={tab} />;
-    case "viewdesign":
-      return <ViewDesigner tab={tab} />;
-    case "redisconsole":
-      return <RedisConsole tab={tab} />;
-    case "users":
-      return <UsersPane tab={tab} />;
-    case "user":
-      return <UserDesigner tab={tab} />;
-    case "collection":
-      return <CollectionViewer tab={tab} />;
-    case "mongoquery":
-      return <MongoQuery tab={tab} />;
-    case "mongoshell":
-      return <MongoConsole tab={tab} />;
-    case "mongodesign":
-      return <CollectionDesigner tab={tab} />;
-    case "mongousers":
-      return <MongoUsers tab={tab} />;
-  }
+  return TAB_KINDS[tab.kind].view(tab, active);
 });
 
 // The open tabs. When they don't fit, the bar scrolls (its scrollbar is hidden,
@@ -335,7 +264,7 @@ function TabBar({ tabs, active }: { tabs: Tab[]; active: string }) {
 }
 
 function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
-  const icon = tab.kind === "bi" ? <ChartColumn size={13} /> : tab.kind === "bisource" ? <Database size={13} /> : tab.kind === "bichart" ? <ChartTypeIcon type="bar" size={13} /> : tab.kind === "bidash" ? <LayoutDashboard size={13} /> : tab.kind === "users" || tab.kind === "mongousers" ? <UsersRound size={13} /> : tab.kind === "user" ? <UserRound size={13} /> : tab.kind === "redisconsole" || tab.kind === "mongoshell" ? <TerminalSquare size={13} /> : tab.kind === "mongoquery" ? <FilePlus2 size={13} /> : tab.kind === "mongodesign" ? <PencilRuler size={13} /> : tab.kind === "model" ? <Shapes size={13} /> : tab.kind === "erd" ? <Network size={13} /> : tab.kind === "design" || tab.kind === "viewdesign" ? <PencilRuler size={13} /> : tab.kind === "monitor" ? <Activity size={13} /> : tab.kind === "query" ? <FilePlus2 size={13} /> : tab.kind === "objects" ? <Database size={13} /> : tab.kind === "history" ? <History size={13} /> : tab.kind === "mcp" ? <Bot size={13} /> : tab.ref ? <KindIcon kind={tab.ref.kind} size={13} /> : null;
+  const icon = tabIcon(tab);
   return (
     <div
       className={"tab" + (active ? " active" : "")}
@@ -413,7 +342,7 @@ function revealTarget(tab: Tab): RevealTarget | null {
   const r = tab.ref;
   const database = tab.database ?? r?.database;
   const schema = tab.schema ?? r?.schema;
-  const hasObject = r && r.name && (tab.kind === "table" || tab.kind === "design" || tab.kind === "ddl" || tab.kind === "viewdesign" || tab.kind === "collection" || tab.kind === "mongodesign");
+  const hasObject = r && r.name && TAB_KINDS[tab.kind].object;
   if (hasObject) return { connId: tab.connId, database: r.database, schema: r.schema, kind: r.kind, name: r.name, signature: r.signature };
   // New table/view designers point at their folder.
   if ((tab.kind === "design" || tab.kind === "viewdesign") && r) return { connId: tab.connId, database: r.database, schema: r.schema, kind: r.kind };
