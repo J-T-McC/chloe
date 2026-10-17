@@ -1,5 +1,5 @@
 import { CircleStop, Pin, RefreshCw, Skull } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Monitor, Process, ServerVar, arr, errorText, copyText } from "../api";
 import { Tab, useApp } from "../store";
 import { openMenu } from "./ContextMenu";
@@ -23,7 +23,7 @@ interface Row extends Process {
   connName: string;
 }
 
-export function ServerMonitor({ tab }: { tab: Tab }) {
+export function ServerMonitor({ tab, active }: { tab: Tab; active: boolean }) {
   const connections = useApp((s) => s.connections);
   const open = useApp((s) => s.open);
   const openConns = connections.filter((c) => open[c.id]);
@@ -38,48 +38,57 @@ export function ServerMonitor({ tab }: { tab: Tab }) {
   const [pinned, setPinned] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
 
-  const active = selected.filter((id) => open[id]);
-  const multi = active.length > 1;
+  const conns = selected.filter((id) => open[id]);
+  const multi = conns.length > 1;
 
+  // Loads in flight, and the latest one started: an older load's answer is dropped.
+  const running = useRef(0);
+  const latest = useRef(0);
   const load = useCallback(async () => {
+    const seq = ++latest.current;
+    running.current++;
     setLoading(true);
     const errs: string[] = [];
     const name = (id: string) => connections.find((c) => c.id === id)?.name ?? id;
     if (page === "processes") {
       const all = await Promise.all(
-        active.map((id) =>
+        conns.map((id) =>
           Monitor.Processes(id)
             .then((ps) => arr(ps).map((p) => ({ ...p, connId: id, connName: name(id) })))
             .catch((e) => (errs.push(`${name(id)}: ${errorText(e)}`), [] as Row[])),
         ),
       );
-      setRows(all.flat());
+      if (seq === latest.current) setRows(all.flat());
     } else {
       const fn = page === "variables" ? Monitor.Variables : Monitor.Status;
       const all = await Promise.all(
-        active.map((id) =>
+        conns.map((id) =>
           fn(id)
             .then((vs) => arr(vs).map((v) => ({ ...v, connName: name(id) })))
             .catch((e) => (errs.push(`${name(id)}: ${errorText(e)}`), [])),
         ),
       );
-      setVars(all.flat());
+      if (seq === latest.current) setVars(all.flat());
     }
+    running.current--;
+    if (seq !== latest.current) return;
     setErrors(errs);
     setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, active.join(","), connections]);
+  }, [page, conns.join(","), connections]);
 
+  // Load on open and when the tab comes back into view.
   useEffect(() => {
-    load();
-  }, [load]);
+    if (active) load();
+  }, [load, active]);
 
-  // Auto refresh applies to the process list; variables and status refresh on demand.
+  // Auto refresh applies to the process list while the tab is shown; variables and
+  // status refresh on demand. A tick is skipped while the last poll is still running.
   useEffect(() => {
-    if (!interval || page !== "processes") return;
-    const t = setInterval(load, interval * 1000);
+    if (!active || !interval || page !== "processes") return;
+    const t = setInterval(() => running.current || document.hidden || load(), interval * 1000);
     return () => clearInterval(t);
-  }, [interval, page, load]);
+  }, [active, interval, page, load]);
 
   const key = (r: Row) => `${r.connId}:${r.id}`;
   const f = search.toLowerCase();
