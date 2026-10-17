@@ -8,8 +8,9 @@ import (
 	"chloe/internal/driver"
 )
 
-// BI reads share a few warm sessions per connection instead of opening (and
-// logging in on) a new server connection for every chart. A dashboard page asks
+// BI reads, MCP reads and the table viewer's counts share a few warm sessions
+// per connection instead of opening (and logging in on) a new server connection
+// for every one of them. A dashboard page asks
 // for all its charts at once; they queue for the connection's sessions, so a
 // dashboard can't use up the server's connections.
 
@@ -128,6 +129,14 @@ func (b *biSessions) drop(connID string) {
 	for _, ds := range all {
 		ds.Close()
 	}
+}
+
+// WithReadSession runs fn in a read-only transaction on one of the connection's
+// warm read sessions; see withBISession. Nothing fn does outlives the
+// transaction except what a read can leave on a session (MySQL user variables,
+// advisory locks), as for BI sources.
+func (m *Manager) WithReadSession(ctx context.Context, connID, database, schema string, fn func(driver.Session, driver.Dialect) error) error {
+	return m.withBISession(ctx, connID, database, schema, fn)
 }
 
 // withBISession runs fn in a read-only transaction on one of the connection's BI

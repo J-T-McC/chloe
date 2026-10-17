@@ -62,25 +62,23 @@ func (m *Manager) CountRows(ctx context.Context, connID string, ref model.Object
 	if strings.TrimSpace(where) != "" {
 		q += " WHERE " + where
 	}
-	ds, err := c.NewSession(ctx, ref.Database, ref.Schema)
-	if err != nil {
-		return 0, err
-	}
-	defer ds.Close()
-	rows, err := ds.Query(ctx, q)
-	if err != nil {
-		return 0, err
-	}
-	defer rows.Close()
-	cell := make([]*string, 1)
-	if !rows.Next(cell) {
-		return 0, rows.Err()
-	}
 	var n int64
-	if cell[0] != nil {
-		fmt.Sscan(*cell[0], &n)
-	}
-	return n, nil
+	err = m.WithReadSession(ctx, connID, ref.Database, ref.Schema, func(ds driver.Session, _ driver.Dialect) error {
+		rows, err := ds.Query(ctx, q)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		cell := make([]*string, 1)
+		if !rows.Next(cell) {
+			return rows.Err()
+		}
+		if cell[0] != nil {
+			fmt.Sscan(*cell[0], &n)
+		}
+		return nil
+	})
+	return n, err
 }
 
 func buildSelect(d driver.Dialect, req BrowseRequest) string {
@@ -126,22 +124,20 @@ func (m *Manager) SampleColumn(ctx context.Context, connID string, ref model.Obj
 	}
 	col := d.QuoteIdent(column)
 	q := fmt.Sprintf("SELECT %s FROM %s WHERE %s IS NOT NULL LIMIT %d", col, d.Qualified(ref), col, limit)
-	ds, err := c.NewSession(ctx, ref.Database, ref.Schema)
-	if err != nil {
-		return nil, err
-	}
-	defer ds.Close()
-	rows, err := ds.Query(ctx, q)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
 	var out []string
-	cell := make([]*string, 1)
-	for rows.Next(cell) {
-		if cell[0] != nil {
-			out = append(out, *cell[0])
+	err = m.WithReadSession(ctx, connID, ref.Database, ref.Schema, func(ds driver.Session, _ driver.Dialect) error {
+		rows, err := ds.Query(ctx, q)
+		if err != nil {
+			return err
 		}
-	}
-	return out, rows.Err()
+		defer rows.Close()
+		cell := make([]*string, 1)
+		for rows.Next(cell) {
+			if cell[0] != nil {
+				out = append(out, *cell[0])
+			}
+		}
+		return rows.Err()
+	})
+	return out, err
 }
