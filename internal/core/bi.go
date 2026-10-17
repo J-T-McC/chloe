@@ -559,10 +559,11 @@ func (m *Manager) biCopyRows(ctx context.Context, src bi.DataSource, fields []bi
 
 // biArchiveQuery runs a query on a data source's archive snapshot.
 func (m *Manager) biArchiveQuery(ctx context.Context, w bi.Workspace, src bi.DataSource, q bi.Stmt, limit int) ([]model.ResultColumn, [][]*string, bool, error) {
-	db, err := m.archiveDB(w, src)
+	db, release, err := m.archiveDB(w, src)
 	if err != nil {
 		return nil, nil, false, err
 	}
+	defer release()
 	return memQuery(ctx, db, q, limit)
 }
 
@@ -631,6 +632,8 @@ func archiveCell(v any) *string {
 }
 
 // archives caches open snapshots: decrypting and loading one is the slow part.
+// A snapshot replaced or evicted while a read still uses it is closed when that
+// read releases it.
 var archives = &archiveCache{dbs: map[string]*cachedArchive{}}
 
 type archiveCache struct {
@@ -639,37 +642,96 @@ type archiveCache struct {
 }
 
 type cachedArchive struct {
-	db   *sql.DB
-	mod  time.Time
-	used time.Time
+	db      *sql.DB
+	mod     time.Time
+	used    time.Time
+	refs    int  // reads using db
+	retired bool // no longer in dbs: close once refs reaches 0
 }
 
 const maxCachedArchives = 8
 
-func (c *archiveCache) drop(p string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if a := c.dbs[p]; a != nil {
+// retire takes a out of the cache, closing it unless a read still holds it. c.mu is held.
+func (c *archiveCache) retire(p string) {
+	a := c.dbs[p]
+	if a == nil {
+		return
+	}
+	delete(c.dbs, p)
+	a.retired = true
+	if a.refs == 0 {
 		a.db.Close()
-		delete(c.dbs, p)
 	}
 }
 
-func (m *Manager) archiveDB(w bi.Workspace, src bi.DataSource) (*sql.DB, error) {
+func (c *archiveCache) drop(p string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.retire(p)
+}
+
+// hold returns a's database and a func that gives it back. c.mu is held.
+func (c *archiveCache) hold(a *cachedArchive) (*sql.DB, func()) {
+	a.refs++
+	a.used = time.Now()
+	return a.db, func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if a.refs--; a.refs == 0 && a.retired {
+			a.db.Close()
+		}
+	}
+}
+
+// archiveDB opens a source's snapshot. The caller calls release once it's done with the database.
+func (m *Manager) archiveDB(w bi.Workspace, src bi.DataSource) (db *sql.DB, release func(), err error) {
 	p := m.Store.BI().ArchivePath(w.ID, src.ID)
 	info, err := os.Stat(p)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("data source %q has no archive yet; refresh its data", src.Name)
+		return nil, nil, fmt.Errorf("data source %q has no archive yet; refresh its data", src.Name)
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	archives.mu.Lock()
+	if a := archives.dbs[p]; a != nil && a.mod.Equal(info.ModTime()) {
+		db, release := archives.hold(a)
+		archives.mu.Unlock()
+		return db, release, nil
+	}
+	archives.mu.Unlock()
+
+	// Load without the lock, so other snapshots stay readable meanwhile.
+	db, err = m.loadArchive(p, src)
+	if err != nil {
+		return nil, nil, err
 	}
 	archives.mu.Lock()
 	defer archives.mu.Unlock()
-	if a := archives.dbs[p]; a != nil && a.mod.Equal(info.ModTime()) {
-		a.used = time.Now()
-		return a.db, nil
+	if a := archives.dbs[p]; a != nil && !a.mod.Before(info.ModTime()) {
+		// Another read loaded it first.
+		db.Close()
+		db, release := archives.hold(a)
+		return db, release, nil
 	}
+	archives.retire(p)
+	a := &cachedArchive{db: db, mod: info.ModTime()}
+	archives.dbs[p] = a
+	db, release = archives.hold(a)
+	for len(archives.dbs) > maxCachedArchives {
+		var oldest string
+		for k, a := range archives.dbs {
+			if oldest == "" || a.used.Before(archives.dbs[oldest].used) {
+				oldest = k
+			}
+		}
+		archives.retire(oldest)
+	}
+	return db, release, nil
+}
+
+// loadArchive reads, decrypts and unpacks a snapshot file into a new in-memory database.
+func (m *Manager) loadArchive(p string, src bi.DataSource) (*sql.DB, error) {
 	data, err := os.ReadFile(p)
 	if err != nil {
 		return nil, err
@@ -693,20 +755,6 @@ func (m *Manager) archiveDB(w bi.Workspace, src bi.DataSource) (*sql.DB, error) 
 	if err := deserialize(db, image); err != nil {
 		db.Close()
 		return nil, err
-	}
-	if old := archives.dbs[p]; old != nil {
-		old.db.Close()
-	}
-	archives.dbs[p] = &cachedArchive{db: db, mod: info.ModTime(), used: time.Now()}
-	for len(archives.dbs) > maxCachedArchives {
-		var oldest string
-		for k, a := range archives.dbs {
-			if oldest == "" || a.used.Before(archives.dbs[oldest].used) {
-				oldest = k
-			}
-		}
-		archives.dbs[oldest].db.Close()
-		delete(archives.dbs, oldest)
 	}
 	return db, nil
 }
