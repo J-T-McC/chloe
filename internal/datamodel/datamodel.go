@@ -268,79 +268,41 @@ func (p SyncPlan) Statements() []string {
 // the database's table designs (as loaded by a driver). Tables are matched by name;
 // renames show up as a drop plus a create, as in other modelling tools.
 func (m Model) Plan(existing []design.Table, to Target, dropMissing bool) (SyncPlan, error) {
-	gen, err := m.Generator()
-	if err != nil {
-		return SyncPlan{}, err
-	}
 	if err := m.Validate(); err != nil {
 		return SyncPlan{}, err
 	}
-	var plan SyncPlan
-	have := map[string]design.Table{}
-	for _, t := range existing {
-		have[strings.ToLower(t.Name)] = t
+	diffs, err := m.Compare(existing, to)
+	if err != nil {
+		return SyncPlan{}, err
 	}
+	var plan SyncPlan
 	var newFKs []string
-	for _, mt := range m.sortedTables() {
-		mt = m.placed(mt, to)
-		cur, ok := have[strings.ToLower(mt.Name)]
-		if !ok {
-			bare := mt
-			bare.ForeignKeys = nil
-			stmts, err := gen.Create(bare)
-			if err != nil {
-				return plan, fmt.Errorf("%s: %w", mt.Name, err)
+	for _, d := range diffs {
+		for _, w := range d.Warnings {
+			plan.Warnings = append(plan.Warnings, d.Name+": "+w)
+		}
+		switch d.Op {
+		case "create":
+			plan.Actions = append(plan.Actions, SyncAction{Table: d.Name, Kind: "create", Statements: d.Statements})
+			newFKs = append(newFKs, d.Post...)
+		case "modify":
+			plan.Actions = append(plan.Actions, SyncAction{Table: d.Name, Kind: "alter", Statements: d.Statements})
+		case "same":
+			plan.Unchanged = append(plan.Unchanged, d.Name)
+		case "drop":
+			if !dropMissing {
+				continue
 			}
-			fk, err := addForeignKeys(gen, mt)
-			if err != nil {
-				return plan, err
+			stmts := d.Statements
+			if m.Dialect == "postgres" {
+				stmts = []string{stmts[0] + " CASCADE"}
 			}
-			newFKs = append(newFKs, fk...)
-			before, after := m.sequences(mt)
-			stmts = append(append(before, stmts...), after...)
-			plan.Actions = append(plan.Actions, SyncAction{Table: mt.Name, Kind: "create", Statements: stmts})
-			continue
+			plan.Actions = append(plan.Actions, SyncAction{Table: d.Name, Kind: "drop", Statements: stmts})
 		}
-		delete(have, strings.ToLower(mt.Name))
-		// Match the model's elements to the database's by name.
-		want := matchByName(cur, mt)
-		if m.Dialect != "postgres" {
-			want = keepForeignKeyIndexes(cur, want)
-		}
-		stmts, err := gen.Alter(cur, want)
-		if err != nil {
-			return plan, fmt.Errorf("%s: %w", mt.Name, err)
-		}
-		if m.Dialect == "postgres" && design.ColumnOrderChanged(cur, want) {
-			plan.Warnings = append(plan.Warnings, fmt.Sprintf("%s: PostgreSQL can't reorder existing columns", mt.Name))
-		}
-		if len(stmts) == 0 {
-			plan.Unchanged = append(plan.Unchanged, mt.Name)
-			continue
-		}
-		plan.Actions = append(plan.Actions, SyncAction{Table: mt.Name, Kind: "alter", Statements: stmts})
 	}
 	if len(newFKs) > 0 {
+		// After every create (Statements orders creates first), so the referenced tables exist.
 		plan.Actions = append(plan.Actions, SyncAction{Table: "(foreign keys of new tables)", Kind: "alter", Statements: newFKs})
-	}
-	if dropMissing {
-		names := make([]string, 0, len(have))
-		for _, t := range have {
-			names = append(names, t.Name)
-		}
-		sort.Strings(names)
-		for _, n := range names {
-			t := have[strings.ToLower(n)]
-			q := "`" + strings.ReplaceAll(t.Name, "`", "``") + "`"
-			if m.Dialect == "postgres" {
-				q = `"` + strings.ReplaceAll(t.Schema, `"`, `""`) + `"."` + strings.ReplaceAll(t.Name, `"`, `""`) + `"`
-			}
-			drop := "DROP TABLE " + q
-			if m.Dialect == "postgres" {
-				drop += " CASCADE"
-			}
-			plan.Actions = append(plan.Actions, SyncAction{Table: t.Name, Kind: "drop", Statements: []string{drop}})
-		}
 	}
 	return plan, nil
 }
