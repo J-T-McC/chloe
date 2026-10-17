@@ -362,6 +362,7 @@ function Records({ id, table }: { id: string; table: string }) {
           </>
         )}
         {page && page.total <= PAGE && <span className="muted">{page.total.toLocaleString()} record(s)</span>}
+        {page && !!page.more && <span className="muted">and {page.more.toLocaleString()} more, not listed</span>}
       </Toolbar>
       {err && <div className="err small">{err}</div>}
       <div className="dsync-table">
