@@ -39,6 +39,7 @@ type ParamOption struct {
 
 var (
 	paramName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	dollarTag = regexp.MustCompile(`^\$([A-Za-z_][A-Za-z0-9_]*)?\$`)
 	paramRef  = regexp.MustCompile(`\[\$([A-Za-z_][A-Za-z0-9_]*)\]`)
 	wholeRef  = regexp.MustCompile(`^\[\$([A-Za-z_][A-Za-z0-9_]*)\]$`)
 )
@@ -356,7 +357,8 @@ func bindParams(d driver.Dialect, sql string, v Values, fields func(string) stri
 					}
 					break
 				}
-				if sql[j] == '\\' && c == '\'' && d.Name == "mysql" {
+				// MySQL strings and PostgreSQL E'…' strings take backslash escapes.
+				if sql[j] == '\\' && c == '\'' && (d.Name == "mysql" || d.Name == "postgres" && i > 0 && (sql[i-1] == 'E' || sql[i-1] == 'e')) {
 					j++
 				}
 				j++
@@ -367,6 +369,19 @@ func bindParams(d driver.Dialect, sql string, v Values, fields func(string) stri
 			}
 			out.WriteString(lit)
 			i = j + 1
+		case c == '$' && d.Name == "postgres" && dollarTag.MatchString(sql[i:]):
+			// A dollar-quoted string runs to the same tag again.
+			tag := dollarTag.FindString(sql[i:])
+			end := n
+			if j := strings.Index(sql[i+len(tag):], tag); j >= 0 {
+				end = i + len(tag) + j + len(tag)
+			}
+			lit := sql[i:end]
+			if paramRef.MatchString(lit) {
+				return "", nil, fmt.Errorf("write %s without quotes: a parameter is a bound value, so it goes where a value would", paramRef.FindString(lit))
+			}
+			out.WriteString(lit)
+			i = end
 		case c == '-' && i+1 < n && sql[i+1] == '-', c == '#' && d.Name == "mysql":
 			j := strings.IndexByte(sql[i:], '\n')
 			if j < 0 {

@@ -13,3 +13,33 @@ func PGString(s string) string {
 	}
 	return "'" + q + "'"
 }
+
+// Balanced reports whether the parentheses in an SQL expression pair up,
+// ignoring any inside '…', "…" or `…` (a doubled quote closes and reopens, so
+// it needs no case of its own). With backslash, a backslash in a '…' or "…"
+// literal escapes the next character, as in MySQL. When unsure it says false,
+// so a caller keeps the parentheses it would strip.
+func Balanced(s string, backslash bool) bool {
+	depth := 0
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		switch ch := s[i]; {
+		case quote != 0:
+			if ch == '\\' && backslash && quote != '`' {
+				i++
+			} else if ch == quote {
+				quote = 0
+			}
+		case ch == '\'' || ch == '"' || ch == '`':
+			quote = ch
+		case ch == '(':
+			depth++
+		case ch == ')':
+			depth--
+			if depth < 0 {
+				return false
+			}
+		}
+	}
+	return depth == 0 && quote == 0
+}

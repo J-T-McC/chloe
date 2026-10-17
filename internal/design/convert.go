@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"chloe/internal/sqlq"
 )
 
 // Convert rewrites a table loaded from one engine (dialect "mysql", "postgres" or
@@ -534,7 +536,7 @@ func (c *converter) defaultValue(src Column, k kind, dst Column) *string {
 			d = strings.TrimSpace(m[1] + m[2])
 		}
 	}
-	for strings.HasPrefix(d, "(") && strings.HasSuffix(d, ")") && balanced(d[1:len(d)-1]) {
+	for strings.HasPrefix(d, "(") && strings.HasSuffix(d, ")") && sqlq.Balanced(d[1:len(d)-1], c.from == "mysql") {
 		d = strings.TrimSpace(d[1 : len(d)-1])
 	}
 	set := func(s string) *string { return &s }
@@ -651,26 +653,6 @@ func (c *converter) quote(s string) string {
 		s = strings.ReplaceAll(s, `\`, `\\`)
 	}
 	return "'" + s + "'"
-}
-
-func balanced(s string) bool {
-	depth := 0
-	inStr := false
-	for i := 0; i < len(s); i++ {
-		switch {
-		case s[i] == '\'':
-			inStr = !inStr
-		case inStr:
-		case s[i] == '(':
-			depth++
-		case s[i] == ')':
-			depth--
-			if depth < 0 {
-				return false
-			}
-		}
-	}
-	return depth == 0 && !inStr
 }
 
 func splitEnum(list string) []string {
