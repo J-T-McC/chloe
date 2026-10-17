@@ -9,7 +9,6 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	gomysql "github.com/go-sql-driver/mysql"
@@ -26,8 +25,6 @@ func init() {
 	driver.Register(model.MySQL, Driver{})
 	driver.Register(model.MariaDB, Driver{})
 }
-
-var netSeq atomic.Int64
 
 type Driver struct{}
 
@@ -59,32 +56,28 @@ func (Driver) Open(ctx context.Context, c model.Connection, d tunnel.Dialer) (dr
 		return nil, err
 	}
 
-	// Each opened profile gets its own registered network so the dialer can be an SSH
-	// tunnel, or a local socket file.
-	netName := fmt.Sprintf("chloe-%d", netSeq.Add(1))
+	// The dialer can be an SSH tunnel, or a local socket file. Both it and the TLS
+	// settings go on the config itself: the driver's global registries would keep
+	// every profile ever opened, tunnels included.
+	cfg.Net = "tcp"
 	if a.SocketFile != "" && !c.SSH.Enabled {
 		sock := a.SocketFile
-		gomysql.RegisterDialContext(netName, func(ctx context.Context, _ string) (net.Conn, error) {
+		cfg.DialFunc = func(ctx context.Context, _, _ string) (net.Conn, error) {
 			var nd net.Dialer
 			return nd.DialContext(ctx, "unix", sock)
-		})
+		}
 	} else {
-		gomysql.RegisterDialContext(netName, func(ctx context.Context, addr string) (net.Conn, error) {
+		cfg.DialFunc = func(ctx context.Context, _, addr string) (net.Conn, error) {
 			return d.DialContext(ctx, "tcp", addr)
-		})
+		}
 	}
-	cfg.Net = netName
 
 	if c.SSL.Enabled {
-		tlsName := netName + "-tls"
 		tc, err := tlsconf.Config(c.SSL, c.Host)
 		if err != nil {
 			return nil, err
 		}
-		if err := gomysql.RegisterTLSConfig(tlsName, tc); err != nil {
-			return nil, err
-		}
-		cfg.TLSConfig = tlsName
+		cfg.TLS = tc
 	} else if a.SocketFile == "" || c.SSH.Enabled {
 		// Without "Use SSL", encrypt when the server offers TLS and fall back to plain
 		// when it doesn't, like the mysql client's default (and libpq's sslmode=prefer).
