@@ -12,6 +12,7 @@ import (
 	"chloe/internal/driver/sqlcommon"
 	"chloe/internal/model"
 	"chloe/internal/sqlsplit"
+	"chloe/internal/tz"
 )
 
 // Stmt is SQL with its bind arguments.
@@ -484,9 +485,9 @@ func (b *qb) where(fields []Field, filters []Filter) (string, error) {
 		case "in_last":
 			k, _ := strconv.Atoi(f.Values[0])
 			// A date as text compares correctly with dates, timestamps and SQLite's date text.
-			e = col + " >= " + arg(Since(now().In(location(b.tz)), k, f.Values[1]).Format("2006-01-02"))
+			e = col + " >= " + arg(Since(now().In(tz.Location(b.tz)), k, f.Values[1]).Format("2006-01-02"))
 		case "in_period", "to_date":
-			from, to, _ := DynamicRange(f, now().In(location(b.tz)))
+			from, to, _ := DynamicRange(f, now().In(tz.Location(b.tz)))
 			e = col + " >= " + arg(from.Format("2006-01-02")) + " AND " + col + " < " + arg(to.Format("2006-01-02"))
 		case "is_null":
 			e = col + " IS NULL"

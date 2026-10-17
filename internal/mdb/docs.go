@@ -432,7 +432,7 @@ func (c *Client) InsertDocs(ctx context.Context, db, coll, text string) (int, er
 	}
 	r, err := c.cl.Database(db).Collection(coll).InsertMany(ctx, docs)
 	if err != nil {
-		return 0, writeError(err)
+		return 0, WriteError(err)
 	}
 	return len(r.InsertedIDs), nil
 }
@@ -460,7 +460,7 @@ func (c *Client) ReplaceDoc(ctx context.Context, db, coll string, id Val, text s
 	}
 	r, err := c.cl.Database(db).Collection(coll).ReplaceOne(ctx, f, doc)
 	if err != nil {
-		return writeError(err)
+		return WriteError(err)
 	}
 	if r.MatchedCount == 0 {
 		return errNoMatch
@@ -511,7 +511,7 @@ func (c *Client) EditField(ctx context.Context, db, coll string, e FieldEdit) er
 	}
 	r, err := c.cl.Database(db).Collection(coll).UpdateOne(ctx, f, upd)
 	if err != nil {
-		return writeError(err)
+		return WriteError(err)
 	}
 	if r.MatchedCount == 0 {
 		return errNoMatch
@@ -567,12 +567,9 @@ func (c *Client) SampleFields(ctx context.Context, db, coll string, n int) ([]Fi
 	return out, nil
 }
 
-// writeError turns a driver write exception into its server message; a validation
+// WriteError turns a driver write exception into its server message; a validation
 // failure also names the properties it was about.
-// WriteError is writeError for callers outside the package.
-func WriteError(err error) error { return writeError(err) }
-
-func writeError(err error) error {
+func WriteError(err error) error {
 	if err == nil {
 		return nil
 	}

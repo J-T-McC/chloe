@@ -288,7 +288,7 @@ func (c *Client) Import(ctx context.Context, db, coll string, o ImportOptions, r
 
 func (c *Client) writeBatch(ctx context.Context, col *mongo.Collection, docs []bson.D, upsert bool, res *ImportResult) error {
 	note := func(err error) error {
-		msg := writeError(err).Error()
+		msg := WriteError(err).Error()
 		if len(res.Errors) < 50 {
 			res.Errors = append(res.Errors, msg)
 		}
