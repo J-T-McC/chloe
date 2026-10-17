@@ -104,7 +104,12 @@ export interface DataSyncPage {
      */
     "key": number;
     "records": DataSyncRecord[] | null;
+
+    /**
+     * records kept for listing
+     */
     "total": number;
+    "more"?: number;
 }
 
 /**

@@ -1,10 +1,13 @@
 package core
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"sort"
+	"strconv"
 	"strings"
 
 	"chloe/internal/design"
@@ -123,14 +126,44 @@ type dataSync struct {
 	tables []*syncTable
 }
 
+// syncKeep is how many records of each kind a table's comparison keeps for
+// viewing and deploying. Past it only the count grows, and deploying compares
+// the table again to stream the rest.
+var syncKeep = 10000
+
+var syncOps = [3]string{"insert", "update", "delete"}
+
+func opIndex(op string) int {
+	switch op {
+	case "insert":
+		return 0
+	case "update":
+		return 1
+	}
+	return 2
+}
+
 type syncTable struct {
 	res   DataSyncResult
+	sref  model.ObjectRef // source
 	ref   model.ObjectRef // target
 	types []string        // per column, for literals
 	// identity "always" columns need OVERRIDING SYSTEM VALUE (PostgreSQL)
 	overriding bool
 	fks        []string // referenced tables (for ordering)
 	recs       []DataSyncRecord
+	kept       [3]int // records kept per op (insert, update, delete)
+
+	srcSQL, dstSQL string // the compared columns, ordered by key when ordered
+	// ordered compares as a merge join of both sides read in key order; false
+	// when the database's key order can't be matched here, and the target's
+	// rows are then held by key instead.
+	ordered bool
+	numeric []bool // per key column: compare as numbers
+}
+
+func (t *syncTable) count(op int) int {
+	return [3]int{t.res.Insert, t.res.Update, t.res.Delete}[op]
 }
 
 // CompareData compares the mapped tables. The result stays on the server until
@@ -173,9 +206,9 @@ func (m *Manager) compareTable(ctx context.Context, ds *dataSync, mt DataSyncTab
 		return errors.New("Target table does not exist")
 	}
 	r := ds.req
-	sref := model.ObjectRef{Database: r.Source.Database, Schema: r.Source.Schema, Name: mt.Source, Kind: model.KindTable}
+	st.sref = model.ObjectRef{Database: r.Source.Database, Schema: r.Source.Schema, Name: mt.Source, Kind: model.KindTable}
 	st.ref = model.ObjectRef{Database: r.Target.Database, Schema: r.Target.Schema, Name: mt.Target, Kind: model.KindTable}
-	sd, err := ds.src.LoadDesign(ctx, sref)
+	sd, err := ds.src.LoadDesign(ctx, st.sref)
 	if err != nil {
 		return fmt.Errorf("source: %w", err)
 	}
@@ -192,6 +225,10 @@ func (m *Manager) compareTable(ctx context.Context, ds *dataSync, mt DataSyncTab
 	}
 	if len(key) == 0 {
 		return errors.New("No primary key to compare by")
+	}
+	scols := map[string]design.Column{}
+	for _, c := range sd.Columns {
+		scols[strings.ToLower(c.Name)] = c
 	}
 	tcols := map[string]design.Column{}
 	for _, c := range td.Columns {
@@ -226,114 +263,350 @@ func (m *Manager) compareTable(ctx context.Context, ds *dataSync, mt DataSyncTab
 	}
 	st.res.Key = cols[:len(key)]
 	st.res.Columns = cols
-	nk := len(key)
 
-	sel := func(d driver.Dialect, ref model.ObjectRef) string {
+	// Both sides are read in key order, compared the way the ORDER BY sorts:
+	// numbers by value, everything else by bytes (text under a binary collation).
+	st.ordered = true
+	st.numeric = make([]bool, len(key))
+	sorder := make([]string, len(key))
+	torder := make([]string, len(key))
+	for i, k := range key {
+		sc, ok := scols[strings.ToLower(k)]
+		tc := tcols[strings.ToLower(k)]
+		skind, tkind := keyKindOf(ds.src.Dialect().Name, sc.Type), keyKindOf(ds.dst.Dialect().Name, tc.Type)
+		if !ok || skind != tkind {
+			st.ordered = false
+		}
+		st.numeric[i] = skind == keyNumber
+		sorder[i] = keyOrder(ds.src.Dialect(), sc.Name, skind)
+		torder[i] = keyOrder(ds.dst.Dialect(), tc.Name, tkind)
+	}
+	sel := func(d driver.Dialect, ref model.ObjectRef, order []string) string {
 		q := make([]string, len(cols))
 		for i, c := range cols {
 			q[i] = d.QuoteIdent(c)
 		}
 		s := "SELECT " + strings.Join(q, ", ") + " FROM " + d.Qualified(ref)
 		if strings.TrimSpace(mt.Condition) != "" {
-			s += " WHERE " + mt.Condition
+			s += " WHERE (" + mt.Condition + "\n)"
 		}
-		return s
+		return s + " ORDER BY " + strings.Join(order, ", ")
 	}
-	keyOf := func(row []*string) string {
-		var b strings.Builder
-		for _, v := range row[:nk] {
-			if v == nil {
-				b.WriteString("\x00N")
-			} else {
-				b.WriteString(*v)
-			}
-			b.WriteString("\x00|")
-		}
-		return b.String()
-	}
+	st.srcSQL = sel(ds.src.Dialect(), st.sref, sorder)
+	st.dstSQL = sel(ds.dst.Dialect(), st.ref, torder)
 
-	// The target's rows by key.
+	keep := func(rec DataSyncRecord) error {
+		i := opIndex(rec.Op)
+		switch i {
+		case 0:
+			st.res.Insert++
+		case 1:
+			st.res.Update++
+		default:
+			st.res.Delete++
+		}
+		if st.kept[i] < syncKeep {
+			st.recs = append(st.recs, rec)
+			st.kept[i]++
+		}
+		return nil
+	}
+	same, err := ds.diff(ctx, st, keep)
+	if errors.Is(err, errSyncOrder) {
+		// The database sorts the key differently from the comparison here (a
+		// collation or type it doesn't share): hold the target by key instead.
+		st.recs, st.kept, st.ordered = nil, [3]int{}, false
+		st.res.Insert, st.res.Update, st.res.Delete = 0, 0, 0
+		same, err = ds.diff(ctx, st, keep)
+	}
+	st.res.Same = same
+	return err
+}
+
+type keyKind uint8
+
+const (
+	keyOther  keyKind = iota // sorted natively, compared as bytes (dates, uuids, binary)
+	keyText                  // sorted under a binary collation, compared as bytes
+	keyNumber                // sorted and compared by value
+)
+
+// keyKindOf classifies a key column's type for ordering.
+func keyKindOf(dialect, typ string) keyKind {
+	t := strings.ToLower(strings.TrimSpace(typ))
+	if dialect == "sqlite" {
+		// Type affinity rules.
+		switch {
+		case strings.Contains(t, "int"):
+			return keyNumber
+		case strings.Contains(t, "char"), strings.Contains(t, "clob"), strings.Contains(t, "text"):
+			return keyText
+		case t == "", strings.Contains(t, "blob"):
+			return keyOther
+		}
+		return keyNumber
+	}
+	if i := strings.IndexAny(t, "( "); i > 0 && !strings.HasPrefix(t, "double precision") && !strings.HasPrefix(t, "character varying") {
+		t = t[:i]
+	}
+	switch t {
+	case "tinyint", "smallint", "mediumint", "int", "integer", "bigint", "int2", "int4", "int8",
+		"serial", "smallserial", "bigserial", "serial2", "serial4", "serial8",
+		"decimal", "numeric", "float", "float4", "float8", "double", "double precision", "real":
+		return keyNumber
+	case "char", "varchar", "character", "character varying", "bpchar", "text", "tinytext", "mediumtext", "longtext",
+		"nchar", "nvarchar", "citext", "name", "enum", "set":
+		return keyText
+	}
+	return keyOther
+}
+
+// keyOrder is a key column's ORDER BY term, sorting text by bytes and NULLs first.
+func keyOrder(d driver.Dialect, col string, kind keyKind) string {
+	q := d.QuoteIdent(col)
+	switch d.Name {
+	case "postgres":
+		if kind == keyText {
+			q += ` COLLATE "C"`
+		}
+		return q + " NULLS FIRST"
+	case "mysql":
+		if kind == keyText {
+			return "CAST(" + q + " AS BINARY)"
+		}
+	case "sqlite":
+		if kind == keyText {
+			return q + " COLLATE BINARY"
+		}
+	}
+	return q
+}
+
+// compareKeys orders two rows by their first len(numeric) cells the way
+// keyOrder sorts them. Rows with byte-equal keys compare equal, and only those.
+func compareKeys(a, b []*string, numeric []bool) int {
+	for i, num := range numeric {
+		x, y := a[i], b[i]
+		switch {
+		case x == nil && y == nil:
+			continue
+		case x == nil:
+			return -1
+		case y == nil:
+			return 1
+		}
+		if num {
+			if c := compareNumbers(*x, *y); c != 0 {
+				return c
+			}
+		}
+		if c := strings.Compare(*x, *y); c != 0 {
+			return c
+		}
+	}
+	return 0
+}
+
+// compareNumbers compares two decimal strings by value; 0 when either isn't one.
+func compareNumbers(x, y string) int {
+	if a, err := strconv.ParseInt(x, 10, 64); err == nil {
+		if b, err := strconv.ParseInt(y, 10, 64); err == nil {
+			return cmp.Compare(a, b)
+		}
+	}
+	a, ok := new(big.Rat).SetString(x)
+	if !ok {
+		return 0
+	}
+	b, ok := new(big.Rat).SetString(y)
+	if !ok {
+		return 0
+	}
+	return a.Cmp(b)
+}
+
+// errSyncOrder: a side's rows didn't arrive in the order compareKeys expects.
+var errSyncOrder = errors.New("rows are not in key order")
+
+// diff streams the table's differences to emit and returns the number of
+// identical rows. Ordered, it holds one row per side; otherwise it holds the
+// target's rows by key.
+func (ds *dataSync) diff(ctx context.Context, st *syncTable, emit func(DataSyncRecord) error) (int, error) {
+	r := ds.req
 	tss, err := ds.dst.NewSession(ctx, r.Target.Database, r.Target.Schema)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tss.Close()
-	trows, err := tss.Query(ctx, sel(ds.dst.Dialect(), st.ref))
-	if err != nil {
-		return fmt.Errorf("target: %w", err)
-	}
-	target := map[string][]*string{}
-	var order []string
-	for {
-		row := make([]*string, len(cols))
-		if !trows.Next(row) {
-			break
-		}
-		k := keyOf(row)
-		target[k] = row
-		order = append(order, k)
-	}
-	err = trows.Err()
-	trows.Close()
-	if err != nil {
-		return fmt.Errorf("target: %w", err)
-	}
-
 	sss, err := ds.src.NewSession(ctx, r.Source.Database, r.Source.Schema)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer sss.Close()
-	srows, err := sss.Query(ctx, sel(ds.src.Dialect(), sref))
+	trows, err := tss.Query(ctx, st.dstSQL)
 	if err != nil {
-		return fmt.Errorf("source: %w", err)
+		return 0, fmt.Errorf("target: %w", err)
+	}
+	defer trows.Close()
+	srows, err := sss.Query(ctx, st.srcSQL)
+	if err != nil {
+		return 0, fmt.Errorf("source: %w", err)
 	}
 	defer srows.Close()
-	st.types = make([]string, len(cols))
-	for i, c := range srows.Columns() {
-		if i < len(st.types) {
-			st.types[i] = c.Type
+	if st.types == nil {
+		st.types = make([]string, len(st.res.Columns))
+		for i, c := range srows.Columns() {
+			if i < len(st.types) {
+				st.types[i] = c.Type
+			}
 		}
 	}
-	for {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		row := make([]*string, len(cols))
-		if !srows.Next(row) {
-			break
-		}
-		k := keyOf(row)
-		cur, ok := target[k]
-		if !ok {
-			st.recs = append(st.recs, DataSyncRecord{Op: "insert", Source: row})
-			st.res.Insert++
-			continue
-		}
-		delete(target, k)
+	src := &syncCursor{rows: srows, side: "source", n: len(st.res.Columns), numeric: st.numeric, ordered: st.ordered}
+	dst := &syncCursor{rows: trows, side: "target", n: len(st.res.Columns), numeric: st.numeric, ordered: st.ordered}
+	nk := len(st.numeric)
+	same := 0
+	// match emits an update when the rows differ outside the key.
+	match := func(s, t []*string) error {
 		var changed []int
-		for i := nk; i < len(cols); i++ {
-			if !sameCell(row[i], cur[i]) {
+		for i := nk; i < len(s); i++ {
+			if !sameCell(s[i], t[i]) {
 				changed = append(changed, i)
 			}
 		}
 		if len(changed) == 0 {
-			st.res.Same++
-			continue
+			same++
+			return nil
 		}
-		st.recs = append(st.recs, DataSyncRecord{Op: "update", Source: row, Target: cur, Changed: changed})
-		st.res.Update++
+		return emit(DataSyncRecord{Op: "update", Source: s, Target: t, Changed: changed})
 	}
-	if err := srows.Err(); err != nil {
-		return fmt.Errorf("source: %w", err)
+
+	if !st.ordered {
+		target := map[string][]*string{}
+		var order []string
+		for dst.next() {
+			k := keyString(dst.row, nk)
+			target[k] = dst.row
+			order = append(order, k)
+		}
+		if dst.err != nil {
+			return 0, dst.err
+		}
+		for src.next() {
+			if ctx.Err() != nil {
+				return 0, ctx.Err()
+			}
+			k := keyString(src.row, nk)
+			cur, ok := target[k]
+			if !ok {
+				err = emit(DataSyncRecord{Op: "insert", Source: src.row})
+			} else {
+				delete(target, k)
+				err = match(src.row, cur)
+			}
+			if err != nil {
+				return 0, err
+			}
+		}
+		if src.err != nil {
+			return 0, src.err
+		}
+		for _, k := range order {
+			if row, ok := target[k]; ok {
+				if err := emit(DataSyncRecord{Op: "delete", Target: row}); err != nil {
+					return 0, err
+				}
+			}
+		}
+		return same, nil
 	}
-	for _, k := range order {
-		if row, ok := target[k]; ok {
-			st.recs = append(st.recs, DataSyncRecord{Op: "delete", Target: row})
-			st.res.Delete++
+
+	// A merge join: the smaller key is missing from the other side.
+	src.next()
+	dst.next()
+	for {
+		// Check before acting: a side that failed (or broke key order) looks finished.
+		if src.err != nil {
+			return 0, src.err
+		}
+		if dst.err != nil {
+			return 0, dst.err
+		}
+		if src.row == nil && dst.row == nil {
+			return same, nil
+		}
+		if ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
+		c := 0
+		switch {
+		case dst.row == nil:
+			c = -1
+		case src.row == nil:
+			c = 1
+		default:
+			c = compareKeys(src.row, dst.row, st.numeric)
+		}
+		switch {
+		case c < 0:
+			err = emit(DataSyncRecord{Op: "insert", Source: src.row})
+			src.next()
+		case c > 0:
+			err = emit(DataSyncRecord{Op: "delete", Target: dst.row})
+			dst.next()
+		default:
+			err = match(src.row, dst.row)
+			src.next()
+			dst.next()
+		}
+		if err != nil {
+			return 0, err
 		}
 	}
-	return nil
+}
+
+// syncCursor reads one side's rows; row is nil once they run out or fail.
+type syncCursor struct {
+	rows    driver.Rows
+	side    string
+	n       int
+	numeric []bool
+	ordered bool
+	row     []*string
+	err     error
+}
+
+func (c *syncCursor) next() bool {
+	prev := c.row
+	c.row = nil
+	if c.err != nil {
+		return false
+	}
+	row := make([]*string, c.n)
+	if !c.rows.Next(row) {
+		if err := c.rows.Err(); err != nil {
+			c.err = fmt.Errorf("%s: %w", c.side, err)
+		}
+		return false
+	}
+	if c.ordered && prev != nil && compareKeys(prev, row, c.numeric) >= 0 {
+		c.err = errSyncOrder
+		return false
+	}
+	c.row = row
+	return true
+}
+
+func keyString(row []*string, nk int) string {
+	var b strings.Builder
+	for _, v := range row[:nk] {
+		if v == nil {
+			b.WriteString("\x00N")
+		} else {
+			b.WriteString(*v)
+		}
+		b.WriteString("\x00|")
+	}
+	return b.String()
 }
 
 func sameCell(a, b *string) bool {
@@ -364,10 +637,12 @@ type DataSyncPage struct {
 	Columns []string         `json:"columns"`
 	Key     int              `json:"key"` // the first Key columns are the key
 	Records []DataSyncRecord `json:"records"`
-	Total   int              `json:"total"`
+	Total   int              `json:"total"` // records kept for listing
+	More    int              `json:"more,omitempty"`
 }
 
 // DataSyncRecords pages one table's differing records; op filters ("" = all differences).
+// Past syncKeep records of a kind, More counts the ones not listed.
 func (m *Manager) DataSyncRecords(id, table, op string, offset, limit int) (DataSyncPage, error) {
 	ds, err := m.dataSync(id)
 	if err != nil {
@@ -389,6 +664,11 @@ func (m *Manager) DataSyncRecords(id, table, op string, offset, limit int) (Data
 			n++
 		}
 		page.Total = n
+		for i, o := range syncOps {
+			if op == "" || op == o {
+				page.More += t.count(i) - t.kept[i]
+			}
+		}
 		return page, nil
 	}
 	return DataSyncPage{}, fmt.Errorf("table %s isn't in the comparison", table)
@@ -402,13 +682,19 @@ type DataSyncSelection struct {
 	Delete bool   `json:"delete"`
 }
 
-// DataSyncScript builds the deployment script: deletes (referencing tables first),
-// updates, then inserts (referenced tables first).
-func (m *Manager) DataSyncScript(id string, sel []DataSyncSelection) ([]string, error) {
-	ds, err := m.dataSync(id)
-	if err != nil {
-		return nil, err
-	}
+func (s DataSyncSelection) has(op int) bool {
+	return [3]bool{s.Insert, s.Update, s.Delete}[op]
+}
+
+// syncStep is one table's action in deployment order.
+type syncStep struct {
+	t  *syncTable
+	op int
+}
+
+// plan orders the chosen actions: deletes (referencing tables first), updates,
+// then inserts (referenced tables first).
+func (ds *dataSync) plan(sel []DataSyncSelection) []syncStep {
 	want := map[string]DataSyncSelection{}
 	for _, s := range sel {
 		want[s.Table] = s
@@ -420,24 +706,85 @@ func (m *Manager) DataSyncScript(id string, sel []DataSyncSelection) ([]string, 
 		}
 	}
 	tables = syncOrder(tables)
+	var out []syncStep
+	add := func(t *syncTable, op int) {
+		if want[t.res.Source].has(op) && t.count(op) > 0 {
+			out = append(out, syncStep{t, op})
+		}
+	}
+	for i := len(tables) - 1; i >= 0; i-- {
+		add(tables[i], 2)
+	}
+	for _, t := range tables {
+		add(t, 1)
+	}
+	for _, t := range tables {
+		add(t, 0)
+	}
+	return out
+}
+
+// DataSyncScript builds the deployment script for preview. Records past those
+// kept are compared again while deploying, and a comment stands in for them.
+func (m *Manager) DataSyncScript(id string, sel []DataSyncSelection) ([]string, error) {
+	ds, err := m.dataSync(id)
+	if err != nil {
+		return nil, err
+	}
 	d := ds.dst.Dialect()
 	var out []string
-	for i := len(tables) - 1; i >= 0; i-- {
-		if t := tables[i]; want[t.res.Source].Delete {
-			out = append(out, t.deletes(d)...)
+	for _, s := range ds.plan(sel) {
+		emit := func(q string) error { out = append(out, q); return nil }
+		w := s.t.writer(s.op, d, emit)
+		for _, r := range s.t.recs {
+			if opIndex(r.Op) == s.op {
+				_ = w.add(r)
+			}
 		}
-	}
-	for _, t := range tables {
-		if want[t.res.Source].Update {
-			out = append(out, t.updates(d)...)
-		}
-	}
-	for _, t := range tables {
-		if want[t.res.Source].Insert {
-			out = append(out, t.inserts(d)...)
+		_ = w.flush()
+		if more := s.t.count(s.op) - s.t.kept[s.op]; more > 0 {
+			out = append(out, fmt.Sprintf("-- %d more %s(s) on %s are compared again and applied when deploying", more, syncOps[s.op], s.t.res.Target))
 		}
 	}
 	return out, nil
+}
+
+// run feeds a step's statements to emit: from the kept records, or from a
+// fresh comparison when there were more than were kept.
+func (ds *dataSync) run(ctx context.Context, s syncStep, emit func(string) error) error {
+	w := s.t.writer(s.op, ds.dst.Dialect(), emit)
+	if s.t.kept[s.op] == s.t.count(s.op) {
+		for _, r := range s.t.recs {
+			if opIndex(r.Op) == s.op {
+				if err := w.add(r); err != nil {
+					return err
+				}
+			}
+		}
+		return w.flush()
+	}
+	_, err := ds.diff(ctx, s.t, func(r DataSyncRecord) error {
+		if opIndex(r.Op) != s.op {
+			return nil
+		}
+		return w.add(r)
+	})
+	if errors.Is(err, errSyncOrder) {
+		return fmt.Errorf("%s changed since the comparison; compare again", s.t.res.Target)
+	}
+	if err != nil {
+		return err
+	}
+	return w.flush()
+}
+
+// statements estimates how many statements a step makes, for progress.
+func (s syncStep) statements() int {
+	n := s.t.count(s.op)
+	if s.op == 1 {
+		return n
+	}
+	return (n + syncBatch - 1) / syncBatch
 }
 
 // syncOrder puts referenced tables before the tables referencing them.
@@ -487,7 +834,24 @@ func (t *syncTable) where(row []*string, d driver.Dialect) string {
 
 const syncBatch = 100
 
-func (t *syncTable) inserts(d driver.Dialect) []string {
+// syncWriter turns one kind of record into statements: inserts and deletes in
+// batches of syncBatch rows, an update per row.
+type syncWriter struct {
+	add   func(DataSyncRecord) error
+	flush func() error
+}
+
+func (t *syncTable) writer(op int, d driver.Dialect, emit func(string) error) syncWriter {
+	switch op {
+	case 0:
+		return t.inserts(d, emit)
+	case 1:
+		return t.updates(d, emit)
+	}
+	return t.deletes(d, emit)
+}
+
+func (t *syncTable) inserts(d driver.Dialect, emit func(string) error) syncWriter {
 	cols := make([]string, len(t.res.Columns))
 	for i, c := range t.res.Columns {
 		cols[i] = d.QuoteIdent(c)
@@ -497,77 +861,77 @@ func (t *syncTable) inserts(d driver.Dialect) []string {
 		head += "OVERRIDING SYSTEM VALUE "
 	}
 	head += "VALUES "
-	var out, vals []string
-	flush := func() {
-		if len(vals) > 0 {
-			out = append(out, head+strings.Join(vals, ", "))
-			vals = vals[:0]
+	var vals []string
+	flush := func() error {
+		if len(vals) == 0 {
+			return nil
 		}
+		q := head + strings.Join(vals, ", ")
+		vals = vals[:0]
+		return emit(q)
 	}
-	for _, r := range t.recs {
-		if r.Op != "insert" {
-			continue
-		}
-		cells := make([]string, len(r.Source))
-		for i, v := range r.Source {
-			cells[i] = t.lit(v, i, d)
-		}
-		vals = append(vals, "("+strings.Join(cells, ", ")+")")
-		if len(vals) == syncBatch {
-			flush()
-		}
+	return syncWriter{
+		add: func(r DataSyncRecord) error {
+			cells := make([]string, len(r.Source))
+			for i, v := range r.Source {
+				cells[i] = t.lit(v, i, d)
+			}
+			vals = append(vals, "("+strings.Join(cells, ", ")+")")
+			if len(vals) == syncBatch {
+				return flush()
+			}
+			return nil
+		},
+		flush: flush,
 	}
-	flush()
-	return out
 }
 
-func (t *syncTable) updates(d driver.Dialect) []string {
-	var out []string
-	for _, r := range t.recs {
-		if r.Op != "update" {
-			continue
-		}
-		sets := make([]string, len(r.Changed))
-		for j, i := range r.Changed {
-			sets[j] = d.QuoteIdent(t.res.Columns[i]) + " = " + t.lit(r.Source[i], i, d)
-		}
-		out = append(out, "UPDATE "+d.Qualified(t.ref)+" SET "+strings.Join(sets, ", ")+" WHERE "+t.where(r.Source, d))
+func (t *syncTable) updates(d driver.Dialect, emit func(string) error) syncWriter {
+	return syncWriter{
+		add: func(r DataSyncRecord) error {
+			sets := make([]string, len(r.Changed))
+			for j, i := range r.Changed {
+				sets[j] = d.QuoteIdent(t.res.Columns[i]) + " = " + t.lit(r.Source[i], i, d)
+			}
+			return emit("UPDATE " + d.Qualified(t.ref) + " SET " + strings.Join(sets, ", ") + " WHERE " + t.where(r.Source, d))
+		},
+		flush: func() error { return nil },
 	}
-	return out
 }
 
-func (t *syncTable) deletes(d driver.Dialect) []string {
-	var out, conds []string
+func (t *syncTable) deletes(d driver.Dialect, emit func(string) error) syncWriter {
+	var conds []string
 	single := len(t.res.Key) == 1
-	flush := func() {
+	flush := func() error {
 		if len(conds) == 0 {
-			return
+			return nil
 		}
+		var q string
 		if single {
-			out = append(out, "DELETE FROM "+d.Qualified(t.ref)+" WHERE "+d.QuoteIdent(t.res.Key[0])+" IN ("+strings.Join(conds, ", ")+")")
+			q = "DELETE FROM " + d.Qualified(t.ref) + " WHERE " + d.QuoteIdent(t.res.Key[0]) + " IN (" + strings.Join(conds, ", ") + ")"
 		} else {
-			out = append(out, "DELETE FROM "+d.Qualified(t.ref)+" WHERE ("+strings.Join(conds, ") OR (")+")")
+			q = "DELETE FROM " + d.Qualified(t.ref) + " WHERE (" + strings.Join(conds, ") OR (") + ")"
 		}
 		conds = conds[:0]
+		return emit(q)
 	}
-	for _, r := range t.recs {
-		if r.Op != "delete" {
-			continue
-		}
-		if single && r.Target[0] != nil {
-			conds = append(conds, t.lit(r.Target[0], 0, d))
-		} else if single {
-			out = append(out, "DELETE FROM "+d.Qualified(t.ref)+" WHERE "+t.where(r.Target, d))
-			continue
-		} else {
-			conds = append(conds, t.where(r.Target, d))
-		}
-		if len(conds) == syncBatch {
-			flush()
-		}
+	return syncWriter{
+		add: func(r DataSyncRecord) error {
+			switch {
+			case single && r.Target[0] != nil:
+				conds = append(conds, t.lit(r.Target[0], 0, d))
+			case single:
+				return emit("DELETE FROM " + d.Qualified(t.ref) + " WHERE " + t.where(r.Target, d))
+			default:
+				conds = append(conds, t.where(r.Target, d))
+			}
+			if len(conds) == syncBatch {
+				return flush()
+			}
+			return nil
+		},
+		flush: flush,
 	}
-	flush()
-	return out
 }
 
 // DataSyncDeployRequest deploys chosen actions of a comparison.
@@ -578,19 +942,23 @@ type DataSyncDeployRequest struct {
 	UseTransaction  bool                `json:"useTransaction"`
 }
 
-// DeployDataSync runs the script as a job, in one transaction when asked (rolled
-// back on the first error unless continuing).
+// errSyncStop ends a deployment after a failed statement.
+var errSyncStop = errors.New("stop")
+
+// DeployDataSync runs the chosen actions as a job, in one transaction when asked
+// (rolled back on the first error unless continuing).
 func (m *Manager) DeployDataSync(req DataSyncDeployRequest) (Job, error) {
 	ds, err := m.dataSync(req.ID)
 	if err != nil {
 		return Job{}, err
 	}
-	stmts, err := m.DataSyncScript(req.ID, req.Tables)
-	if err != nil {
-		return Job{}, err
-	}
-	if len(stmts) == 0 {
+	steps := ds.plan(req.Tables)
+	if len(steps) == 0 {
 		return Job{}, errors.New("nothing to deploy")
+	}
+	total := 0
+	for _, s := range steps {
+		total += s.statements()
 	}
 	target := ds.req.Target
 	d := ds.dst.Dialect()
@@ -600,7 +968,7 @@ func (m *Manager) DeployDataSync(req DataSyncDeployRequest) (Job, error) {
 			return "", err
 		}
 		defer s.Close()
-		p.set(0, int64(len(stmts)))
+		p.set(0, int64(total))
 		p.logf("[DSYNC] Data Synchronization start: %s → %s", endpointName(m, ds.req.Source), endpointName(m, target))
 		tx := req.UseTransaction
 		if tx {
@@ -612,38 +980,55 @@ func (m *Manager) DeployDataSync(req DataSyncDeployRequest) (Job, error) {
 				return "", err
 			}
 		}
-		var rows int64
-		ok, failed := 0, 0
-		for i, st := range stmts {
-			if ctx.Err() != nil {
-				if tx {
-					_, _ = s.Exec(context.Background(), "ROLLBACK")
-				}
-				return "", ctx.Err()
+		rollback := func() {
+			if tx {
+				_, _ = s.Exec(context.Background(), "ROLLBACK")
 			}
-			n, err := s.Exec(ctx, st)
+		}
+		var rows int64
+		n, ok, failed := 0, 0, 0
+		var stmtErr error
+		exec := func(st string) error {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			n++
+			c, err := s.Exec(ctx, st)
 			if err != nil {
 				failed++
-				p.error("[DSYNC] %d> %s: %v", i+1, strings.SplitN(st, " VALUES ", 2)[0], err)
+				p.error("[DSYNC] %d> %s: %v", n, strings.SplitN(st, " VALUES ", 2)[0], err)
 				if !req.ContinueOnError {
-					if tx {
-						_, _ = s.Exec(context.Background(), "ROLLBACK")
-						p.logf("[DSYNC] Rolled back")
-					}
-					return "", fmt.Errorf("statement %d failed: %w", i+1, err)
+					stmtErr = fmt.Errorf("statement %d failed: %w", n, err)
+					return errSyncStop
 				}
-				continue
+				return nil
 			}
 			ok++
-			rows += n
-			p.setDone(int64(i + 1))
+			rows += c
+			p.setDone(int64(min(n, total)))
+			return nil
+		}
+		for _, st := range steps {
+			if err := ds.run(ctx, st, exec); err != nil {
+				rollback()
+				switch {
+				case errors.Is(err, errSyncStop):
+					if tx {
+						p.logf("[DSYNC] Rolled back")
+					}
+					return "", stmtErr
+				case ctx.Err() != nil:
+					return "", ctx.Err()
+				}
+				return "", err
+			}
 		}
 		if tx {
 			if _, err := s.Exec(ctx, "COMMIT"); err != nil {
 				return "", err
 			}
 		}
-		msg := fmt.Sprintf("Finished deployment (Total: %d, Success: %d, Fail: %d), %d row(s) changed", len(stmts), ok, failed, rows)
+		msg := fmt.Sprintf("Finished deployment (Total: %d, Success: %d, Fail: %d), %d row(s) changed", n, ok, failed, rows)
 		p.logf("[DSYNC] %s", msg)
 		m.DiscardDataSync(req.ID) // the target has changed: compare again for fresh results
 		return msg, nil
