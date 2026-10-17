@@ -6,12 +6,13 @@ import { openSetPrivileges } from "./components/users/SetPrivilegesDialog";
 import { folderKey, useTree } from "./tree";
 import { MenuItem } from "./components/ContextMenu";
 import { alert, confirm } from "./components/Dialogs";
-import { newQuery, openObject, selectAllSQL } from "./actions/tabs";
+import { newQuery, openDDL, openObject, selectAllSQL } from "./actions/tabs";
 import { openExecuteFile, openExport, openImport, track } from "./components/transfer/state";
 import { connById, useApp } from "./store";
 import { designTable, newTable, runTableAction } from "./tableActions";
 import { reverseToModel } from "./components/model/actions";
 import { isPG, qualifiedName } from "./dialect";
+import { deleteSavedQueries, duplicateSavedQuery, openSavedQuery, renameSavedQuery } from "./queries";
 
 const isSQLite = (connId: string) => connById(connId)?.type === DBType.SQLite;
 
@@ -138,7 +139,7 @@ export function viewMenu(connId: string, ref: ObjectRef): MenuItem[] {
       : [{ label: "Set Privileges…", onClick: () => openSetPrivileges(connId, { level: "table", database: ref.database, schema: ref.schema, object: ref.name }, `${ref.schema ? ref.schema + "." : ref.database + "."}${ref.name}`) }]),
     { separator: true },
     { label: "Query View", shortcut: "⌘T", onClick: () => newQuery(connId, ref.database, ref.schema, selectAllSQL(connId, ref)) },
-    { label: "Show DDL", onClick: () => useApp.getState().openTab({ kind: "ddl", title: ref.name, connId, database: ref.database, schema: ref.schema, ref }) },
+    { label: "Show DDL", onClick: () => openDDL(connId, ref) },
     { label: "Export Wizard…", onClick: () => openExport({ connId, database: ref.database, schema: ref.schema, tables: [], sql: `SELECT * FROM ${qualifiedName(connId, ref, true)}`, name: ref.name }) },
     later("Data Dictionary…"),
     { separator: true },
@@ -213,7 +214,7 @@ export function objectsAreaMenu(connId: string, database: string, schema: string
 export function tableChildMenu(connId: string, ref: ObjectRef, table: string): MenuItem[] {
   const word = ref.kind === ObjectKind.KindIndex ? "Index" : "Trigger";
   return [
-    { label: "Show DDL", onClick: () => useApp.getState().openTab({ kind: "ddl", title: ref.name, connId, database: ref.database, ref }) },
+    { label: "Show DDL", onClick: () => openDDL(connId, ref) },
     ...(table ? [{ label: "Design Table", shortcut: "⌘D", onClick: () => designTable(connId, { database: ref.database, name: table, kind: ObjectKind.KindTable }) }] : []),
     {
       label: `Delete ${word}`,
@@ -254,4 +255,40 @@ export function databaseTools(connId: string, database: string, schema?: string)
     { label: "Export Wizard…", onClick: () => openExport({ connId, database, schema, tables: [] }) },
     later("Find in Database…"),
   ];
+}
+
+/** Menu of saved queries in a Queries folder or the Objects list. */
+export function savedQueryMenu(connId: string, database: string, schema: string | undefined, names: string[]): MenuItem[] {
+  const one = names.length === 1;
+  return [
+    { label: "Open Query", disabled: !one, onClick: () => openSavedQuery(connId, database, schema, names[0]) },
+    { label: "New Query", onClick: () => newQuery(connId, database, schema) },
+    { separator: true },
+    { label: "Rename…", disabled: !one, onClick: () => renameSavedQuery(connId, database, schema, names[0]) },
+    { label: "Duplicate", disabled: !one, onClick: () => duplicateSavedQuery(connId, database, schema, names[0]) },
+    { label: one ? "Delete Query" : `Delete ${names.length} Queries`, onClick: () => deleteSavedQueries(connId, database, schema, names) },
+    { separator: true },
+    { label: "Copy Name", disabled: !one, onClick: () => copyText(names[0]) },
+  ];
+}
+
+/** The menu of picked objects (one kind) in the tree or the object list; comment is the first one's. */
+export function objectMenu(connId: string, refs: ObjectRef[], comment = ""): MenuItem[] {
+  const ref = refs[0];
+  switch (ref.kind) {
+    case ObjectKind.KindQuery:
+      return savedQueryMenu(connId, ref.database, ref.schema, refs.map((r) => r.name));
+    case ObjectKind.KindTable:
+      return tableMenu(connId, refs);
+    case ObjectKind.KindView:
+    case ObjectKind.KindMatView:
+      return viewMenu(connId, ref);
+  }
+  if (ref.kind === ObjectKind.KindIndex || (ref.kind === ObjectKind.KindTrigger && isSQLite(connId))) return tableChildMenu(connId, ref, comment.replace(/^ON /, ""));
+  return [
+    { label: "Show DDL", onClick: () => openDDL(connId, ref) },
+    { label: "New Query", onClick: () => newQuery(connId, ref.database, ref.schema) },
+    { separator: true },
+    { label: "Copy Name", onClick: () => copyText(ref.name) },
+  ]
 }

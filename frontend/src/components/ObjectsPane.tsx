@@ -8,19 +8,19 @@ import { ModelsList } from "./model/ModelsList";
 import { BIList } from "./bi/BIList";
 import { designTable, newTable, runTableAction } from "../tableActions";
 import { newView, viewDesign } from "./designer/ViewDesigner";
-import { objectsAreaMenu, openERD, tableChildMenu, tableMenu, viewMenu } from "../menus";
+import { objectsAreaMenu, openERD } from "../menus";
 import { openExport, openImport } from "./transfer/state";
 import { connById, dbKey, useApp } from "../store";
 import { TreeNode, folderKey, useTree } from "../tree";
 import { openMenu } from "./ContextMenu";
 import { Split } from "./Split";
 import { KIND_LABEL, KindIcon } from "./icons";
-import { savedQueryMenu } from "./Sidebar";
 import { newQuery, openObject, selectAllSQL } from "../actions/tabs";
 import { deleteSavedQueries } from "../queries";
 import { Toolbar } from "./Toolbar";
 import { useAsync } from "./useAsync";
 import { CodeBlock } from "./CodeBlock";
+import { objectMenu } from "../menus";
 
 export function ObjectsPane() {
   const sel = useApp((s) => s.selection);
@@ -276,17 +276,7 @@ function SqlObjectsPane() {
                     const names = pickedNames.includes(o.name) ? pickedNames : [o.name];
                     if (!pickedNames.includes(o.name)) setPicked(o);
                     const refs = objects.filter((x) => names.includes(x.name)).map(refOfObj);
-                    if (o.kind === ObjectKind.KindQuery) return openMenu(e, savedQueryMenu(sel.connId, sel.database!, sel.schema, names));
-                    if (o.kind === ObjectKind.KindTable) return openMenu(e, tableMenu(sel.connId, refs));
-                    if (o.kind === ObjectKind.KindView || o.kind === ObjectKind.KindMatView) return openMenu(e, viewMenu(sel.connId, refOfObj(o)));
-                    if (o.kind === ObjectKind.KindIndex || (o.kind === ObjectKind.KindTrigger && connById(sel.connId)?.type === DBType.SQLite))
-                      return openMenu(e, tableChildMenu(sel.connId, refOfObj(o), (o.comment ?? "").replace(/^ON /, "")));
-                    openMenu(e, [
-                      { label: "Show DDL", onClick: () => useApp.getState().openTab({ kind: "ddl", title: o.name, connId: sel.connId, database: sel.database, schema: o.schema || sel.schema, ref: refOfObj(o) }) },
-                      { label: "New Query", onClick: () => newQuery(sel.connId, sel.database, sel.schema) },
-                      { separator: true },
-                      { label: "Copy Name", onClick: () => copyText(o.name) },
-                    ]);
+                    openMenu(e, objectMenu(sel.connId, refs, o.comment));
                   }}
                 >
                   <td>
