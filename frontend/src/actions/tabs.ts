@@ -19,7 +19,7 @@ export function openObject(n: TreeNode) {
   if (n.kind === ObjectKind.KindTable || n.kind === ObjectKind.KindView || n.kind === ObjectKind.KindMatView) {
     app.openTab({ kind: "table", title: n.info!.name, connId: n.connId, database: n.database, schema: n.schema, ref });
   } else {
-    app.openTab({ kind: "ddl", title: n.info!.name, connId: n.connId, database: n.database, schema: n.schema, ref });
+    openDDL(n.connId, ref);
   }
 }
 
@@ -43,4 +43,8 @@ export function selectAllSQL(connId: string, ref: ObjectRef) {
 export function openMonitor(connId: string) {
   const conn = connById(connId);
   useApp.getState().openTab({ kind: "monitor", title: `Server Monitor — ${conn?.name ?? ""}`, connId, ref: { database: "", name: "monitor", kind: ObjectKind.$zero } });
+}
+
+export function openDDL(connId: string, ref: ObjectRef) {
+  useApp.getState().openTab({ kind: "ddl", title: ref.name, connId, database: ref.database, schema: ref.schema, ref });
 }
