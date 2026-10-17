@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { MYSQL } from "./lib/db.mjs";
 const out = process.argv[2];
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1400, height: 880 } });
@@ -16,7 +17,7 @@ await page.locator(".type-card").filter({ has: page.locator(`span:text-is("MySQL
 const field = (l) => page.locator(".field", { has: page.locator(`label:text-is("${l}")`) }).locator("input").first();
 await field("Connection Name").fill("Local MySQL");
 await field("Host").fill("127.0.0.1");
-await field("Port").fill("33306");
+await field("Port").fill(MYSQL);
 await field("Password").fill("chloe");
 await page.getByRole("button", { name: "Save" }).click();
 await page.locator(".tree-row", { hasText: "Local MySQL" }).dblclick();

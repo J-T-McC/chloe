@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { MYSQL, PG } from "./lib/db.mjs";
 const out = process.argv[2];
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1400, height: 880 } });
@@ -9,7 +10,7 @@ page.on("console", (m) => m.type() === "error" && errors.push("console: " + m.te
 const shot = (n) => page.screenshot({ path: `${out}/${n}.png` });
 const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); } catch (e) { console.log("FAIL", name, e.message.split("\n")[0]); await shot("fail-" + name.replace(/\W+/g, "_")); } };
 await page.goto(process.env.BASE ?? "http://localhost:8080/");
-for (const [label, type, port, user] of [["Local MySQL", "MySQL", "33306", "root"], ["Local Postgres", "PostgreSQL", "55432", "postgres"]]) {
+for (const [label, type, port, user] of [["Local MySQL", "MySQL", MYSQL, "root"], ["Local Postgres", "PostgreSQL", PG, "postgres"]]) {
   await page.getByRole("button", { name: "Connection" }).first().click();
   await page.locator(".type-card").filter({ has: page.locator(`span:text-is("${type}")`) }).click();
   const field = (l) => page.locator(".field", { has: page.locator(`label:text-is("${l}")`) }).locator("input").first();

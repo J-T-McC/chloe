@@ -1,6 +1,7 @@
 // Data Synchronization: MySQL shop → a drifted copy; mapping, compare results,
 // record view, unticking an action, deployment script, message log, recompare.
 import { chromium } from "playwright";
+import { MYSQL } from "./lib/db.mjs";
 
 const out = process.argv[2];
 const browser = await chromium.launch();
@@ -44,7 +45,7 @@ await step("connection and a drifted copy", async () => {
   await page.locator(".type-card").filter({ has: page.locator('span:text-is("MySQL")') }).click();
   await field("Connection Name").fill("Local MySQL");
   await field("Host").fill("127.0.0.1");
-  await field("Port").fill("33306");
+  await field("Port").fill(MYSQL);
   await field("User Name").fill("root");
   await field("Password").fill("chloe");
   await page.getByRole("button", { name: "Save" }).click();

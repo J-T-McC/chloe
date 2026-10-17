@@ -1,6 +1,7 @@
 // MongoDB: connection dialog, tree, collection list, viewer (grid / tree / JSON, filter,
 // cell edit, add and delete), query tab with completion, MongoShell, designer, monitor.
 import { chromium } from "playwright";
+import { MONGO } from "./lib/db.mjs";
 const out = process.argv[2];
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1400, height: 880 } });
@@ -27,7 +28,7 @@ await step("create connection", async () => {
   await page.locator(".type-card").filter({ has: page.locator(`span:text-is("MongoDB")`) }).click();
   await field("Connection Name").fill("Mongo");
   await field("Host").fill("127.0.0.1");
-  await field("Port").fill("37017");
+  await field("Port").fill(MONGO);
   await field("User Name").fill("root");
   await field("Password").fill("chloe");
   await shot("m01-dialog");

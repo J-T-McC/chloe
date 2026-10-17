@@ -13,6 +13,7 @@ import (
 	"chloe/internal/mcpserver"
 	"chloe/internal/model"
 	"chloe/internal/store"
+	"chloe/internal/testdb"
 )
 
 // Redis database 6 is this test's own (rdb's tests use 5).
@@ -27,7 +28,7 @@ func setupRedis(t *testing.T, access store.MCPConnAccess, caps store.MCPCapabili
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := st.Save(model.Connection{Name: "cache", Type: model.Redis, Host: "127.0.0.1", Port: 63790, Password: "chloe", SavePassword: true})
+	c, err := st.Save(model.Connection{Name: "cache", Type: model.Redis, Host: "127.0.0.1", Port: testdb.Redis, Password: "chloe", SavePassword: true})
 	if err != nil {
 		t.Fatal(err)
 	}

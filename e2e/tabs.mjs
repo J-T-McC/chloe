@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { PG } from "./lib/db.mjs";
 const out = process.argv[2];
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1300, height: 800 } });
@@ -8,7 +9,7 @@ await page.goto(process.env.BASE ?? "http://localhost:8080/");
 const field = (l) => page.locator(".field", { has: page.locator(`label:text-is("${l}")`) }).locator("input").first();
 await page.getByRole("button", { name: "Connection" }).first().click();
 await page.locator(".type-card").filter({ has: page.locator(`span:text-is("PostgreSQL")`) }).click();
-await field("Connection Name").fill("P"); await field("Host").fill("127.0.0.1"); await field("Port").fill("55432"); await field("User Name").fill("postgres"); await field("Password").fill("chloe");
+await field("Connection Name").fill("P"); await field("Host").fill("127.0.0.1"); await field("Port").fill(PG); await field("User Name").fill("postgres"); await field("Password").fill("chloe");
 await page.getByRole("button", { name: "Save" }).click();
 const conn = page.locator(".tree-row", { hasText: /^\s*Pg\s*P\s*$/ }).first();
 await conn.dblclick();

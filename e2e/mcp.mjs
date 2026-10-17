@@ -3,6 +3,7 @@ import { chromium } from "playwright";
 import { readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import { MONGO, REDIS } from "./lib/db.mjs";
 const out = process.argv[2];
 const dir = process.env.LITE;
 const PORT = 47199; // not the default, so a running desktop Chloe can't collide
@@ -158,7 +159,7 @@ await step("redis connection in the access tree", async () => {
   await page.locator(".type-card").filter({ has: page.locator(`span:text-is("Redis")`) }).click();
   await field("Connection Name").fill("cache");
   await field("Host").fill("127.0.0.1");
-  await field("Port").fill("63790");
+  await field("Port").fill(REDIS);
   await field("Password").fill("chloe");
   await page.getByRole("button", { name: "Save" }).click();
   await page.getByLabel("Access to cache", { exact: true }).selectOption("write");
@@ -204,7 +205,7 @@ await step("mongodb connection in the access tree", async () => {
   await page.locator(".type-card").filter({ has: page.locator(`span:text-is("MongoDB")`) }).click();
   await field("Connection Name").fill("docs");
   await field("Host").fill("127.0.0.1");
-  await field("Port").fill("37017");
+  await field("Port").fill(MONGO);
   await field("User Name").fill("root");
   await field("Password").fill("chloe");
   await page.getByRole("button", { name: "Save" }).click();

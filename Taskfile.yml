@@ -91,14 +91,9 @@ tasks:
       - go test ./internal/...
 
   test:db:
-    summary: Starts the Docker test databases and loads seed data
+    summary: Starts the Docker test databases (slot $CHLOE_DB_SLOT) and loads seed data
     cmds:
-      - docker compose up -d
-      # Retry seeding: both images restart their server once during first-boot initialisation.
-      - sh -c 'for i in $(seq 60); do docker exec -i chloe-mysql mysql -uroot -pchloe < testdata/seed_mysql.sql 2>/dev/null && exit 0; sleep 2; done; exit 1'
-      - sh -c 'for i in $(seq 60); do docker exec -i chloe-pg psql -q -U postgres -v ON_ERROR_STOP=1 -f - < testdata/seed_postgres.sql >/dev/null 2>&1 && exit 0; sleep 2; done; exit 1'
-      - sh -c 'for i in $(seq 30); do docker exec -i chloe-redis redis-cli -a chloe --no-auth-warning < testdata/seed_redis.txt >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
-      - sh -c 'for i in $(seq 60); do docker exec -i chloe-mongo mongosh -u root -p chloe --quiet < testdata/seed_mongo.js >/dev/null 2>&1 && exit 0; sleep 2; done; exit 1'
+      - testdata/db.sh
 
   test:it:
     summary: Runs integration tests against the Docker databases

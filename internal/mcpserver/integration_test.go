@@ -17,6 +17,7 @@ import (
 	_ "chloe/internal/driver/postgres"
 	"chloe/internal/model"
 	"chloe/internal/store"
+	"chloe/internal/testdb"
 )
 
 func TestIntegrationEngines(t *testing.T) {
@@ -29,10 +30,10 @@ func TestIntegrationEngines(t *testing.T) {
 		seedDB           string // where the seed runs (the test database doesn't exist yet)
 		seed             string
 	}{
-		{model.Connection{Name: "my", Type: model.MySQL, Host: "127.0.0.1", Port: 33306, User: "root", Password: "chloe", SavePassword: true}, "chloe_mcp_it", "", "shop",
+		{model.Connection{Name: "my", Type: model.MySQL, Host: "127.0.0.1", Port: testdb.MySQL, User: "root", Password: "chloe", SavePassword: true}, "chloe_mcp_it", "", "shop",
 			"CREATE DATABASE IF NOT EXISTS chloe_mcp_it; USE chloe_mcp_it; DROP TABLE IF EXISTS mcp_it; CREATE TABLE mcp_it (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(50), qty INT, ok BOOLEAN DEFAULT FALSE);" +
 				"INSERT INTO mcp_it (name, qty) VALUES ('a', 1), ('b', 2), ('c', 3);"},
-		{model.Connection{Name: "pg", Type: model.PostgreSQL, Host: "127.0.0.1", Port: 55432, User: "postgres", Password: "chloe", SavePassword: true, InitialDatabase: "postgres"}, "postgres", "chloe_mcp_it", "postgres",
+		{model.Connection{Name: "pg", Type: model.PostgreSQL, Host: "127.0.0.1", Port: testdb.Postgres, User: "postgres", Password: "chloe", SavePassword: true, InitialDatabase: "postgres"}, "postgres", "chloe_mcp_it", "postgres",
 			"CREATE SCHEMA IF NOT EXISTS chloe_mcp_it; DROP TABLE IF EXISTS chloe_mcp_it.mcp_it; CREATE TABLE chloe_mcp_it.mcp_it (id SERIAL PRIMARY KEY, name VARCHAR(50), qty INT, ok BOOLEAN DEFAULT FALSE, tags TEXT[]);" +
 				"INSERT INTO chloe_mcp_it.mcp_it (name, qty) VALUES ('a', 1), ('b', 2), ('c', 3);"},
 	} {

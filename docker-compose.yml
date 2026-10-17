@@ -1,33 +1,34 @@
 # Test databases for development and integration tests (MongoDB: root/chloe on :37017).
-#   CHLOE_IT=1 go test ./internal/...
+#   testdata/db.sh && CHLOE_IT=1 go test ./internal/...
+# CHLOE_DB_SLOT=N testdata/db.sh starts a separate set on ports moved up by N*10 (testdata/slot.sh).
 services:
   mysql:
     image: mysql:8.4
-    container_name: chloe-mysql
+    container_name: chloe-mysql${CHLOE_DB_SUFFIX:-}
     environment:
       MYSQL_ROOT_PASSWORD: chloe
-    ports: ["33306:3306"]
+    ports: ["127.0.0.1:${CHLOE_MYSQL_PORT:-33306}:3306"]
   postgres:
     image: postgres:17
-    container_name: chloe-pg
+    container_name: chloe-pg${CHLOE_DB_SUFFIX:-}
     environment:
       POSTGRES_PASSWORD: chloe
-    ports: ["55432:5432"]
+    ports: ["127.0.0.1:${CHLOE_PG_PORT:-55432}:5432"]
   # SSH jump host: reaches the databases as mysql:3306 and postgres:5432.
   # User "tunnel", password "chloe", or the throwaway key in testdata/sshd.
   sshd:
     build: testdata/sshd
-    container_name: chloe-sshd
-    ports: ["2222:22"]
+    container_name: chloe-sshd${CHLOE_DB_SUFFIX:-}
+    ports: ["127.0.0.1:${CHLOE_SSH_PORT:-2222}:22"]
   redis:
     image: redis:7.4
-    container_name: chloe-redis
+    container_name: chloe-redis${CHLOE_DB_SUFFIX:-}
     command: ["redis-server", "--requirepass", "chloe"]
-    ports: ["63790:6379"]
+    ports: ["127.0.0.1:${CHLOE_REDIS_PORT:-63790}:6379"]
   mongo:
     image: mongo:8.0
-    container_name: chloe-mongo
+    container_name: chloe-mongo${CHLOE_DB_SUFFIX:-}
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: chloe
-    ports: ["37017:27017"]
+    ports: ["127.0.0.1:${CHLOE_MONGO_PORT:-37017}:27017"]

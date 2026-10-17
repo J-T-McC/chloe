@@ -1,5 +1,6 @@
 // Join and set-operator completion after earlier joins, and keyword highlighting of JOIN/UNION.
 import { chromium } from "playwright";
+import { MYSQL } from "./lib/db.mjs";
 const out = process.argv[2];
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1400, height: 860 } });
@@ -9,7 +10,7 @@ await page.goto(process.env.BASE ?? "http://localhost:8080/");
 const field = (l) => page.locator(".field", { has: page.locator(`label:text-is("${l}")`) }).locator("input").first();
 await page.getByRole("button", { name: "Connection" }).first().click();
 await page.locator(".type-card").filter({ has: page.locator(`span:text-is("MySQL")`) }).click();
-await field("Connection Name").fill("Join Test"); await field("Host").fill("127.0.0.1"); await field("Port").fill("33306");
+await field("Connection Name").fill("Join Test"); await field("Host").fill("127.0.0.1"); await field("Port").fill(MYSQL);
 await field("User Name").fill("root"); await field("Password").fill("chloe");
 await page.getByRole("button", { name: "Save" }).click();
 await page.locator(".tree-row", { hasText: "Join Test" }).dblclick();

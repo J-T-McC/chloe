@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { MYSQL, PG } from "./lib/db.mjs";
 const out = process.argv[2];
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1400, height: 860 } });
@@ -15,7 +16,7 @@ async function conn(type, name, port, user) {
 }
 const ud = page.locator(".user-designer:visible");
 const tabBtn = (t) => ud.locator(".seg-tabs button", { hasText: new RegExp(`^\\s*${t}`) });
-for (const [type, name, port, user] of [["MySQL", "MY", "33306", ""], ["PostgreSQL", "PGX", "55432", "postgres"]]) {
+for (const [type, name, port, user] of [["MySQL", "MY", MYSQL, ""], ["PostgreSQL", "PGX", PG, "postgres"]]) {
   const pg = type === "PostgreSQL";
   await conn(type, name, port, user);
   const c = page.locator(".tree-row", { hasText: name }).first();

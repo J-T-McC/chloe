@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { MYSQL, PG } from "./lib/db.mjs";
 const out = process.argv[2];
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1300, height: 860 } });
@@ -27,7 +28,7 @@ const pick = async (l, typed, expect) => {
 };
 const rows = async () => (await page.locator(".tree-row").allInnerTexts()).map((x) => x.trim());
 
-for (const [type, name, port, user] of [["MySQL", "MY", "33306", ""], ["PostgreSQL", "PGX", "55432", "postgres"]]) {
+for (const [type, name, port, user] of [["MySQL", "MY", MYSQL, ""], ["PostgreSQL", "PGX", PG, "postgres"]]) {
   await conn(type, name, port, user);
   const c = page.locator(".tree-row", { hasText: name }).first();
   await c.dblclick();

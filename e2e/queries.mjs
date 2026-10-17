@@ -2,6 +2,7 @@
 // Save prompt on close), query tabs restored after a reload, reconnecting a query tab,
 // and the History Log.
 import { chromium } from "playwright";
+import { MYSQL } from "./lib/db.mjs";
 
 const out = process.argv[2];
 const browser = await chromium.launch();
@@ -45,7 +46,7 @@ await step("create connection", async () => {
   await page.locator(".type-card").filter({ has: page.locator('span:text-is("MySQL")') }).click();
   await field("Connection Name").fill("Local MySQL");
   await field("Host").fill("127.0.0.1");
-  await field("Port").fill("33306");
+  await field("Port").fill(MYSQL);
   await field("User Name").fill("root");
   await field("Password").fill("chloe");
   await page.getByRole("button", { name: "Save" }).click();

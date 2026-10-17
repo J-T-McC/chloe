@@ -3,6 +3,7 @@
 import net from "node:net";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
+import { MYSQL, SSH } from "./lib/db.mjs";
 
 const out = process.argv[2];
 const key = resolve("../testdata/sshd/id_ed25519");
@@ -34,7 +35,7 @@ await step("direct connection: two nodes lit on the General tab", async () => {
   await page.getByRole("button", { name: "Connection" }).first().click();
   await page.locator(".type-card").filter({ has: page.locator(`span:text-is("MySQL")`) }).click();
   await field("Host").fill("127.0.0.1");
-  await field("Port").fill("33306");
+  await field("Port").fill(MYSQL);
   await field("User Name").fill("root");
   await field("Password").fill("chloe");
   if ((await page.locator(".tunnel-node").count()) !== 2) throw new Error("expected Chloe and Database only");
@@ -66,7 +67,7 @@ const openDialog = async (sshPort) => {
 };
 
 await step("first connect asks to trust the host key", async () => {
-  await openDialog("2222");
+  await openDialog(SSH);
   const ask = page.locator(".host-key");
   await page.getByRole("button", { name: "Test Connection" }).click();
   await ask.getByText("Trust this SSH server?").waitFor({ timeout: 15000 });
@@ -82,7 +83,7 @@ await step("first connect asks to trust the host key", async () => {
 });
 
 await step("public key tunnel tests ok", async () => {
-  await openDialog("2222");
+  await openDialog(SSH);
   await page.getByRole("button", { name: "Test Connection" }).click();
   await page.locator(".status-line.ok").waitFor({ timeout: 15000 });
   if (await page.locator(".host-key").count()) throw new Error("asked again about a trusted host");
@@ -113,7 +114,7 @@ await step("silent ssh host reports an error", async () => {
 
 await step("database failure lights the second leg", async () => {
   await page.getByRole("button", { name: "Cancel" }).click();
-  await openDialog("2222");
+  await openDialog(SSH);
   await page.getByText("General", { exact: true }).click();
   await field("Password").fill("wrong");
   await page.getByText("SSH", { exact: true }).click();
