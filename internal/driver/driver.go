@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"chloe/internal/design"
 	"chloe/internal/model"
@@ -107,13 +108,19 @@ func BeginReadOnly(ctx context.Context, ds Session, d Dialect) error {
 }
 
 // EndReadOnly ends what BeginReadOnly started. A SQLite session stays read-only.
+// It runs even when the caller's context has ended, but not for longer than
+// endReadOnlyTimeout: a server that doesn't answer mustn't hold the session.
 func EndReadOnly(ds Session, d Dialect) error {
 	if d.Name == "sqlite" {
 		return nil
 	}
-	_, err := ds.Exec(context.Background(), "ROLLBACK")
+	ctx, cancel := context.WithTimeout(context.Background(), endReadOnlyTimeout)
+	defer cancel()
+	_, err := ds.Exec(ctx, "ROLLBACK")
 	return err
 }
+
+const endReadOnlyTimeout = 10 * time.Second
 
 // TransactionalDDL reports whether DDL can run inside a transaction (all but MySQL).
 func (d Dialect) TransactionalDDL() bool { return d.Name != "mysql" }
