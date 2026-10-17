@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 
+	"chloe/internal/driver"
 	"chloe/internal/model"
 	"chloe/internal/sqlsplit"
 )
@@ -46,62 +48,94 @@ func (m *Manager) ResultEditTarget(ctx context.Context, resultID string) (Result
 		return ResultEdit{}, err
 	}
 	d := c.Dialect()
-
 	sel, why := parseSimpleSelect(rs.origin.sql, d.Split)
 	if why != "" {
 		return readOnly("%s", why), nil
 	}
-
-	// Resolve the table against the session's database and schema.
-	ref := model.ObjectRef{Database: rs.origin.database, Schema: rs.origin.schema, Kind: model.KindTable}
-	fold := func(id ident) string {
-		if !id.quoted && d.Name == "postgres" {
-			return strings.ToLower(id.text)
-		}
-		return id.text
+	ref, why := editTable(d, sel, rs.origin)
+	if why != "" {
+		return readOnly("%s", why), nil
 	}
-	parts := sel.table
-	ref.Name = fold(parts[len(parts)-1])
-	switch len(parts) {
-	case 2:
-		if d.HasSchemas {
-			ref.Schema = fold(parts[0])
-		} else {
-			ref.Database = fold(parts[0])
-		}
-	case 3:
-		if !d.HasSchemas || fold(parts[0]) != ref.Database {
-			return readOnly("the table is in another database"), nil
-		}
-		ref.Schema = fold(parts[1])
-	}
-	if d.HasSchemas && ref.Schema == "" {
-		ref.Schema = d.DefaultSchema
-	}
-
 	detail, err := c.TableDetail(ctx, ref)
 	if err != nil || len(detail.Columns) == 0 {
 		return readOnly("%s is not a table", ref.Name), nil
 	}
-	byName := map[string]string{} // folded name -> actual column name
-	exact := map[string]bool{}
-	for _, col := range detail.Columns {
-		byName[strings.ToLower(col.Name)] = col.Name
-		exact[col.Name] = true
+	mapped, ok := mapItems(sel, detail, newColumnLookup(d, detail))
+	if !ok || len(mapped) != len(rs.columns) || !namesAgree(sel, mapped, rs.columns, len(detail.Columns)) {
+		return readOnly("unrecognised column list"), nil
 	}
-	lookup := func(id ident) string {
-		if id.quoted || d.Name == "postgres" {
-			n := fold(id)
-			if exact[n] {
-				return n
-			}
-			return ""
-		}
-		return byName[strings.ToLower(id.text)]
+	key, why := keyIn(ref.Name, detail, mapped)
+	if why != "" {
+		return readOnly("%s", why), nil
 	}
+	return ResultEdit{Editable: true, Ref: ref, Columns: mapped, Key: key}, nil
+}
 
-	// Expand the select list into one entry per result column.
-	var mapped []string
+// foldIdent is an identifier as the server stores it: PostgreSQL folds
+// unquoted names to lower case.
+func foldIdent(d driver.Dialect, id ident) string {
+	if !id.quoted && d.Name == "postgres" {
+		return strings.ToLower(id.text)
+	}
+	return id.text
+}
+
+// editTable resolves the SELECT's table against the session's database and
+// schema; why says why it can't be edited.
+func editTable(d driver.Dialect, sel simpleSelect, origin resultOrigin) (ref model.ObjectRef, why string) {
+	ref = model.ObjectRef{Database: origin.database, Schema: origin.schema, Kind: model.KindTable}
+	parts := sel.table
+	ref.Name = foldIdent(d, parts[len(parts)-1])
+	switch len(parts) {
+	case 2:
+		if d.HasSchemas {
+			ref.Schema = foldIdent(d, parts[0])
+		} else {
+			ref.Database = foldIdent(d, parts[0])
+		}
+	case 3:
+		if !d.HasSchemas || foldIdent(d, parts[0]) != ref.Database {
+			return ref, "the table is in another database"
+		}
+		ref.Schema = foldIdent(d, parts[1])
+	}
+	if d.HasSchemas && ref.Schema == "" {
+		ref.Schema = d.DefaultSchema
+	}
+	return ref, ""
+}
+
+// columnLookup finds the table column an identifier names: quoted names and
+// PostgreSQL's folded ones match exactly, MySQL and SQLite names ignore case.
+type columnLookup struct {
+	d      driver.Dialect
+	byName map[string]string // lower-cased name -> actual column name
+	exact  map[string]bool
+}
+
+func newColumnLookup(d driver.Dialect, t model.TableDetail) columnLookup {
+	l := columnLookup{d: d, byName: map[string]string{}, exact: map[string]bool{}}
+	for _, col := range t.Columns {
+		l.byName[strings.ToLower(col.Name)] = col.Name
+		l.exact[col.Name] = true
+	}
+	return l
+}
+
+func (l columnLookup) find(id ident) string {
+	if id.quoted || l.d.Name == "postgres" {
+		if n := foldIdent(l.d, id); l.exact[n] {
+			return n
+		}
+		return ""
+	}
+	return l.byName[strings.ToLower(id.text)]
+}
+
+// mapItems expands the select list into the table column each result column
+// shows ("" for a computed one); false when a * names another table.
+func mapItems(sel simpleSelect, t model.TableDetail, l columnLookup) ([]string, bool) {
+	parts := sel.table
 	qualifierOK := func(q []ident) bool {
 		if len(q) == 0 {
 			return true
@@ -112,32 +146,34 @@ func (m *Manager) ResultEditTarget(ctx context.Context, resultID string) (Result
 		}
 		return strings.EqualFold(last.text, parts[len(parts)-1].text)
 	}
+	var mapped []string
 	for _, it := range sel.items {
 		switch {
 		case it.star:
 			if !qualifierOK(it.qualifier) {
-				return readOnly("unrecognised column list"), nil
+				return nil, false
 			}
-			for _, col := range detail.Columns {
+			for _, col := range t.Columns {
 				mapped = append(mapped, col.Name)
 			}
 		case it.column != nil:
-			name := lookup(*it.column)
+			name := l.find(*it.column)
 			if name == "" || !qualifierOK(it.qualifier) {
-				mapped = append(mapped, "") // not a column of this table
-			} else {
-				mapped = append(mapped, name)
+				name = "" // not a column of this table
 			}
+			mapped = append(mapped, name)
 		default:
 			mapped = append(mapped, "")
 		}
 	}
-	if len(mapped) != len(rs.columns) {
-		return readOnly("unrecognised column list"), nil
-	}
-	// The driver's column names must agree with the parse, or we refuse to guess.
-	for i, rc := range rs.columns {
-		it := sel.itemFor(i, len(detail.Columns))
+	return mapped, true
+}
+
+// namesAgree checks the driver's column names against the parse: when they
+// disagree, the result isn't guessed at.
+func namesAgree(sel simpleSelect, mapped []string, cols []model.ResultColumn, tableCols int) bool {
+	for i, rc := range cols {
+		it := sel.itemFor(i, tableCols)
 		if mapped[i] == "" || it == nil {
 			continue
 		}
@@ -146,29 +182,28 @@ func (m *Manager) ResultEditTarget(ctx context.Context, resultID string) (Result
 			want = it.alias.text
 		}
 		if !strings.EqualFold(rc.Name, want) {
-			return readOnly("unrecognised column list"), nil
+			return false
 		}
 	}
+	return true
+}
 
-	var key []string
-	for _, col := range detail.Columns {
+// keyIn is table's primary key, which the result must include whole.
+func keyIn(table string, t model.TableDetail, mapped []string) (key []string, why string) {
+	for _, col := range t.Columns {
 		if col.PrimaryKey {
 			key = append(key, col.Name)
 		}
 	}
 	if len(key) == 0 {
-		return readOnly("%s has no primary key", ref.Name), nil
+		return nil, table + " has no primary key"
 	}
 	for _, k := range key {
-		found := false
-		for _, mc := range mapped {
-			found = found || mc == k
-		}
-		if !found {
-			return readOnly("the result doesn't include primary key column %s", k), nil
+		if !slices.Contains(mapped, k) {
+			return nil, "the result doesn't include primary key column " + k
 		}
 	}
-	return ResultEdit{Editable: true, Ref: ref, Columns: mapped, Key: key}, nil
+	return key, ""
 }
 
 // ResultPatch brings a buffered result in line with edits that were applied to the
