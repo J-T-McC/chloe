@@ -723,7 +723,7 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 				return InsertOut{}, fmt.Errorf("insert at most %d rows per call", maxInsertRows)
 			}
 			var out InsertOut
-			err := c.write(ctx, in.TableArgs, func(ctx context.Context, ds driver.Session, d driver.Dialect, b *builder) (int64, error) {
+			err := c.write(ctx, in.TableArgs, func(ctx context.Context, with sessionFn, d driver.Dialect, b *builder) (int64, error) {
 				stmts := make([]stmt, len(in.Rows))
 				shown := make([]string, 0, 6)
 				for i, row := range in.Rows {
@@ -746,19 +746,21 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 				}
 				ctx, cancel := context.WithTimeout(ctx, statementTimeout)
 				defer cancel()
-				return n, tx(ctx, ds, func() error {
-					pk := b.primaryKey()
-					for i, q := range stmts {
-						key, err := insertOne(ctx, ds, d, b, q, in.Rows[i], pk)
-						if err != nil {
-							return fmt.Errorf("row %d: %w", i+1, err)
+				return n, with(func(ds driver.Session) error {
+					return tx(ctx, ds, func() error {
+						pk := b.primaryKey()
+						for i, q := range stmts {
+							key, err := insertOne(ctx, ds, d, b, q, in.Rows[i], pk)
+							if err != nil {
+								return fmt.Errorf("row %d: %w", i+1, err)
+							}
+							if key != nil {
+								out.Keys = append(out.Keys, key)
+							}
 						}
-						if key != nil {
-							out.Keys = append(out.Keys, key)
-						}
-					}
-					out.Inserted = n
-					return nil
+						out.Inserted = n
+						return nil
+					})
 				})
 			})
 			return out, err
@@ -768,8 +770,8 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 		"Match on the primary key where you can; select_rows with the same conditions shows what will change.", true),
 		func(ctx context.Context, c *call, in UpdateArgs) (ChangedOut, error) {
 			var out ChangedOut
-			err := c.write(ctx, in.TableArgs, func(ctx context.Context, ds driver.Session, d driver.Dialect, b *builder) (int64, error) {
-				n, err := c.matchingThenRun(ctx, ds, d, b, in.Where, in.Table, "Update", func(k *keySet) (stmt, error) {
+			err := c.write(ctx, in.TableArgs, func(ctx context.Context, with sessionFn, d driver.Dialect, b *builder) (int64, error) {
+				n, err := c.matchingThenRun(ctx, with, d, b, in.Where, in.Table, "Update", func(k *keySet) (stmt, error) {
 					return b.update(in.Set, in.Where, k)
 				})
 				out.Rows = n
@@ -781,8 +783,8 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 	add(s, srv, ep, writeTool("delete_rows", "Delete rows", "Deletes the rows matching the conditions, in one transaction. The user approves it in Chloe unless they've turned on danger mode.", true),
 		func(ctx context.Context, c *call, in DeleteArgs) (ChangedOut, error) {
 			var out ChangedOut
-			err := c.write(ctx, in.TableArgs, func(ctx context.Context, ds driver.Session, d driver.Dialect, b *builder) (int64, error) {
-				n, err := c.matchingThenRun(ctx, ds, d, b, in.Where, in.Table, "Delete", func(k *keySet) (stmt, error) {
+			err := c.write(ctx, in.TableArgs, func(ctx context.Context, with sessionFn, d driver.Dialect, b *builder) (int64, error) {
+				n, err := c.matchingThenRun(ctx, with, d, b, in.Where, in.Table, "Delete", func(k *keySet) (stmt, error) {
 					return b.delete(in.Where, k)
 				})
 				out.Rows = n
@@ -792,8 +794,12 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 		})
 }
 
-// write resolves a table for writing and runs fn on a session with a builder for it.
-func (c *call) write(ctx context.Context, in TableArgs, fn func(context.Context, driver.Session, driver.Dialect, *builder) (int64, error)) error {
+// sessionFn runs fn on a fresh session of the table's database.
+type sessionFn func(fn func(driver.Session) error) error
+
+// write resolves a table for writing and runs fn with a builder for it. fn opens
+// sessions through with as it needs them, so none is held while the user decides.
+func (c *call) write(ctx context.Context, in TableArgs, fn func(context.Context, sessionFn, driver.Dialect, *builder) (int64, error)) error {
 	t, err := c.resolve(ctx, in.Connection, in.Database, in.Schema, store.MCPWrite)
 	if err != nil {
 		return err
@@ -807,11 +813,16 @@ func (c *call) write(ctx context.Context, in TableArgs, fn func(context.Context,
 	if len(detail.Columns) == 0 {
 		return fmt.Errorf("no table %q", in.Table)
 	}
-	return c.s.m.WithSession(ctx, t.connID, t.database, t.schema, func(ds driver.Session, d driver.Dialect) error {
-		n, err := fn(ctx, ds, d, newBuilder(d, detail))
-		c.act.Rows = n
+	d, err := c.s.m.Dialect(t.connID)
+	if err != nil {
 		return err
-	})
+	}
+	with := func(f func(driver.Session) error) error {
+		return c.s.m.WithSession(ctx, t.connID, t.database, t.schema, func(ds driver.Session, _ driver.Dialect) error { return f(ds) })
+	}
+	n, err := fn(ctx, with, d, newBuilder(d, detail))
+	c.act.Rows = n
+	return err
 }
 
 // matchingThenRun finds the rows a change would touch, asks the user, then runs
@@ -819,7 +830,7 @@ func (c *call) write(ctx context.Context, in TableArgs, fn func(context.Context,
 // while the user decides is left alone. Without a primary key, or with more than
 // maxPinned rows, the matching rows are counted again in the transaction and the
 // change is rolled back if the count moved.
-func (c *call) matchingThenRun(ctx context.Context, ds driver.Session, d driver.Dialect, b *builder, where []Condition, table, verb string, build func(*keySet) (stmt, error)) (int64, error) {
+func (c *call) matchingThenRun(ctx context.Context, with sessionFn, d driver.Dialect, b *builder, where []Condition, table, verb string, build func(*keySet) (stmt, error)) (int64, error) {
 	q, err := build(nil)
 	if err != nil {
 		return 0, err
@@ -828,16 +839,22 @@ func (c *call) matchingThenRun(ctx context.Context, ds driver.Session, d driver.
 	if err != nil {
 		return 0, err
 	}
-	cctx, cancel := context.WithTimeout(ctx, statementTimeout)
-	keys, err := b.keys(cctx, ds, where)
+	var keys *keySet
 	var matching int64
-	if err == nil && keys != nil {
-		matching = int64(len(keys.rows))
-	} else if err == nil {
-		var v string
-		v, err = scalar(cctx, ds, cq)
+	cctx, cancel := context.WithTimeout(ctx, statementTimeout)
+	err = with(func(ds driver.Session) error {
+		var err error
+		if keys, err = b.keys(cctx, ds, where); err != nil {
+			return err
+		}
+		if keys != nil {
+			matching = int64(len(keys.rows))
+			return nil
+		}
+		v, err := scalar(cctx, ds, cq)
 		matching, _ = strconv.ParseInt(v, 10, 64)
-	}
+		return err
+	})
 	cancel()
 	if err != nil {
 		return 0, err
@@ -855,24 +872,26 @@ func (c *call) matchingThenRun(ctx context.Context, ds driver.Session, d driver.
 	ctx, cancel = context.WithTimeout(ctx, statementTimeout)
 	defer cancel()
 	var n int64
-	err = tx(ctx, ds, func() error {
-		if keys == nil && c.asked {
-			v, err := scalar(ctx, ds, cq)
-			if err != nil {
+	err = with(func(ds driver.Session) error {
+		return tx(ctx, ds, func() error {
+			if keys == nil && c.asked {
+				v, err := scalar(ctx, ds, cq)
+				if err != nil {
+					return err
+				}
+				if now, _ := strconv.ParseInt(v, 10, 64); now != matching {
+					return fmt.Errorf("the conditions now match %s but %d were approved; rolled back (rows changed in the meantime)", plural(now, "row"), matching)
+				}
+			}
+			var err error
+			if n, err = ds.Exec(ctx, q.SQL, q.Args...); err != nil {
 				return err
 			}
-			if now, _ := strconv.ParseInt(v, 10, 64); now != matching {
-				return fmt.Errorf("the conditions now match %s but %d were approved; rolled back (rows changed in the meantime)", plural(now, "row"), matching)
+			if c.asked && n > matching {
+				return fmt.Errorf("the change would affect %d rows but %d were approved; rolled back (rows changed in the meantime)", n, matching)
 			}
-		}
-		var err error
-		if n, err = ds.Exec(ctx, q.SQL, q.Args...); err != nil {
-			return err
-		}
-		if c.asked && n > matching {
-			return fmt.Errorf("the change would affect %d rows but %d were approved; rolled back (rows changed in the meantime)", n, matching)
-		}
-		return nil
+			return nil
+		})
 	})
 	return n, err
 }
