@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Split } from "../Split";
 import { D, Explorer, ObjectKind, arr } from "../../api";
 import { Column, Dialect, ForeignKey, Index, Table, Trigger, Unique, changeType, deleteColumn, insertColumn, moveColumn, renameColumn, togglePrimaryKey, takesLength, takesScale, isTextType, uniqueName } from "../../designer/model";
+import { Field, Check } from "../form";
 
 type Update = (fn: (t: Table) => Table) => void;
 
@@ -163,21 +164,13 @@ function ColumnProperties({ column: c, meta, dialect, table, onChange }: { colum
       <div className="props-grid">
         {mysql && numeric && (
           <>
-            <label className="check">
-              <input type="checkbox" checked={!!c.autoIncrement} onChange={(e) => onChange({ autoIncrement: e.target.checked, default: e.target.checked ? undefined : c.default })} /> Auto Increment
-            </label>
-            <label className="check">
-              <input type="checkbox" checked={!!c.unsigned} onChange={(e) => onChange({ unsigned: e.target.checked })} /> Unsigned
-            </label>
-            <label className="check">
-              <input type="checkbox" checked={!!c.zerofill} onChange={(e) => onChange({ zerofill: e.target.checked })} /> Zerofill
-            </label>
+            <Check label="Auto Increment" checked={!!c.autoIncrement} onChange={(v) => onChange({ autoIncrement: v, default: v ? undefined : c.default })} />
+            <Check label="Unsigned" checked={!!c.unsigned} onChange={(v) => onChange({ unsigned: v })} />
+            <Check label="Zerofill" checked={!!c.zerofill} onChange={(v) => onChange({ zerofill: v })} />
           </>
         )}
         {mysql && /timestamp|datetime/i.test(c.type) && (
-          <label className="check">
-            <input type="checkbox" checked={!!c.onUpdateNow} onChange={(e) => onChange({ onUpdateNow: e.target.checked })} /> On Update CURRENT_TIMESTAMP
-          </label>
+          <Check label="On Update CURRENT_TIMESTAMP" checked={!!c.onUpdateNow} onChange={(v) => onChange({ onUpdateNow: v })} />
         )}
         {mysql && text && (
           <div className="prop">
@@ -219,9 +212,7 @@ function ColumnProperties({ column: c, meta, dialect, table, onChange }: { colum
                 <input className="num-input" value={c.identityOpts?.[k] ?? ""} onChange={(e) => onChange({ identityOpts: { ...(c.identityOpts ?? {}), [k]: e.target.value } as D.IdentityOpts })} />
               </div>
             ))}
-            <label className="check">
-              <input type="checkbox" checked={!!c.identityOpts?.cycle} onChange={(e) => onChange({ identityOpts: { ...(c.identityOpts ?? {}), cycle: e.target.checked } as D.IdentityOpts })} /> Cycle
-            </label>
+            <Check label="Cycle" checked={!!c.identityOpts?.cycle} onChange={(v) => onChange({ identityOpts: { ...(c.identityOpts ?? {}), cycle: v } as D.IdentityOpts })} />
           </div>
         )}
         <label className="check">
@@ -718,52 +709,49 @@ export function OptionsTab({ table: t, meta, dialect, update }: { table: Table; 
   const collations = arr(meta.collations).filter((c) => !o.charset || c.charset === o.charset);
   return (
     <div className="options-tab form">
-      <div className="field">
-        <label>Table Name</label>
-        <div className="field-input">
-          <input value={t.name} onChange={(e) => update((tb) => ({ ...tb, name: e.target.value }))} />
-        </div>
-      </div>
+      <Field label="Table Name">
+        <input value={t.name} onChange={(e) => update((tb) => ({ ...tb, name: e.target.value }))} />
+      </Field>
       {dialect === "sqlite" ? (
         <>
-          <Opt label="">
+          <Field label="">
             <label className="check" title="Store rows in the primary key's B-tree; needs a primary key and no AUTOINCREMENT">
               <input type="checkbox" checked={!!o.withoutRowid} onChange={(e) => set({ withoutRowid: e.target.checked })} /> WITHOUT ROWID
             </label>
-          </Opt>
-          <Opt label="">
+          </Field>
+          <Field label="">
             <label className="check" title="Enforce column types (INTEGER, REAL, TEXT, BLOB, ANY); SQLite 3.37+">
               <input type="checkbox" checked={!!o.strict} onChange={(e) => set({ strict: e.target.checked })} /> STRICT
             </label>
-          </Opt>
+          </Field>
         </>
       ) : dialect === "mysql" ? (
         <>
-          <Opt label="Engine">
+          <Field label="Engine">
             <select value={o.engine ?? ""} onChange={(e) => set({ engine: e.target.value })}>
               {arr(meta.engines).map((x) => (
                 <option key={x}>{x}</option>
               ))}
             </select>
-          </Opt>
-          <Opt label="Default Character Set">
+          </Field>
+          <Field label="Default Character Set">
             <select value={o.charset ?? ""} onChange={(e) => set({ charset: e.target.value, collation: arr(meta.collations).find((c) => c.charset === e.target.value && c.default)?.name })}>
               {arr(meta.charsets).map((x) => (
                 <option key={x}>{x}</option>
               ))}
             </select>
-          </Opt>
-          <Opt label="Default Collation">
+          </Field>
+          <Field label="Default Collation">
             <select value={o.collation ?? ""} onChange={(e) => set({ collation: e.target.value })}>
               {collations.map((x) => (
                 <option key={x.name}>{x.name}</option>
               ))}
             </select>
-          </Opt>
-          <Opt label="Auto Increment">
+          </Field>
+          <Field label="Auto Increment">
             <input className="num-input" value={o.autoIncrement ?? ""} onChange={(e) => set({ autoIncrement: e.target.value })} />
-          </Opt>
-          <Opt label="Row Format">
+          </Field>
+          <Field label="Row Format">
             <select value={o.rowFormat ?? ""} onChange={(e) => set({ rowFormat: e.target.value || undefined })}>
               {["", "DYNAMIC", "COMPACT", "REDUNDANT", "COMPRESSED"].map((x) => (
                 <option key={x} value={x}>
@@ -771,32 +759,22 @@ export function OptionsTab({ table: t, meta, dialect, update }: { table: Table; 
                 </option>
               ))}
             </select>
-          </Opt>
+          </Field>
         </>
       ) : (
         <>
-          <Opt label="">
-            <label className="check">
-              <input type="checkbox" checked={!!o.unlogged} onChange={(e) => set({ unlogged: e.target.checked })} /> Unlogged
-            </label>
-          </Opt>
-          <Opt label="Tablespace">
+          <Field label="">
+            <Check label="Unlogged" checked={!!o.unlogged} onChange={(v) => set({ unlogged: v })} />
+          </Field>
+          <Field label="Tablespace">
             <input value={o.tablespace ?? ""} placeholder="(default)" onChange={(e) => set({ tablespace: e.target.value || undefined })} />
-          </Opt>
+          </Field>
         </>
       )}
     </div>
   );
 }
 
-function Opt({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="field">
-      <label>{label}</label>
-      <div className="field-input">{children}</div>
-    </div>
-  );
-}
 
 // ---- Field toolbar -----------------------------------------------------------------------
 

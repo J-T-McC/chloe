@@ -8,6 +8,7 @@ import { confirm } from "../Dialogs";
 import { CodeBlock } from "../ObjectsPane";
 import { Split } from "../Split";
 import { Toolbar } from "../Toolbar";
+import { Field, Check } from "../form";
 
 type Section = "users" | "roles";
 
@@ -170,9 +171,7 @@ export function MongoUsers({ tab }: { tab: Tab }) {
                 ))}
               </select>
             </label>
-            <label className="check">
-              <input type="checkbox" checked={showBuiltin} onChange={(e) => setShowBuiltin(e.target.checked)} /> Built-in roles
-            </label>
+            <Check label="Built-in roles" checked={showBuiltin} onChange={(v) => setShowBuiltin(v)} />
           </>
         )}
       </Toolbar>
@@ -296,30 +295,18 @@ function UserEditor(p: {
   return (
     <div className="info-panel user-editor">
       <div className="form">
-        <div className="field">
-          <label>User Name</label>
-          <div className="field-input">
-            <input value={cur.user} disabled={!!orig} onChange={(e) => set({ user: e.target.value })} />
-          </div>
-        </div>
-        <div className="field">
-          <label>Database</label>
-          <div className="field-input">
-            <input list="mongo-dbs" value={cur.db} disabled={!!orig} onChange={(e) => set({ db: e.target.value })} />
-          </div>
-        </div>
-        <div className="field">
-          <label>{orig ? "New Password" : "Password"}</label>
-          <div className="field-input">
-            <input type="password" value={cur.password ?? ""} placeholder={orig ? "(unchanged)" : ""} onChange={(e) => set({ password: e.target.value })} />
-          </div>
-        </div>
-        <div className="field">
-          <label>Confirm Password</label>
-          <div className="field-input">
-            <input type="password" value={p.draft.confirm} onChange={(e) => p.setDraft({ ...p.draft, confirm: e.target.value })} />
-          </div>
-        </div>
+        <Field label="User Name">
+          <input value={cur.user} disabled={!!orig} onChange={(e) => set({ user: e.target.value })} />
+        </Field>
+        <Field label="Database">
+          <input list="mongo-dbs" value={cur.db} disabled={!!orig} onChange={(e) => set({ db: e.target.value })} />
+        </Field>
+        <Field label={orig ? "New Password" : "Password"}>
+          <input type="password" value={cur.password ?? ""} placeholder={orig ? "(unchanged)" : ""} onChange={(e) => set({ password: e.target.value })} />
+        </Field>
+        <Field label="Confirm Password">
+          <input type="password" value={p.draft.confirm} onChange={(e) => p.setDraft({ ...p.draft, confirm: e.target.value })} />
+        </Field>
         <div className="field">
           <label>Mechanisms</label>
           <div className="field-input row">
@@ -373,18 +360,12 @@ function RoleEditor(p: {
   return (
     <div className="info-panel user-editor">
       <div className="form">
-        <div className="field">
-          <label>Role Name</label>
-          <div className="field-input">
-            <input value={cur.role} disabled={!!orig} onChange={(e) => set({ role: e.target.value })} />
-          </div>
-        </div>
-        <div className="field">
-          <label>Database</label>
-          <div className="field-input">
-            <input list="mongo-dbs" value={cur.db} disabled={!!orig} onChange={(e) => set({ db: e.target.value })} />
-          </div>
-        </div>
+        <Field label="Role Name">
+          <input value={cur.role} disabled={!!orig} onChange={(e) => set({ role: e.target.value })} />
+        </Field>
+        <Field label="Database">
+          <input list="mongo-dbs" value={cur.db} disabled={!!orig} onChange={(e) => set({ db: e.target.value })} />
+        </Field>
         <div className="field top">
           <label>Inherits</label>
           <div className="field-input">

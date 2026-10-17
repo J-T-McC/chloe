@@ -12,6 +12,7 @@ import { ConnIcon } from "../icons";
 import { track, useTransfer } from "./state";
 import { EndpointPicker, JobProgress } from "./shared";
 import { Modal, ModalFooter } from "../Modal";
+import { Check } from "../form";
 
 const useDT = create<{ open: boolean; source?: Endpoint }>(() => ({ open: false }));
 
@@ -239,12 +240,8 @@ export function DataTransferWizard() {
                 </div>
               ))}
             </div>
-            <label className="check">
-              <input type="checkbox" checked={options.continueOnError} onChange={(e) => setOptions({ ...options, continueOnError: e.target.checked })} /> Continue on error
-            </label>
-            <label className="check">
-              <input type="checkbox" checked={options.dropTarget} onChange={(e) => setOptions({ ...options, dropTarget: e.target.checked })} /> Drop target objects before create
-            </label>
+            <Check label="Continue on error" checked={options.continueOnError} onChange={(v) => setOptions({ ...options, continueOnError: v })} />
+            <Check label="Drop target objects before create" checked={options.dropTarget} onChange={(v) => setOptions({ ...options, dropTarget: v })} />
           </div>
         )}
         {step === "progress" && job && <JobProgress job={job} />}
@@ -367,9 +364,7 @@ function OptionsDialog({ value, sameEngine, to, onClose }: { value: TransferOpti
           {sameEngine && to !== "sqlite" && box("includeCharset", "Include character set", !o.createTables, true)}
           {sameEngine && to === "mysql" && box("includeEngine", "Include engine/table type", !o.createTables, true)}
           {sameEngine && box("includeOtherOptions", "Include other table options", !o.createTables, true)}
-          <label className="check">
-            <input type="checkbox" checked={!!o.convertNames} onChange={(e) => set({ convertNames: e.target.checked ? "lower" : "" })} /> Convert object name to
-          </label>
+          <Check label="Convert object name to" checked={!!o.convertNames} onChange={(v) => set({ convertNames: v ? "lower" : "" })} />
           <div className="indent row">
             <label className="check">
               <input type="radio" disabled={!o.convertNames} checked={o.convertNames !== "upper"} onChange={() => set({ convertNames: "lower" })} /> Lower case

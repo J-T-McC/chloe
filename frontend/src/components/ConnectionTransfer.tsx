@@ -4,6 +4,7 @@ import { FolderOpen } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Connections, Transfer, errorText } from "../api";
 import { Modal, ModalFooter } from "./Modal";
+import { Field } from "./form";
 
 const MIN_PASSPHRASE = 8;
 
@@ -80,42 +81,33 @@ export function ExportConnectionsDialog({
             </button>
           </div>
         </div>
-        <div className="field">
-          <label />
-          <div className="field-input">
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={withSecrets}
-                onChange={(e) => setWithSecrets(e.target.checked)}
-              />{" "}
-              Include passwords
-            </label>
-          </div>
-        </div>
+        <Field>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={withSecrets}
+              onChange={(e) => setWithSecrets(e.target.checked)}
+            />{" "}
+            Include passwords
+          </label>
+        </Field>
         {withSecrets && (
           <>
-            <div className="field">
-              <label>Passphrase</label>
-              <div className="field-input">
-                <input
-                  type="password"
-                  autoFocus
-                  value={pass}
-                  onChange={(e) => setPass(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="field">
-              <label>Confirm Passphrase</label>
-              <div className="field-input">
-                <input
-                  type="password"
-                  value={again}
-                  onChange={(e) => setAgain(e.target.value)}
-                />
-              </div>
-            </div>
+            <Field label="Passphrase">
+              <input
+                type="password"
+                autoFocus
+                value={pass}
+                onChange={(e) => setPass(e.target.value)}
+              />
+            </Field>
+            <Field label="Confirm Passphrase">
+              <input
+                type="password"
+                value={again}
+                onChange={(e) => setAgain(e.target.value)}
+              />
+            </Field>
             <p className="dialog-message muted">
               Passwords are encrypted with this passphrase. It's needed to
               import them and can't be recovered.
@@ -216,18 +208,15 @@ export function ImportConnectionsDialog({
           </p>
         )}
         {info?.encrypted && (
-          <div className="field">
-            <label>Passphrase</label>
-            <div className="field-input">
-              <input
-                type="password"
-                autoFocus
-                value={pass}
-                placeholder="Leave empty to import without passwords"
-                onChange={(e) => setPass(e.target.value)}
-              />
-            </div>
-          </div>
+          <Field label="Passphrase">
+            <input
+              type="password"
+              autoFocus
+              value={pass}
+              placeholder="Leave empty to import without passwords"
+              onChange={(e) => setPass(e.target.value)}
+            />
+          </Field>
         )}
       </div>
       {error && <div className="status-line err">{error}</div>}

@@ -7,6 +7,7 @@ import { TYPE_LABEL, display, formatBytes, formatTTL, hexDump, text } from "../.
 import { alert, confirm } from "../Dialogs";
 import { Split } from "../Split";
 import { Toolbar } from "../Toolbar";
+import { Field } from "../form";
 
 interface Props {
   connId: string;
@@ -383,12 +384,9 @@ function ItemsEditor({ connId, db, kv, reload }: { connId: string; db: number; k
             <div className="center-hint">Select an element to edit it, or add one.</div>
           ) : type === "stream" ? (
             <div className="form">
-              <div className="field">
-                <label>ID</label>
-                <div className="field-input">
-                  <input className="mono" value={detail.id} readOnly={detail.row >= 0} onChange={(e) => setDetail({ ...detail, id: e.target.value })} placeholder="* (auto)" />
-                </div>
-              </div>
+              <Field label="ID">
+                <input className="mono" value={detail.id} readOnly={detail.row >= 0} onChange={(e) => setDetail({ ...detail, id: e.target.value })} placeholder="* (auto)" />
+              </Field>
               {detail.pairs.map(([f, v], i) => (
                 <div className="field" key={i}>
                   <label>{i === 0 ? "Fields" : ""}</label>

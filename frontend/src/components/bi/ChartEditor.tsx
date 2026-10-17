@@ -18,6 +18,7 @@ import { PALETTES } from "./theme";
 import { CHART_TYPE_NAMES, connLabel, useWorkspace } from "./WorkspaceView";
 import { Toolbar } from "../Toolbar";
 import { useSavableTab } from "../useSavableTab";
+import { Check } from "../form";
 
 type ShelfName = "dimension" | "series" | "value" | "secondary" | "target";
 const SHELVES: ShelfName[] = ["dimension", "series", "value", "target", "secondary"];
@@ -417,9 +418,7 @@ function PropsPane({ draft, props, setProps, update, fields }: { draft: B.Chart;
           Name
           <input aria-label="Chart name" value={draft.name} onChange={(e) => update({ name: e.target.value })} />
         </label>
-        <label className="check">
-          <input type="checkbox" checked={!props.hideTitle} onChange={(e) => setProps({ hideTitle: !e.target.checked })} /> Show title
-        </label>
+        <Check label="Show title" checked={!props.hideTitle} onChange={(v) => setProps({ hideTitle: !v })} />
         <label className="bi-prop">
           Title
           <input aria-label="Chart title" placeholder={draft.name} value={props.title ?? ""} onChange={(e) => setProps({ title: e.target.value })} />
@@ -478,9 +477,7 @@ function PropsPane({ draft, props, setProps, update, fields }: { draft: B.Chart;
             </div>
           )}
           {t !== "gauge" && (
-            <label className="check">
-              <input type="checkbox" checked={!!props.lowerIsBetter} onChange={(e) => setProps({ lowerIsBetter: e.target.checked })} /> Lower is better
-            </label>
+            <Check label="Lower is better" checked={!!props.lowerIsBetter} onChange={(v) => setProps({ lowerIsBetter: v })} />
           )}
           {t === "trend" && (
             <label className="check" title="While the latest week, month, quarter or year is still going, compare it with the same days of the one before">
@@ -497,19 +494,13 @@ function PropsPane({ draft, props, setProps, update, fields }: { draft: B.Chart;
             </label>
           )}
           {pie && (
-            <label className="check">
-              <input type="checkbox" checked={!!props.labelPercent} onChange={(e) => setProps({ labelPercent: e.target.checked })} /> Labels as percentages
-            </label>
+            <Check label="Labels as percentages" checked={!!props.labelPercent} onChange={(v) => setProps({ labelPercent: v })} />
           )}
           {STACKED.has(t) && (
-            <label className="check">
-              <input type="checkbox" checked={!!props.stack100} onChange={(e) => setProps({ stack100: e.target.checked })} /> Use 100% stacked
-            </label>
+            <Check label="Use 100% stacked" checked={!!props.stack100} onChange={(v) => setProps({ stack100: v })} />
           )}
           {LINES.has(t) && (
-            <label className="check">
-              <input type="checkbox" checked={!!props.smooth} onChange={(e) => setProps({ smooth: e.target.checked })} /> Smooth lines
-            </label>
+            <Check label="Smooth lines" checked={!!props.smooth} onChange={(v) => setProps({ smooth: v })} />
           )}
           {(
             <>
@@ -542,9 +533,7 @@ function PropsPane({ draft, props, setProps, update, fields }: { draft: B.Chart;
                 <input aria-label="Top" type="number" min={0} placeholder="all" value={draft.top || ""} onChange={(e) => update({ top: Math.max(0, Number(e.target.value) || 0) })} />
               </label>
               {!!draft.top && !table && (
-                <label className="check">
-                  <input type="checkbox" checked={!!draft.others} onChange={(e) => update({ others: e.target.checked })} /> Group the rest as Others
-                </label>
+                <Check label="Group the rest as Others" checked={!!draft.others} onChange={(v) => update({ others: v })} />
               )}
             </>
           )}
@@ -584,9 +573,7 @@ function PropsPane({ draft, props, setProps, update, fields }: { draft: B.Chart;
             </select>
           </label>
         </div>
-        <label className="check">
-          <input type="checkbox" checked={!num.noSeparator} onChange={(e) => setNum({ noSeparator: !e.target.checked })} /> Thousands separator
-        </label>
+        <Check label="Thousands separator" checked={!num.noSeparator} onChange={(v) => setNum({ noSeparator: !v })} />
       </Section>
       {!FIGURES.has(t) && (
         <Section title="Labels">

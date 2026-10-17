@@ -4,6 +4,7 @@
 import { Plus, X } from "lucide-react";
 import type { B } from "../../api";
 import { arr } from "../../api";
+import { Check } from "../form";
 
 const KINDS: [string, string][] = [
   ["calculated", "Calculated"],
@@ -102,9 +103,7 @@ export function CustomFieldsPane({ fields, custom, onChange }: { fields: B.Field
               <>
                 <div className="bi-row">
                   {fieldSelect("Field to map", cf.field, (v) => set(i, { field: v }))}
-                  <label className="check">
-                    <input type="checkbox" checked={!!cf.caseSensitive} onChange={(e) => set(i, { caseSensitive: e.target.checked })} /> Match case
-                  </label>
+                  <Check label="Match case" checked={!!cf.caseSensitive} onChange={(v) => set(i, { caseSensitive: v })} />
                 </div>
                 <textarea
                   aria-label="Mapping rules"

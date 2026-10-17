@@ -10,6 +10,7 @@ import { CodeBlock } from "./ObjectsPane";
 import { Combobox } from "./Combobox";
 import { pickSQLiteFile } from "./ConnectionDialog";
 import { Modal, ModalFooter } from "./Modal";
+import { Field, Check } from "./form";
 
 const useDbDialog = create<{ target?: { connId: string; name?: string } }>(() => ({}));
 
@@ -96,12 +97,9 @@ function DatabaseDialogInner({ connId, editName }: { connId: string; editName?: 
   };
 
   const select = (label: string, value: string | undefined, options: string[], onChange: (v: string) => void, placeholder = "", disabled = false) => (
-    <div className="field">
-      <label>{label}</label>
-      <div className="field-input">
-        <Combobox value={value ?? ""} options={options} onChange={onChange} placeholder={placeholder} disabled={disabled} strict />
-      </div>
-    </div>
+    <Field label={label}>
+      <Combobox value={value ?? ""} options={options} onChange={onChange} placeholder={placeholder} disabled={disabled} strict />
+    </Field>
   );
 
   return (
@@ -116,12 +114,9 @@ function DatabaseDialogInner({ connId, editName }: { connId: string; editName?: 
       </div>
       {tab === "general" ? (
         <div className="modal-body form">
-          <div className="field">
-            <label>Database Name</label>
-            <div className="field-input">
-              <input autoFocus value={d.name} disabled={editing && !pg} onChange={(e) => set({ name: e.target.value })} onKeyDown={(e) => e.key === "Enter" && ok()} />
-            </div>
-          </div>
+          <Field label="Database Name">
+            <input autoFocus value={d.name} disabled={editing && !pg} onChange={(e) => set({ name: e.target.value })} onKeyDown={(e) => e.key === "Enter" && ok()} />
+          </Field>
           {sqlite && (
             <>
               <div className="field">
@@ -139,14 +134,9 @@ function DatabaseDialogInner({ connId, editName }: { connId: string; editName?: 
                   </button>
                 </div>
               </div>
-              <div className="field">
-                <label />
-                <div className="field-input">
-                  <label className="check">
-                    <input type="checkbox" checked={!!d.create} onChange={(e) => set({ create: e.target.checked })} /> Create a new database file
-                  </label>
-                </div>
-              </div>
+              <Field>
+                <Check label="Create a new database file" checked={!!d.create} onChange={(v) => set({ create: v })} />
+              </Field>
             </>
           )}
           {!pg && !sqlite && (
@@ -163,24 +153,18 @@ function DatabaseDialogInner({ connId, editName }: { connId: string; editName?: 
               {select("Collation", d.collation, arr(meta?.locales), (v) => set({ collation: v || undefined }), "(template's)", editing)}
               {select("Character Type", d.ctype, arr(meta?.locales), (v) => set({ ctype: v || undefined }), "(template's)", editing)}
               {select("Tablespace", d.tablespace, arr(meta?.tablespaces), (v) => set({ tablespace: v || undefined }), "(default)")}
-              <div className="field">
-                <label>Connection Limit</label>
-                <div className="field-input">
-                  <input
-                    type="number"
-                    min={-1}
-                    placeholder="-1 (no limit)"
-                    value={d.connLimit ?? ""}
-                    onChange={(e) => set({ connLimit: e.target.value === "" || Number(e.target.value) < 0 ? undefined : Number(e.target.value) })}
-                  />
-                </div>
-              </div>
-              <div className="field">
-                <label>Comment</label>
-                <div className="field-input">
-                  <textarea rows={3} value={d.comment ?? ""} onChange={(e) => set({ comment: e.target.value || undefined })} />
-                </div>
-              </div>
+              <Field label="Connection Limit">
+                <input
+                  type="number"
+                  min={-1}
+                  placeholder="-1 (no limit)"
+                  value={d.connLimit ?? ""}
+                  onChange={(e) => set({ connLimit: e.target.value === "" || Number(e.target.value) < 0 ? undefined : Number(e.target.value) })}
+                />
+              </Field>
+              <Field label="Comment">
+                <textarea rows={3} value={d.comment ?? ""} onChange={(e) => set({ comment: e.target.value || undefined })} />
+              </Field>
               {!editing && (d.encoding || d.collation || d.ctype) && !d.template && (
                 <div className="muted small">A different encoding or locale than template1's usually needs template0.</div>
               )}

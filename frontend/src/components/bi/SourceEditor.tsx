@@ -16,6 +16,7 @@ import { FilterList, cleanFilters } from "./FilterList";
 import { useWorkspace } from "./WorkspaceView";
 import { Toolbar } from "../Toolbar";
 import { useSavableTab } from "../useSavableTab";
+import { Field } from "../form";
 
 const SQL_ENGINES = [DBType.MySQL, DBType.MariaDB, DBType.PostgreSQL, DBType.SQLite];
 
@@ -265,12 +266,9 @@ export function SourceEditor({ tab }: { tab: Tab }) {
         first={
           <div className="bi-source-design">
             <div className="form bi-source-form">
-              <div className="field">
-                <label>Name</label>
-                <div className="field-input">
-                  <input aria-label="Data source name" value={draft.name} onChange={(e) => update({ name: e.target.value })} />
-                </div>
-              </div>
+              <Field label="Name">
+                <input aria-label="Data source name" value={draft.name} onChange={(e) => update({ name: e.target.value })} />
+              </Field>
               <div className="field">
                 <label>Connection</label>
                 <div className="field-input bi-row">
@@ -362,12 +360,9 @@ export function SourceEditor({ tab }: { tab: Tab }) {
                   </div>
                 </div>
               )}
-              <div className="field">
-                <label>Remarks</label>
-                <div className="field-input">
-                  <input aria-label="Remarks" value={draft.remarks ?? ""} onChange={(e) => update({ remarks: e.target.value })} />
-                </div>
-              </div>
+              <Field label="Remarks">
+                <input aria-label="Remarks" value={draft.remarks ?? ""} onChange={(e) => update({ remarks: e.target.value })} />
+              </Field>
             </div>
             {kind === "query" && (
               <SqlBox

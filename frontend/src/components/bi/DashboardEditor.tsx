@@ -21,6 +21,7 @@ import { PageCanvas, SLIDE_ROWS } from "./Canvas";
 import { ParamBar, ParamValues, dashboardParams, paramValues } from "./Parameters";
 import { Toolbar } from "../Toolbar";
 import { useSavableTab } from "../useSavableTab";
+import { Check } from "../form";
 
 const REFRESH_CHOICES = [0, 1, 5, 15, 30, 60];
 
@@ -408,12 +409,8 @@ function DashProps(p: {
                 <input aria-label="Line width" type="number" min={1} max={12} value={item.lineWidth || 2} onChange={(e) => p.setItem(item.id, { lineWidth: Math.max(1, Number(e.target.value) || 1) })} />
               </label>
             </div>
-            <label className="check">
-              <input type="checkbox" checked={!!item.filled} onChange={(e) => p.setItem(item.id, { filled: e.target.checked })} /> Filled
-            </label>
-            <label className="check">
-              <input type="checkbox" checked={!!item.dashed} onChange={(e) => p.setItem(item.id, { dashed: e.target.checked })} /> Dashed
-            </label>
+            <Check label="Filled" checked={!!item.filled} onChange={(v) => p.setItem(item.id, { filled: v })} />
+            <Check label="Dashed" checked={!!item.dashed} onChange={(v) => p.setItem(item.id, { dashed: v })} />
           </section>
         ) : item.kind === "chart" ? (
           <section className="bi-prop-section">

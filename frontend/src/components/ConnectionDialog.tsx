@@ -5,6 +5,7 @@ import { useApp } from "../store";
 import { prompt } from "./Dialogs";
 import { DBIcon, PresetIcon } from "./icons";
 import { Modal, ModalFooter } from "./Modal";
+import { Field, Check } from "./form";
 
 const ENGINES: Array<{ type: DBType; label: string; ready: boolean }> = [
   { type: DBType.MySQL, label: "MySQL", ready: true },
@@ -650,23 +651,6 @@ function DatabasesTab({ conn, setDBs }: { conn: Connection; setDBs(p: Partial<Co
 }
 
 // ---- form controls ------------------------------------------------------------------
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="field">
-      <label>{label}</label>
-      <div className="field-input">{children}</div>
-    </div>
-  );
-}
-
-function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange(v: boolean): void }) {
-  return (
-    <label className="check">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} /> {label}
-    </label>
-  );
-}
 
 /** Checkbox that enables a number; unchecked stores 0. */
 function ToggleNumber({ label, value, def, onChange }: { label: string; value: number; def: number; onChange(v: number): void }) {

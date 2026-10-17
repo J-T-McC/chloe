@@ -17,6 +17,7 @@ import { Split } from "../Split";
 import { Toolbar } from "../Toolbar";
 import { useAsync } from "../useAsync";
 import { useSavableTab } from "../useSavableTab";
+import { Field } from "../form";
 
 type Section = "definition" | "advanced" | "comment" | "sql";
 
@@ -297,27 +298,21 @@ export function ViewDesigner({ tab }: { tab: Tab }) {
 
 function AdvancedTab({ view: v, pg, isNew, update }: { view: D.View; pg: boolean; isNew: boolean; update(p: Partial<D.View>): void }) {
   const select = (label: string, value: string | undefined, options: string[], onChange: (v: string) => void, empty = "(default)") => (
-    <div className="field">
-      <label>{label}</label>
-      <div className="field-input">
-        <select value={(value ?? "").toUpperCase()} onChange={(e) => onChange(e.target.value)}>
-          <option value="">{empty}</option>
-          {options.map((o) => (
-            <option key={o}>{o}</option>
-          ))}
-        </select>
-      </div>
-    </div>
+    <Field label={label}>
+      <select value={(value ?? "").toUpperCase()} onChange={(e) => onChange(e.target.value)}>
+        <option value="">{empty}</option>
+        {options.map((o) => (
+          <option key={o}>{o}</option>
+        ))}
+      </select>
+    </Field>
   );
   const check = (label: string, value: boolean | undefined, onChange: (v: boolean) => void, hint?: string) => (
-    <div className="field">
-      <label />
-      <div className="field-input">
-        <label className="check" title={hint}>
-          <input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} /> {label}
-        </label>
-      </div>
-    </div>
+    <Field>
+      <label className="check" title={hint}>
+        <input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} /> {label}
+      </label>
+    </Field>
   );
   return (
     <div className="form designer-form">
@@ -325,12 +320,9 @@ function AdvancedTab({ view: v, pg, isNew, update }: { view: D.View; pg: boolean
       {!pg && (
         <>
           {select("Algorithm", v.algorithm, ["UNDEFINED", "MERGE", "TEMPTABLE"], (x) => update({ algorithm: x || undefined }))}
-          <div className="field">
-            <label>Definer</label>
-            <div className="field-input">
-              <input placeholder="current user (e.g. app@%)" value={v.definer ?? ""} onChange={(e) => update({ definer: e.target.value || undefined })} />
-            </div>
-          </div>
+          <Field label="Definer">
+            <input placeholder="current user (e.g. app@%)" value={v.definer ?? ""} onChange={(e) => update({ definer: e.target.value || undefined })} />
+          </Field>
           {select("Security", v.security, ["DEFINER", "INVOKER"], (x) => update({ security: x || undefined }))}
         </>
       )}
@@ -343,12 +335,9 @@ function AdvancedTab({ view: v, pg, isNew, update }: { view: D.View; pg: boolean
       )}
       {pg && v.materialized && (
         <>
-          <div className="field">
-            <label>Tablespace</label>
-            <div className="field-input">
-              <input placeholder="(default)" value={v.tablespace ?? ""} onChange={(e) => update({ tablespace: e.target.value || undefined })} />
-            </div>
-          </div>
+          <Field label="Tablespace">
+            <input placeholder="(default)" value={v.tablespace ?? ""} onChange={(e) => update({ tablespace: e.target.value || undefined })} />
+          </Field>
           {check(isNew ? "Populate when created (WITH DATA)" : "Populated (WITH DATA)", !v.noData, (b) => update({ noData: !b }))}
         </>
       )}

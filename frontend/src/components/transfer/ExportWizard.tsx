@@ -3,6 +3,7 @@ import { ExportOptions, Explorer, Format, ObjectKind, ObjectRef, Transfer, arr, 
 import { connById } from "../../store";
 import { track, useTransfer } from "./state";
 import { Modal } from "../Modal";
+import { Field, Check } from "../form";
 
 const FORMATS: Array<{ f: Format; label: string; desc: string }> = [
   { f: Format.CSV, label: "CSV", desc: "Comma separated values (.csv)" },
@@ -165,15 +166,13 @@ export function ExportWizard() {
         {step === "options" && (
           <div className="form">
             {format !== Format.SQL && format !== Format.$JSON && format !== Format.JSONL && format !== Format.Markdown && (
-              <Opt label="">
-                <label className="check">
-                  <input type="checkbox" checked={opts.includeHeaders} onChange={(e) => set({ includeHeaders: e.target.checked })} /> Include column titles
-                </label>
-              </Opt>
+              <Field label="">
+                <Check label="Include column titles" checked={opts.includeHeaders} onChange={(v) => set({ includeHeaders: v })} />
+              </Field>
             )}
             {delimited && (
               <>
-                <Opt label="Field Delimiter">
+                <Field label="Field Delimiter">
                   <select value={opts.fieldDelimiter || (format === Format.TXT ? "\t" : ",")} onChange={(e) => set({ fieldDelimiter: e.target.value })}>
                     <option value=",">Comma</option>
                     <option value={"\t"}>Tab</option>
@@ -181,34 +180,34 @@ export function ExportWizard() {
                     <option value="|">Pipe</option>
                     <option value=" ">Space</option>
                   </select>
-                </Opt>
-                <Opt label="Record Delimiter">
+                </Field>
+                <Field label="Record Delimiter">
                   <select value={opts.recordDelimiter} onChange={(e) => set({ recordDelimiter: e.target.value })}>
                     <option value={"\n"}>LF</option>
                     <option value={"\r\n"}>CRLF</option>
                     <option value={"\r"}>CR</option>
                   </select>
-                </Opt>
-                <Opt label="Text Qualifier">
+                </Field>
+                <Field label="Text Qualifier">
                   <select value={opts.textQualifier} onChange={(e) => set({ textQualifier: e.target.value })}>
                     <option value={'"'}>" (double quote)</option>
                     <option value="'">' (single quote)</option>
                     <option value="none">None</option>
                   </select>
-                </Opt>
-                <Opt label="NULL as">
+                </Field>
+                <Field label="NULL as">
                   <input value={opts.nullText} placeholder="(empty)" onChange={(e) => set({ nullText: e.target.value })} />
-                </Opt>
+                </Field>
               </>
             )}
             {format === Format.SQL && (
               <>
-                <Opt label="Target Table Name">
+                <Field label="Target Table Name">
                   <input value={opts.tableName ?? ""} placeholder={isQuery ? "query_result" : "(same as source)"} onChange={(e) => set({ tableName: e.target.value })} />
-                </Opt>
-                <Opt label="Rows per INSERT">
+                </Field>
+                <Field label="Rows per INSERT">
                   <input className="narrow" type="number" min={1} value={opts.rowsPerInsert} onChange={(e) => set({ rowsPerInsert: Number(e.target.value) })} />
-                </Opt>
+                </Field>
               </>
             )}
             {format === Format.XLSX && <p className="hint">Excel sheets hold up to 1,048,576 rows; numbers keep their type, long decimals stay text to preserve precision.</p>}
@@ -237,11 +236,3 @@ export function ExportWizard() {
   );
 }
 
-function Opt({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="field">
-      <label>{label}</label>
-      <div className="field-input">{children}</div>
-    </div>
-  );
-}

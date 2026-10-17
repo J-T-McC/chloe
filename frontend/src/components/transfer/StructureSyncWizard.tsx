@@ -14,6 +14,7 @@ import { EndpointPicker, JobProgress } from "./shared";
 import { track, useTransfer } from "./state";
 import { Toolbar } from "../Toolbar";
 import { Modal } from "../Modal";
+import { Check } from "../form";
 
 const useSS = create<{ open: boolean; source?: Endpoint }>(() => ({ open: false }));
 
@@ -160,16 +161,10 @@ export function StructureSyncWizard() {
             </div>
             <fieldset className="ss-options">
               <legend>Compare Options</legend>
-              <label className="check">
-                <input type="checkbox" checked={opts.compareTables} onChange={(e) => setOpts({ ...opts, compareTables: e.target.checked })} /> Compare tables
-              </label>
-              <label className="check">
-                <input type="checkbox" checked={opts.compareViews} onChange={(e) => setOpts({ ...opts, compareViews: e.target.checked })} /> Compare views
-              </label>
+              <Check label="Compare tables" checked={opts.compareTables} onChange={(v) => setOpts({ ...opts, compareTables: v })} />
+              <Check label="Compare views" checked={opts.compareViews} onChange={(v) => setOpts({ ...opts, compareViews: v })} />
               {pg && (
-                <label className="check">
-                  <input type="checkbox" checked={opts.dropCascade} onChange={(e) => setOpts({ ...opts, dropCascade: e.target.checked })} /> Drop with CASCADE
-                </label>
+                <Check label="Drop with CASCADE" checked={opts.dropCascade} onChange={(v) => setOpts({ ...opts, dropCascade: v })} />
               )}
             </fieldset>
           </>
@@ -204,9 +199,7 @@ export function StructureSyncWizard() {
                 <FilePlus2 size={14} /> Open in Query Editor
               </button>
               <span className="spacer" />
-              <label className="check">
-                <input type="checkbox" checked={continueOnError} onChange={(e) => setContinueOnError(e.target.checked)} /> Continue on error
-              </label>
+              <Check label="Continue on error" checked={continueOnError} onChange={(v) => setContinueOnError(v)} />
               <span className="muted">{script.length} statement(s)</span>
             </Toolbar>
             <div className="ss-script">
@@ -293,9 +286,7 @@ function Results(p: {
         </button>
         <span className="spacer" />
         <span className="muted">{counts.map(([op, n]) => `${n} ${OP_LABEL[op].toLowerCase()}`).join(" · ") || "Nothing to compare"}</span>
-        <label className="check">
-          <input type="checkbox" checked={p.showSame} onChange={(e) => p.setShowSame(e.target.checked)} /> Show identical objects
-        </label>
+        <Check label="Show identical objects" checked={p.showSame} onChange={(v) => p.setShowSame(v)} />
       </Toolbar>
       <Split
         id="structure-sync"
