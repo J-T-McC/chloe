@@ -272,161 +272,182 @@ func (g Postgres) alter(old, nw Table) ([]string, error) {
 	if err := g.validate(nw); err != nil {
 		return nil, err
 	}
-	var out []string
-	rn := renames(old, nw)
+	a := &pgAlter{g: g, d: diffTables(old, nw), tbl: g.table(nw, nw.Name)}
 	if nw.Name != old.Name {
-		out = append(out, fmt.Sprintf("ALTER TABLE %s RENAME TO %s", g.table(old, old.Name), pgIdent(nw.Name)))
+		a.out = append(a.out, fmt.Sprintf("ALTER TABLE %s RENAME TO %s", g.table(old, old.Name), pgIdent(nw.Name)))
 	}
-	tbl := g.table(nw, nw.Name)
-	alter := func(clause string) { out = append(out, "ALTER TABLE "+tbl+" "+clause) }
+	// Constraints and indexes that changed or went away go first (they may depend
+	// on columns about to change), and come back after the columns.
+	a.dropParts()
+	if err := a.columns(); err != nil {
+		return nil, err
+	}
+	a.addParts()
+	a.options()
+	a.out = append(a.out, g.comments(nw, &old)...)
+	_, add := a.d.triggers()
+	for _, tr := range add {
+		a.out = append(a.out, g.triggerDDL(nw, tr))
+	}
+	return a.out, nil
+}
 
-	// Drop constraints and indexes that changed or went away (they may depend on
-	// columns about to change).
-	for _, tr := range old.Triggers {
-		if n, ok := findBy(nw.Triggers, tr.Name, func(x Trigger) string { return x.OrigName }); !ok || !sameTrigger(tr, n) {
-			out = append(out, fmt.Sprintf("DROP TRIGGER %s ON %s", pgIdent(tr.Name), tbl))
-		}
-	}
-	for _, fk := range old.ForeignKeys {
-		if n, ok := findBy(nw.ForeignKeys, fk.Name, func(f ForeignKey) string { return f.OrigName }); !ok || !sameFK(rn.fk(fk), n) {
-			alter("DROP CONSTRAINT " + pgIdent(fk.Name))
-		}
-	}
-	for _, ck := range old.Checks {
-		if n, ok := findBy(nw.Checks, ck.Name, func(c Check) string { return c.OrigName }); !ok || n.Expr != ck.Expr || n.Name != ck.Name {
-			alter("DROP CONSTRAINT " + pgIdent(ck.Name))
-		}
-	}
-	for _, u := range old.Uniques {
-		if n, ok := findBy(nw.Uniques, u.Name, func(x Unique) string { return x.OrigName }); !ok || n.Name != u.Name || !equalStrings(n.Columns, rn.unique(u).Columns) {
-			alter("DROP CONSTRAINT " + pgIdent(u.Name))
-		}
-	}
-	for _, ix := range old.Indexes {
-		if n, ok := findBy(nw.Indexes, ix.Name, func(i Index) string { return i.OrigName }); !ok || !sameIndex(rn.index(ix), n) {
-			name := pgIdent(ix.Name)
-			if nw.Schema != "" {
-				name = pgIdent(nw.Schema) + "." + name
-			}
-			out = append(out, "DROP INDEX "+name)
-		}
-	}
-	oldPK, newPK := rn.pk(old.PrimaryKey), pkCols(nw.PrimaryKey)
-	pkChanged := !equalStrings(oldPK, newPK) || (old.PrimaryKey != nil && nw.PrimaryKey != nil && old.PrimaryKey.Name != nw.PrimaryKey.Name)
-	if pkChanged && len(oldPK) > 0 {
-		alter("DROP CONSTRAINT " + pgIdent(old.PrimaryKey.Name))
-	}
+// pgAlter collects the statements of one PostgreSQL ALTER.
+type pgAlter struct {
+	g   Postgres
+	d   tableDiff
+	tbl string // the table, by its new name
+	out []string
+}
 
-	// Columns.
-	for _, c := range old.Columns {
-		if _, ok := findBy(nw.Columns, c.Name, func(x Column) string { return x.OrigName }); !ok {
-			alter("DROP COLUMN " + pgIdent(c.Name))
-		}
+func (a *pgAlter) alter(clause string) { a.out = append(a.out, "ALTER TABLE "+a.tbl+" "+clause) }
+
+// pkChanged reports a new set of primary key columns or a renamed constraint.
+func (a *pgAlter) pkChanged() bool {
+	oldPK, newPK := a.d.pk()
+	o, n := a.d.old.PrimaryKey, a.d.nw.PrimaryKey
+	return !equalStrings(oldPK, newPK) || (o != nil && n != nil && o.Name != n.Name)
+}
+
+func (a *pgAlter) dropParts() {
+	drop, _ := a.d.triggers()
+	for _, tr := range drop {
+		a.out = append(a.out, fmt.Sprintf("DROP TRIGGER %s ON %s", pgIdent(tr.Name), a.tbl))
 	}
-	for _, c := range nw.Columns {
+	fks, _ := a.d.foreignKeys()
+	for _, fk := range fks {
+		a.alter("DROP CONSTRAINT " + pgIdent(fk.Name))
+	}
+	cks, _ := a.d.checks(false)
+	for _, ck := range cks {
+		a.alter("DROP CONSTRAINT " + pgIdent(ck.Name))
+	}
+	us, _ := a.d.uniques()
+	for _, u := range us {
+		a.alter("DROP CONSTRAINT " + pgIdent(u.Name))
+	}
+	ixs, _ := a.d.indexes()
+	for _, ix := range ixs {
+		name := pgIdent(ix.Name)
+		if a.d.nw.Schema != "" {
+			name = pgIdent(a.d.nw.Schema) + "." + name
+		}
+		a.out = append(a.out, "DROP INDEX "+name)
+	}
+	if oldPK, _ := a.d.pk(); a.pkChanged() && len(oldPK) > 0 {
+		a.alter("DROP CONSTRAINT " + pgIdent(a.d.old.PrimaryKey.Name))
+	}
+}
+
+func (a *pgAlter) columns() error {
+	for _, c := range a.d.droppedColumns() {
+		a.alter("DROP COLUMN " + pgIdent(c.Name))
+	}
+	for _, c := range a.d.nw.Columns {
 		if c.OrigName == "" {
-			alter("ADD COLUMN " + g.column(c))
+			a.alter("ADD COLUMN " + a.g.column(c))
 			continue
 		}
-		o, ok := findBy(old.Columns, c.OrigName, func(x Column) string { return x.Name })
-		if !ok {
-			return nil, fmt.Errorf("column %q refers to unknown original column %q", c.Name, c.OrigName)
+		o, err := a.d.original(c)
+		if err != nil {
+			return err
 		}
-		if o.Name != c.Name {
-			alter(fmt.Sprintf("RENAME COLUMN %s TO %s", pgIdent(o.Name), pgIdent(c.Name)))
-		}
-		col := pgIdent(c.Name)
-		typeChanged := !sameType(o, c) || o.Collation != c.Collation
-		// Identity and defaults are dropped before a type change and restored after.
-		if o.Identity != "" && (c.Identity == "" || typeChanged || !identityEqual(o.IdentityOpts, c.IdentityOpts) || o.Identity != c.Identity) {
-			alter(fmt.Sprintf("ALTER COLUMN %s DROP IDENTITY", col))
-		}
-		if o.GeneratedExpr != "" && c.GeneratedExpr == "" {
-			alter(fmt.Sprintf("ALTER COLUMN %s DROP EXPRESSION", col))
-		}
-		if typeChanged {
-			if o.Default != nil {
-				alter(fmt.Sprintf("ALTER COLUMN %s DROP DEFAULT", col))
-			}
-			coll := ""
-			if c.Collation != "" {
-				coll = " COLLATE " + pgq(c.Collation)
-			}
-			alter(fmt.Sprintf("ALTER COLUMN %s TYPE %s%s USING %s::%s", col, TypeSQL(c), coll, col, TypeSQL(c)))
-		}
-		if o.Nullable != c.Nullable {
-			if c.Nullable {
-				alter(fmt.Sprintf("ALTER COLUMN %s DROP NOT NULL", col))
-			} else {
-				alter(fmt.Sprintf("ALTER COLUMN %s SET NOT NULL", col))
-			}
-		}
-		if c.Identity == "" && c.GeneratedExpr == "" && (typeChanged || !strPtrEqual(o.Default, c.Default)) {
-			if c.Default != nil {
-				alter(fmt.Sprintf("ALTER COLUMN %s SET DEFAULT %s", col, *c.Default))
-			} else if !typeChanged && o.Default != nil {
-				alter(fmt.Sprintf("ALTER COLUMN %s DROP DEFAULT", col))
-			}
-		}
-		if c.Identity != "" && (o.Identity == "" || typeChanged || !identityEqual(o.IdentityOpts, c.IdentityOpts) || o.Identity != c.Identity) {
-			if o.Identity == "" && o.Default != nil && !typeChanged {
-				alter(fmt.Sprintf("ALTER COLUMN %s DROP DEFAULT", col))
-			}
-			alter(fmt.Sprintf("ALTER COLUMN %s ADD%s", col, identityClause(c)))
-		}
-		if c.GeneratedExpr != "" && c.GeneratedExpr != o.GeneratedExpr {
-			if o.GeneratedExpr == "" {
-				return nil, fmt.Errorf("column %q: PostgreSQL can't turn an existing column into a generated column; add a new column instead", c.Name)
-			}
-			alter(fmt.Sprintf("ALTER COLUMN %s SET EXPRESSION AS (%s)", col, c.GeneratedExpr))
+		if err := a.column(o, c); err != nil {
+			return err
 		}
 	}
+	return nil
+}
 
-	if pkChanged && len(newPK) > 0 {
-		alter("ADD " + pkDef(nw.PrimaryKey))
+// column alters one existing column from o to c. Identity and defaults are
+// dropped before a type change and restored after.
+func (a *pgAlter) column(o, c Column) error {
+	if o.Name != c.Name {
+		a.alter(fmt.Sprintf("RENAME COLUMN %s TO %s", pgIdent(o.Name), pgIdent(c.Name)))
 	}
-	for _, u := range nw.Uniques {
-		if o, ok := findBy(old.Uniques, u.OrigName, func(x Unique) string { return x.Name }); ok && u.OrigName != "" && o.Name == u.Name && equalStrings(rn.unique(o).Columns, u.Columns) {
-			continue
+	col := pgIdent(c.Name)
+	typeChanged := !sameType(o, c) || o.Collation != c.Collation
+	identityChanged := typeChanged || !identityEqual(o.IdentityOpts, c.IdentityOpts) || o.Identity != c.Identity
+	if o.Identity != "" && (c.Identity == "" || identityChanged) {
+		a.alter(fmt.Sprintf("ALTER COLUMN %s DROP IDENTITY", col))
+	}
+	if o.GeneratedExpr != "" && c.GeneratedExpr == "" {
+		a.alter(fmt.Sprintf("ALTER COLUMN %s DROP EXPRESSION", col))
+	}
+	if typeChanged {
+		if o.Default != nil {
+			a.alter(fmt.Sprintf("ALTER COLUMN %s DROP DEFAULT", col))
 		}
-		alter(fmt.Sprintf("ADD CONSTRAINT %s UNIQUE (%s)", pgIdent(u.Name), quoteList(u.Columns, pgIdent)))
-	}
-	for _, fk := range nw.ForeignKeys {
-		if o, ok := findBy(old.ForeignKeys, fk.OrigName, func(f ForeignKey) string { return f.Name }); ok && fk.OrigName != "" && sameFK(rn.fk(o), fk) {
-			continue
+		coll := ""
+		if c.Collation != "" {
+			coll = " COLLATE " + pgq(c.Collation)
 		}
-		alter("ADD " + g.fkDef(nw, fk))
+		a.alter(fmt.Sprintf("ALTER COLUMN %s TYPE %s%s USING %s::%s", col, TypeSQL(c), coll, col, TypeSQL(c)))
 	}
-	for _, ck := range nw.Checks {
-		if o, ok := findBy(old.Checks, ck.OrigName, func(c Check) string { return c.Name }); ok && ck.OrigName != "" && o.Expr == ck.Expr && o.Name == ck.Name {
-			continue
-		}
-		alter(fmt.Sprintf("ADD CONSTRAINT %s CHECK (%s)", pgIdent(ck.Name), ck.Expr))
-	}
-	for _, ix := range nw.Indexes {
-		if o, ok := findBy(old.Indexes, ix.OrigName, func(i Index) string { return i.Name }); ok && ix.OrigName != "" && sameIndex(rn.index(o), ix) {
-			continue
-		}
-		out = append(out, g.indexDDL(nw, ix))
-	}
-	if old.Options.Unlogged != nw.Options.Unlogged {
-		if nw.Options.Unlogged {
-			alter("SET UNLOGGED")
+	if o.Nullable != c.Nullable {
+		if c.Nullable {
+			a.alter(fmt.Sprintf("ALTER COLUMN %s DROP NOT NULL", col))
 		} else {
-			alter("SET LOGGED")
+			a.alter(fmt.Sprintf("ALTER COLUMN %s SET NOT NULL", col))
 		}
 	}
-	if old.Options.Tablespace != nw.Options.Tablespace && nw.Options.Tablespace != "" {
-		alter("SET TABLESPACE " + pgIdent(nw.Options.Tablespace))
-	}
-	out = append(out, g.comments(nw, &old)...)
-	for _, tr := range nw.Triggers {
-		if o, ok := findBy(old.Triggers, tr.OrigName, func(x Trigger) string { return x.Name }); ok && tr.OrigName != "" && sameTrigger(o, tr) {
-			continue
+	if c.Identity == "" && c.GeneratedExpr == "" && (typeChanged || !strPtrEqual(o.Default, c.Default)) {
+		if c.Default != nil {
+			a.alter(fmt.Sprintf("ALTER COLUMN %s SET DEFAULT %s", col, *c.Default))
+		} else if !typeChanged && o.Default != nil {
+			a.alter(fmt.Sprintf("ALTER COLUMN %s DROP DEFAULT", col))
 		}
-		out = append(out, g.triggerDDL(nw, tr))
 	}
-	return out, nil
+	if c.Identity != "" && (o.Identity == "" || identityChanged) {
+		if o.Identity == "" && o.Default != nil && !typeChanged {
+			a.alter(fmt.Sprintf("ALTER COLUMN %s DROP DEFAULT", col))
+		}
+		a.alter(fmt.Sprintf("ALTER COLUMN %s ADD%s", col, identityClause(c)))
+	}
+	if c.GeneratedExpr != "" && c.GeneratedExpr != o.GeneratedExpr {
+		if o.GeneratedExpr == "" {
+			return fmt.Errorf("column %q: PostgreSQL can't turn an existing column into a generated column; add a new column instead", c.Name)
+		}
+		a.alter(fmt.Sprintf("ALTER COLUMN %s SET EXPRESSION AS (%s)", col, c.GeneratedExpr))
+	}
+	return nil
+}
+
+func (a *pgAlter) addParts() {
+	nw := a.d.nw
+	if _, newPK := a.d.pk(); a.pkChanged() && len(newPK) > 0 {
+		a.alter("ADD " + pkDef(nw.PrimaryKey))
+	}
+	_, us := a.d.uniques()
+	for _, u := range us {
+		a.alter(fmt.Sprintf("ADD CONSTRAINT %s UNIQUE (%s)", pgIdent(u.Name), quoteList(u.Columns, pgIdent)))
+	}
+	_, fks := a.d.foreignKeys()
+	for _, fk := range fks {
+		a.alter("ADD " + a.g.fkDef(nw, fk))
+	}
+	_, cks := a.d.checks(false)
+	for _, ck := range cks {
+		a.alter(fmt.Sprintf("ADD CONSTRAINT %s CHECK (%s)", pgIdent(ck.Name), ck.Expr))
+	}
+	_, ixs := a.d.indexes()
+	for _, ix := range ixs {
+		a.out = append(a.out, a.g.indexDDL(nw, ix))
+	}
+}
+
+func (a *pgAlter) options() {
+	oo, no := a.d.old.Options, a.d.nw.Options
+	if oo.Unlogged != no.Unlogged {
+		if no.Unlogged {
+			a.alter("SET UNLOGGED")
+		} else {
+			a.alter("SET LOGGED")
+		}
+	}
+	if oo.Tablespace != no.Tablespace && no.Tablespace != "" {
+		a.alter("SET TABLESPACE " + pgIdent(no.Tablespace))
+	}
 }
 
 // ColumnOrderChanged reports whether surviving columns were reordered, which

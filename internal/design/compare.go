@@ -1,6 +1,7 @@
 package design
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 )
@@ -17,14 +18,6 @@ func findBy[T any](list []T, name string, key func(T) string) (T, bool) {
 		}
 	}
 	return zero, false
-}
-
-func byOrig[T any](list []T, key func(T) string) map[string]T {
-	m := make(map[string]T, len(list))
-	for _, x := range list {
-		m[key(x)] = x
-	}
-	return m
 }
 
 func equalStrings(a, b []string) bool { return slices.Equal(a, b) }
@@ -175,3 +168,92 @@ func (r renamer) unique(u Unique) Unique {
 }
 
 func (r renamer) pk(pk *PrimaryKey) []string { return r.cols(pkCols(pk)) }
+
+// changed splits a kind of table part (indexes, foreign keys…) into the old
+// ones to drop, gone or changed, and the new ones to add, new or changed.
+// Parts are paired by the new one's OrigName; same compares an old part with
+// its new version.
+func changed[T any](old, nw []T, name, orig func(T) string, same func(o, n T) bool) (drop, add []T) {
+	for _, o := range old {
+		if n, ok := findBy(nw, name(o), orig); !ok || !same(o, n) {
+			drop = append(drop, o)
+		}
+	}
+	for _, n := range nw {
+		if o, ok := findBy(old, orig(n), name); ok && orig(n) != "" && same(o, n) {
+			continue
+		}
+		add = append(add, n)
+	}
+	return drop, add
+}
+
+// tableDiff pairs the parts of a table before and after an edit; parts are
+// compared with the old ones' columns renamed to their new names.
+type tableDiff struct {
+	old, nw Table
+	rn      renamer
+}
+
+func diffTables(old, nw Table) tableDiff { return tableDiff{old, nw, renames(old, nw)} }
+
+func (d tableDiff) triggers() (drop, add []Trigger) {
+	return changed(d.old.Triggers, d.nw.Triggers, func(t Trigger) string { return t.Name }, func(t Trigger) string { return t.OrigName }, sameTrigger)
+}
+
+func (d tableDiff) foreignKeys() (drop, add []ForeignKey) {
+	return changed(d.old.ForeignKeys, d.nw.ForeignKeys, func(f ForeignKey) string { return f.Name }, func(f ForeignKey) string { return f.OrigName },
+		func(o, n ForeignKey) bool { return sameFK(d.rn.fk(o), n) })
+}
+
+func (d tableDiff) uniques() (drop, add []Unique) {
+	return changed(d.old.Uniques, d.nw.Uniques, func(u Unique) string { return u.Name }, func(u Unique) string { return u.OrigName },
+		func(o, n Unique) bool { return o.Name == n.Name && equalStrings(d.rn.unique(o).Columns, n.Columns) })
+}
+
+func (d tableDiff) indexes() (drop, add []Index) {
+	return changed(d.old.Indexes, d.nw.Indexes, func(i Index) string { return i.Name }, func(i Index) string { return i.OrigName },
+		func(o, n Index) bool { return sameIndex(d.rn.index(o), n) })
+}
+
+// checks pairs check constraints; enforcement also compares NOT ENFORCED (MySQL).
+func (d tableDiff) checks(enforcement bool) (drop, add []Check) {
+	return changed(d.old.Checks, d.nw.Checks, func(c Check) string { return c.Name }, func(c Check) string { return c.OrigName },
+		func(o, n Check) bool {
+			return o.Expr == n.Expr && o.Name == n.Name && (!enforcement || o.NotEnforced == n.NotEnforced)
+		})
+}
+
+// pk returns the old primary key's columns (renamed) and the new one's.
+func (d tableDiff) pk() (old, nw []string) { return d.rn.pk(d.old.PrimaryKey), pkCols(d.nw.PrimaryKey) }
+
+// survivors are the old columns still in the table, in their old order.
+func (d tableDiff) survivors() []string {
+	var out []string
+	for _, c := range d.old.Columns {
+		if _, ok := findBy(d.nw.Columns, c.Name, func(x Column) string { return x.OrigName }); ok {
+			out = append(out, c.Name)
+		}
+	}
+	return out
+}
+
+// droppedColumns are the old columns no longer in the table.
+func (d tableDiff) droppedColumns() []Column {
+	var out []Column
+	for _, c := range d.old.Columns {
+		if _, ok := findBy(d.nw.Columns, c.Name, func(x Column) string { return x.OrigName }); !ok {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// original is the old version of an edited column.
+func (d tableDiff) original(c Column) (Column, error) {
+	o, ok := findBy(d.old.Columns, c.OrigName, func(x Column) string { return x.Name })
+	if !ok {
+		return o, fmt.Errorf("column %q refers to unknown original column %q", c.Name, c.OrigName)
+	}
+	return o, nil
+}

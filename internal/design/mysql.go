@@ -241,66 +241,86 @@ func (g MySQL) alter(old, nw Table) ([]string, error) {
 	if err := g.validate(nw); err != nil {
 		return nil, err
 	}
+	d := diffTables(old, nw)
 	var out []string
-	rn := renames(old, nw)
 	if nw.Name != old.Name {
 		out = append(out, fmt.Sprintf("RENAME TABLE %s TO %s", g.table(old), g.table(nw)))
 	}
-	tbl := g.table(nw)
-	var clauses []string
+	// One ALTER TABLE: foreign keys, checks and indexes that changed go before the
+	// columns change and come back after them, then the table options.
+	clauses := g.dropParts(d)
+	cols, err := g.columnClauses(d)
+	if err != nil {
+		return nil, err
+	}
+	clauses = append(clauses, cols...)
+	clauses = append(clauses, g.addParts(d)...)
+	if opts := tableOptionChanges(old, nw); len(opts) > 0 {
+		clauses = append(clauses, strings.Join(opts, " "))
+	}
+	if len(clauses) > 0 {
+		out = append(out, "ALTER TABLE "+g.table(nw)+"\n  "+strings.Join(clauses, ",\n  "))
+	}
 
-	// Foreign keys and checks referencing changed columns must go before the columns
-	// change; they are re-added at the end.
-	oldFK := byOrig(old.ForeignKeys, func(f ForeignKey) string { return f.Name })
-	for _, fk := range old.ForeignKeys {
-		if n, ok := findBy(nw.ForeignKeys, fk.Name, func(f ForeignKey) string { return f.OrigName }); !ok || !sameFK(rn.fk(fk), n) {
-			clauses = append(clauses, "DROP FOREIGN KEY "+myq(fk.Name))
+	// Triggers: drop changed/removed, create new/changed.
+	dropTr, addTr := d.triggers()
+	for _, tr := range dropTr {
+		db := ""
+		if nw.Database != "" {
+			db = myq(nw.Database) + "."
 		}
+		out = append(out, "DROP TRIGGER "+db+myq(tr.Name))
 	}
-	for _, ck := range old.Checks {
-		if n, ok := findBy(nw.Checks, ck.Name, func(c Check) string { return c.OrigName }); !ok || n.Expr != ck.Expr || n.Name != ck.Name || n.NotEnforced != ck.NotEnforced {
-			clauses = append(clauses, "DROP CHECK "+myq(ck.Name))
-		}
+	for _, tr := range addTr {
+		out = append(out, g.triggerDDL(nw, tr))
 	}
-	// Indexes that changed are dropped and re-created.
-	for _, ix := range old.Indexes {
-		if n, ok := findBy(nw.Indexes, ix.Name, func(i Index) string { return i.OrigName }); !ok || !sameIndex(rn.index(ix), n) {
-			clauses = append(clauses, "DROP INDEX "+myq(ix.Name))
-		}
+	return out, nil
+}
+
+func (g MySQL) dropParts(d tableDiff) []string {
+	var clauses []string
+	fks, _ := d.foreignKeys()
+	for _, fk := range fks {
+		clauses = append(clauses, "DROP FOREIGN KEY "+myq(fk.Name))
 	}
-	oldPK, newPK := rn.pk(old.PrimaryKey), pkCols(nw.PrimaryKey)
-	if !equalStrings(oldPK, newPK) && len(oldPK) > 0 {
+	cks, _ := d.checks(true)
+	for _, ck := range cks {
+		clauses = append(clauses, "DROP CHECK "+myq(ck.Name))
+	}
+	ixs, _ := d.indexes()
+	for _, ix := range ixs {
+		clauses = append(clauses, "DROP INDEX "+myq(ix.Name))
+	}
+	if oldPK, newPK := d.pk(); !equalStrings(oldPK, newPK) && len(oldPK) > 0 {
 		clauses = append(clauses, "DROP PRIMARY KEY")
 	}
+	return clauses
+}
 
-	// Columns: drop, modify/rename (with position), add.
-	for _, c := range old.Columns {
-		if _, ok := findBy(nw.Columns, c.Name, func(x Column) string { return x.OrigName }); !ok {
-			clauses = append(clauses, "DROP COLUMN "+myq(c.Name))
-		}
+// columnClauses drops, modifies or renames (with position) and adds columns.
+// It follows the column order as MySQL applies the clauses: cur starts as the
+// surviving columns in their old order, and each new column either already sits
+// at its target index (no position clause) or is moved or added there with
+// FIRST/AFTER.
+func (g MySQL) columnClauses(d tableDiff) ([]string, error) {
+	var clauses []string
+	for _, c := range d.droppedColumns() {
+		clauses = append(clauses, "DROP COLUMN "+myq(c.Name))
 	}
-	// Simulate the column order as MySQL applies the clauses: cur starts as the
-	// surviving columns in their old order; each new column either already sits at its
-	// target index (no position clause) or is moved/added there with FIRST/AFTER.
-	var cur []string // original names; added columns are "+name"
-	for _, c := range old.Columns {
-		if _, ok := findBy(nw.Columns, c.Name, func(x Column) string { return x.OrigName }); ok {
-			cur = append(cur, c.Name)
-		}
-	}
-	for i, c := range nw.Columns {
+	cur := d.survivors() // original names; added columns are "+name"
+	for i, c := range d.nw.Columns {
 		pos := " FIRST"
 		if i > 0 {
-			pos = " AFTER " + myq(nw.Columns[i-1].Name)
+			pos = " AFTER " + myq(d.nw.Columns[i-1].Name)
 		}
 		if c.OrigName == "" {
 			clauses = append(clauses, "ADD COLUMN "+g.column(c)+pos)
 			cur = slices.Insert(cur, min(i, len(cur)), "+"+c.Name)
 			continue
 		}
-		o, ok := findBy(old.Columns, c.OrigName, func(x Column) string { return x.Name })
-		if !ok {
-			return nil, fmt.Errorf("column %q refers to unknown original column %q", c.Name, c.OrigName)
+		o, err := d.original(c)
+		if err != nil {
+			return nil, err
 		}
 		at := slices.Index(cur, c.OrigName)
 		moved := at != i
@@ -321,71 +341,50 @@ func (g MySQL) alter(old, nw Table) ([]string, error) {
 			clauses = append(clauses, "MODIFY COLUMN "+g.column(c)+p)
 		}
 	}
+	return clauses, nil
+}
 
-	if !equalStrings(oldPK, newPK) && len(newPK) > 0 {
+func (g MySQL) addParts(d tableDiff) []string {
+	var clauses []string
+	if oldPK, newPK := d.pk(); !equalStrings(oldPK, newPK) && len(newPK) > 0 {
 		clauses = append(clauses, "ADD PRIMARY KEY ("+quoteList(newPK, myq)+")")
 	}
-	for _, ix := range nw.Indexes {
-		if o, ok := findBy(old.Indexes, ix.OrigName, func(i Index) string { return i.Name }); ok && ix.OrigName != "" && sameIndex(rn.index(o), ix) {
-			continue
-		}
+	_, ixs := d.indexes()
+	for _, ix := range ixs {
 		clauses = append(clauses, "ADD "+g.indexDef(ix))
 	}
-	for _, fk := range nw.ForeignKeys {
-		if o, ok := oldFK[fk.OrigName]; ok && fk.OrigName != "" && sameFK(rn.fk(o), fk) {
-			continue
-		}
+	_, fks := d.foreignKeys()
+	for _, fk := range fks {
 		clauses = append(clauses, "ADD "+g.fkDef(fk))
 	}
-	for _, ck := range nw.Checks {
-		if o, ok := findBy(old.Checks, ck.OrigName, func(c Check) string { return c.Name }); ok && ck.OrigName != "" && o.Expr == ck.Expr && o.Name == ck.Name && o.NotEnforced == ck.NotEnforced {
-			continue
-		}
+	_, cks := d.checks(true)
+	for _, ck := range cks {
 		clauses = append(clauses, "ADD "+g.checkDef(ck))
 	}
+	return clauses
+}
 
+// tableOptionChanges lists the table options an edit changed.
+func tableOptionChanges(old, nw Table) []string {
 	oo, no := old.Options, nw.Options
-	var optChanges []string
+	var out []string
 	if no.Engine != oo.Engine && no.Engine != "" {
-		optChanges = append(optChanges, "ENGINE="+no.Engine)
+		out = append(out, "ENGINE="+no.Engine)
 	}
 	if no.Charset != oo.Charset && no.Charset != "" {
-		optChanges = append(optChanges, "DEFAULT CHARSET="+no.Charset)
+		out = append(out, "DEFAULT CHARSET="+no.Charset)
 	}
 	if no.Collation != oo.Collation && no.Collation != "" {
-		optChanges = append(optChanges, "COLLATE="+no.Collation)
+		out = append(out, "COLLATE="+no.Collation)
 	}
 	if no.AutoIncrement != oo.AutoIncrement && no.AutoIncrement != "" {
-		optChanges = append(optChanges, "AUTO_INCREMENT="+no.AutoIncrement)
+		out = append(out, "AUTO_INCREMENT="+no.AutoIncrement)
 	}
 	if no.RowFormat != oo.RowFormat && no.RowFormat != "" {
-		optChanges = append(optChanges, "ROW_FORMAT="+no.RowFormat)
+		out = append(out, "ROW_FORMAT="+no.RowFormat)
 	}
 	if nw.Comment != old.Comment {
-		optChanges = append(optChanges, "COMMENT="+myStr(nw.Comment))
+		out = append(out, "COMMENT="+myStr(nw.Comment))
 	}
-	if len(optChanges) > 0 {
-		clauses = append(clauses, strings.Join(optChanges, " "))
-	}
-	if len(clauses) > 0 {
-		out = append(out, "ALTER TABLE "+tbl+"\n  "+strings.Join(clauses, ",\n  "))
-	}
-
-	// Triggers: drop changed/removed, create new/changed.
-	for _, tr := range old.Triggers {
-		if n, ok := findBy(nw.Triggers, tr.Name, func(x Trigger) string { return x.OrigName }); !ok || !sameTrigger(tr, n) {
-			db := ""
-			if nw.Database != "" {
-				db = myq(nw.Database) + "."
-			}
-			out = append(out, "DROP TRIGGER "+db+myq(tr.Name))
-		}
-	}
-	for _, tr := range nw.Triggers {
-		if o, ok := findBy(old.Triggers, tr.OrigName, func(x Trigger) string { return x.Name }); ok && tr.OrigName != "" && sameTrigger(o, tr) {
-			continue
-		}
-		out = append(out, g.triggerDDL(nw, tr))
-	}
-	return out, nil
+	return out
 }
