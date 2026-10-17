@@ -24,7 +24,8 @@ type Rows struct {
 	rows     *sql.Rows
 	cols     []model.ResultColumn
 	types    []string
-	scan     []any
+	cells    []cell
+	scan     []any // pointers to cells
 	fmt      Formatter
 	affected int64
 	err      error
@@ -43,13 +44,14 @@ func NewRows(rows *sql.Rows, affected int64, f Formatter) (*Rows, error) {
 	}
 	r.cols = make([]model.ResultColumn, len(cts))
 	r.types = make([]string, len(cts))
+	r.cells = make([]cell, len(cts))
 	r.scan = make([]any, len(cts))
 	for i, ct := range cts {
 		nullable, _ := ct.Nullable()
 		tn := strings.ToUpper(ct.DatabaseTypeName())
 		r.types[i] = tn
 		r.cols[i] = model.ResultColumn{Name: ct.Name(), Type: tn, Nullable: nullable}
-		r.scan[i] = new(any)
+		r.scan[i] = &r.cells[i]
 	}
 	return r, nil
 }
@@ -69,16 +71,29 @@ func (r *Rows) Next(dst []*string) bool {
 		r.err = err
 		return false
 	}
-	for i, p := range r.scan {
-		v := *(p.(*any))
-		if v == nil {
+	// One allocation holds the row's strings; dst points into it.
+	vals := make([]string, len(dst))
+	for i := range r.cells {
+		c := &r.cells[i]
+		if c.v == nil {
 			dst[i] = nil
 			continue
 		}
-		s := r.fmt(v, r.types[i])
-		dst[i] = &s
+		vals[i] = r.fmt(c.v, r.types[i])
+		dst[i] = &vals[i]
+		c.v = nil
 	}
 	return true
+}
+
+// cell takes the driver's value as is. Scanning into *any would copy []byte
+// values first, but they are formatted (into new strings) before the next row
+// replaces them, so the copy isn't needed.
+type cell struct{ v any }
+
+func (c *cell) Scan(src any) error {
+	c.v = src
+	return nil
 }
 
 func (r *Rows) Err() error {

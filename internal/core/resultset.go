@@ -39,9 +39,10 @@ func newResultSet(id string, cols []model.ResultColumn, cancel func()) *resultSe
 	return rs
 }
 
-// fill reads rows until exhausted, maxRows is reached, or the set is closed.
-// onProgress is called periodically (outside the lock) with the current count.
-func (rs *resultSet) fill(r driver.Rows, maxRows int, onProgress func(n int, done bool)) {
+// fill reads rows until exhausted, maxRows or about maxBytes (when > 0) is
+// reached, or the set is closed. onProgress is called periodically (outside the
+// lock) with the current count.
+func (rs *resultSet) fill(r driver.Rows, maxRows int, maxBytes int64, onProgress func(n int, done bool)) {
 	defer r.Close()
 	const batch = 500
 	buf := make([][]*string, 0, batch)
@@ -65,6 +66,7 @@ func (rs *resultSet) fill(r driver.Rows, maxRows int, onProgress func(n int, don
 		return !closed
 	}
 	total := 0
+	var size int64
 	for {
 		row := make([]*string, len(rs.columns))
 		if !r.Next(row) {
@@ -72,7 +74,8 @@ func (rs *resultSet) fill(r driver.Rows, maxRows int, onProgress func(n int, don
 		}
 		buf = append(buf, row)
 		total++
-		if total >= maxRows {
+		size += rowSize(row)
+		if total >= maxRows || (maxBytes > 0 && size >= maxBytes) {
 			rs.mu.Lock()
 			rs.truncated = true
 			rs.mu.Unlock()
@@ -98,6 +101,18 @@ func (rs *resultSet) fill(r driver.Rows, maxRows int, onProgress func(n int, don
 	if onProgress != nil {
 		onProgress(n, true)
 	}
+}
+
+// rowSize estimates a buffered row's memory: the row slice, a pointer and a
+// string header per cell, and the values.
+func rowSize(row []*string) int64 {
+	n := int64(24 + 24*len(row))
+	for _, v := range row {
+		if v != nil {
+			n += int64(len(*v))
+		}
+	}
+	return n
 }
 
 // waitFor blocks until at least n rows are buffered or the set is complete.
