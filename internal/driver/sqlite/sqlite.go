@@ -65,11 +65,8 @@ func (Driver) Open(ctx context.Context, c model.Connection, _ tunnel.Dialer) (dr
 	for _, a := range c.SQLite.Attached {
 		conn.attached = append(conn.attached, model.AttachedDB{Name: a.Name, Path: expandHome(a.Path)})
 	}
-	timeout := c.Advanced.ConnectTimeoutSec
-	if timeout <= 0 {
-		timeout = 5
-	}
-	dsn := uri(path, mode) + "&_pragma=foreign_keys(1)&_pragma=busy_timeout(" + strconv.Itoa(timeout*1000) + ")"
+	timeout := c.Advanced.ConnectTimeout(5 * time.Second)
+	dsn := uri(path, mode) + "&_pragma=foreign_keys(1)&_pragma=busy_timeout(" + strconv.FormatInt(timeout.Milliseconds(), 10) + ")"
 	inner, err := gosqlite.NewConnector(dsn)
 	if err != nil {
 		return nil, err

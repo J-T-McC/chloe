@@ -43,9 +43,9 @@ func (Driver) Open(ctx context.Context, c model.Connection, d tunnel.Dialer) (dr
 	cfg.Addr = net.JoinHostPort(c.Host, strconv.Itoa(port))
 	cfg.AllowNativePasswords = true
 	cfg.AllowCleartextPasswords = a.CleartextAuth
-	cfg.Timeout = seconds(a.ConnectTimeoutSec, 15)
-	cfg.ReadTimeout = seconds(a.ReadTimeoutSec, 0)
-	cfg.WriteTimeout = seconds(a.WriteTimeoutSec, 0)
+	cfg.Timeout = a.ConnectTimeout(15 * time.Second)
+	cfg.ReadTimeout = a.ReadTimeout(0)
+	cfg.WriteTimeout = a.WriteTimeout(0)
 	cfg.ParseTime = false // keep server text for DATETIME so zero dates and precision survive
 	cfg.ConnectionAttributes = "program_name:Chloe"
 	charset := "utf8mb4"
@@ -107,13 +107,6 @@ func (Driver) Open(ctx context.Context, c model.Connection, d tunnel.Dialer) (dr
 	_ = db.QueryRowContext(ctx, "SELECT VERSION()").Scan(&version)
 	return &Conn{db: db, connector: connector, stopKeepalive: stop, initial: a.InitialQueries, version: version,
 		mariadb: c.Type == model.MariaDB || strings.Contains(strings.ToLower(version), "mariadb")}, nil
-}
-
-func seconds(n, def int) time.Duration {
-	if n <= 0 {
-		n = def
-	}
-	return time.Duration(n) * time.Second
 }
 
 type Conn struct {
