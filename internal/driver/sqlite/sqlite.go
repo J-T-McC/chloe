@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	sqldriver "database/sql/driver"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -777,7 +778,7 @@ func (s *Session) Close() error {
 func FormatValue(v any, typeName string) string {
 	switch x := v.(type) {
 	case []byte:
-		return "0x" + strings.ToUpper(fmt.Sprintf("%x", x))
+		return "0x" + strings.ToUpper(hex.EncodeToString(x))
 	case time.Time:
 		if typeName == "DATE" && x.Hour() == 0 && x.Minute() == 0 && x.Second() == 0 && x.Nanosecond() == 0 {
 			return x.Format("2006-01-02")

@@ -16,7 +16,14 @@ func formatValue(v any, typeName string) string {
 			return `\x` + hex.EncodeToString(x)
 		}
 	case [16]byte: // uuid
-		return fmt.Sprintf("%x-%x-%x-%x-%x", x[0:4], x[4:6], x[6:8], x[8:10], x[10:16])
+		var b [36]byte
+		hex.Encode(b[0:8], x[0:4])
+		hex.Encode(b[9:13], x[4:6])
+		hex.Encode(b[14:18], x[6:8])
+		hex.Encode(b[19:23], x[8:10])
+		hex.Encode(b[24:], x[10:])
+		b[8], b[13], b[18], b[23] = '-', '-', '-', '-'
+		return string(b[:])
 	case driver.Valuer:
 		if inner, err := x.Value(); err == nil && inner != nil {
 			return sqlcommon.FormatValue(inner, typeName)
