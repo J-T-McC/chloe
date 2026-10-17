@@ -7,7 +7,7 @@ import { DBType, Transfer, arr, errorText, type Endpoint, type StructItem } from
 import { connDialect } from "../../dialect";
 import { useApp } from "../../store";
 import { KindIcon } from "../icons";
-import { CodeBlock } from "../ObjectsPane";
+import { CodeBlock } from "../CodeBlock";
 import { Split } from "../Split";
 import { JobProgress } from "./shared";
 import { DeployStep, EndpointPair, EndpointsHeader, WizardFooter, WizardSteps, emptyEnd, presetEnd, useWizardJob } from "./wizard";

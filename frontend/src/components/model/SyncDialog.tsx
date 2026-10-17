@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DBType, DM, Explorer, Models, arr, errorText } from "../../api";
 import { invalidateCatalog } from "../../editor/completion";
 import { useApp } from "../../store";
-import { CodeBlock } from "../ObjectsPane";
+import { CodeBlock } from "../CodeBlock";
 import { Modal } from "../Modal";
 import { Field, Check } from "../form";
 

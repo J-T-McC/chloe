@@ -7,7 +7,7 @@ import { Query, arr, errorText, type HistoryEntry, copyText } from "../api";
 import { connById, useApp } from "../store";
 import { alert, confirm } from "./Dialogs";
 import { openMenu } from "./ContextMenu";
-import { newQuery } from "./Sidebar";
+import { newQuery } from "../actions/tabs";
 import { Split } from "./Split";
 import { Toolbar } from "./Toolbar";
 import { Check } from "./form";

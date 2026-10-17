@@ -6,7 +6,7 @@ import { B, BI, arr, copyText, errorText } from "../../api";
 import { useApp } from "../../store";
 import { MenuItem, openMenu } from "../ContextMenu";
 import { alert, confirm, prompt } from "../Dialogs";
-import { createdByLabel } from "../model/ModelsList";
+import { createdByLabel } from "../../createdBy";
 import { Split } from "../Split";
 import { biChanged, listenBI, moveWorkspaceTabs, newWorkspace, openWorkspace, useBIVersion } from "./actions";
 import { Toolbar } from "../Toolbar";

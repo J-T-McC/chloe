@@ -46,7 +46,8 @@ import { MCPButton, MCPServer, openMCPServer } from "./components/mcp/MCPServer"
 import { ApprovalHost } from "./components/mcp/ApprovalHost";
 import { HostKeyHost } from "./components/HostKeyHost";
 import { requestCloseTabs, saveQueryTab } from "./queries";
-import { Sidebar, newQuery, openMonitor, selectAllSQL, useInitialLoad } from "./components/Sidebar";
+import { Sidebar, useInitialLoad } from "./components/Sidebar";
+import { newQuery, openMonitor, selectAllSQL } from "./actions/tabs";
 import { TableViewer } from "./components/TableViewer";
 import { Tab, connById, useApp } from "./store";
 import { openRedisConsole } from "./components/redis/actions";

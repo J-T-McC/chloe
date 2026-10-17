@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { D, DM, Models, arr, errorText } from "../../api";
 import { Dialect, Table, toWire } from "../../designer/model";
-import { CodeBlock } from "../ObjectsPane";
+import { CodeBlock } from "../CodeBlock";
 import { ChecksTab, FieldToolbar, FieldsTab, ForeignKeysTab, IndexesTab, OptionsTab, RefSource, UniquesTab } from "../designer/DesignerTabs";
 import { Toolbar } from "../Toolbar";
 import { Modal, ModalFooter } from "../Modal";

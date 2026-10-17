@@ -8,7 +8,7 @@ import { B, BI, arr, errorText } from "../../api";
 import { Tab, useApp } from "../../store";
 import { openMenu } from "../ContextMenu";
 import { alert, confirm, prompt } from "../Dialogs";
-import { createdByLabel } from "../model/ModelsList";
+import { createdByLabel } from "../../createdBy";
 import { Split } from "../Split";
 import { biChanged, openObject } from "./actions";
 import { ChartTypeIcon } from "./icons";

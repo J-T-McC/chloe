@@ -5,7 +5,7 @@ import { Mongo, ObjectKind, arr, errorText, type MG } from "../../api";
 import { field, formatIndexKeys, formatVal, parseIndexKeys } from "../../mongo/docs";
 import { useApp, type Tab } from "../../store";
 import { prompt } from "../Dialogs";
-import { CodeBlock } from "../ObjectsPane";
+import { CodeBlock } from "../CodeBlock";
 import { collectionsChanged } from "./actions";
 import { Toolbar } from "../Toolbar";
 import { Field } from "../form";

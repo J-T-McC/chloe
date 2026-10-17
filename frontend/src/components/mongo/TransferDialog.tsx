@@ -1,28 +1,12 @@
 // Export a collection to JSON / JSON Lines / CSV, or import such a file into one.
 import { FolderOpen } from "lucide-react";
 import { useState } from "react";
-import { create } from "zustand";
 import { Mongo, Transfer, errorText } from "../../api";
 import { track } from "../transfer/state";
 import { collectionsChanged } from "./actions";
+import { TransferRequest, useMongoTransfer } from "./transferState";
 import { Modal, ModalFooter } from "../Modal";
 import { Field, Check } from "../form";
-
-interface Request {
-  kind: "export" | "import";
-  connId: string;
-  db: string;
-  coll: string;
-  /** export: start from the viewer's filter and sort */
-  filter?: string;
-  sort?: string;
-}
-
-const useMongoTransfer = create<{ req: Request | null }>(() => ({ req: null }));
-
-export const exportCollection = (connId: string, db: string, coll: string, filter = "", sort = "") =>
-  useMongoTransfer.setState({ req: { kind: "export", connId, db, coll, filter, sort } });
-export const importCollection = (connId: string, db: string, coll: string) => useMongoTransfer.setState({ req: { kind: "import", connId, db, coll } });
 
 export function MongoTransferHost() {
   const req = useMongoTransfer((s) => s.req);
@@ -33,7 +17,7 @@ export function MongoTransferHost() {
 
 const EXT: Record<string, string> = { json: "json", jsonl: "jsonl", csv: "csv" };
 
-function ExportDialog({ req, onClose }: { req: Request; onClose(): void }) {
+function ExportDialog({ req, onClose }: { req: TransferRequest; onClose(): void }) {
   const [format, setFormat] = useState("json");
   const [canonical, setCanonical] = useState(false);
   const [filter, setFilter] = useState(req.filter ?? "");
@@ -118,7 +102,7 @@ function ExportDialog({ req, onClose }: { req: Request; onClose(): void }) {
   );
 }
 
-function ImportDialog({ req, onClose }: { req: Request; onClose(): void }) {
+function ImportDialog({ req, onClose }: { req: TransferRequest; onClose(): void }) {
   const [path, setPath] = useState("");
   const [format, setFormat] = useState("json");
   const [mode, setMode] = useState("append");

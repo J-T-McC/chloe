@@ -5,7 +5,7 @@ import { connById, useApp } from "../../store";
 import { TreeNode, useTree } from "../../tree";
 import { MenuItem } from "../ContextMenu";
 import { alert, confirm, prompt } from "../Dialogs";
-import { exportCollection, importCollection } from "./TransferDialog";
+import { exportCollection, importCollection } from "./transferState";
 
 const kindOf = (k?: string) => (k === ObjectKind.KindView ? ObjectKind.KindView : ObjectKind.KindCollection);
 

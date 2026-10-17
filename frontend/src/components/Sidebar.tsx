@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, Folder, Loader2, Search, TriangleAlert } fro
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Connection, Connections, DBType, ObjectKind, ObjectRef, Redis, errorText, copyText } from "../api";
 import { openRedisConsole } from "./redis/actions";
-import { collectionMenu, designCollection, mongoConnMenu, mongoDbMenu, newMongoQuery, openCollection } from "./mongo/actions";
+import { collectionMenu, designCollection, mongoConnMenu, mongoDbMenu, newMongoQuery } from "./mongo/actions";
 import { openUsers } from "./users/actions";
 import { connById, dbKey, useApp } from "../store";
 import { TreeNode, flatten, matchParts, useTree } from "../tree";
@@ -19,7 +19,8 @@ import { openDataTransfer } from "./transfer/DataTransferWizard";
 import { openStructureSync } from "./transfer/StructureSyncWizard";
 import { openDataSync } from "./transfer/DataSyncWizard";
 import { Drag, Drop, DropTarget, resolveDrop } from "../connDrag";
-import { isPG, qualifiedName } from "../dialect";
+import { isPG } from "../dialect";
+import { newQuery, openMonitor, openObject, refOf } from "../actions/tabs";
 
 const ROW = 24;
 export const COLORS: Array<[string, string]> = [
@@ -195,10 +196,6 @@ function selectNode(n: TreeNode, showObjects = true) {
   if (showObjects && app.activeTab !== "objects" && n.type !== "object") app.setActive("objects");
 }
 
-function refOf(n: TreeNode): ObjectRef {
-  return { database: n.database!, schema: n.schema, name: n.info!.name, kind: n.kind!, signature: n.info?.signature };
-}
-
 type RowDnd = {
   start(e: React.DragEvent<HTMLElement>, n: TreeNode): void;
   over(e: React.DragEvent<HTMLElement>, n?: TreeNode): void;
@@ -279,40 +276,6 @@ function TreeRow(props: {
       {error && <TriangleAlert size={12} className="tree-error" />}
     </div>
   );
-}
-
-export function openObject(n: TreeNode) {
-  const app = useApp.getState();
-  if (connById(n.connId)?.type === DBType.MongoDB) return openCollection(n.connId, n.database!, n.info?.name ?? n.label, n.kind);
-  if (n.kind === ObjectKind.KindQuery) return openSavedQuery(n.connId, n.database!, n.schema, n.info?.name ?? n.label);
-  const ref = refOf(n);
-  if (n.kind === ObjectKind.KindTable || n.kind === ObjectKind.KindView || n.kind === ObjectKind.KindMatView) {
-    app.openTab({ kind: "table", title: n.info!.name, connId: n.connId, database: n.database, schema: n.schema, ref });
-  } else {
-    app.openTab({ kind: "ddl", title: n.info!.name, connId: n.connId, database: n.database, schema: n.schema, ref });
-  }
-}
-
-export function newQuery(connId: string, database?: string, schema?: string, sql = "") {
-  const app = useApp.getState();
-  const conn = connById(connId);
-  if (conn?.type === DBType.MongoDB) return newMongoQuery(connId, database, sql);
-  const db = database ?? (conn?.initialDatabase || undefined);
-  // A query tab works in its database, so that database counts as open.
-  if (db) app.openDatabase(connId, db);
-  app.openTab({ kind: "query", title: `Query — ${db ?? conn?.name ?? ""}`, connId, database: db, schema, sql, savedSql: sql });
-}
-
-/** "SELECT * FROM table;" with the table quoted for the connection's dialect. */
-export function selectAllSQL(connId: string, ref: ObjectRef) {
-  const type = connById(connId)?.type;
-  if (type === DBType.MongoDB) return `db.getCollection(${JSON.stringify(ref.name)}).find({})`;
-  return `SELECT * FROM ${qualifiedName(connId, ref)};`;
-}
-
-export function openMonitor(connId: string) {
-  const conn = connById(connId);
-  useApp.getState().openTab({ kind: "monitor", title: `Server Monitor — ${conn?.name ?? ""}`, connId, ref: { database: "", name: "monitor", kind: ObjectKind.$zero } });
 }
 
 // ---- actions ---------------------------------------------------------------------

@@ -9,7 +9,7 @@ import { ColumnMode, ErdTable, Positions, autoLayout, fromTables, modelKey, tabl
 import { Tab, useApp } from "../../store";
 import { MenuItem, openMenu } from "../ContextMenu";
 import { alert, confirm, prompt } from "../Dialogs";
-import { CodeBlock } from "../ObjectsPane";
+import { CodeBlock } from "../CodeBlock";
 import { DiagramCanvas } from "../erd/DiagramCanvas";
 import { exportDiagram } from "../erd/export";
 import { libraryChanged, pendingModels } from "./actions";

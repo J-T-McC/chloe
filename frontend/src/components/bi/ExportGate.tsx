@@ -1,10 +1,8 @@
 // Mounts the dashboard export stage (ExportHost) only once something asks for a render,
 // so the canvas, the charts and html-to-image load then rather than at startup.
 import { Suspense, lazy, useEffect } from "react";
-import { create } from "zustand";
 import { Events } from "../../api";
-
-export const useExportStage = create<{ on: boolean }>(() => ({ on: false }));
+import { useExportStage } from "./exportStage";
 
 const Stage = lazy(() => import("./ExportHost").then((m) => ({ default: m.ExportHost })));
 

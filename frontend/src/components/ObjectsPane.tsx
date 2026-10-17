@@ -10,16 +10,17 @@ import { designTable, newTable, runTableAction } from "../tableActions";
 import { newView, viewDesign } from "./designer/ViewDesigner";
 import { objectsAreaMenu, openERD, tableChildMenu, tableMenu, viewMenu } from "../menus";
 import { openExport, openImport } from "./transfer/state";
-import { editorTheme, monaco } from "../editor/monaco";
 import { connById, dbKey, useApp } from "../store";
 import { TreeNode, folderKey, useTree } from "../tree";
 import { openMenu } from "./ContextMenu";
 import { Split } from "./Split";
 import { KIND_LABEL, KindIcon } from "./icons";
-import { newQuery, openObject, savedQueryMenu, selectAllSQL } from "./Sidebar";
+import { savedQueryMenu } from "./Sidebar";
+import { newQuery, openObject, selectAllSQL } from "../actions/tabs";
 import { deleteSavedQueries } from "../queries";
 import { Toolbar } from "./Toolbar";
 import { useAsync } from "./useAsync";
+import { CodeBlock } from "./CodeBlock";
 
 export function ObjectsPane() {
   const sel = useApp((s) => s.selection);
@@ -380,20 +381,6 @@ function InfoPanel({ connId, object, database, schema }: { connId: string; objec
       {err ? <div className="err small">{err}</div> : <CodeBlock code={ddl} />}
     </div>
   );
-}
-
-/** Read-only syntax-highlighted SQL using Monaco's colorizer (no editor instance). */
-export function CodeBlock({ code, language = "sql" }: { code: string; language?: string }) {
-  const [html, setHtml] = useState("");
-  useEffect(() => {
-    let live = true;
-    monaco.editor.setTheme(editorTheme());
-    monaco.editor.colorize(code, language, { tabSize: 2 }).then((h) => live && setHtml(h));
-    return () => {
-      live = false;
-    };
-  }, [code, language]);
-  return <pre className="code-block" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 export function DDLView({ connId, objRef: r }: { connId: string; objRef: ObjectRef }) {

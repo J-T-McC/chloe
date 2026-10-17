@@ -24,7 +24,6 @@ import { Toolbar } from "../Toolbar";
 import { useAsync } from "../useAsync";
 import { engineLabel } from "../../dialect";
 
-export { createdByLabel };
 
 export function ModelsList() {
   const version = useModelLibrary((s) => s.version);
