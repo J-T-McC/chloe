@@ -66,7 +66,7 @@ func (m *Manager) Export(connID string, req ExportRequest) (Job, error) {
 	req.Options.Dialect = d.Name
 	return m.startJob("export", title+" → "+baseName(req.Path), "rows", func(ctx context.Context, p *progress) (string, error) {
 		if src.Ref != nil {
-			if n, err := m.CountRows(ctx, connID, *src.Ref, src.Where); err == nil {
+			if n := m.exportTotal(ctx, connID, d, *src.Ref, src.Where); n > 0 {
 				p.set(0, n)
 			}
 		}
@@ -87,6 +87,30 @@ func (m *Manager) Export(connID string, req ExportRequest) (Job, error) {
 		}
 		return fmt.Sprintf("Exported %d rows to %s", n, req.Path), f.Commit()
 	}), nil
+}
+
+// exportTotal is the row count an export's progress is measured against: the
+// server's estimate for a whole table, as an exact count would read it all a
+// second time. SQLite keeps no estimate, but counting a local file is cheap. A
+// filtered export of a server table shows its count without a total.
+func (m *Manager) exportTotal(ctx context.Context, connID string, d driver.Dialect, ref model.ObjectRef, where string) int64 {
+	if d.Name == "sqlite" {
+		n, _ := m.CountRows(ctx, connID, ref, where)
+		return n
+	}
+	if strings.TrimSpace(where) != "" {
+		return 0
+	}
+	objs, err := m.ListObjects(ctx, connID, ref.Database, ref.Schema, model.KindTable)
+	if err != nil {
+		return 0
+	}
+	for _, o := range objs {
+		if o.Name == ref.Name {
+			return o.Rows
+		}
+	}
+	return 0
 }
 
 // streamExport writes the rows of query to out, passing the count so far to done.
