@@ -441,9 +441,8 @@ func (d *dumper) data(ctx context.Context, td design.Table) error {
 		table = d.d.Qualified(ref)
 	}
 	n, err := streamExport(ctx, ds, q, d.w, transfer.ExportOptions{Format: transfer.SQL, TableName: table, RowsPerInsert: 100,
-		Dialect: d.d.Name, OverridingSystemValue: overriding}, &progress{m: d.m, st: &jobState{}})
+		Dialect: d.d.Name, OverridingSystemValue: overriding}, func(n int64) { d.p.setDone(d.rows + n) })
 	d.rows += n
-	d.p.setDone(d.rows)
 	return err
 }
 

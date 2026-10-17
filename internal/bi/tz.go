@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+	// Zone names must load on machines without a zoneinfo database (Windows).
+	_ "time/tzdata"
 
 	"chloe/internal/driver"
 )

@@ -74,6 +74,7 @@ export function StructureSyncWizard() {
     setError("");
     if (!source.connId || !source.database || !target.connId || !target.database) return setError("Choose a source and a target.");
     if (connDialect(source.connId) !== connDialect(target.connId)) return setError("Structure synchronization compares two databases of the same engine. Use Data Transfer between engines.");
+    if (source.connId === target.connId && source.database === target.database && (source.schema ?? "") === (target.schema ?? "")) return setError("The source and the target are the same.");
     setBusy(true);
     try {
       const res = await Transfer.CompareStructure({ source, target, options: opts });
