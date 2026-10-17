@@ -448,10 +448,11 @@ func (b *builder) delete(conds []Condition, only *keySet) (stmt, error) {
 	return stmt{"DELETE FROM " + b.d.Qualified(b.ref) + " WHERE " + w, args}, nil
 }
 
-var placeholderRe = regexp.MustCompile(`\$\d+|\?`)
-
 // display renders a statement with its values inlined, for the approval dialog
-// and the activity log only; it is never executed.
+// and the activity log only; it is never executed. Placeholders ($n on
+// PostgreSQL, ? elsewhere) are the only ones outside quoted identifiers, since
+// values never appear in the SQL; a doubled quote inside a name ends and
+// restarts the quoting, so it needs no special case.
 func display(d driver.Dialect, s stmt) string {
 	lit := func(a any) string {
 		if a == nil {
@@ -459,20 +460,6 @@ func display(d driver.Dialect, s stmt) string {
 		}
 		return "'" + strings.ReplaceAll(fmt.Sprint(a), "'", "''") + "'"
 	}
-	if d.Name == "postgres" {
-		return placeholderRe.ReplaceAllStringFunc(s.SQL, func(m string) string {
-			if m == "?" {
-				return m
-			}
-			n, _ := strconv.Atoi(m[1:])
-			if n >= 1 && n <= len(s.Args) {
-				return lit(s.Args[n-1])
-			}
-			return m
-		})
-	}
-	// Placeholders are the only ? outside literals: identifiers are quoted with
-	// backticks or double quotes, and values never appear in the SQL.
 	i := 0
 	var out strings.Builder
 	inQuote := byte(0)
@@ -485,7 +472,17 @@ func display(d driver.Dialect, s stmt) string {
 			}
 		case ch == '`' || ch == '"':
 			inQuote = ch
-		case ch == '?' && i < len(s.Args):
+		case d.Name == "postgres" && ch == '$':
+			k := j + 1
+			for k < len(s.SQL) && s.SQL[k] >= '0' && s.SQL[k] <= '9' {
+				k++
+			}
+			if n, err := strconv.Atoi(s.SQL[j+1 : k]); err == nil && n >= 1 && n <= len(s.Args) {
+				out.WriteString(lit(s.Args[n-1]))
+				j = k - 1
+				continue
+			}
+		case d.Name != "postgres" && ch == '?' && i < len(s.Args):
 			out.WriteString(lit(s.Args[i]))
 			i++
 			continue

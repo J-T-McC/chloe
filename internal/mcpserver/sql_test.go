@@ -57,6 +57,15 @@ func TestBuildStatements(t *testing.T) {
 	if d := display(mysqlD, odd); d != "SELECT `a?` FROM t WHERE x = 'it''s'" {
 		t.Fatal(d)
 	}
+	// Nor is a $1 in a PostgreSQL name, or a ? after a doubled quote.
+	pgOdd := stmt{SQL: `SELECT "a$1""$2" FROM t WHERE x = $1 AND y = $2 AND z = $10`, Args: []any{"one", nil}}
+	if d := display(pgD, pgOdd); d != `SELECT "a$1""$2" FROM t WHERE x = 'one' AND y = NULL AND z = $10` {
+		t.Fatal(d)
+	}
+	doubled := stmt{SQL: "SELECT `a``?` FROM t WHERE x = ?", Args: []any{1}}
+	if d := display(mysqlD, doubled); d != "SELECT `a``?` FROM t WHERE x = '1'" {
+		t.Fatal(d)
+	}
 	if mi, _ := m.insert(map[string]any{"status": true}); strings.Contains(mi.SQL, "RETURNING") || mi.Args[0] != "1" {
 		t.Fatalf("mysql insert: %s %v", mi.SQL, mi.Args)
 	}
