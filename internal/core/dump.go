@@ -50,6 +50,7 @@ func (m *Manager) Dump(connID string, req DumpRequest) (Job, error) {
 		defer f.Close()
 		w := bufio.NewWriterSize(f, 1<<16)
 		d := &dumper{m: m, c: c, d: c.Dialect(), connID: connID, req: req, w: w, p: p}
+		defer d.close()
 		if err := d.run(ctx); err != nil {
 			return "", err
 		}
@@ -70,9 +71,29 @@ type dumper struct {
 	p      *progress
 	tables int
 	rows   int64
+	ds     driver.Session // opened on first use, for every table's rows
 }
 
 func (d *dumper) pg() bool { return d.d.Name == "postgres" }
+
+// session is the dump's one session: logging in once per table cost more than
+// reading small tables.
+func (d *dumper) session(ctx context.Context) (driver.Session, error) {
+	if d.ds == nil {
+		ds, err := d.c.NewSession(ctx, d.req.Database, d.req.Schema)
+		if err != nil {
+			return nil, err
+		}
+		d.ds = ds
+	}
+	return d.ds, nil
+}
+
+func (d *dumper) close() {
+	if d.ds != nil {
+		d.ds.Close()
+	}
+}
 
 var definerRe = regexp.MustCompile("DEFINER=`[^`]*`@`[^`]*` ")
 
@@ -366,13 +387,11 @@ func (d *dumper) runPG(ctx context.Context, tables []model.ObjectInfo, all bool)
 }
 
 func (d *dumper) standaloneSequences(ctx context.Context, schema string) ([]string, error) {
-	sid, err := d.m.OpenSession(ctx, d.connID, d.req.Database, schema)
+	ds, err := d.session(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer d.m.CloseSession(sid)
-	s, _ := d.m.session(sid)
-	rows, err := s.ds.Query(ctx, fmt.Sprintf(`SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+	rows, err := ds.Query(ctx, fmt.Sprintf(`SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 		WHERE c.relkind = 'S' AND n.nspname = %s
 		AND NOT EXISTS (SELECT 1 FROM pg_depend dp WHERE dp.objid = c.oid AND dp.deptype = 'i') ORDER BY 1`, transfer.Literal(&schema, "text", "postgres")))
 	if err != nil {
@@ -430,11 +449,10 @@ func (d *dumper) data(ctx context.Context, td design.Table) error {
 	}
 	ref := d.ref(td.Name, model.KindTable)
 	q := "SELECT " + strings.Join(cols, ", ") + " FROM " + d.d.Qualified(ref)
-	ds, err := d.c.NewSession(ctx, d.req.Database, d.req.Schema)
+	ds, err := d.session(ctx)
 	if err != nil {
 		return err
 	}
-	defer ds.Close()
 	d.section("Records of " + td.Name)
 	table := d.d.QuoteIdent(td.Name)
 	if d.pg() {

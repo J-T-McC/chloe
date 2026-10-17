@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"chloe/internal/driver"
 	"chloe/internal/model"
@@ -24,31 +25,57 @@ type BrowseRequest struct {
 	Limit  int             `json:"limit"`
 }
 
-// BrowseTable opens a table page in its own short-lived session. The page is read
-// fully (it is bounded by Limit) and stays available via FetchRows until released.
+// BrowseTable reads a table page on one of the connection's warm read sessions.
+// The page is read fully (it is bounded by Limit) and stays available via
+// FetchRows until released.
 func (m *Manager) BrowseTable(ctx context.Context, connID string, req BrowseRequest) (model.StatementResult, error) {
 	c, err := m.conn(connID)
 	if err != nil {
 		return model.StatementResult{}, err
 	}
 	q := buildSelect(c.Dialect(), req)
-	sid, err := m.OpenSession(ctx, connID, req.Ref.Database, req.Ref.Schema)
+	var res model.StatementResult
+	err = m.WithReadSession(ctx, connID, req.Ref.Database, req.Ref.Schema, func(ds driver.Session, _ driver.Dialect) error {
+		res = m.readResult(ctx, ds, resultOrigin{connID: connID, sql: q, database: req.Ref.Database, schema: req.Ref.Schema})
+		return nil
+	})
+	return res, err
+}
+
+// readResult runs a query on a session it doesn't own and buffers every row
+// before returning, so the result outlives its use of the session.
+func (m *Manager) readResult(ctx context.Context, ds driver.Session, origin resultOrigin) model.StatementResult {
+	res := model.StatementResult{SQL: origin.sql}
+	start := time.Now()
+	defer func() { res.DurationMs = time.Since(start).Milliseconds() }()
+	rows, err := ds.Query(ctx, origin.sql)
 	if err != nil {
-		return model.StatementResult{}, err
+		res.Error = err.Error()
+		res.ErrorLine = 1
+		return res
 	}
-	defer m.CloseSession(sid)
-	s, err := m.session(sid)
-	if err != nil {
-		return model.StatementResult{}, err
+	if !rows.HasRows() {
+		res.RowsAffected, res.Complete = rows.RowsAffected(), true
+		rows.Close()
+		return res
 	}
-	s.run.Lock()
-	res := m.runStatement(ctx, s, statementOf(q), false)
-	s.run.Unlock()
-	// Detach the result from the session so closing the session keeps it alive.
+	id := newID()
+	// Cancelling is only needed while fill reads, which is while ds is ours.
+	rs := newResultSet(id, rows.Columns(), func() { _ = ds.Cancel(context.Background()) })
+	rs.origin = origin
+	rs.fill(rows, m.settings.MaxResultRows, m.settings.MaxResultBytes, nil)
+	rs.cancel = nil
 	m.mu.Lock()
-	s.results = nil
+	m.results[id] = rs
 	m.mu.Unlock()
-	return res, nil
+	n, complete, truncated, ferr := rs.snapshot()
+	res.ResultID, res.Columns = id, rs.columns
+	res.RowCount, res.Complete, res.Truncated = n, complete, truncated
+	if ferr != nil {
+		res.Error = ferr.Error()
+		res.ErrorLine = 1
+	}
+	return res
 }
 
 // CountRows counts the rows matching a browse filter (shown in the status bar).
