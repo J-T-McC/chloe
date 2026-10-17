@@ -92,14 +92,26 @@ async function catalogFor(ctx: EditorContext, extraDbs: string[] = []): Promise<
     return { dialect: "mysql", schemas: dbs, tables: [], fks: [], functions: fns.map((name) => ({ name, builtin: true })) };
   }
   const base = await cached(catalogs, key(ctx.connId, db), () => loadCatalog(ctx.connId, db));
-  const cat = { ...base, defaultSchema: conn.type === DBType.PostgreSQL ? ctx.schema || "public" : db };
-  if (!extraDbs.length) return cat;
+  const defaultSchema = conn.type === DBType.PostgreSQL ? ctx.schema || "public" : db;
+  if (!extraDbs.length) return withDefaultSchema(base, defaultSchema);
+  const cat = { ...base, defaultSchema };
   const extra = await Promise.all(extraDbs.map((d) => cached(catalogs, key(ctx.connId, d), () => loadCatalog(ctx.connId, d)).catch(() => null)));
   for (const e of extra) {
     if (!e) continue;
     cat.tables = [...cat.tables, ...e.tables];
     cat.fks = [...cat.fks, ...e.fks];
   }
+  return cat;
+}
+
+// The same catalog object for the same base and default schema, so the
+// engine's index of it (cached by object) is built once, not per keystroke.
+const derived = new WeakMap<CompletionCatalog, Map<string, CompletionCatalog>>();
+function withDefaultSchema(base: CompletionCatalog, defaultSchema: string): CompletionCatalog {
+  let m = derived.get(base);
+  if (!m) derived.set(base, (m = new Map()));
+  let cat = m.get(defaultSchema);
+  if (!cat) m.set(defaultSchema, (cat = { ...base, defaultSchema }));
   return cat;
 }
 

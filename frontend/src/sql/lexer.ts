@@ -28,7 +28,22 @@ export interface Token {
 const isIdentStart = (c: string) => /[A-Za-z_\u0080-￿]/.test(c);
 const isIdentPart = (c: string) => /[A-Za-z0-9_$\u0080-￿]/.test(c);
 
+// One completion request asks several analyses (JSON path, string check,
+// statement analysis, enum values) about the same text, so the last few
+// results are kept. Callers only read the tokens.
+const recent: { sql: string; dialect: DialectName; tokens: Token[] }[] = [];
+const RECENT = 4;
+
 export function tokenize(sql: string, dialect: DialectName): Token[] {
+  const hit = recent.find((r) => r.dialect === dialect && r.sql === sql);
+  if (hit) return hit.tokens;
+  const tokens = lex(sql, dialect);
+  recent.unshift({ sql, dialect, tokens });
+  recent.length = Math.min(recent.length, RECENT);
+  return tokens;
+}
+
+function lex(sql: string, dialect: DialectName): Token[] {
   const out: Token[] = [];
   const n = sql.length;
   let i = 0;
