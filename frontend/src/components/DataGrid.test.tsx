@@ -17,6 +17,12 @@ const copied: string[] = [];
 vi.mock("../api", () => ({ copyText: (s: string) => void copied.push(s) }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+// jsdom has no ResizeObserver; the grid only uses it to follow its own size.
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+} as unknown as typeof ResizeObserver;
 
 describe("DataGrid", () => {
   it("drops a page that arrives after the data changed", async () => {
@@ -63,6 +69,40 @@ describe("DataGrid", () => {
     await act(async () => grid.dispatchEvent(new KeyboardEvent("keydown", { key: "c", metaKey: true, bubbles: true })));
     expect(copied[copied.length - 1]).toBe("abcdef");
     expect(fetchFull).toHaveBeenCalledTimes(2);
+    act(() => root.unmount());
+  });
+
+  it("draws only the columns in view", async () => {
+    const columns = Array.from({ length: 200 }, (_, i) => ({ name: `c${i}`, type: "INTEGER" })) as never;
+    const fetchPage = () => Promise.resolve({ rows: [0, 1].map((r) => Array.from({ length: 200 }, (_, c) => `${r}:${c}`)) as Cell[][] });
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    await act(async () => root.render(<DataGrid columns={columns} rowCount={2} dataKey="w" fetchPage={fetchPage} />));
+    const drawn = () => [...el.querySelectorAll<HTMLElement>(".grid-row")[0].querySelectorAll<HTMLElement>(".grid-cell")].map((c) => Number(c.dataset.c));
+    expect(drawn()[0]).toBe(0);
+    expect(drawn().length).toBeLessThan(40);
+    expect(el.querySelectorAll(".grid-hcell").length).toBe(drawn().length);
+    const grid = el.querySelector<HTMLElement>(".grid")!;
+    await act(async () => {
+      grid.scrollLeft = 8000;
+      grid.dispatchEvent(new Event("scroll"));
+    });
+    expect(drawn()[0]).toBeGreaterThan(50);
+    expect(el.textContent).toContain(`0:${drawn()[5]}`);
+    act(() => root.unmount());
+  });
+
+  it("survives losing columns", async () => {
+    const many = Array.from({ length: 30 }, (_, i) => ({ name: `c${i}`, type: "TEXT" })) as never;
+    const few = [{ name: "c0", type: "TEXT" }] as never;
+    const fetchPage = () => Promise.resolve({ rows: [Array.from({ length: 30 }, (_, c) => `v${c}`)] as Cell[][] });
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    await act(async () => root.render(<DataGrid columns={many} rowCount={1} dataKey="a" fetchPage={fetchPage} />));
+    await act(async () => root.render(<DataGrid columns={few} rowCount={1} dataKey="b" fetchPage={fetchPage} />));
+    expect(el.querySelectorAll(".grid-hcell").length).toBe(1);
     act(() => root.unmount());
   });
 });

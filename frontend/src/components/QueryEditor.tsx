@@ -1,5 +1,5 @@
 import { Check, CircleStop, History, Minus, PanelBottom, Play, PlayCircle, Plus, Save, Sparkles, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DBType, Events, Explorer, Query, ResultEdit, StatementResult, arr, errorText } from "../api";
 import { autoTrigger, clearEditorContext, invalidateCatalog, preloadCatalog, registerSqlCompletion, setEditorContext } from "../editor/completion";
 import { beautifyEditor, registerFormatter } from "../editor/format";
@@ -9,6 +9,7 @@ import { Cell, DataGrid, GridEdits, MAX_CELL_CHARS, emptyEdits } from "./DataGri
 import { confirm } from "./Dialogs";
 import { buildRowChanges } from "../gridChanges";
 import { Split } from "./Split";
+import { useStable } from "./useStable";
 import { ValuePanel } from "./ValuePanel";
 import { readFlag, writeFlag } from "../prefs";
 import { connDialect, editorLanguage } from "../dialect";
@@ -386,6 +387,7 @@ export function ResultGrid({
   const fetchFull = useCallback(async (offset: number, limit: number) => arr((await Query.FetchRows(id, offset, limit, 0)).rows) as Cell[][], [id]);
   const [panel, setPanel] = useState(() => readFlag("valuePanel"));
   const [active, setActive] = useState<{ r: number; c: number; value?: Cell } | null>(null);
+  const onActiveCell = useCallback((r: number, c: number, value?: Cell) => setActive({ r, c, value }), []);
   const [fetched, setFetched] = useState<{ key: string; value: Cell } | null>(null);
   const [target, setTarget] = useState<ResultEdit | null>(null);
   const [revision, setRevision] = useState(0);
@@ -419,26 +421,28 @@ export function ResultGrid({
   const columns = arr(result.columns);
   const editable = !!target?.editable && !!edits && !!onEdits;
   const mapped = arr(target?.columns);
-  const readOnlyColumns = editable ? columns.map((_, c) => !mapped[c]) : undefined;
+  const readOnlyColumns = useMemo(() => (editable ? columns.map((_, c) => !mapped[c]) : undefined), [editable, columns, mapped]);
   const e = edits ?? emptyEdits();
   const dirty = isDirty(e);
   const update = (fn: (e: GridEdits) => GridEdits) => onEdits?.(id, fn);
 
-  const onEditCell = (row: number, col: number, value: Cell) =>
+  const onEditCell = useStable((row: number, col: number, value: Cell) =>
     update((x) => {
       const updated = new Map(x.updated);
       const m = new Map(updated.get(row) ?? []);
       m.set(col, value);
       updated.set(row, m);
       return { ...x, updated };
-    });
-  const onInsertRow = () =>
+    }),
+  );
+  const onInsertRow = useStable(() =>
     update((x) => {
       const inserted = new Set(x.inserted);
       inserted.add(result.rowCount + inserted.size);
       return { ...x, inserted };
-    });
-  const onDeleteRows = (rows: number[]) =>
+    }),
+  );
+  const onDeleteRows = useStable((rows: number[]) =>
     update((x) => {
       const deleted = new Set(x.deleted);
       const inserted = new Set(x.inserted);
@@ -447,7 +451,8 @@ export function ResultGrid({
         else deleted.add(r);
       }
       return { ...x, deleted, inserted };
-    });
+    }),
+  );
 
   const apply = async () => {
     if (!editable || !target || !dirty) return;
@@ -529,7 +534,7 @@ export function ResultGrid({
             onEditCell={onEditCell}
             onInsertRow={onInsertRow}
             onDeleteRows={onDeleteRows}
-            onActiveCell={(r, c, value) => setActive({ r, c, value })}
+            onActiveCell={onActiveCell}
           />
         }
         second={
