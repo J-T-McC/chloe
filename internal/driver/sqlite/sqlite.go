@@ -680,17 +680,42 @@ type Session struct {
 	conn *sql.Conn
 
 	mu      sync.Mutex
-	cancels []context.CancelFunc
+	next    int
+	cancels map[int]context.CancelFunc // statements still running or streaming rows
 }
 
-// run gives statements a context Cancel can interrupt. A statement's rows may
-// still be streaming when the next one starts, so earlier contexts stay live.
-func (s *Session) run(ctx context.Context) context.Context {
+// run gives a statement a context Cancel can interrupt, and done to call once
+// the statement and its rows are finished with. A statement's rows may still
+// be streaming when the next one starts, so each has its own.
+func (s *Session) run(ctx context.Context) (context.Context, func()) {
 	ctx, cancel := context.WithCancel(ctx)
 	s.mu.Lock()
-	s.cancels = append(s.cancels, cancel)
+	if s.cancels == nil {
+		s.cancels = map[int]context.CancelFunc{}
+	}
+	id := s.next
+	s.next++
+	s.cancels[id] = cancel
 	s.mu.Unlock()
-	return ctx
+	return ctx, func() {
+		cancel()
+		s.mu.Lock()
+		delete(s.cancels, id)
+		s.mu.Unlock()
+	}
+}
+
+// doneRows calls done when the rows are closed.
+type doneRows struct {
+	driver.Rows
+	once sync.Once
+	done func()
+}
+
+func (r *doneRows) Close() error {
+	err := r.Rows.Close()
+	r.once.Do(r.done)
+	return err
 }
 
 // sync re-attaches databases on the session's connection if the set changed.
@@ -707,13 +732,21 @@ func (s *Session) Query(ctx context.Context, stmt string, args ...any) (driver.R
 	if err := s.sync(ctx); err != nil {
 		return nil, err
 	}
-	return sqlcommon.Run(s.run(ctx), s.conn, stmt, FormatValue, args...)
+	ctx, done := s.run(ctx)
+	rows, err := sqlcommon.Run(ctx, s.conn, stmt, FormatValue, args...)
+	if err != nil {
+		done()
+		return nil, err
+	}
+	return &doneRows{Rows: rows, done: done}, nil
 }
 
 func (s *Session) Exec(ctx context.Context, stmt string, args ...any) (int64, error) {
 	if err := s.sync(ctx); err != nil {
 		return 0, err
 	}
+	ctx, done := s.run(ctx)
+	defer done()
 	res, err := s.conn.ExecContext(ctx, stmt, args...)
 	if err != nil {
 		return 0, err
@@ -728,7 +761,7 @@ func (s *Session) Cancel(context.Context) error {
 	for _, c := range s.cancels {
 		c()
 	}
-	s.cancels = nil
+	clear(s.cancels)
 	return nil
 }
 
