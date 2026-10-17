@@ -8,8 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/google/uuid"
-
 	"chloe/internal/driver"
 )
 
@@ -134,23 +132,10 @@ func (w *Workspace) PutParameter(p Parameter) (Parameter, error) {
 	if err := p.Check(); err != nil {
 		return p, err
 	}
-	for _, o := range w.Parameters {
-		if o.ID != p.ID && strings.EqualFold(o.Name, p.Name) {
-			return p, fmt.Errorf("the workspace already has a parameter named %q", p.Name)
-		}
+	if err := uniqueName(w.Parameters, &p, "parameter"); err != nil {
+		return p, err
 	}
-	p.Modified = stamp()
-	if i := slices.IndexFunc(w.Parameters, func(o Parameter) bool { return o.ID == p.ID }); p.ID != "" && i >= 0 {
-		p.Created, p.CreatedBy = w.Parameters[i].Created, w.Parameters[i].CreatedBy
-		w.Parameters[i] = p
-		return p, nil
-	}
-	if p.ID == "" {
-		p.ID = uuid.NewString()
-	}
-	p.Created = p.Modified
-	w.Parameters = append(w.Parameters, p)
-	return p, nil
+	return put(&w.Parameters, p), nil
 }
 
 // Values are parameter values by lower-case name.

@@ -88,12 +88,7 @@ type Item struct {
 	Locked bool `json:"locked,omitempty"`
 }
 
-func (w *Workspace) Dashboard(id string) *Dashboard {
-	if i := slices.IndexFunc(w.Dashboards, func(d Dashboard) bool { return d.ID == id }); i >= 0 {
-		return &w.Dashboards[i]
-	}
-	return nil
-}
+func (w *Workspace) Dashboard(id string) *Dashboard { return find(w.Dashboards, id) }
 
 // DashboardsUsing lists the dashboards that show a chart.
 func (w *Workspace) DashboardsUsing(chartID string) []Dashboard {
@@ -114,10 +109,8 @@ func (w *Workspace) PutDashboard(d Dashboard) (Dashboard, error) {
 	if d.Name == "" {
 		return d, errors.New("a dashboard needs a name")
 	}
-	for _, o := range w.Dashboards {
-		if o.ID != d.ID && strings.EqualFold(o.Name, d.Name) {
-			return d, fmt.Errorf("the workspace already has a dashboard named %q", d.Name)
-		}
+	if err := uniqueName(w.Dashboards, &d, "dashboard"); err != nil {
+		return d, err
 	}
 	if !slices.Contains([]string{"", "filter", "highlight", "none"}, d.Interaction) {
 		return d, fmt.Errorf("interaction is filter, highlight or none, not %q", d.Interaction)
@@ -125,18 +118,7 @@ func (w *Workspace) PutDashboard(d Dashboard) (Dashboard, error) {
 	if err := d.normalize(w); err != nil {
 		return d, err
 	}
-	d.Modified = stamp()
-	if old := w.Dashboard(d.ID); d.ID != "" && old != nil {
-		d.Created, d.CreatedBy = old.Created, old.CreatedBy
-		*old = d
-		return d, nil
-	}
-	if d.ID == "" {
-		d.ID = uuid.NewString()
-	}
-	d.Created = d.Modified
-	w.Dashboards = append(w.Dashboards, d)
-	return d, nil
+	return put(&w.Dashboards, d), nil
 }
 
 // normalize gives pages and items IDs and checks them: known kinds, charts of

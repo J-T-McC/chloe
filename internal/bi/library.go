@@ -108,6 +108,16 @@ func (l Library) Duplicate(p string) (string, error) {
 	return l.Create(w)
 }
 
+// DeleteObject removes an object from a library workspace, and a data source's
+// archived rows with it.
+func (l Library) DeleteObject(p, id string) (Workspace, error) {
+	w, err := l.Update(p, func(w *Workspace) error { return w.Delete(id) })
+	if err == nil {
+		_ = os.Remove(l.ArchivePath(w.ID, id)) // only data sources have one
+	}
+	return w, err
+}
+
 // Delete removes a workspace and its archived data.
 func (l Library) Delete(p string) error {
 	if !l.Contains(p) {

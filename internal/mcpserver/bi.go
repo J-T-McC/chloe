@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -592,11 +591,9 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 				return DeletedOut{}, fmt.Errorf("charts are built on %q: %s; delete them first", src.Name, strings.Join(names, ", "))
 			}
 			id, name := src.ID, src.Name
-			lib := c.s.m.Store.BI()
-			if _, err := lib.Update(p, func(w *bi.Workspace) error { return w.Delete(id) }); err != nil {
+			if _, err := c.s.m.Store.BI().DeleteObject(p, id); err != nil {
 				return DeletedOut{}, err
 			}
-			_ = os.Remove(lib.ArchivePath(w.ID, id))
 			c.act.SQL = p + " › " + name
 			c.biChanged(p)
 			return DeletedOut{Deleted: name}, nil
@@ -682,29 +679,9 @@ func (c *call) readable(src bi.DataSource) bool {
 	return atLeast(a.db(db), store.MCPRead)
 }
 
-func findSource(w *bi.Workspace, ref string) *bi.DataSource {
-	if d := w.Source(ref); d != nil {
-		return d
-	}
-	for i := range w.DataSources {
-		if strings.EqualFold(w.DataSources[i].Name, ref) {
-			return &w.DataSources[i]
-		}
-	}
-	return nil
-}
+func findSource(w *bi.Workspace, ref string) *bi.DataSource { return bi.Lookup(w.DataSources, ref) }
 
-func findChart(w *bi.Workspace, ref string) *bi.Chart {
-	if ch := w.Chart(ref); ch != nil {
-		return ch
-	}
-	for i := range w.Charts {
-		if strings.EqualFold(w.Charts[i].Name, ref) {
-			return &w.Charts[i]
-		}
-	}
-	return nil
-}
+func findChart(w *bi.Workspace, ref string) *bi.Chart { return bi.Lookup(w.Charts, ref) }
 
 // putParam stores a parameter created or edited over MCP.
 func (c *call) putParam(p string, prm bi.Parameter) (bi.Parameter, error) {
