@@ -60,6 +60,9 @@ interface AppState {
   managing: boolean;
   /** Bumped when objects change (create/drop/rename) so lists reload. */
   objectsVersion: number;
+  /** Bumped per object folder (folderKey) when only that folder changed: a saved query doesn't reload the tables. */
+  folderVersions: Record<string, number>;
+  bumpFolder(key: string): void;
   /** The Objects tab shows Chloe's model library (the Model toolbar button) instead of the selection's objects. */
   showingModels: boolean;
   showModels(): void;
@@ -101,6 +104,8 @@ export const useApp = create<AppState>((set, get) => ({
   openDbs: {},
   managing: false,
   objectsVersion: 0,
+  folderVersions: {},
+  bumpFolder: (key) => set((s) => ({ folderVersions: { ...s.folderVersions, [key]: (s.folderVersions[key] ?? 0) + 1 } })),
   showingModels: false,
   showingBI: false,
   connecting: {},

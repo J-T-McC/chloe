@@ -59,12 +59,12 @@ export async function runTableAction(connId: string, ref: ObjectRef, action: Tab
   }
   invalidateCatalog(connId, ref.database);
   refreshFolder(connId, ref.database, ref.schema, ref.kind);
-  useApp.setState((s) => ({ objectsVersion: s.objectsVersion + 1 }));
 }
 
 export function refreshFolder(connId: string, database: string, schema: string | undefined, kind: ObjectKind) {
   const tree = useTree.getState();
   const key = folderKey(connId, database, schema, kind);
+  useApp.getState().bumpFolder(key);
   if (tree.children[key]) tree.refresh({ key, type: "folder", label: "", connId, database, schema, kind, depth: 0, expandable: true });
 }
 

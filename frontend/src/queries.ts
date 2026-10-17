@@ -46,7 +46,7 @@ export function refreshFolder(connId: string, database: string, schema?: string)
   const tree = useTree.getState();
   const key = queriesKey(connId, database, schema);
   if (tree.children[key]) tree.refresh({ key, type: "folder", label: "", connId, database, schema, kind: ObjectKind.KindQuery, depth: 0, expandable: true });
-  useApp.setState((s) => ({ objectsVersion: s.objectsVersion + 1 }));
+  useApp.getState().bumpFolder(key); // only the Queries folder: not every table list
 }
 
 export async function openSavedQuery(connId: string, database: string, schema: string | undefined, name: string) {
