@@ -61,8 +61,9 @@ export interface CanvasProps {
   report?: boolean;
 }
 
-/** The width of an element, kept current; 0 until it has been laid out (a hidden
- *  tab has none), so the grid is never placed at a guessed width. */
+/** The size of an element, kept current; 0 until it has been laid out, so the
+ *  grid is never placed at a guessed width. A tab being hidden (display: none)
+ *  reads 0×0: the last size is kept, so the tiles stay mounted and drawn. */
 function useSize() {
   // A callback ref, so an element that appears later (the scaled page) is measured too.
   const [el, ref] = useState<HTMLDivElement | null>(null);
@@ -70,7 +71,10 @@ function useSize() {
   useLayoutEffect(() => {
     if (!el) return;
     setSize({ width: el.clientWidth, height: el.clientHeight });
-    const ro = new ResizeObserver(([e]) => setSize({ width: Math.floor(e.contentRect.width), height: Math.floor(e.contentRect.height) }));
+    const ro = new ResizeObserver(([e]) => {
+      const width = Math.floor(e.contentRect.width), height = Math.floor(e.contentRect.height);
+      if (width || height) setSize({ width, height });
+    });
     ro.observe(el);
     return () => ro.disconnect();
   }, [el]);

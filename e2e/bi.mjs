@@ -296,6 +296,27 @@ await step("a dashboard of charts and text", async () => {
   await saved.getByRole("button", { name: "Dismiss" }).click();
 });
 
+await step("a hidden dashboard keeps its charts and edits", async () => {
+  // Switching tabs used to unmount every tile (0×0 while hidden), so each return
+  // rebuilt the charts and read their data again.
+  await page.evaluate(() => document.querySelectorAll(".bi-dash-editor .bi-echart").forEach((e) => (e.dataset.mark = "1")));
+  await dash().locator(".bi-tile", { has: page.getByTestId("bi-text") }).click();
+  await dash().getByLabel("Text").fill("# Sales overview\nEdited while shown.");
+  await page.locator(".tab", { hasText: "Sales (BI)" }).click();
+  await page.waitForTimeout(400);
+  await page.locator(".tab", { hasText: "Sales overview" }).click();
+  await dash().getByTestId("bi-text").getByText("Edited while shown.").waitFor();
+  check(await dash().getByLabel("Text").isVisible(), "text editor still open");
+  const [kept, shown] = await page.evaluate(() => {
+    const els = [...document.querySelectorAll(".bi-dash-editor .bi-echart")].filter((e) => e.offsetParent);
+    return [els.filter((e) => e.dataset.mark === "1").length, els.length];
+  });
+  check(shown > 0 && kept === shown, `charts kept: ${kept} of ${shown}`);
+  await dash().getByRole("button", { name: "Save" }).click();
+  await page.waitForTimeout(200);
+  check(!(await page.locator(".tab.active .tab-dirty").count()), "dirty after save");
+});
+
 await step("pages, report size and present", async () => {
   await dash().getByTitle("Add Page").click();
   check((await dash().locator(".bi-page-thumb").count()) === 2, "pages");
