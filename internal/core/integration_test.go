@@ -444,3 +444,23 @@ func TestIntegrationMySQLPrefersTLS(t *testing.T) {
 		t.Fatalf("not encrypted: %+v %v", page, err)
 	}
 }
+
+// With every connection of the session limit taken, Cancel still kills the
+// running MySQL statement instead of waiting for a pooled connection.
+func TestIntegrationMySQLCancelAtSessionLimit(t *testing.T) {
+	e := engines()[0]
+	e.conn.Advanced.SessionLimit = 1
+	m, id := setup(t, e)
+	ctx := context.Background()
+	sid, err := m.OpenSession(ctx, id, e.database, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.CloseSession(sid)
+	go func() { time.Sleep(500 * time.Millisecond); _ = m.Cancel(ctx, sid) }()
+	start := time.Now()
+	_, _ = m.Execute(ctx, sid, "select sleep(10)", core.ExecOptions{})
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("cancel took %s", d)
+	}
+}

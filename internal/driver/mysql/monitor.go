@@ -48,8 +48,7 @@ func (c *Conn) KillProcess(ctx context.Context, id string, queryOnly bool) error
 	if queryOnly {
 		stmt += "QUERY "
 	}
-	_, err = c.db.ExecContext(ctx, stmt+strconv.FormatInt(n, 10))
-	return err
+	return c.kill(ctx, stmt+strconv.FormatInt(n, 10))
 }
 
 func (c *Conn) Variables(ctx context.Context) ([]model.ServerVar, error) {

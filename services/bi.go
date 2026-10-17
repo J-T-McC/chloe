@@ -212,7 +212,11 @@ func (s *BIService) DeleteObject(path, id string) error {
 // any recent copy): pages of a dashboard share one read of each source, and
 // Refresh reads them again.
 func (s *BIService) ChartData(ctx context.Context, path string, c bi.Chart, params map[string]string, since int64) (bi.Data, error) {
-	w, err := s.Open(path)
+	if !s.lib().Contains(path) {
+		return bi.Data{}, errors.New("not a workspace in Chloe's library")
+	}
+	// A dashboard asks for each of its charts: parse the file once, not per chart.
+	w, err := bi.ReadCached(path)
 	if err != nil {
 		return bi.Data{}, err
 	}
