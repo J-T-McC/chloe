@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"chloe/internal/datamodel"
-	"chloe/internal/design"
 	"chloe/internal/driver"
 	"chloe/internal/model"
 )
@@ -137,13 +136,13 @@ func (m *Manager) compareTables(ctx context.Context, src, dst driver.Conn, req S
 	if err != nil {
 		return nil, fmt.Errorf("target: %w", err)
 	}
-	var existing []design.Table
-	for _, o := range objs {
-		t, err := dst.LoadDesign(ctx, tableRef(req.Target.Database, req.Target.Schema, o.Name))
-		if err != nil {
-			return nil, fmt.Errorf("target %s: %w", o.Name, err)
-		}
-		existing = append(existing, t)
+	names := make([]string, len(objs))
+	for i, o := range objs {
+		names[i] = o.Name
+	}
+	existing, err := loadDesigns(ctx, dst, req.Target.Database, req.Target.Schema, names)
+	if err != nil {
+		return nil, fmt.Errorf("target %w", err)
 	}
 	diffs, err := mdl.Compare(existing, datamodel.Target{Database: req.Target.Database, Schema: req.Target.Schema})
 	if err != nil {
