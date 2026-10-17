@@ -15,6 +15,7 @@ import { CodeBlock } from "../ObjectsPane";
 import { Messages, ResultGrid, RunState } from "../QueryEditor";
 import { Split } from "../Split";
 import { Toolbar } from "../Toolbar";
+import { useAsync } from "../useAsync";
 import { useSavableTab } from "../useSavableTab";
 
 type Section = "definition" | "advanced" | "comment" | "sql";
@@ -29,7 +30,6 @@ export function ViewDesigner({ tab }: { tab: Tab }) {
   const [original, setOriginal] = useState<D.View | null>(null);
   const [draft, setDraft] = useState<D.View | null>(null);
   const [section, setSection] = useState<Section>("definition");
-  const [preview, setPreview] = useState<{ statements: string[]; warnings: string[]; error?: string }>({ statements: [], warnings: [] });
   const [error, setError] = useState<{ text: string; sql?: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [run, setRun] = useState<RunState>({ results: [], running: false });
@@ -111,15 +111,17 @@ export function ViewDesigner({ tab }: { tab: Tab }) {
   );
 
   // Live SQL preview.
-  useEffect(() => {
-    if (!draft) return;
-    const t = setTimeout(() => {
-      Design.PreviewView(connId, original, draft)
-        .then((p) => setPreview({ statements: arr(p.statements), warnings: arr(p.warnings) }))
-        .catch((e) => setPreview({ statements: [], warnings: [], error: errorText(e) }));
-    }, 200);
-    return () => clearTimeout(t);
-  }, [draft, original, connId]);
+  const { data: preview } = useAsync<{ statements: string[]; warnings: string[]; error?: string }>(
+    draft &&
+      (() =>
+        Design.PreviewView(connId, original, draft).then(
+          (p) => ({ statements: arr(p.statements), warnings: arr(p.warnings) }),
+          (e) => ({ statements: [], warnings: [], error: errorText(e) }),
+        )),
+    [draft, original, connId],
+    { statements: [], warnings: [] },
+    { delay: 200, keep: true },
+  );
 
   const dirty = useMemo(() => (isNew ? !!draft?.name || (draft?.definition.trim() ?? "") !== "SELECT\n  \nFROM".trim() : !same(original, draft)), [isNew, draft, original]);
   const kindLabel = draft?.materialized ? "materialized view" : "view";

@@ -159,12 +159,16 @@ export function ImportConnectionsDialog({
   useEffect(() => {
     setInfo(null);
     if (!path) return;
+    let live = true;
     const t = setTimeout(() => {
       Connections.InspectExport(path)
-        .then((s) => (setInfo(s), setError("")))
-        .catch((e) => setError(errorText(e)));
+        .then((s) => live && (setInfo(s), setError("")))
+        .catch((e) => live && setError(errorText(e)));
     }, 250);
-    return () => clearTimeout(t);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
   }, [path]);
 
   const browse = async () => {

@@ -10,6 +10,7 @@ import { CodeBlock } from "../ObjectsPane";
 import { accountLabel, isPGConn } from "./actions";
 import { PrivilegesTab } from "./PrivilegesTab";
 import { Toolbar } from "../Toolbar";
+import { useAsync } from "../useAsync";
 import { useSavableTab } from "../useSavableTab";
 
 type Section = "general" | "advanced" | "members" | "server" | "privileges" | "sql";
@@ -31,7 +32,6 @@ export function UserDesigner({ tab }: { tab: Tab }) {
   const [section, setSection] = useState<Section>("general");
   const [password, setPassword] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
-  const [preview, setPreview] = useState<{ stmts: P.Stmt[]; error?: string }>({ stmts: [] });
   const [error, setError] = useState<{ text: string; sql?: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [databases, setDatabases] = useState<string[]>([]);
@@ -77,16 +77,20 @@ export function UserDesigner({ tab }: { tab: Tab }) {
   // What will be saved: the draft plus a password when one was typed.
   const toSave = useMemo<P.User | null>(() => (draft ? { ...draft, password: password ? password : undefined } : null), [draft, password]);
 
-  useEffect(() => {
-    if (!toSave) return;
-    const t = setTimeout(() => {
-      if (!toSave.name.trim()) return setPreview({ stmts: [], error: `Enter a ${noun} name to see the SQL.` });
-      Users.Preview(connId, original, toSave)
-        .then((s) => setPreview({ stmts: arr(s) }))
-        .catch((e) => setPreview({ stmts: [], error: errorText(e) }));
-    }, 150);
-    return () => clearTimeout(t);
-  }, [toSave, original, connId, noun]);
+  // An answer for an older draft is dropped.
+  const { data: preview } = useAsync<{ stmts: P.Stmt[]; error?: string }>(
+    toSave &&
+      (async () => {
+        if (!toSave.name.trim()) return { stmts: [], error: `Enter a ${noun} name to see the SQL.` };
+        return Users.Preview(connId, original, toSave).then(
+          (s) => ({ stmts: arr(s) }),
+          (e) => ({ stmts: [], error: errorText(e) }),
+        );
+      }),
+    [toSave, original, connId, noun],
+    { stmts: [] },
+    { delay: 150, keep: true },
+  );
 
   const dirty = preview.stmts.length > 0;
   useEffect(() => {
