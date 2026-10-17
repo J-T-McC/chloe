@@ -15,7 +15,6 @@ import (
 	"chloe/internal/driver"
 	"chloe/internal/driver/sqlcommon"
 	"chloe/internal/model"
-	"chloe/internal/sqlsplit"
 )
 
 // Condition is one `where` entry; conditions are joined with AND.
@@ -500,9 +499,7 @@ var readOnlyStart = map[string][]string{
 	"sqlite":   {"SELECT", "WITH", "EXPLAIN", "VALUES"},
 }
 
-// checkReadOnly accepts exactly one read statement. The read-only transaction
-// it then runs in is what really stops writes; this keeps out statements that
-// would end that transaction (MySQL DDL commits implicitly) or write files.
+// modifyingRe finds data-changing statements in a WITH.
 var modifyingRe = regexp.MustCompile(`(?i)\b(INSERT|UPDATE|DELETE|MERGE)\b`)
 
 // limitRead lets the server stop after n rows of a read statement instead of planning and
@@ -533,20 +530,11 @@ func limitRead(d driver.Dialect, sql string, n int) string {
 	return sql
 }
 
+// checkReadOnly accepts exactly one read statement (sqlcommon.OneRead).
 func checkReadOnly(d driver.Dialect, sql string) (string, error) {
-	stmts := sqlsplit.Split(sql, d.Split)
-	if len(stmts) != 1 {
-		return "", fmt.Errorf("run_query takes exactly one statement (got %d)", len(stmts))
+	s, err := sqlcommon.OneRead(sql, d.Split, readOnlyStart[d.Name], "run_query")
+	if errors.Is(err, sqlcommon.ErrNotRead) {
+		return "", fmt.Errorf("%w; use the row tools to change data", err)
 	}
-	s := strings.TrimSpace(stmts[0].SQL)
-	kw := sqlcommon.LeadingKeyword(s)
-	if !slices.Contains(readOnlyStart[d.Name], kw) {
-		return "", fmt.Errorf("run_query only runs read statements (%s); use the row tools to change data", strings.Join(readOnlyStart[d.Name], ", "))
-	}
-	if d.Name == "mysql" {
-		if err := sqlcommon.MySQLReadHazard(s); err != nil {
-			return "", fmt.Errorf("run_query: %w", err)
-		}
-	}
-	return s, nil
+	return s, err
 }

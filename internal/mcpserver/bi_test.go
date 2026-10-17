@@ -29,7 +29,7 @@ INSERT INTO orders VALUES (1, 1, 10, '2026-01-05'), (2, 1, 15, '2026-02-01'), (3
 	if ws["created_by"] != "mcp:test" || len(f.events.bi) != 1 {
 		t.Fatalf("workspace: %v %v", ws, f.events.bi)
 	}
-	f.call(t, "create_data_source", map[string]any{"workspace": "Sales", "name": "x", "connection": "shop", "sql": "DELETE FROM orders"}, "reads data")
+	f.call(t, "create_data_source", map[string]any{"workspace": "Sales", "name": "x", "connection": "shop", "sql": "DELETE FROM orders"}, "only runs read statements")
 	f.call(t, "create_data_source", map[string]any{"workspace": "Sales", "name": "x", "connection": "shop", "sql": "SELECT 1; SELECT 2"}, "exactly one statement")
 	f.call(t, "create_data_source", map[string]any{"workspace": "nope", "name": "x", "connection": "shop", "table": "orders"}, "no workspace")
 	src := f.call(t, "create_data_source", map[string]any{"workspace": "Sales", "name": "Orders", "connection": "shop",
