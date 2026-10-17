@@ -16,21 +16,13 @@ import { sourceFields } from "./fields";
 import { Pick, controlFilter, controlStyle, reach } from "./interaction";
 import { Markdown } from "./Markdown";
 import { ParamValues, expandParams } from "./params";
+import { readChart } from "./reader";
 import { ShapeTile } from "./ShapeTile";
 import { ChartTheme, TOKENS } from "./theme";
 
 export const COLS = 12;
 export const SLIDE_ROWS = 24;
 export const MARGIN = 12;
-
-/** Reads what a chart draws: since is the last Refresh (ms), 0 for any recent data. */
-export type ChartReader = (path: string, chart: B.Chart, params: ParamValues | null, since: number) => Promise<B.Data>;
-
-let readChart: ChartReader = () => Promise.reject(new Error("no chart reader"));
-
-export function setChartReader(r: ChartReader) {
-  readChart = r;
-}
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : typeof e === "string" ? e : e && typeof e === "object" && "message" in e ? String((e as { message: unknown }).message) : String(e));
 

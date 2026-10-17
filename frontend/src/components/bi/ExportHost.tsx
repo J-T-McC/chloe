@@ -5,7 +5,9 @@
 import { toPng } from "html-to-image";
 import { useEffect, useRef, useState } from "react";
 import { create } from "zustand";
-import { B, BI, Events, arr, errorText } from "../../api";
+import { B, BI, arr, errorText } from "../../api";
+import type { RenderRequest } from "../../../bindings/chloe/services/models";
+import { useExportStage } from "./ExportGate";
 import { PAGE_WIDTH, PageCanvas } from "./Canvas";
 import { buildReport } from "./reportExport";
 import { ParamValues, paramValues } from "./Parameters";
@@ -64,6 +66,7 @@ export async function renderPages(path: string, dashboard: B.Dashboard | string,
       progress,
       done: (pngs, error) => (pngs ? resolve(pngs) : reject(new Error(error ?? "rendering failed"))),
     };
+    useExportStage.setState({ on: true });
     useJobs.setState((s) => ({ queue: [...s.queue, job] }));
   });
 }
@@ -71,29 +74,24 @@ export async function renderPages(path: string, dashboard: B.Dashboard | string,
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const frame = () => new Promise((r) => requestAnimationFrame(() => r(null)));
 
+/** A render an agent asked for over MCP (bi:render). */
+export function onRender(r: RenderRequest) {
+  if (r.format === "html") {
+    buildReport(r.path, r.dashboard, { pages: arr(r.pages), overrides: (r.params ?? {}) as Record<string, string>, since: r.since || 0 })
+      .then((html) => BI.Rendered(r.id, [html], ""))
+      .catch((e) => BI.Rendered(r.id, [], errorText(e)));
+    return;
+  }
+  renderPages(r.path, r.dashboard, arr(r.pages), r.scale || 1, (r.params ?? {}) as Record<string, string>, { since: r.since || 0 })
+    .then((pngs) => BI.Rendered(r.id, pngs, ""))
+    .catch((e) => BI.Rendered(r.id, [], errorText(e)));
+}
+
 export function ExportHost() {
   const job = useJobs((s) => s.queue[0]);
   const [index, setIndex] = useState(0);
   const stage = useRef<HTMLDivElement>(null);
   const results = useRef<string[]>([]);
-
-  // Agents ask over MCP.
-  useEffect(
-    () =>
-      Events.On("bi:render", (ev) => {
-        const r = ev.data;
-        if (r.format === "html") {
-          buildReport(r.path, r.dashboard, { pages: arr(r.pages), overrides: (r.params ?? {}) as Record<string, string>, since: r.since || 0 })
-            .then((html) => BI.Rendered(r.id, [html], ""))
-            .catch((e) => BI.Rendered(r.id, [], errorText(e)));
-          return;
-        }
-        renderPages(r.path, r.dashboard, arr(r.pages), r.scale || 1, (r.params ?? {}) as Record<string, string>, { since: r.since || 0 })
-          .then((pngs) => BI.Rendered(r.id, pngs, ""))
-          .catch((e) => BI.Rendered(r.id, [], errorText(e)));
-      }),
-    [],
-  );
 
   // Capture the page on stage once its charts are drawn, then move on.
   useEffect(() => {

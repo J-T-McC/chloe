@@ -3,7 +3,7 @@
 import ReactDOM from "react-dom/client";
 import "../styles.css";
 import "./report.css";
-import { setChartReader } from "../components/bi/Canvas";
+import { setChartReader } from "../components/bi/reader";
 import { PAYLOAD_ID, ReportPayload } from "./payload";
 import { Viewer } from "./Viewer";
 
