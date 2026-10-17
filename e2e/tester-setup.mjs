@@ -8,7 +8,7 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 page.setDefaultTimeout(10000);
 const field = (l) => page.locator(".field", { has: page.locator(`label:text-is("${l}")`) }).locator("input").first();
-await page.goto("http://localhost:8080/");
+await page.goto(process.env.BASE ?? "http://localhost:8080/");
 await page.getByRole("button", { name: "Connection" }).first().click();
 await page.locator(".type-card").filter({ has: page.locator(`span:text-is("SQLite")`) }).click();
 await field("Connection Name").fill("games");

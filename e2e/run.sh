@@ -1,5 +1,5 @@
 #!/bin/sh
-# Browser end-to-end checks against the server build (bin/Chloe-server on :8080).
+# Browser end-to-end checks against the server build (bin/Chloe-server on :8080, or $CHLOE_E2E_PORT).
 #   wails3 task build:server && docker compose up -d && e2e/run.sh [script]
 # Scripts print OK/FAIL per step; screenshots (and fail-*.png) go to e2e/.out/shots.
 set -e
@@ -20,6 +20,8 @@ sqlite3 "$out/lite/big.db" "CREATE TABLE n(id INTEGER PRIMARY KEY, v TEXT);
 
 pkill -f Chloe-server || true
 sleep 0.5
+# CHLOE_E2E_PORT moves the server off 8080 when something else holds it.
+export WAILS_SERVER_PORT="${CHLOE_E2E_PORT:-8080}" BASE="http://localhost:${CHLOE_E2E_PORT:-8080}/"
 CHLOE_CONFIG_DIR="$out/config" CHLOE_SECRETS=memory CHLOE_REPORTS_DIR="$out/reports" CHLOE_EXPORT_DIR="$out/exports" ./bin/Chloe-server > "$out/server.log" 2>&1 &
 trap 'pkill -f Chloe-server || true' EXIT
 sleep 1.5

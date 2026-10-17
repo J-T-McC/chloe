@@ -61,7 +61,7 @@ async function checkBars(where) {
   return report;
 }
 
-await page.goto("http://localhost:8080/");
+await page.goto(process.env.BASE ?? "http://localhost:8080/");
 
 await step("open a table, a query, a BI workspace and a dashboard", async () => {
   await page.getByRole("button", { name: "Connection" }).first().click();

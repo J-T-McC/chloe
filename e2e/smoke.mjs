@@ -21,7 +21,7 @@ const step = async (name, fn) => {
   }
 };
 
-await page.goto("http://localhost:8080/");
+await page.goto(process.env.BASE ?? "http://localhost:8080/");
 await page.waitForTimeout(800);
 await shot("01-welcome");
 

@@ -6,7 +6,7 @@ page.setDefaultTimeout(10000);
 const errors = [];
 page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
 const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); } catch (e) { console.log("FAIL", name, e.message.split("\n")[0]); await page.screenshot({ path: `${out}/fail-${name.replace(/\W+/g, "_")}.png` }); } };
-await page.goto("http://localhost:8080/");
+await page.goto(process.env.BASE ?? "http://localhost:8080/");
 await page.getByRole("button", { name: "Connection" }).first().click();
 await page.locator(".type-card").filter({ has: page.locator(`span:text-is("MySQL")`) }).click();
 const field = (l) => page.locator(".field", { has: page.locator(`label:text-is("${l}")`) }).locator("input").first();

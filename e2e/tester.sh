@@ -41,6 +41,8 @@ fi
 if [ -n "$TESTER_MONGO" ]; then
   docker exec -i chloe-mongo mongosh -u root -p chloe --quiet < testdata/seed_mongo.js >/dev/null
 fi
+# CHLOE_E2E_PORT moves the server off 8080 when something else holds it.
+export WAILS_SERVER_PORT="${CHLOE_E2E_PORT:-8080}" BASE="http://localhost:${CHLOE_E2E_PORT:-8080}/"
 CHLOE_CONFIG_DIR="$out/config" CHLOE_SECRETS=memory CHLOE_REPORTS_DIR="$out/reports" ./bin/Chloe-server > "$out/server.log" 2>&1 &
 sleep 1.5
 cd e2e && TESTER_REDIS="$TESTER_REDIS" TESTER_MONGO="$TESTER_MONGO" TESTER_WRITE="$TESTER_WRITE" nohup node tester-setup.mjs "$out" > "$out/setup.log" 2>&1 &

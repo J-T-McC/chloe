@@ -20,7 +20,7 @@ make bindings                          # after changing a service or any type it
 make dev                               # hot reload
 make build                             # desktop app -> bin/Chloe
 make install                           # signed Chloe.app -> /Applications (quits a running copy)
-make server                            # browser build on :8080 -> bin/Chloe-server (used by e2e; needs CHLOE_SECRETS=memory)
+make server                            # browser build on :8080 -> bin/Chloe-server (used by e2e; needs CHLOE_SECRETS=memory; CHLOE_E2E_PORT moves e2e off 8080)
 make db                                # MySQL :33306, Postgres :55432, Redis :63790, MongoDB :37017 (root), sshd :2222 (password "chloe")
 make test                              # unit tests plus SQLite (no Docker needed)
 make test-it                           # start and seed the Docker databases, run integration tests
