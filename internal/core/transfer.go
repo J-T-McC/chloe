@@ -81,7 +81,7 @@ func (m *Manager) Export(connID string, req ExportRequest) (Job, error) {
 			return "", err
 		}
 		defer f.Close()
-		n, err := streamExport(ctx, ds, query, f, req.Options, p)
+		n, err := streamExport(ctx, ds, query, f, req.Options, p.setDone)
 		if err != nil {
 			return "", err
 		}
@@ -89,7 +89,8 @@ func (m *Manager) Export(connID string, req ExportRequest) (Job, error) {
 	}), nil
 }
 
-func streamExport(ctx context.Context, ds driver.Session, query string, out io.Writer, o transfer.ExportOptions, p *progress) (int64, error) {
+// streamExport writes the rows of query to out, passing the count so far to done.
+func streamExport(ctx context.Context, ds driver.Session, query string, out io.Writer, o transfer.ExportOptions, done func(int64)) (int64, error) {
 	rows, err := ds.Query(ctx, query)
 	if err != nil {
 		return 0, err
@@ -118,13 +119,13 @@ func streamExport(ctx context.Context, ds driver.Session, query string, out io.W
 				_ = ds.Cancel(context.Background())
 				return n, ctx.Err()
 			}
-			p.setDone(n)
+			done(n)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return n, err
 	}
-	p.setDone(n)
+	done(n)
 	return n, w.Close()
 }
 

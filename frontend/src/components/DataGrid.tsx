@@ -197,11 +197,14 @@ export function DataGrid(p: DataGridProps) {
     if (!sel) return;
     const n = norm(sel);
     await ensureLoaded(n.r0, n.r1);
+    // One cell copies as it is; a block is tab-separated, quoting fields that hold tabs, line breaks or quotes.
+    const one = n.r0 === n.r1 && n.c0 === n.c1 && !withHeaders;
+    const field = (v: string) => (one || !/[\t\n\r"]/.test(v) ? v : '"' + v.replace(/"/g, '""') + '"');
     const lines: string[] = [];
-    if (withHeaders) lines.push(p.columns.slice(n.c0, n.c1 + 1).map((c) => c.name).join("\t"));
+    if (withHeaders) lines.push(p.columns.slice(n.c0, n.c1 + 1).map((c) => field(c.name)).join("\t"));
     for (let r = n.r0; r <= n.r1; r++) {
       const vals: string[] = [];
-      for (let c = n.c0; c <= n.c1; c++) vals.push(cellValue(r, c) ?? "NULL");
+      for (let c = n.c0; c <= n.c1; c++) vals.push(field(cellValue(r, c) ?? "NULL"));
       lines.push(vals.join("\t"));
     }
     await copyText(lines.join("\n"));

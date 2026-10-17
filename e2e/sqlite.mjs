@@ -66,6 +66,29 @@ await step("autocomplete", async () => {
   await page.keyboard.press("Escape");
 });
 
+await step("copy quotes cells holding tabs or quotes", async () => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.locator(".monaco-editor .view-lines").last().click();
+  await page.keyboard.press("Meta+a");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.insertText(`SELECT 'a' || char(9) || 'b' AS x, 'say "hi"' AS y, 'plain' AS z`);
+  await page.getByRole("button", { name: "Run", exact: true }).click();
+  const cells = page.locator(".result-grid .grid-row").first().locator(".grid-cell");
+  await cells.nth(2).waitFor();
+  await page.waitForTimeout(300);
+  await cells.nth(0).click();
+  await cells.nth(2).click({ modifiers: ["Shift"] });
+  await page.keyboard.press("Meta+c");
+  await page.waitForTimeout(200);
+  const block = await page.evaluate(() => navigator.clipboard.readText());
+  if (block !== '"a\tb"\t"say ""hi"""\tplain') throw new Error("block: " + JSON.stringify(block));
+  await cells.nth(1).click();
+  await page.keyboard.press("Meta+c");
+  await page.waitForTimeout(200);
+  const one = await page.evaluate(() => navigator.clipboard.readText());
+  if (one !== 'say "hi"') throw new Error("one cell: " + JSON.stringify(one));
+});
+
 await step("tree folders", async () => {
   await row(/^\s*main\s*$/).first().dblclick();
   const labels = await page.locator(".tree-row").allInnerTexts();
