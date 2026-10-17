@@ -4,7 +4,7 @@
 import { ChartColumn, Database, LayoutDashboard, LayoutGrid, List, Plus, RefreshCw, Variable } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { B, BI, arr, errorText } from "../../api";
-import { Tab, connById, useApp } from "../../store";
+import { connById, useApp, type TabOf } from "../../store";
 import { MenuItem, openMenu } from "../ContextMenu";
 import { alert, confirm, prompt } from "../Dialogs";
 import { createdByLabel } from "../../createdBy";
@@ -71,8 +71,8 @@ export function connLabel(s?: B.DataSource | null) {
   return [c ? c.name : "(deleted connection)", s.database, s.schema].filter(Boolean).join(" › ");
 }
 
-export function WorkspaceView({ tab }: { tab: Tab }) {
-  const path = tab.biPath!;
+export function WorkspaceView({ tab }: { tab: TabOf<"bi"> }) {
+  const path = tab.biPath;
   const { w, error } = useWorkspace(path);
   const [filter, setFilter] = useState<Filter>("all");
   const [view, setView] = useState(() => pref("chloe:bi:view", "detail"));

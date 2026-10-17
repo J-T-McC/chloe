@@ -7,7 +7,7 @@ import { D, DBType, Design, ObjectKind, Query, arr, errorText } from "../../api"
 import { invalidateCatalog } from "../../editor/completion";
 import { beautifyEditor } from "../../editor/format";
 import { Monaco, monaco } from "../../editor/monaco";
-import { Tab, connById, useApp } from "../../store";
+import { connById, useApp, type TabOf } from "../../store";
 import { folderKey, useTree } from "../../tree";
 import { connDialect, isPG } from "../../dialect";
 import { confirm, prompt } from "../Dialogs";
@@ -24,8 +24,8 @@ type Section = "definition" | "advanced" | "comment" | "sql";
 
 const same = (a: D.View | null, b: D.View | null) => JSON.stringify(a) === JSON.stringify(b);
 
-export function ViewDesigner({ tab }: { tab: Tab }) {
-  const connId = tab.connId!;
+export function ViewDesigner({ tab }: { tab: TabOf<"viewdesign"> }) {
+  const connId = tab.connId;
   const pg = isPG(connId);
   const sqlite = connById(connId)?.type === DBType.SQLite;
   const isNew = !tab.ref?.name;
@@ -46,8 +46,8 @@ export function ViewDesigner({ tab }: { tab: Tab }) {
     (async () => {
       try {
         const v: D.View = isNew
-          ? { database: tab.database!, schema: pg ? (tab.schema ?? "public") : undefined, name: "", definition: "SELECT\n  \nFROM ", materialized: tab.ref?.kind === ObjectKind.KindMatView }
-          : await Design.LoadView(connId, tab.ref!);
+          ? { database: tab.ref.database, schema: pg ? (tab.schema ?? "public") : undefined, name: "", definition: "SELECT\n  \nFROM ", materialized: tab.ref?.kind === ObjectKind.KindMatView }
+          : await Design.LoadView(connId, tab.ref);
         setOriginal(isNew ? null : v);
         setDraft(v);
       } catch (e) {

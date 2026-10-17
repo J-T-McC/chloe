@@ -2,30 +2,98 @@ import { create } from "zustand";
 import { Connection, Connections, Explorer, ObjectKind, ObjectRef, arr, errorText } from "./api";
 import { alert, prompt } from "./components/Dialogs";
 
-export type TabKind = "objects" | "query" | "table" | "ddl" | "monitor" | "design" | "erd" | "model" | "viewdesign" | "redisconsole" | "users" | "user" | "collection" | "mongoquery" | "mongoshell" | "mongodesign" | "mongousers" | "history" | "mcp" | "bi" | "bisource" | "bichart" | "bidash";
-
-export interface Tab {
+interface TabBase {
   id: string;
-  kind: TabKind;
   title: string;
   connId?: string;
   database?: string;
   schema?: string;
-  /** table / view being viewed (table and ddl tabs) */
+  /** the object the tab shows (table, view, designer, collection), or the account a user tab edits */
   ref?: ObjectRef;
   /** initial SQL for query tabs */
   sql?: string;
   /** file of a model tab */
   modelPath?: string;
-  /** BI workspace file of a bi / bisource / bichart tab */
+  /** BI workspace file of a bi / bisource / bichart / bidash tab */
   biPath?: string;
-  /** the data source or chart a bisource / bichart tab edits ("" for a new one) */
+  /** the data source, chart or dashboard the tab edits ("" for a new one) */
   biId?: string;
   /** saved query a query tab edits */
   queryId?: string;
   /** the text as last saved (or opened); the tab is dirty once it differs */
   savedSql?: string;
   dirty?: boolean;
+}
+
+type OnConn = { connId: string };
+type OnObject = OnConn & { ref: ObjectRef };
+
+/** What each kind of tab always has. */
+interface TabNeeds {
+  objects: object;
+  history: object;
+  mcp: object;
+  query: OnConn;
+  mongoquery: OnConn;
+  monitor: OnConn;
+  users: OnConn;
+  redisconsole: OnConn;
+  mongoshell: OnConn;
+  mongousers: OnConn;
+  table: OnObject;
+  ddl: OnObject;
+  design: OnObject;
+  viewdesign: OnObject;
+  collection: OnObject;
+  mongodesign: OnObject;
+  user: OnObject;
+  erd: OnConn & { database: string };
+  model: object;
+  bi: { biPath: string };
+  bisource: { biPath: string };
+  bichart: { biPath: string };
+  bidash: { biPath: string };
+}
+
+export type TabKind = keyof TabNeeds;
+export type TabOf<K extends TabKind> = TabBase & TabNeeds[K] & { kind: K };
+export type Tab = { [K in TabKind]: TabOf<K> }[TabKind];
+/** A tab to open: its id is made up unless given. */
+export type NewTab = { [K in TabKind]: Omit<TabOf<K>, "id"> & { id?: string } }[TabKind];
+
+const refKey = (r: ObjectRef) => [r.database, r.schema ?? "", r.name, r.kind, r.signature ?? ""].join("\u0000");
+
+/** Opening a tab with the key of an open one shows that one instead; null: always a new tab. */
+function tabKey(t: NewTab): string | null {
+  switch (t.kind) {
+    case "objects":
+    case "history":
+    case "mcp":
+      return t.kind;
+    case "query":
+    case "mongoquery":
+    case "mongoshell":
+    case "redisconsole":
+      return null;
+    case "monitor":
+    case "users":
+      return `${t.kind}:${t.connId}`;
+    case "mongousers":
+      return `${t.kind}:${t.connId}:${t.database ?? ""}`;
+    case "erd":
+      return `erd:${t.connId}:${t.database}:${t.schema ?? ""}`;
+    case "model":
+      return t.modelPath ? `model:${t.modelPath}` : null;
+    case "bi":
+      return `bi:${t.biPath}`;
+    case "bisource":
+    case "bichart":
+    case "bidash":
+      return t.biId ? `${t.kind}:${t.biPath}:${t.biId}` : null;
+    default:
+      // An object; a new designer (no name yet) gets its own tab.
+      return t.ref.name ? `${t.kind}:${t.connId}:${refKey(t.ref)}` : null;
+  }
 }
 
 /** What the tree has selected; drives the Objects tab. */
@@ -79,12 +147,13 @@ interface AppState {
   isDbOpen(connId: string, db: string): boolean;
   setManaging(v: boolean): void;
   select(sel: Selection): void;
-  openTab(tab: Omit<Tab, "id"> & { id?: string }): string;
+  openTab(tab: NewTab): string;
   closeTab(id: string): void;
   /** Close several tabs at once (the Objects tab always stays). */
   closeTabs(ids: string[]): void;
   setActive(id: string): void;
-  updateTab(id: string, patch: Partial<Tab>): void;
+  /** Changes a tab's fields (never its kind). */
+  updateTab(id: string, patch: Partial<Omit<TabBase, "id">>): void;
   editConnection(c?: Connection | "new"): void;
 }
 
@@ -214,22 +283,15 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   openTab(tab) {
-    // Re-use an existing tab for the same object.
-    const existing = get().tabs.find(
-      (t) =>
-        t.kind === tab.kind &&
-        (tab.kind === "model"
-          ? !!tab.modelPath && t.modelPath === tab.modelPath
-          : tab.kind === "bi" || tab.kind === "bisource" || tab.kind === "bichart" || tab.kind === "bidash"
-            ? !!tab.biPath && t.biPath === tab.biPath && (tab.kind === "bi" || (!!tab.biId && t.biId === tab.biId))
-            : tab.kind !== "query" && t.connId === tab.connId && sameRef(t.ref, tab.ref)),
-    );
+    // Re-use an open tab for the same object.
+    const key = tabKey(tab);
+    const existing = key === null ? undefined : get().tabs.find((t) => tabKey(t) === key);
     if (existing) {
       set({ activeTab: existing.id });
       return existing.id;
     }
     const id = tab.id ?? newId(tab.kind);
-    set((s) => ({ tabs: [...s.tabs, { ...tab, id }], activeTab: id }));
+    set((s) => ({ tabs: [...s.tabs, { ...tab, id } as Tab], activeTab: id }));
     return id;
   },
 
@@ -262,19 +324,13 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   updateTab(id, patch) {
-    set((s) => ({ tabs: s.tabs.map((t) => (t.id === id ? { ...t, ...patch } : t)) }));
+    set((s) => ({ tabs: s.tabs.map((t) => (t.id === id ? ({ ...t, ...patch } as Tab) : t)) }));
   },
 
   editConnection(editing) {
     set({ editing });
   },
 }));
-
-function sameRef(a?: ObjectRef, b?: ObjectRef) {
-  if (!a || !b) return a === b;
-  return a.database === b.database && (a.schema ?? "") === (b.schema ?? "") && a.name === b.name && a.kind === b.kind && (a.signature ?? "") === (b.signature ?? "");
-}
-
 
 export function connById(id?: string) {
   return useApp.getState().connections.find((c) => c.id === id);

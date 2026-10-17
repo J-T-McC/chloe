@@ -3,7 +3,7 @@
 import { Minus, Plus, RefreshCw, Save, Trash2, UserPlus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Mongo, arr, errorText, type MG } from "../../api";
-import type { Tab } from "../../store";
+import type { TabOf } from "../../store";
 import { confirm } from "../Dialogs";
 import { CodeBlock } from "../CodeBlock";
 import { Split } from "../Split";
@@ -16,8 +16,8 @@ const blankUser = (db: string): MG.User => ({ user: "", db, roles: [], mechanism
 const blankRole = (db: string): MG.Role => ({ role: "", db, builtin: false, roles: [], privileges: [] });
 const MECHANISMS = ["SCRAM-SHA-1", "SCRAM-SHA-256"];
 
-export function MongoUsers({ tab }: { tab: Tab }) {
-  const connId = tab.connId!;
+export function MongoUsers({ tab }: { tab: TabOf<"mongousers"> }) {
+  const connId = tab.connId;
   const [section, setSection] = useState<Section>("users");
   const [users, setUsers] = useState<MG.User[]>([]);
   const [roles, setRoles] = useState<MG.Role[]>([]);

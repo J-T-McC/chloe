@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { D, Design, ObjectKind, arr, errorText } from "../../api";
 import { Dialect, Table, newTable, normalize, toWire } from "../../designer/model";
 import { invalidateCatalog } from "../../editor/completion";
-import { Tab, connById, useApp } from "../../store";
+import { connById, useApp, type TabOf } from "../../store";
 import { folderKey, useTree } from "../../tree";
 import { connDialect } from "../../dialect";
 import { confirm } from "../Dialogs";
@@ -15,8 +15,8 @@ import { useSavableTab } from "../useSavableTab";
 
 type Section = "fields" | "indexes" | "foreignKeys" | "uniques" | "checks" | "triggers" | "options" | "comment" | "sql";
 
-export function TableDesigner({ tab }: { tab: Tab }) {
-  const connId = tab.connId!;
+export function TableDesigner({ tab }: { tab: TabOf<"design"> }) {
+  const connId = tab.connId;
   const dialect: Dialect = connDialect(connId);
   const isNew = !tab.ref?.name;
   const [original, setOriginal] = useState<Table | null>(null);
@@ -32,15 +32,15 @@ export function TableDesigner({ tab }: { tab: Tab }) {
     let live = true;
     (async () => {
       try {
-        const m = await Design.Meta(connId, tab.database!);
+        const m = await Design.Meta(connId, tab.ref.database);
         if (!live) return;
         setMeta(m);
         if (isNew) {
           setOriginal(null);
-          blank.current = newTable(dialect, tab.database!, tab.schema, m);
+          blank.current = newTable(dialect, tab.ref.database, tab.schema, m);
           setDraft(blank.current);
         } else {
-          const t = normalize(await Design.Load(connId, tab.ref!));
+          const t = normalize(await Design.Load(connId, tab.ref));
           if (!live) return;
           setOriginal(t);
           setDraft(t);

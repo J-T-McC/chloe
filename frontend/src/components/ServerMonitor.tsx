@@ -1,7 +1,7 @@
 import { CircleStop, Pin, RefreshCw, Skull } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Monitor, Process, ServerVar, arr, errorText, copyText } from "../api";
-import { Tab, useApp } from "../store";
+import { TabOf, useApp } from "../store";
 import { openMenu } from "./ContextMenu";
 import { confirm } from "./Dialogs";
 import { ConnIcon } from "./icons";
@@ -23,7 +23,7 @@ interface Row extends Process {
   connName: string;
 }
 
-export function ServerMonitor({ tab, active }: { tab: Tab; active: boolean }) {
+export function ServerMonitor({ tab, active }: { tab: TabOf<"monitor">; active: boolean }) {
   const connections = useApp((s) => s.connections);
   const open = useApp((s) => s.open);
   const openConns = connections.filter((c) => open[c.id]);

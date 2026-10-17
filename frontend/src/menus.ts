@@ -233,7 +233,7 @@ export function tableChildMenu(connId: string, ref: ObjectRef, table: string): M
 
 export function openERD(connId: string, database: string, schema?: string) {
   const title = `ER — ${schema ?? database}`;
-  useApp.getState().openTab({ kind: "erd", title, connId, database, schema, ref: { database, schema, name: "erd", kind: ObjectKind.$zero } });
+  useApp.getState().openTab({ kind: "erd", title, connId, database, schema });
 }
 
 /** Extra database / schema menu items (dump, execute, import/export). */

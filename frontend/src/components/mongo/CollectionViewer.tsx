@@ -4,7 +4,7 @@ import { Braces, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Downloa
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Mongo, ObjectKind, arr, errorText, type MG } from "../../api";
 import { Val, field } from "../../mongo/docs";
-import type { Tab } from "../../store";
+import type { TabOf } from "../../store";
 import { confirm } from "../Dialogs";
 import { editDocument } from "./DocEditor";
 import { DocsMode, DocsView } from "./DocsView";
@@ -39,9 +39,9 @@ export function ModeSwitch({ mode, onChange }: { mode: DocsMode; onChange(m: Doc
   );
 }
 
-export function CollectionViewer({ tab }: { tab: Tab }) {
-  const ref = tab.ref!;
-  const connId = tab.connId!;
+export function CollectionViewer({ tab }: { tab: TabOf<"collection"> }) {
+  const ref = tab.ref;
+  const connId = tab.connId;
   const db = ref.database;
   const coll = ref.name;
   const editable = ref.kind !== ObjectKind.KindView;

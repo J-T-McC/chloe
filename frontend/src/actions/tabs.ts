@@ -42,7 +42,7 @@ export function selectAllSQL(connId: string, ref: ObjectRef) {
 
 export function openMonitor(connId: string) {
   const conn = connById(connId);
-  useApp.getState().openTab({ kind: "monitor", title: `Server Monitor — ${conn?.name ?? ""}`, connId, ref: { database: "", name: "monitor", kind: ObjectKind.$zero } });
+  useApp.getState().openTab({ kind: "monitor", title: `Server Monitor — ${conn?.name ?? ""}`, connId });
 }
 
 export function openDDL(connId: string, ref: ObjectRef) {

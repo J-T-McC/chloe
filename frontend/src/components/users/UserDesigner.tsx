@@ -4,7 +4,7 @@
 import { Save } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Explorer, P, Users, arr, errorText } from "../../api";
-import { Tab, connById, useApp } from "../../store";
+import { connById, useApp, type TabOf } from "../../store";
 import { Combobox } from "../Combobox";
 import { CodeBlock } from "../CodeBlock";
 import { accountLabel } from "./actions";
@@ -23,8 +23,8 @@ function blank(pg: boolean): P.User {
     : { name: "", host: "%", connLimit: -1, memberOf: [], privileges: [] };
 }
 
-export function UserDesigner({ tab }: { tab: Tab }) {
-  const connId = tab.connId!;
+export function UserDesigner({ tab }: { tab: TabOf<"user"> }) {
+  const connId = tab.connId;
   const pg = isPG(connId);
   const isNew = !tab.ref?.name;
   const noun = pg ? "role" : "user";
@@ -48,7 +48,7 @@ export function UserDesigner({ tab }: { tab: Tab }) {
         if (isNew) {
           setDraft(blank(pg));
         } else {
-          const u = await Users.Load(connId, tab.ref!.name, tab.ref!.schema ?? "", pg ? pgDb : "");
+          const u = await Users.Load(connId, tab.ref.name, tab.ref.schema ?? "", pg ? pgDb : "");
           setOriginal(u);
           setDraft(u);
           setLoadedDbs(new Set([pgDb]));
@@ -120,7 +120,7 @@ export function UserDesigner({ tab }: { tab: Tab }) {
       setLoadedDbs(new Set([pgDb]));
       setPassword("");
       setConfirmPw("");
-      useApp.getState().updateTab(tab.id, { ref: { ...tab.ref!, name: u.name, schema: u.host, signature: "user" } });
+      useApp.getState().updateTab(tab.id, { ref: { ...tab.ref, name: u.name, schema: u.host, signature: "user" } });
       useApp.setState((s) => ({ objectsVersion: s.objectsVersion + 1 }));
       return true;
     } catch (e) {

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { D, DM, Events, Models, arr, errorText, copyText } from "../../api";
 import { Dialect, Table, newTable, normalize, toWire } from "../../designer/model";
 import { ColumnMode, ErdTable, Positions, autoLayout, fromTables, modelKey, tableSize } from "../../erd/model";
-import { Tab, useApp } from "../../store";
+import { useApp, type TabOf } from "../../store";
 import { MenuItem, openMenu } from "../ContextMenu";
 import { alert, confirm, prompt } from "../Dialogs";
 import { CodeBlock } from "../CodeBlock";
@@ -35,7 +35,7 @@ function toModel(s: ModelState, positions: Positions): DM.Model {
   };
 }
 
-export function ModelEditor({ tab }: { tab: Tab }) {
+export function ModelEditor({ tab }: { tab: TabOf<"model"> }) {
   return (
     <ReactFlowProvider>
       <ModelEditorInner tab={tab} />
@@ -43,7 +43,7 @@ export function ModelEditor({ tab }: { tab: Tab }) {
   );
 }
 
-function ModelEditorInner({ tab }: { tab: Tab }) {
+function ModelEditorInner({ tab }: { tab: TabOf<"model"> }) {
   const [state, setState] = useState<ModelState | null>(null);
   const [path, setPath] = useState(tab.modelPath ?? "");
   const [saved, setSaved] = useState("");

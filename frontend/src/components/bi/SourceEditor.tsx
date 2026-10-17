@@ -6,7 +6,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { B, BI, BIPreview, DBType, Explorer, ObjectKind, Query, SavedQuery, arr, errorText } from "../../api";
 import { connDialect } from "../../dialect";
 import { Monaco, monaco } from "../../editor/monaco";
-import { Tab, connById, useApp } from "../../store";
+import { connById, useApp, type TabOf } from "../../store";
 import { Split } from "../Split";
 import { biChanged, openObject } from "./actions";
 import { CustomFieldsPane } from "./CustomFields";
@@ -32,8 +32,8 @@ const ZONES: string[] = (() => {
 const sameDef = (a: B.DataSource, b: B.DataSource) => a.connId === b.connId && a.database === b.database && (a.schema ?? "") === (b.schema ?? "") && (a.table ?? "") === (b.table ?? "") && (a.sql ?? "") === (b.sql ?? "");
 const comparable = (d: B.DataSource | null) => (d ? JSON.stringify({ ...d, fields: undefined, modified: undefined, refreshedAt: undefined, archiveRows: undefined, filters: cleanFilters(arr(d.filters)) }) : "");
 
-export function SourceEditor({ tab }: { tab: Tab }) {
-  const path = tab.biPath!;
+export function SourceEditor({ tab }: { tab: TabOf<"bisource"> }) {
+  const path = tab.biPath;
   const { w } = useWorkspace(path);
   const connections = useApp((s) => s.connections).filter((c) => SQL_ENGINES.includes(c.type));
   const [saved, setSaved] = useState<B.DataSource | null>(null);

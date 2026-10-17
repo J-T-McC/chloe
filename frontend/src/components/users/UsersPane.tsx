@@ -2,15 +2,15 @@
 import { KeyRound, Pencil, Plus, RefreshCw, ShieldCheck, Trash2, UserRound, UsersRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { P, Users, arr, errorText, copyText } from "../../api";
-import { Tab, useApp } from "../../store";
+import { useApp, type TabOf } from "../../store";
 import { openMenu } from "../ContextMenu";
 import { alert, confirm } from "../Dialogs";
 import { accountLabel, openUser } from "./actions";
 import { Toolbar } from "../Toolbar";
 import { isPG } from "../../dialect";
 
-export function UsersPane({ tab }: { tab: Tab }) {
-  const connId = tab.connId!;
+export function UsersPane({ tab }: { tab: TabOf<"users"> }) {
+  const connId = tab.connId;
   const pg = isPG(connId);
   const [users, setUsers] = useState<P.UserInfo[]>([]);
   const [error, setError] = useState("");

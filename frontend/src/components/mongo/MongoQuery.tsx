@@ -5,7 +5,7 @@ import { Mongo, arr, errorText, type MG } from "../../api";
 import { editorTheme, monaco, type Monaco } from "../../editor/monaco";
 import { clearMongoContext, invalidateMongoCatalog, mongoEditorOptions, registerMongoLanguage, setMongoContext } from "../../editor/mongo";
 import { Val, field, formatVal } from "../../mongo/docs";
-import { useApp, type Tab } from "../../store";
+import { useApp, type TabOf } from "../../store";
 import { alert } from "../Dialogs";
 import { Split } from "../Split";
 import { DocsView, type DocsMode } from "./DocsView";
@@ -22,8 +22,8 @@ interface Shown extends MG.Result {
   revision: number;
 }
 
-export function MongoQuery({ tab }: { tab: Tab }) {
-  const connId = tab.connId!;
+export function MongoQuery({ tab }: { tab: TabOf<"mongoquery"> }) {
+  const connId = tab.connId;
   const host = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const [shell, setShell] = useState<string | null>(null);

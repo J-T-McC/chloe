@@ -2,7 +2,7 @@ import { ChartColumn, PanelBottom, Check, ChevronLeft, ChevronRight, ChevronsLef
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Explorer, ObjectKind, Query, StatementResult, TableDetail, arr, errorText } from "../api";
 import { buildRowChanges } from "../gridChanges";
-import type { Tab } from "../store";
+import type { TabOf } from "../store";
 import { Cell, DataGrid, GridEdits, GridPage, MAX_CELL_CHARS, emptyEdits } from "./DataGrid";
 import { confirm } from "./Dialogs";
 import { Split } from "./Split";
@@ -16,9 +16,9 @@ import { Toolbar } from "./Toolbar";
 
 const PAGE_SIZES = [100, 500, 1000, 5000, 10000];
 
-export function TableViewer({ tab }: { tab: Tab }) {
-  const ref = tab.ref!;
-  const connId = tab.connId!;
+export function TableViewer({ tab }: { tab: TabOf<"table"> }) {
+  const ref = tab.ref;
+  const connId = tab.connId;
   const editable = ref.kind === ObjectKind.KindTable;
 
   const [detail, setDetail] = useState<TableDetail | null>(null);

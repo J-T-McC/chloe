@@ -5,7 +5,7 @@
 import { Calendar, ChevronDown, Database, Hash, Presentation, RefreshCw, Save, Type, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { B, BI, BICatalog, arr, errorText } from "../../api";
-import { Tab, connById, useApp } from "../../store";
+import { connById, useApp, type TabOf } from "../../store";
 import { DBType } from "../../api";
 import { MenuItem, openMenu } from "../ContextMenu";
 import { prompt } from "../Dialogs";
@@ -93,8 +93,8 @@ export function fitToType(c: B.Chart, t: B.ChartType, fields: B.Field[]): B.Char
 const queryKey = (c: B.Chart | null) => (c ? JSON.stringify([c.dataSource, c.type, c.dimension, c.series, c.value, c.secondary, c.target, cleanFilters(arr(c.filters)), c.sort, c.top, c.others, c.props?.sameDays]) : "");
 const comparable = (c: B.Chart | null) => (c ? JSON.stringify({ ...c, modified: undefined, filters: cleanFilters(arr(c.filters)) }) : "");
 
-export function ChartEditor({ tab }: { tab: Tab }) {
-  const path = tab.biPath!;
+export function ChartEditor({ tab }: { tab: TabOf<"bichart"> }) {
+  const path = tab.biPath;
   const { w } = useWorkspace(path);
   const [cat, setCat] = useState<BICatalog | null>(null);
   const [saved, setSaved] = useState<B.Chart | null>(null);

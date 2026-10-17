@@ -20,7 +20,7 @@ import { ServerMonitor } from "./components/ServerMonitor";
 import { TableViewer } from "./components/TableViewer";
 import { UserDesigner } from "./components/users/UserDesigner";
 import { UsersPane } from "./components/users/UsersPane";
-import type { Tab, TabKind } from "./store";
+import type { Tab, TabKind, TabOf } from "./store";
 
 // The diagram, model and BI tabs bring xyflow, elkjs, echarts and react-grid-layout:
 // they load when such a tab first opens.
@@ -31,8 +31,8 @@ const SourceEditor = lazy(() => import("./components/bi/SourceEditor").then((m) 
 const ChartEditor = lazy(() => import("./components/bi/ChartEditor").then((m) => ({ default: m.ChartEditor })));
 const DashboardEditor = lazy(() => import("./components/bi/DashboardEditor").then((m) => ({ default: m.DashboardEditor })));
 
-interface TabKindDef {
-  view(tab: Tab, active: boolean): ReactNode;
+interface TabKindDef<T> {
+  view(tab: T, active: boolean): ReactNode;
   /** the tab bar icon; the object's kind icon when left out */
   icon?: ReactNode;
   /** the tab shows the object in tab.ref */
@@ -41,7 +41,7 @@ interface TabKindDef {
 
 const I = 13;
 
-export const TAB_KINDS: Record<TabKind, TabKindDef> = {
+export const TAB_KINDS: { [K in TabKind]: TabKindDef<TabOf<K>> } = {
   objects: { view: () => <ObjectsPane />, icon: <Database size={I} /> },
   history: { view: (_, active) => <HistoryLog active={active} />, icon: <History size={I} /> },
   mcp: { view: () => <MCPServer />, icon: <Bot size={I} /> },
@@ -66,5 +66,8 @@ export const TAB_KINDS: Record<TabKind, TabKindDef> = {
   mongodesign: { view: (t) => <CollectionDesigner tab={t} />, icon: <PencilRuler size={I} />, object: true },
   mongousers: { view: (t) => <MongoUsers tab={t} />, icon: <UsersRound size={I} /> },
 };
+
+/** A tab's view; TypeScript can't tie TAB_KINDS[t.kind] to t's own kind, hence the cast. */
+export const tabView = (t: Tab, active: boolean) => (TAB_KINDS[t.kind] as TabKindDef<Tab>).view(t, active);
 
 export const tabIcon = (t: Tab) => TAB_KINDS[t.kind].icon ?? (t.ref ? <KindIcon kind={t.ref.kind} size={I} /> : null);

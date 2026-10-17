@@ -3,7 +3,7 @@ import { Minus, Plus, Save } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Mongo, ObjectKind, arr, errorText, type MG } from "../../api";
 import { field, formatIndexKeys, formatVal, parseIndexKeys } from "../../mongo/docs";
-import { useApp, type Tab } from "../../store";
+import { useApp, type TabOf } from "../../store";
 import { prompt } from "../Dialogs";
 import { CodeBlock } from "../CodeBlock";
 import { collectionsChanged } from "./actions";
@@ -66,11 +66,11 @@ const sameIndex = (a: IndexRow, b: IndexRow) => JSON.stringify(editable(a)) === 
 const inPlace = (old: IndexRow, cur: IndexRow) =>
   JSON.stringify({ ...editable(old), hidden: false, ttl: "" }) === JSON.stringify({ ...editable(cur), hidden: false, ttl: "" }) && (old.ttl === cur.ttl || (old.ttl !== "" && cur.ttl !== ""));
 
-export function CollectionDesigner({ tab }: { tab: Tab }) {
-  const connId = tab.connId!;
-  const db = tab.ref!.database;
-  const isView = tab.ref!.kind === ObjectKind.KindView;
-  const [name, setName] = useState(tab.ref!.name);
+export function CollectionDesigner({ tab }: { tab: TabOf<"mongodesign"> }) {
+  const connId = tab.connId;
+  const db = tab.ref.database;
+  const isView = tab.ref.kind === ObjectKind.KindView;
+  const [name, setName] = useState(tab.ref.name);
   const isNew = !name;
   const [section, setSection] = useState(isView ? "definition" : "indexes");
   const [info, setInfo] = useState<MG.CollInfo | null>(null);
@@ -207,7 +207,7 @@ export function CollectionDesigner({ tab }: { tab: Tab }) {
       if (isNew) {
         setName(target);
         const what = isView ? "View" : "Collection";
-        useApp.getState().updateTab(tab.id, { title: `${target} @${db} (${what})`, ref: { ...tab.ref!, name: target, signature: undefined } });
+        useApp.getState().updateTab(tab.id, { title: `${target} @${db} (${what})`, ref: { ...tab.ref, name: target, signature: undefined } });
       }
       collectionsChanged(connId, db);
       await load(target);
