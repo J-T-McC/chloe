@@ -210,6 +210,18 @@ func TestLiteralQuotesUntrustedValues(t *testing.T) {
 		{"t) OR (1=1", "BOOLEAN", "postgres", "'t) OR (1=1'"},
 		{`\'; DROP TABLE x; --`, "TEXT", "postgres", `E'\\''; DROP TABLE x; --'`},
 		{`\x01'`, "BYTEA", "postgres", `E'\\x01'''`},
+		// Without type affinity, numbers stay numbers and only the driver's own
+		// formatting counts as one.
+		{"10", "", "sqlite", "10"},
+		{"-2.5", "", "sqlite", "-2.5"},
+		{"1e+21", "", "sqlite", "1e+21"},
+		{"10", "BLOB", "sqlite", "10"},
+		{"007", "", "sqlite", "'007'"},
+		{"1.0", "", "sqlite", "'1.0'"},
+		{"+1", "", "sqlite", "'+1'"},
+		{"0x0A", "", "sqlite", "X'0A'"},
+		{"10", "TEXT", "sqlite", "'10'"},
+		{"1 OR 1=1", "", "sqlite", "'1 OR 1=1'"},
 	} {
 		if got := Literal(new(c.v), c.typ, c.dialect); got != c.want {
 			t.Errorf("Literal(%q, %s, %s) = %s, want %s", c.v, c.typ, c.dialect, got, c.want)

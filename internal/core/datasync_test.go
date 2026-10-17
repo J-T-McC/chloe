@@ -4,6 +4,7 @@ package core
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -156,9 +157,6 @@ INSERT INTO loose VALUES (2, 'a'), (10, 'x'), (12, 'd');`)
 
 	var sel []DataSyncSelection
 	for _, tb := range tables {
-		if tb.Source == "loose" {
-			continue // untyped values are written as text, which doesn't match integers
-		}
 		sel = append(sel, DataSyncSelection{Table: tb.Source, Insert: true, Update: true, Delete: true})
 	}
 	job, err := m.DeployDataSync(DataSyncDeployRequest{ID: cmp.ID, Tables: sel, UseTransaction: true})
@@ -171,12 +169,22 @@ INSERT INTO loose VALUES (2, 'a'), (10, 'x'), (12, 'd');`)
 	if err != nil || done.Status != JobDone || done.Errors > 0 {
 		t.Fatalf("deploy: %v %s %s\n%s", err, done.Status, done.Message, strings.Join(done.Log, "\n"))
 	}
+	// Untyped values keep their storage class: 11 is inserted as an integer.
+	lite, err := sql.Open("sqlite", filepath.Join(dir, "dst.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lite.Close()
+	var class string
+	if err := lite.QueryRow("SELECT typeof(id) FROM loose WHERE id = 11").Scan(&class); err != nil || class != "integer" {
+		t.Fatalf("loose 11 stored as %q %v", class, err)
+	}
 	again, err := m.CompareData(ctx, DataSyncRequest{Source: src, Target: dst, Tables: tables})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, r := range again.Tables {
-		if r.Source != "loose" && (r.Insert+r.Update+r.Delete != 0 || r.Message != "") {
+		if r.Insert+r.Update+r.Delete != 0 || r.Message != "" {
 			t.Errorf("after deploying, %s still differs: %+v", r.Source, r)
 		}
 	}
