@@ -95,6 +95,19 @@ func TestParametersInQueries(t *testing.T) {
 	if _, err := From(pg, rs); err == nil || !strings.Contains(err.Error(), "without quotes") {
 		t.Errorf("quoted: %v", err)
 	}
+	rs.SQL = "SELECT $q$ [$region] $q$ AS a, $$it's$$ AS b"
+	if _, err := From(pg, rs); err == nil || !strings.Contains(err.Error(), "without quotes") {
+		t.Errorf("dollar quoted: %v", err)
+	}
+	// An E'…' string's \' doesn't end it, and $1 isn't a dollar quote.
+	rs.SQL = `SELECT E'\' [$region]' AS a, $1 AS b`
+	if _, err := From(pg, rs); err == nil || !strings.Contains(err.Error(), "without quotes") {
+		t.Errorf("E string: %v", err)
+	}
+	rs.SQL = "SELECT $$ ) $$ AS a, [$region] AS b"
+	if f, err := From(pg, rs); err != nil || !strings.Contains(f.SQL, "$$ ) $$ AS a, $1 AS b") {
+		t.Errorf("after a dollar quote: %v %v", f, err)
+	}
 	rs.SQL = "SELECT [$nope] AS x"
 	if _, err := From(pg, rs); err == nil || !strings.Contains(err.Error(), "no parameter $nope") {
 		t.Errorf("unknown: %v", err)
