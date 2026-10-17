@@ -2,7 +2,7 @@
 // Archive mode; Filter, Sort and Projection panes; and the preview grid
 // ("Apply and Refresh Data"), like Navicat's data source tab.
 import { ArrowUpDown, Calculator, Columns3, Combine, Database, Filter, Play, Plus, RefreshCw, Save, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { B, BI, BIPreview, DBType, Explorer, ObjectKind, Query, SavedQuery, arr, errorText } from "../../api";
 import { connDialect } from "../../dialect";
 import { Monaco, monaco } from "../../editor/monaco";
@@ -51,7 +51,8 @@ export function SourceEditor({ tab }: { tab: Tab }) {
 
   // Load the source (or start one) once the workspace is read; reload it when it
   // changes elsewhere and isn't being edited here.
-  const dirty = !!draft && comparable(draft) !== comparable(saved);
+  const savedText = useMemo(() => comparable(saved), [saved]);
+  const dirty = !!draft && comparable(draft) !== savedText;
   useEffect(() => {
     if (!w) return;
     const found = tab.biId ? arr(w.dataSources).find((s) => s.id === tab.biId) : null;
@@ -453,7 +454,8 @@ export function SourceEditor({ tab }: { tab: Tab }) {
 
 const TYPE_MARK: Record<string, string> = { number: "#", datetime: "◷", string: "Aa" };
 
-function PreviewGrid({ preview, fields, busy }: { preview: BIPreview | null; fields: B.Field[]; busy: string }) {
+// Memoised: the SQL box re-renders the editor on every keystroke.
+const PreviewGrid = memo(function PreviewGrid({ preview, fields, busy }: { preview: BIPreview | null; fields: B.Field[]; busy: string }) {
   if (busy) return <div className="center-hint">{busy}</div>;
   if (!preview) return <div className="center-hint">Apply and Refresh Data to preview the rows.</div>;
   const cols = arr(preview.columns);
@@ -490,7 +492,7 @@ function PreviewGrid({ preview, fields, busy }: { preview: BIPreview | null; fie
       </div>
     </div>
   );
-}
+});
 
 function SqlBox({ connId, database, schema, value, onChange, onSave, onRun }: { connId: string; database: string; schema?: string; value: string; onChange(v: string): void; onSave(): void; onRun(): void }) {
   const host = useRef<HTMLDivElement>(null);

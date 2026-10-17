@@ -10,11 +10,14 @@ import { folderKey, useTree } from "./tree";
 
 // The live text of each mounted query editor; tab.sql lags behind it.
 const editors = new Map<string, () => string>();
+const lengths = new Map<string, () => number>();
 
-export function registerQueryEditor(tabId: string, text: () => string) {
+export function registerQueryEditor(tabId: string, text: () => string, length?: () => number) {
   editors.set(tabId, text);
+  if (length) lengths.set(tabId, length);
   return () => {
     editors.delete(tabId);
+    lengths.delete(tabId);
   };
 }
 
@@ -24,7 +27,10 @@ export const tabText = (t: Tab) => editors.get(t.id)?.() ?? t.sql ?? "";
 export function queryTextChanged(tabId: string) {
   const t = useApp.getState().tabs.find((x) => x.id === tabId);
   if (!t) return;
-  const dirty = tabText(t) !== (t.savedSql ?? "");
+  // Typing nearly always changes the length, which Monaco knows without building the text.
+  const saved = t.savedSql ?? "";
+  const length = lengths.get(tabId)?.();
+  const dirty = (length !== undefined && length !== saved.length) || tabText(t) !== saved;
   if (dirty !== !!t.dirty) useApp.getState().updateTab(tabId, { dirty });
   scheduleDrafts();
 }

@@ -20,6 +20,9 @@ import { openHistoryLog } from "./HistoryLog";
 import { Toolbar } from "./Toolbar";
 import { createSqlEditor } from "../editor/sqlEditor";
 
+/** Shown for a result nobody has edited; edits replace it rather than change it. */
+const NO_EDITS = emptyEdits();
+
 export interface RunState {
   results: StatementResult[];
   running: boolean;
@@ -63,7 +66,7 @@ export function QueryEditor({ tab }: { tab: Tab }) {
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, () => beautifyRef.current());
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveQueryTab(tab.id));
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyS, () => saveQueryTab(tab.id, true));
-    const unregister = registerQueryEditor(tab.id, () => model.getValue());
+    const unregister = registerQueryEditor(tab.id, () => model.getValue(), () => model.getValueLength());
     const save = editor.onDidChangeModelContent(() => {
       decorations.current?.clear();
       queryTextChanged(tab.id);
@@ -300,7 +303,7 @@ export function QueryEditor({ tab }: { tab: Tab }) {
                   connId={connId}
                   database={database}
                   schema={schema}
-                  edits={edits[run.results[resultTab - 1].resultId!] ?? emptyEdits()}
+                  edits={edits[run.results[resultTab - 1].resultId!] ?? NO_EDITS}
                   onEdits={(id, fn) => setEdits((m) => ({ ...m, [id]: fn(m[id] ?? emptyEdits()) }))}
                   onPatched={(st) =>
                     setRun((r) => ({ ...r, results: r.results.map((x) => (x.resultId === st.resultId ? { ...x, rowCount: st.rowCount, complete: st.complete } : x)) }))
@@ -400,7 +403,7 @@ export function ResultGrid({
   const editable = !!target?.editable && !!edits && !!onEdits;
   const mapped = arr(target?.columns);
   const readOnlyColumns = useMemo(() => (editable ? columns.map((_, c) => !mapped[c]) : undefined), [editable, columns, mapped]);
-  const e = edits ?? emptyEdits();
+  const e = edits ?? NO_EDITS;
   const dirty = isDirty(e);
   const update = (fn: (e: GridEdits) => GridEdits) => onEdits?.(id, fn);
 
