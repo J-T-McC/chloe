@@ -65,9 +65,9 @@ func Open(ctx context.Context, c model.Connection, d tunnel.Dialer) (*Client, er
 		Dialer: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			return d.DialContext(ctx, network, addr)
 		},
-		DialTimeout:  secs(c.Advanced.ConnectTimeoutSec, 15),
-		ReadTimeout:  secs(c.Advanced.ReadTimeoutSec, 30),
-		WriteTimeout: secs(c.Advanced.WriteTimeoutSec, 30),
+		DialTimeout:  c.Advanced.ConnectTimeout(15 * time.Second),
+		ReadTimeout:  c.Advanced.ReadTimeout(30 * time.Second),
+		WriteTimeout: c.Advanced.WriteTimeout(30 * time.Second),
 		// go-redis would otherwise send CLIENT SETINFO, which older servers reject.
 		DisableIdentity: true,
 		ClientName:      "Chloe",
@@ -93,13 +93,6 @@ func Open(ctx context.Context, c model.Connection, d tunnel.Dialer) (*Client, er
 		cl.version = "Valkey " + v
 	}
 	return cl, nil
-}
-
-func secs(n, def int) time.Duration {
-	if n <= 0 {
-		n = def
-	}
-	return time.Duration(n) * time.Second
 }
 
 func infoField(info, name string) string {

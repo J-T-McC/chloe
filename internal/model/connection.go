@@ -1,6 +1,8 @@
 // Package model holds the types shared between the database core and the UI bindings.
 package model
 
+import "time"
+
 // DBType identifies a database engine.
 type DBType string
 
@@ -102,6 +104,25 @@ type Advanced struct {
 	CleartextAuth   bool   `json:"cleartextAuth"`
 	// PostgreSQL only: extra libpq-style key=value parameters, one per line.
 	ConnectionParams string `json:"connectionParams,omitempty"`
+}
+
+// ConnectTimeout, ReadTimeout and WriteTimeout are the settings in seconds as
+// durations, def when unset.
+func (a Advanced) ConnectTimeout(def time.Duration) time.Duration {
+	return secondsOr(a.ConnectTimeoutSec, def)
+}
+func (a Advanced) ReadTimeout(def time.Duration) time.Duration {
+	return secondsOr(a.ReadTimeoutSec, def)
+}
+func (a Advanced) WriteTimeout(def time.Duration) time.Duration {
+	return secondsOr(a.WriteTimeoutSec, def)
+}
+
+func secondsOr(n int, def time.Duration) time.Duration {
+	if n <= 0 {
+		return def
+	}
+	return time.Duration(n) * time.Second
 }
 
 // SSHAuth selects how the SSH tunnel authenticates.

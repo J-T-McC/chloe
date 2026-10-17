@@ -151,11 +151,7 @@ func (c *Conn) dsn(database string) string {
 			q.Set(strings.TrimSpace(k), strings.TrimSpace(v))
 		}
 	}
-	timeout := p.Advanced.ConnectTimeoutSec
-	if timeout <= 0 {
-		timeout = 15
-	}
-	q.Set("connect_timeout", strconv.Itoa(timeout))
+	q.Set("connect_timeout", strconv.Itoa(int(p.Advanced.ConnectTimeout(15*time.Second)/time.Second)))
 	// Without "Use SSL", behave like libpq's default: use TLS if the server offers it.
 	mode := "prefer"
 	if p.SSL.Enabled {

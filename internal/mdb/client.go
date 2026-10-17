@@ -109,19 +109,12 @@ func Options(c model.Connection, d tunnel.Dialer) (*options.ClientOptions, error
 		}
 		o.SetTLSConfig(tc)
 	}
-	ct := secs(c.Advanced.ConnectTimeoutSec, 15)
+	ct := c.Advanced.ConnectTimeout(15 * time.Second)
 	o.SetConnectTimeout(ct).SetServerSelectionTimeout(ct)
 	if c.Advanced.SessionLimit > 0 {
 		o.SetMaxPoolSize(uint64(c.Advanced.SessionLimit))
 	}
 	return o, nil
-}
-
-func secs(n, def int) time.Duration {
-	if n <= 0 {
-		n = def
-	}
-	return time.Duration(n) * time.Second
 }
 
 // Open connects and checks the server answers.
