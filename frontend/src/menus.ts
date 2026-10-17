@@ -158,7 +158,6 @@ async function duplicateView(connId: string, ref: ObjectRef) {
     for (let i = 2; names.has(name); i++) name = `${ref.name}_copy${i}`;
     const res = await Design.ApplyView(connId, null, { ...v, name, origName: undefined });
     if (res.error) return alert("Duplicate failed", res.error);
-    useApp.setState((s) => ({ objectsVersion: s.objectsVersion + 1 }));
     refreshFolder(connId, ref);
   } catch (e) {
     alert("Duplicate failed", errorText(e));
@@ -168,12 +167,13 @@ async function duplicateView(connId: string, ref: ObjectRef) {
 async function refreshMatView(connId: string, ref: ObjectRef, concurrently: boolean) {
   const res = await Design.RefreshMaterializedView(connId, ref, concurrently);
   if (res.error) alert("Refresh failed", res.error + (concurrently ? "\n\nRefresh Concurrently needs a unique index on the materialized view." : ""));
-  else useApp.setState((s) => ({ objectsVersion: s.objectsVersion + 1 }));
+  else useApp.getState().bumpFolder(folderKey(connId, ref.database, ref.schema, ref.kind));
 }
 
 function refreshFolder(connId: string, ref: ObjectRef) {
   const tree = useTree.getState();
   const key = folderKey(connId, ref.database, ref.schema, ref.kind);
+  useApp.getState().bumpFolder(key);
   if (tree.children[key]) tree.refresh({ key, type: "folder", label: "", connId, database: ref.database, schema: ref.schema, kind: ref.kind, depth: 0, expandable: true });
 }
 
@@ -222,7 +222,6 @@ export function tableChildMenu(connId: string, ref: ObjectRef, table: string): M
         if (!(await confirm(`Delete ${word.toLowerCase()} ${ref.name}?`, { okLabel: "Delete" }))) return;
         const res = await Design.RunTableAction(connId, ref, TableAction.ActionDrop, "");
         if (res.error) return alert("Delete failed", res.error);
-        useApp.setState((s) => ({ objectsVersion: s.objectsVersion + 1 }));
         refreshFolder(connId, ref);
       },
     },

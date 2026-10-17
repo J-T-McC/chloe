@@ -1,7 +1,7 @@
 import { Copy, Download, FilePlus2, Network, PencilRuler, Plus, RefreshCw, Table2, Trash2, Upload } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { DBType, Explorer, ObjectInfo, ObjectKind, ObjectRef, TableAction, arr, copyText } from "../api";
+import { DBType, Explorer, ObjectInfo, ObjectKind, ObjectRef, TableAction, copyText } from "../api";
 import { RedisBrowser } from "./redis/RedisBrowser";
 import { RedisDatabases } from "./redis/RedisDatabases";
 import { MongoCollections } from "./mongo/MongoCollections";
@@ -12,7 +12,7 @@ import { newView, viewDesign } from "./designer/ViewDesigner";
 import { objectsAreaMenu, openERD } from "../menus";
 import { openExport, openImport } from "./transfer/state";
 import { connById, dbKey, useApp } from "../store";
-import { TreeNode, folderKey, useTree } from "../tree";
+import { TreeNode, folderKey, forgetListings, listObjects, useTree } from "../tree";
 import { openMenu } from "./ContextMenu";
 import { Split } from "./Split";
 import { KIND_LABEL, KindIcon } from "./icons";
@@ -55,6 +55,12 @@ function SqlObjectsPane() {
   const objectsVersion = useApp((s) => s.objectsVersion);
 
   const kind = sel?.kind ?? (sel?.database ? ObjectKind.KindTable : undefined);
+  const folder = sel?.connId && sel.database && kind ? folderKey(sel.connId, sel.database, sel.schema, kind) : "";
+  const folderVersion = useApp((s) => s.folderVersions[folder] ?? 0);
+  const reloadList = () => {
+    forgetListings(folder);
+    setReload((x) => x + 1);
+  };
   const connected = sel?.connId ? !!open[sel.connId] : false;
   const dbOpen = useApp((s) => !!(sel?.database && s.openDbs[dbKey(sel.connId, sel.database)]));
   const needsSchema = connById(sel?.connId)?.type === "postgres" && !sel?.schema;
@@ -68,14 +74,14 @@ function SqlObjectsPane() {
   const listable = !!(sel?.database && kind && connected && dbOpen && !needsSchema);
   // A refresh keeps the rows on screen; another listing starts empty.
   const { data: objects, error, loading } = useAsync(
-    listable ? async () => arr(await Explorer.ListObjects(sel!.connId, sel!.database!, sel!.schema ?? "", kind!)) : null,
-    [listKey, listable, reload, objectsVersion],
+    listable ? () => listObjects(sel!.connId, sel!.database!, sel!.schema, kind!) : null,
+    [listKey, listable, reload, objectsVersion, folderVersion],
     [] as ObjectInfo[],
     { keep: listKey },
   );
   const pickedList = useMemo(() => objects.filter((o) => pickedSet.has(o.name)), [objects, pickedSet]);
   const picked = pickedList.find((o) => o.name === pickedNames[pickedNames.length - 1]) ?? null;
-  useEffect(() => setPicked(null), [listKey, listable, reload, objectsVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => setPicked(null), [listKey, listable, reload, objectsVersion, folderVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Selecting an object in the tree selects it here too.
   useEffect(() => {
@@ -204,7 +210,7 @@ function SqlObjectsPane() {
         </button>
         <button
           onClick={() => {
-            setReload((x) => x + 1);
+            reloadList();
             // keep the tree in sync
             const tree = useTree.getState();
             const key = kind && folderKey(sel.connId, sel.database, sel.schema, kind);
@@ -262,7 +268,7 @@ function SqlObjectsPane() {
               newQuery(sel.connId, sel.database, sel.schema, isData ? selectAllSQL(sel.connId, refOfObj(picked!)) : "");
             } else if (meta && e.key === "r") {
               e.preventDefault();
-              setReload((x) => x + 1);
+              reloadList();
             } else if (e.key === "Enter" && picked) {
               openObject(asNode(picked));
             }

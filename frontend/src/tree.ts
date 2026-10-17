@@ -60,6 +60,35 @@ const MONGO_FOLDERS = [ObjectKind.KindCollection, ObjectKind.KindView];
 export const isMongo = (connId: string) => connById(connId)?.type === DBType.MongoDB;
 
 
+// ---- shared folder listings -------------------------------------------------------
+
+// Clicking a folder in the tree both expands it and shows it in the Objects list,
+// which asked the server for the same listing twice (slow on MySQL's
+// information_schema). A listing is shared while it loads and for a moment after;
+// a change to its folder, or a refresh, drops it.
+const LISTING_TTL = 2000;
+const listings = new Map<string, { at: number; p: Promise<ObjectInfo[]> }>();
+
+export function listObjects(connId: string, database: string, schema: string | undefined, kind: ObjectKind): Promise<ObjectInfo[]> {
+  const k = folderKey(connId, database, schema, kind);
+  const hit = listings.get(k);
+  if (hit && Date.now() - hit.at < LISTING_TTL) return hit.p;
+  const p = Explorer.ListObjects(connId, database, schema ?? "", kind).then(arr);
+  listings.set(k, { at: Date.now(), p });
+  p.catch(() => listings.delete(k));
+  return p;
+}
+
+/** Drop shared listings of a folder, or of every folder under a tree key. */
+export function forgetListings(prefix: string) {
+  for (const k of [...listings.keys()]) if (k === prefix || k.startsWith(prefix + "/")) listings.delete(k);
+}
+
+useApp.subscribe((s, prev) => {
+  if (s.objectsVersion !== prev.objectsVersion) listings.clear();
+  else if (s.folderVersions !== prev.folderVersions) for (const k of Object.keys(s.folderVersions)) if (s.folderVersions[k] !== prev.folderVersions[k]) forgetListings(k);
+});
+
 async function loadChildren(n: TreeNode): Promise<TreeNode[]> {
   const d = n.depth + 1;
   switch (n.type) {
@@ -101,7 +130,7 @@ async function loadChildren(n: TreeNode): Promise<TreeNode[]> {
           expandable: false,
         }));
       }
-      const objs = arr(await Explorer.ListObjects(n.connId, n.database!, n.schema ?? "", n.kind!));
+      const objs = await listObjects(n.connId, n.database!, n.schema, n.kind!);
       return objs.map((o) => ({
         key: `${n.key}/${o.name}${o.signature ? `(${o.signature})` : ""}`,
         type: "object",
@@ -183,6 +212,7 @@ export const useTree = create<TreeState>((set, get) => ({
       .flat()
       .find((c) => c.key === node.key);
     if (real) node = { ...node, depth: real.depth };
+    forgetListings(node.key);
     // Drop cached children of this node and everything below it.
     set((s) => {
       const children = { ...s.children };
