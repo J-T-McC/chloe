@@ -1,7 +1,8 @@
 // MCP Server: endpoints (token, access per connection and database, danger mode)
 // and the activity log of tool calls. See docs/specs/mcp-server.md.
 import { Bot, ChevronDown, ChevronRight, Copy, Folder, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import { DBType, Events, Explorer, MCP, Mongo, Redis, MCPLevel, arr, errorText, type MCPActivity, type MCPEndpoint, type MCPSettings, type MCPStatus, copyText } from "../../api";
 import { openAgentQuery, refreshFolder } from "../../queries";
@@ -561,6 +562,11 @@ function ActivityLog() {
   const activity = useMCP((s) => s.activity);
   const [sel, setSel] = useState<string>("");
   const picked = activity.find((a) => a.id === sel);
+  // Up to 1000 calls are kept; only the rows in view are drawn.
+  const scroller = useRef<HTMLDivElement>(null);
+  const v = useVirtualizer({ count: activity.length, getScrollElement: () => scroller.current, estimateSize: () => 24, overscan: 20 });
+  const rows = v.getVirtualItems();
+  const pad = (h: number) => (h > 0 ? <tr style={{ height: h }} aria-hidden /> : null);
   return (
     <div className="mcp-activity">
       <Toolbar>
@@ -584,7 +590,7 @@ function ActivityLog() {
         minFirst={100}
         minSecond={60}
         first={
-          <div className="monitor-table">
+          <div className="monitor-table" ref={scroller}>
             <table>
               <thead>
                 <tr>
@@ -600,8 +606,11 @@ function ActivityLog() {
                 </tr>
               </thead>
               <tbody>
-                {activity.map((a) => (
-                  <tr key={a.id} className={(a.id === sel ? "selected" : "") + " outcome-" + a.outcome} onClick={() => setSel(a.id)}>
+                {pad(rows[0]?.start ?? 0)}
+                {rows.map((row) => {
+                  const a = activity[row.index];
+                  return (
+                  <tr key={a.id} data-index={row.index} ref={v.measureElement} className={(a.id === sel ? "selected" : "") + " outcome-" + a.outcome} onClick={() => setSel(a.id)}>
                     <td>{time(a.time)}</td>
                     <td>{a.endpoint}</td>
                     <td className="mono">{a.tool}</td>
@@ -614,7 +623,9 @@ function ActivityLog() {
                       {a.error || a.sql}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
+                {pad(v.getTotalSize() - (rows[rows.length - 1]?.end ?? 0))}
               </tbody>
             </table>
           </div>

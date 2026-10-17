@@ -264,10 +264,16 @@ function JsonView(p: DocsViewProps) {
       folding: true,
     });
     editorRef.current = ed;
+    // The document whose first line is the last one at or before line (binary search).
     const docAt = (line: number) => {
-      let i = 0;
-      while (i + 1 < starts.current.length && starts.current[i + 1] <= line) i++;
-      return i;
+      const st = starts.current;
+      let lo = 0, hi = st.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (st[mid] <= line) lo = mid;
+        else hi = mid - 1;
+      }
+      return lo;
     };
     ed.onMouseDown((e) => {
       if (e.event.detail === 2 && e.target.position && pRef.current.onEditDoc) pRef.current.onEditDoc(docAt(e.target.position.lineNumber));

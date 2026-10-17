@@ -56,6 +56,15 @@ export interface DataGridProps {
 
 const ROW_H = 22;
 const PAGE = 500;
+
+/** Runs fn over items, at most limit at a time. */
+async function eachLimited<T>(items: T[], limit: number, fn: (item: T) => Promise<void>) {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) await fn(items[next++]);
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
 const HEADER_H = 38; // two lines: name, then type
 const ROWHDR_W = 48;
 // Columns drawn beyond each side of the visible ones.
@@ -298,22 +307,21 @@ export const DataGrid = memo(function DataGrid(p: DataGridProps) {
   const loadWhole = async (r0: number, r1: number, c0: number, c1: number) => {
     const pages = new Map<number, Cell[][]>();
     const last = Math.min(r1, p.rowCount - 1);
-    await Promise.all(
-      range(Math.floor(r0 / PAGE), Math.floor(last / PAGE)).map(async (pg) => {
-        if (last < 0) return;
-        const page = cache.current.get(pg) ?? toCached(await p.fetchPage(pg * PAGE, PAGE));
-        const from = Math.max(r0, pg * PAGE), to = Math.min(last, pg * PAGE + PAGE - 1);
-        const needsWhole = p.fetchFull && [...page.cut].some((k) => {
-          const r = pg * PAGE + Math.floor(k / p.columns.length), c = k % p.columns.length;
-          return r >= from && r <= to && c >= c0 && c <= c1;
-        });
-        if (!needsWhole) return void pages.set(pg, page.rows);
-        const whole = await p.fetchFull!(from, to - from + 1);
-        const rows = page.rows.slice();
-        whole.forEach((row, i) => (rows[from - pg * PAGE + i] = row));
-        pages.set(pg, rows);
-      }),
-    );
+    // A few pages at a time: Select All on a million rows is 2000 pages.
+    await eachLimited(range(Math.floor(r0 / PAGE), Math.floor(last / PAGE)), 4, async (pg) => {
+      if (last < 0) return;
+      const page = cache.current.get(pg) ?? toCached(await p.fetchPage(pg * PAGE, PAGE));
+      const from = Math.max(r0, pg * PAGE), to = Math.min(last, pg * PAGE + PAGE - 1);
+      const needsWhole = p.fetchFull && [...page.cut].some((k) => {
+        const r = pg * PAGE + Math.floor(k / p.columns.length), c = k % p.columns.length;
+        return r >= from && r <= to && c >= c0 && c <= c1;
+      });
+      if (!needsWhole) return void pages.set(pg, page.rows);
+      const whole = await p.fetchFull!(from, to - from + 1);
+      const rows = page.rows.slice();
+      whole.forEach((row, i) => (rows[from - pg * PAGE + i] = row));
+      pages.set(pg, rows);
+    });
     return (r: number, c: number): Cell | undefined => {
       const upd = p.edits?.updated.get(r);
       if (upd?.has(c)) return upd.get(c)!;
@@ -410,7 +418,15 @@ export const DataGrid = memo(function DataGrid(p: DataGridProps) {
     e.stopPropagation();
     const x0 = e.clientX;
     const w0 = widths[c];
-    const move = (ev: MouseEvent) => setWidths((ws) => ws.map((w, i) => (i === c ? Math.max(40, w0 + ev.clientX - x0) : w)));
+    // One width update per frame, however often the mouse reports.
+    let frame = 0, x = x0;
+    const move = (ev: MouseEvent) => {
+      x = ev.clientX;
+      frame ||= requestAnimationFrame(() => {
+        frame = 0;
+        setWidths((ws) => ws.map((w, i) => (i === c ? Math.max(40, w0 + x - x0) : w)));
+      });
+    };
     const up = () => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
