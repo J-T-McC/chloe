@@ -702,115 +702,141 @@ func (s *Shell) collection(db, name string) goja.Value {
 }
 
 func (d *dbObj) makeMethods() map[string]goja.Value {
-	s, vm := d.s, d.s.vm
-	fn := func(f func(c goja.FunctionCall) goja.Value) goja.Value { return vm.ToValue(f) }
-	run := func(db string, cmd bson.D) goja.Value {
-		r, err := s.c.RunCommand(s.ctx, db, cmd)
-		s.check(err)
-		return s.toJS(r)
-	}
-	cmdArg := func(c goja.FunctionCall) bson.D {
-		if str, ok := c.Argument(0).Export().(string); ok {
-			return bson.D{{Key: str, Value: int32(1)}}
-		}
-		return s.docArg(c, 0, "command")
+	fn := func(f func(c goja.FunctionCall) goja.Value) goja.Value { return d.s.vm.ToValue(f) }
+	// cmd makes a method that runs a fixed command on this database or admin.
+	cmd := func(admin bool, name string) goja.Value {
+		return fn(func(goja.FunctionCall) goja.Value {
+			db := d.dbName()
+			if admin {
+				db = "admin"
+			}
+			return d.command(db, bson.D{{Key: name, Value: int32(1)}})
+		})
 	}
 	return map[string]goja.Value{
-		"getName":  fn(func(goja.FunctionCall) goja.Value { return vm.ToValue(d.dbName()) }),
-		"toString": fn(func(goja.FunctionCall) goja.Value { return vm.ToValue(d.dbName()) }),
-		"getCollection": fn(func(c goja.FunctionCall) goja.Value {
-			return s.collection(d.dbName(), c.Argument(0).String())
-		}),
-		"getSiblingDB": fn(func(c goja.FunctionCall) goja.Value {
-			return vm.NewDynamicObject(&dbObj{s: s, name: c.Argument(0).String()})
-		}),
-		"getCollectionNames": fn(func(goja.FunctionCall) goja.Value {
-			names := d.Keys()
-			items := make([]any, len(names))
-			for i, n := range names {
-				items[i] = n
-			}
-			return vm.NewArray(items...)
-		}),
-		"getCollectionInfos": fn(func(c goja.FunctionCall) goja.Value {
-			cur, err := d.mdb().ListCollections(s.ctx, s.docArg(c, 0, "filter"))
-			s.check(err)
-			var docs []bson.D
-			s.check(cur.All(s.ctx, &docs))
-			a := make(bson.A, len(docs))
-			for i, x := range docs {
-				a[i] = x
-			}
-			return s.toJS(a)
-		}),
-		"createCollection": fn(func(c goja.FunctionCall) goja.Value {
-			cmd := append(bson.D{{Key: "create", Value: c.Argument(0).String()}}, s.optDoc(c, 1)...)
-			return run(d.dbName(), cmd)
-		}),
-		"createView": fn(func(c goja.FunctionCall) goja.Value {
-			p, _ := s.arg(c, 2).(bson.A)
-			if p == nil {
-				p = bson.A{}
-			}
-			cmd := append(bson.D{{Key: "create", Value: c.Argument(0).String()}, {Key: "viewOn", Value: c.Argument(1).String()},
-				{Key: "pipeline", Value: p}}, s.optDoc(c, 3)...)
-			return run(d.dbName(), cmd)
-		}),
-		"dropDatabase": fn(func(goja.FunctionCall) goja.Value {
-			return run(d.dbName(), bson.D{{Key: "dropDatabase", Value: int32(1)}})
-		}),
-		"runCommand":   fn(func(c goja.FunctionCall) goja.Value { return run(d.dbName(), cmdArg(c)) }),
-		"adminCommand": fn(func(c goja.FunctionCall) goja.Value { return run("admin", cmdArg(c)) }),
-		"stats": fn(func(c goja.FunctionCall) goja.Value {
-			return run(d.dbName(), bson.D{{Key: "dbStats", Value: int32(1)}})
-		}),
-		"version": fn(func(goja.FunctionCall) goja.Value {
-			return vm.ToValue(strings.TrimPrefix(s.c.version, "MongoDB "))
-		}),
-		"serverStatus": fn(func(goja.FunctionCall) goja.Value {
-			return run("admin", bson.D{{Key: "serverStatus", Value: int32(1)}})
-		}),
-		"hostInfo": fn(func(goja.FunctionCall) goja.Value {
-			return run("admin", bson.D{{Key: "hostInfo", Value: int32(1)}})
-		}),
-		"serverBuildInfo": fn(func(goja.FunctionCall) goja.Value {
-			return run("admin", bson.D{{Key: "buildInfo", Value: int32(1)}})
-		}),
-		"currentOp": fn(func(c goja.FunctionCall) goja.Value {
-			return run("admin", append(bson.D{{Key: "currentOp", Value: int32(1)}}, s.optDoc(c, 0)...))
-		}),
-		"killOp": fn(func(c goja.FunctionCall) goja.Value {
-			return run("admin", bson.D{{Key: "killOp", Value: int32(1)}, {Key: "op", Value: s.arg(c, 0)}})
-		}),
-		"getUsers": fn(func(goja.FunctionCall) goja.Value {
-			return run(d.dbName(), bson.D{{Key: "usersInfo", Value: int32(1)}})
-		}),
-		"getRoles": fn(func(goja.FunctionCall) goja.Value {
-			return run(d.dbName(), bson.D{{Key: "rolesInfo", Value: int32(1)}})
-		}),
-		"createUser": fn(func(c goja.FunctionCall) goja.Value {
-			u := s.docArg(c, 0, "user")
-			cmd := bson.D{}
-			for _, e := range u {
-				if e.Key == "user" {
-					cmd = append(bson.D{{Key: "createUser", Value: e.Value}}, cmd...)
-				} else {
-					cmd = append(cmd, e)
-				}
-			}
-			return run(d.dbName(), cmd)
-		}),
-		"dropUser": fn(func(c goja.FunctionCall) goja.Value {
-			return run(d.dbName(), bson.D{{Key: "dropUser", Value: c.Argument(0).String()}})
-		}),
-		"aggregate": fn(func(c goja.FunctionCall) goja.Value {
-			p, ok := s.arg(c, 0).(bson.A)
-			if !ok {
-				s.throw(fmt.Errorf("aggregate needs an array of stages"))
-			}
-			return s.aggregate(&cursor{s: s, db: d.dbName(), agg: true, pipeline: p, opts: s.optDoc(c, 1), limit: -1})
-		}),
+		"getName":            fn(d.jsGetName),
+		"toString":           fn(d.jsGetName),
+		"getCollection":      fn(d.jsGetCollection),
+		"getSiblingDB":       fn(d.jsGetSiblingDB),
+		"getCollectionNames": fn(d.jsGetCollectionNames),
+		"getCollectionInfos": fn(d.jsGetCollectionInfos),
+		"createCollection":   fn(d.jsCreateCollection),
+		"createView":         fn(d.jsCreateView),
+		"dropDatabase":       cmd(false, "dropDatabase"),
+		"runCommand":         fn(func(c goja.FunctionCall) goja.Value { return d.command(d.dbName(), d.commandArg(c)) }),
+		"adminCommand":       fn(func(c goja.FunctionCall) goja.Value { return d.command("admin", d.commandArg(c)) }),
+		"stats":              cmd(false, "dbStats"),
+		"version":            fn(d.jsVersion),
+		"serverStatus":       cmd(true, "serverStatus"),
+		"hostInfo":           cmd(true, "hostInfo"),
+		"serverBuildInfo":    cmd(true, "buildInfo"),
+		"currentOp":          fn(d.jsCurrentOp),
+		"killOp":             fn(d.jsKillOp),
+		"getUsers":           cmd(false, "usersInfo"),
+		"getRoles":           cmd(false, "rolesInfo"),
+		"createUser":         fn(d.jsCreateUser),
+		"dropUser":           fn(d.jsDropUser),
+		"aggregate":          fn(d.jsAggregate),
 	}
+}
+
+// command runs a database command on db.
+func (d *dbObj) command(db string, cmd bson.D) goja.Value {
+	r, err := d.s.c.RunCommand(d.s.ctx, db, cmd)
+	d.s.check(err)
+	return d.s.toJS(r)
+}
+
+// commandArg is runCommand's argument: a command name or document.
+func (d *dbObj) commandArg(c goja.FunctionCall) bson.D {
+	if str, ok := c.Argument(0).Export().(string); ok {
+		return bson.D{{Key: str, Value: int32(1)}}
+	}
+	return d.s.docArg(c, 0, "command")
+}
+
+func (d *dbObj) jsGetName(goja.FunctionCall) goja.Value { return d.s.vm.ToValue(d.dbName()) }
+
+func (d *dbObj) jsGetCollection(c goja.FunctionCall) goja.Value {
+	return d.s.collection(d.dbName(), c.Argument(0).String())
+}
+
+func (d *dbObj) jsGetSiblingDB(c goja.FunctionCall) goja.Value {
+	return d.s.vm.NewDynamicObject(&dbObj{s: d.s, name: c.Argument(0).String()})
+}
+
+func (d *dbObj) jsGetCollectionNames(goja.FunctionCall) goja.Value {
+	names := d.Keys()
+	items := make([]any, len(names))
+	for i, n := range names {
+		items[i] = n
+	}
+	return d.s.vm.NewArray(items...)
+}
+
+func (d *dbObj) jsGetCollectionInfos(c goja.FunctionCall) goja.Value {
+	s := d.s
+	cur, err := d.mdb().ListCollections(s.ctx, s.docArg(c, 0, "filter"))
+	s.check(err)
+	var docs []bson.D
+	s.check(cur.All(s.ctx, &docs))
+	a := make(bson.A, len(docs))
+	for i, x := range docs {
+		a[i] = x
+	}
+	return s.toJS(a)
+}
+
+func (d *dbObj) jsCreateCollection(c goja.FunctionCall) goja.Value {
+	cmd := append(bson.D{{Key: "create", Value: c.Argument(0).String()}}, d.s.optDoc(c, 1)...)
+	return d.command(d.dbName(), cmd)
+}
+
+func (d *dbObj) jsCreateView(c goja.FunctionCall) goja.Value {
+	p, _ := d.s.arg(c, 2).(bson.A)
+	if p == nil {
+		p = bson.A{}
+	}
+	cmd := append(bson.D{{Key: "create", Value: c.Argument(0).String()}, {Key: "viewOn", Value: c.Argument(1).String()},
+		{Key: "pipeline", Value: p}}, d.s.optDoc(c, 3)...)
+	return d.command(d.dbName(), cmd)
+}
+
+func (d *dbObj) jsVersion(goja.FunctionCall) goja.Value {
+	return d.s.vm.ToValue(strings.TrimPrefix(d.s.c.version, "MongoDB "))
+}
+
+func (d *dbObj) jsCurrentOp(c goja.FunctionCall) goja.Value {
+	return d.command("admin", append(bson.D{{Key: "currentOp", Value: int32(1)}}, d.s.optDoc(c, 0)...))
+}
+
+func (d *dbObj) jsKillOp(c goja.FunctionCall) goja.Value {
+	return d.command("admin", bson.D{{Key: "killOp", Value: int32(1)}, {Key: "op", Value: d.s.arg(c, 0)}})
+}
+
+func (d *dbObj) jsCreateUser(c goja.FunctionCall) goja.Value {
+	u := d.s.docArg(c, 0, "user")
+	cmd := bson.D{}
+	for _, e := range u {
+		if e.Key == "user" {
+			cmd = append(bson.D{{Key: "createUser", Value: e.Value}}, cmd...)
+		} else {
+			cmd = append(cmd, e)
+		}
+	}
+	return d.command(d.dbName(), cmd)
+}
+
+func (d *dbObj) jsDropUser(c goja.FunctionCall) goja.Value {
+	return d.command(d.dbName(), bson.D{{Key: "dropUser", Value: c.Argument(0).String()}})
+}
+
+func (d *dbObj) jsAggregate(c goja.FunctionCall) goja.Value {
+	p, ok := d.s.arg(c, 0).(bson.A)
+	if !ok {
+		d.s.throw(fmt.Errorf("aggregate needs an array of stages"))
+	}
+	return d.s.aggregate(&cursor{s: d.s, db: d.dbName(), agg: true, pipeline: p, opts: d.s.optDoc(c, 1), limit: -1})
 }
 
 // ---- collections ------------------------------------------------------------------------
@@ -865,373 +891,462 @@ func optBool(o bson.D, key string) bool {
 }
 
 func (c *collObj) makeMethods() map[string]goja.Value {
-	s, vm := c.s, c.s.vm
-	fn := func(f func(a goja.FunctionCall) goja.Value) goja.Value { return vm.ToValue(f) }
-	// Result documents; counts are plain numbers, as in mongosh.
-	obj := func(kv ...any) goja.Value {
-		d := bson.D{}
-		for i := 0; i < len(kv); i += 2 {
-			v := kv[i+1]
-			if n, ok := v.(int64); ok {
-				v = float64(n)
-			}
-			d = append(d, bson.E{Key: kv[i].(string), Value: v})
-		}
-		return s.toJS(d)
-	}
-	find := func(a goja.FunctionCall) *cursor {
-		cur := &cursor{s: s, db: c.db, coll: c.name, filter: s.docArg(a, 0, "filter"), limit: -1}
-		if p := s.arg(a, 1); p != nil {
-			d, ok := p.(bson.D)
-			if !ok {
-				s.throw(fmt.Errorf("projection must be a document"))
-			}
-			cur.projection = d
-		}
-		if o := s.optDoc(a, 2); o != nil {
-			for _, e := range o {
-				switch e.Key {
-				case "sort":
-					cur.sort, _ = e.Value.(bson.D)
-				case "limit":
-					cur.limit = toInt64(e.Value)
-				case "skip":
-					cur.skip = toInt64(e.Value)
-				case "projection":
-					cur.projection, _ = e.Value.(bson.D)
-				default:
-					cur.opts = append(cur.opts, e)
-				}
-			}
-		}
-		return cur
-	}
-	updateOpts := func(o bson.D) *options.UpdateOneOptionsBuilder { return updateOptions(options.UpdateOne(), o) }
-	updateManyOpts := func(o bson.D) *options.UpdateManyOptionsBuilder { return updateOptions(options.UpdateMany(), o) }
-	updResult := func(r *mongo.UpdateResult) goja.Value {
-		return obj("acknowledged", r.Acknowledged, "insertedId", r.UpsertedID, "matchedCount", r.MatchedCount,
-			"modifiedCount", r.ModifiedCount, "upsertedCount", r.UpsertedCount)
-	}
-	update := func(a goja.FunctionCall) any {
-		u := s.arg(a, 1)
-		switch u.(type) {
-		case bson.D, bson.A:
-			return u
-		}
-		s.throw(fmt.Errorf("update must be a document or a pipeline"))
-		return nil
-	}
-	insertMany := func(docs bson.A, o bson.D) goja.Value {
-		if len(docs) == 0 {
-			s.throw(fmt.Errorf("insertMany needs at least one document"))
-		}
-		for i, d := range docs {
-			if _, ok := d.(bson.D); !ok {
-				s.throw(fmt.Errorf("document %d is not a document", i))
-			}
-		}
-		io := options.InsertMany()
-		if v, ok := optVal(o, "ordered"); ok {
-			b, _ := v.(bool)
-			io.SetOrdered(b)
-		}
-		r, err := c.mc().InsertMany(s.ctx, []any(docs), io)
-		s.check(err)
-		ids := bson.D{}
-		for i, id := range r.InsertedIDs {
-			ids = append(ids, bson.E{Key: strconv.Itoa(i), Value: id})
-		}
-		return obj("acknowledged", r.Acknowledged, "insertedIds", ids)
-	}
-	insertOne := func(doc any) goja.Value {
-		d, ok := doc.(bson.D)
-		if !ok {
-			s.throw(fmt.Errorf("insertOne needs a document"))
-		}
-		r, err := c.mc().InsertOne(s.ctx, d)
-		s.check(err)
-		return obj("acknowledged", r.Acknowledged, "insertedId", r.InsertedID)
-	}
-	delResult := func(r *mongo.DeleteResult, err error) goja.Value {
-		s.check(err)
-		return obj("acknowledged", r.Acknowledged, "deletedCount", r.DeletedCount)
-	}
-	findOneAnd := func(kind string) func(a goja.FunctionCall) goja.Value {
-		return func(a goja.FunctionCall) goja.Value {
-			filter := s.docArg(a, 0, "filter")
-			var o bson.D
-			if kind == "delete" {
-				o = s.optDoc(a, 1)
-			} else {
-				o = s.optDoc(a, 2)
-			}
-			after := optBool(o, "returnNewDocument")
-			if v, ok := optVal(o, "returnDocument"); ok {
-				after = v == "after"
-			}
-			sortV, hasSort := optVal(o, "sort")
-			projV, hasProj := optVal(o, "projection")
-			var res *mongo.SingleResult
-			switch kind {
-			case "update":
-				fo := options.FindOneAndUpdate()
-				if after {
-					fo.SetReturnDocument(options.After)
-				}
-				if optBool(o, "upsert") {
-					fo.SetUpsert(true)
-				}
-				if hasSort {
-					fo.SetSort(sortV)
-				}
-				if hasProj {
-					fo.SetProjection(projV)
-				}
-				if v, ok := optVal(o, "arrayFilters"); ok {
-					if arr, ok := v.(bson.A); ok {
-						fo.SetArrayFilters([]any(arr))
-					}
-				}
-				res = c.mc().FindOneAndUpdate(s.ctx, filter, update(a), fo)
-			case "replace":
-				fo := options.FindOneAndReplace()
-				if after {
-					fo.SetReturnDocument(options.After)
-				}
-				if optBool(o, "upsert") {
-					fo.SetUpsert(true)
-				}
-				if hasSort {
-					fo.SetSort(sortV)
-				}
-				if hasProj {
-					fo.SetProjection(projV)
-				}
-				res = c.mc().FindOneAndReplace(s.ctx, filter, s.docArg(a, 1, "replacement"), fo)
-			default:
-				fo := options.FindOneAndDelete()
-				if hasSort {
-					fo.SetSort(sortV)
-				}
-				if hasProj {
-					fo.SetProjection(projV)
-				}
-				res = c.mc().FindOneAndDelete(s.ctx, filter, fo)
-			}
-			var d bson.D
-			if err := res.Decode(&d); err != nil {
-				if errors.Is(err, mongo.ErrNoDocuments) {
-					return goja.Null()
-				}
-				s.throw(err)
-			}
-			return s.toJS(d)
-		}
-	}
-	run := func(cmd bson.D) goja.Value {
-		r, err := s.c.RunCommand(s.ctx, c.db, cmd)
-		s.check(err)
-		return s.toJS(r)
-	}
+	fn := func(f func(a goja.FunctionCall) goja.Value) goja.Value { return c.s.vm.ToValue(f) }
 	return map[string]goja.Value{
-		"getName":     fn(func(goja.FunctionCall) goja.Value { return vm.ToValue(c.name) }),
-		"getFullName": fn(func(goja.FunctionCall) goja.Value { return vm.ToValue(c.db + "." + c.name) }),
-		"toString":    fn(func(goja.FunctionCall) goja.Value { return vm.ToValue(c.db + "." + c.name) }),
-		"getDB": fn(func(goja.FunctionCall) goja.Value {
-			return vm.NewDynamicObject(&dbObj{s: s, name: c.db})
-		}),
-		"find": fn(func(a goja.FunctionCall) goja.Value { return vm.NewDynamicObject(find(a)) }),
-		"findOne": fn(func(a goja.FunctionCall) goja.Value {
-			cur := find(a)
-			cur.limit = 1
-			docs, _ := cur.page(0, 1)
-			if len(docs) == 0 {
-				return goja.Null()
-			}
-			return s.toJS(docs[0])
-		}),
-		"aggregate": fn(func(a goja.FunctionCall) goja.Value {
-			var p bson.A
-			var o bson.D
-			if arr, ok := s.arg(a, 0).(bson.A); ok {
-				p, o = arr, s.optDoc(a, 1)
-			} else {
-				for i := range a.Arguments {
-					p = append(p, s.docArg(a, i, "stage"))
-				}
-			}
-			return s.aggregate(&cursor{s: s, db: c.db, coll: c.name, agg: true, pipeline: p, opts: o, limit: -1})
-		}),
-		"insertOne": fn(func(a goja.FunctionCall) goja.Value { return insertOne(s.arg(a, 0)) }),
-		"insertMany": fn(func(a goja.FunctionCall) goja.Value {
-			arr, _ := s.arg(a, 0).(bson.A)
-			return insertMany(arr, s.optDoc(a, 1))
-		}),
-		"insert": fn(func(a goja.FunctionCall) goja.Value {
-			v := s.arg(a, 0)
-			if arr, ok := v.(bson.A); ok {
-				return insertMany(arr, s.optDoc(a, 1))
-			}
-			return insertOne(v)
-		}),
-		"updateOne": fn(func(a goja.FunctionCall) goja.Value {
-			r, err := c.mc().UpdateOne(s.ctx, s.docArg(a, 0, "filter"), update(a), updateOpts(s.optDoc(a, 2)))
-			s.check(err)
-			return updResult(r)
-		}),
-		"updateMany": fn(func(a goja.FunctionCall) goja.Value {
-			r, err := c.mc().UpdateMany(s.ctx, s.docArg(a, 0, "filter"), update(a), updateManyOpts(s.optDoc(a, 2)))
-			s.check(err)
-			return updResult(r)
-		}),
-		"update": fn(func(a goja.FunctionCall) goja.Value {
-			o := s.optDoc(a, 2)
-			var r *mongo.UpdateResult
-			var err error
-			if optBool(o, "multi") {
-				r, err = c.mc().UpdateMany(s.ctx, s.docArg(a, 0, "filter"), update(a), updateManyOpts(o))
-			} else {
-				r, err = c.mc().UpdateOne(s.ctx, s.docArg(a, 0, "filter"), update(a), updateOpts(o))
-			}
-			s.check(err)
-			return updResult(r)
-		}),
-		"replaceOne": fn(func(a goja.FunctionCall) goja.Value {
-			ro := options.Replace()
-			o := s.optDoc(a, 2)
-			if optBool(o, "upsert") {
-				ro.SetUpsert(true)
-			}
-			r, err := c.mc().ReplaceOne(s.ctx, s.docArg(a, 0, "filter"), s.docArg(a, 1, "replacement"), ro)
-			s.check(err)
-			return updResult(r)
-		}),
-		"deleteOne": fn(func(a goja.FunctionCall) goja.Value {
-			return delResult(c.mc().DeleteOne(s.ctx, s.docArg(a, 0, "filter")))
-		}),
-		"deleteMany": fn(func(a goja.FunctionCall) goja.Value {
-			return delResult(c.mc().DeleteMany(s.ctx, s.docArg(a, 0, "filter")))
-		}),
-		"remove": fn(func(a goja.FunctionCall) goja.Value {
-			justOne := a.Argument(1).ToBoolean()
-			if o, ok := a.Argument(1).(*goja.Object); ok {
-				justOne = o.Get("justOne") != nil && o.Get("justOne").ToBoolean()
-			}
-			if justOne {
-				return delResult(c.mc().DeleteOne(s.ctx, s.docArg(a, 0, "filter")))
-			}
-			return delResult(c.mc().DeleteMany(s.ctx, s.docArg(a, 0, "filter")))
-		}),
-		"findOneAndUpdate":  fn(findOneAnd("update")),
-		"findOneAndReplace": fn(findOneAnd("replace")),
-		"findOneAndDelete":  fn(findOneAnd("delete")),
-		"countDocuments": fn(func(a goja.FunctionCall) goja.Value {
-			o := options.Count()
-			opt := s.optDoc(a, 1)
-			if n, ok := optInt(opt, "limit"); ok {
-				o.SetLimit(n)
-			}
-			if n, ok := optInt(opt, "skip"); ok {
-				o.SetSkip(n)
-			}
-			n, err := c.mc().CountDocuments(s.ctx, s.docArg(a, 0, "filter"), o)
-			s.check(err)
-			return vm.ToValue(n)
-		}),
-		"estimatedDocumentCount": fn(func(goja.FunctionCall) goja.Value {
-			n, err := c.mc().EstimatedDocumentCount(s.ctx)
-			s.check(err)
-			return vm.ToValue(n)
-		}),
-		"count": fn(func(a goja.FunctionCall) goja.Value {
-			f := s.docArg(a, 0, "filter")
-			var n int64
-			var err error
-			if len(f) == 0 {
-				n, err = c.mc().EstimatedDocumentCount(s.ctx)
-			} else {
-				n, err = c.mc().CountDocuments(s.ctx, f)
-			}
-			s.check(err)
-			return vm.ToValue(n)
-		}),
-		"distinct": fn(func(a goja.FunctionCall) goja.Value {
-			r := c.mc().Distinct(s.ctx, a.Argument(0).String(), s.docArg(a, 1, "filter"))
-			var vals bson.A
-			s.check(r.Decode(&vals))
-			return s.toJS(vals)
-		}),
-		"createIndex": fn(func(a goja.FunctionCall) goja.Value {
-			spec := append(bson.D{{Key: "key", Value: s.docArg(a, 0, "keys")}}, s.optDoc(a, 1)...)
-			names := c.createIndexes([]bson.D{spec})
-			return vm.ToValue(names[0])
-		}),
-		"createIndexes": fn(func(a goja.FunctionCall) goja.Value {
-			arr, _ := s.arg(a, 0).(bson.A)
-			o := s.optDoc(a, 1)
-			specs := make([]bson.D, 0, len(arr))
-			for _, k := range arr {
-				kd, ok := k.(bson.D)
-				if !ok {
-					s.throw(fmt.Errorf("index keys must be documents"))
-				}
-				specs = append(specs, append(bson.D{{Key: "key", Value: kd}}, o...))
-			}
-			names := c.createIndexes(specs)
-			items := make([]any, len(names))
-			for i, n := range names {
-				items[i] = n
-			}
-			return vm.NewArray(items...)
-		}),
-		"getIndexes": fn(func(goja.FunctionCall) goja.Value {
-			ix, err := s.c.Indexes(s.ctx, c.db, c.name)
-			s.check(err)
-			a := make(bson.A, len(ix))
-			for i, x := range ix {
-				v, _ := FromVal(x.Spec)
-				a[i] = v
-			}
-			return s.toJS(a)
-		}),
-		"dropIndex": fn(func(a goja.FunctionCall) goja.Value {
-			return run(bson.D{{Key: "dropIndexes", Value: c.name}, {Key: "index", Value: s.arg(a, 0)}})
-		}),
-		"dropIndexes": fn(func(a goja.FunctionCall) goja.Value {
-			ix := s.arg(a, 0)
-			if ix == nil {
-				ix = "*"
-			}
-			return run(bson.D{{Key: "dropIndexes", Value: c.name}, {Key: "index", Value: ix}})
-		}),
-		"drop": fn(func(goja.FunctionCall) goja.Value {
-			s.check(c.mc().Drop(s.ctx))
-			return vm.ToValue(true)
-		}),
-		"renameCollection": fn(func(a goja.FunctionCall) goja.Value {
-			r, err := s.c.RunCommand(s.ctx, "admin", bson.D{{Key: "renameCollection", Value: c.db + "." + c.name},
-				{Key: "to", Value: c.db + "." + a.Argument(0).String()}, {Key: "dropTarget", Value: a.Argument(1).ToBoolean()}})
-			s.check(err)
-			return s.toJS(r)
-		}),
-		"stats": fn(func(goja.FunctionCall) goja.Value {
-			return run(bson.D{{Key: "collStats", Value: c.name}})
-		}),
-		"runCommand": fn(func(a goja.FunctionCall) goja.Value {
-			return run(append(bson.D{{Key: a.Argument(0).String(), Value: c.name}}, s.optDoc(a, 1)...))
-		}),
-		"bulkWrite": fn(func(a goja.FunctionCall) goja.Value { return c.bulkWrite(a) }),
-		"exists": fn(func(goja.FunctionCall) goja.Value {
-			cur, err := s.c.cl.Database(c.db).ListCollections(s.ctx, bson.D{{Key: "name", Value: c.name}})
-			s.check(err)
-			var docs []bson.D
-			s.check(cur.All(s.ctx, &docs))
-			if len(docs) == 0 {
-				return goja.Null()
-			}
-			return s.toJS(docs[0])
-		}),
+		"getName":                fn(c.jsGetName),
+		"getFullName":            fn(c.jsGetFullName),
+		"toString":               fn(c.jsGetFullName),
+		"getDB":                  fn(c.jsGetDB),
+		"find":                   fn(c.jsFind),
+		"findOne":                fn(c.jsFindOne),
+		"aggregate":              fn(c.jsAggregate),
+		"insertOne":              fn(c.jsInsertOne),
+		"insertMany":             fn(c.jsInsertMany),
+		"insert":                 fn(c.jsInsert),
+		"updateOne":              fn(c.jsUpdateOne),
+		"updateMany":             fn(c.jsUpdateMany),
+		"update":                 fn(c.jsUpdate),
+		"replaceOne":             fn(c.jsReplaceOne),
+		"deleteOne":              fn(c.jsDeleteOne),
+		"deleteMany":             fn(c.jsDeleteMany),
+		"remove":                 fn(c.jsRemove),
+		"findOneAndUpdate":       fn(c.jsFindOneAndUpdate),
+		"findOneAndReplace":      fn(c.jsFindOneAndReplace),
+		"findOneAndDelete":       fn(c.jsFindOneAndDelete),
+		"countDocuments":         fn(c.jsCountDocuments),
+		"estimatedDocumentCount": fn(c.jsEstimatedDocumentCount),
+		"count":                  fn(c.jsCount),
+		"distinct":               fn(c.jsDistinct),
+		"createIndex":            fn(c.jsCreateIndex),
+		"createIndexes":          fn(c.jsCreateIndexes),
+		"getIndexes":             fn(c.jsGetIndexes),
+		"dropIndex":              fn(c.jsDropIndex),
+		"dropIndexes":            fn(c.jsDropIndexes),
+		"drop":                   fn(c.jsDrop),
+		"renameCollection":       fn(c.jsRenameCollection),
+		"stats":                  fn(c.jsStats),
+		"runCommand":             fn(c.jsRunCommand),
+		"bulkWrite":              fn(c.bulkWrite),
+		"exists":                 fn(c.jsExists),
 	}
+}
+
+// resultDoc is a write's result document; counts are plain numbers, as in mongosh.
+func (s *Shell) resultDoc(kv ...any) goja.Value {
+	d := bson.D{}
+	for i := 0; i < len(kv); i += 2 {
+		v := kv[i+1]
+		if n, ok := v.(int64); ok {
+			v = float64(n)
+		}
+		d = append(d, bson.E{Key: kv[i].(string), Value: v})
+	}
+	return s.toJS(d)
+}
+
+func (s *Shell) updateResult(r *mongo.UpdateResult) goja.Value {
+	return s.resultDoc("acknowledged", r.Acknowledged, "insertedId", r.UpsertedID, "matchedCount", r.MatchedCount,
+		"modifiedCount", r.ModifiedCount, "upsertedCount", r.UpsertedCount)
+}
+
+func (s *Shell) deleteResult(r *mongo.DeleteResult, err error) goja.Value {
+	s.check(err)
+	return s.resultDoc("acknowledged", r.Acknowledged, "deletedCount", r.DeletedCount)
+}
+
+// command runs a database command on the collection's database.
+func (c *collObj) command(cmd bson.D) goja.Value {
+	r, err := c.s.c.RunCommand(c.s.ctx, c.db, cmd)
+	c.s.check(err)
+	return c.s.toJS(r)
+}
+
+// findCursor reads find's arguments: filter, projection and options.
+func (c *collObj) findCursor(a goja.FunctionCall) *cursor {
+	s := c.s
+	cur := &cursor{s: s, db: c.db, coll: c.name, filter: s.docArg(a, 0, "filter"), limit: -1}
+	if p := s.arg(a, 1); p != nil {
+		d, ok := p.(bson.D)
+		if !ok {
+			s.throw(fmt.Errorf("projection must be a document"))
+		}
+		cur.projection = d
+	}
+	if o := s.optDoc(a, 2); o != nil {
+		for _, e := range o {
+			switch e.Key {
+			case "sort":
+				cur.sort, _ = e.Value.(bson.D)
+			case "limit":
+				cur.limit = toInt64(e.Value)
+			case "skip":
+				cur.skip = toInt64(e.Value)
+			case "projection":
+				cur.projection, _ = e.Value.(bson.D)
+			default:
+				cur.opts = append(cur.opts, e)
+			}
+		}
+	}
+	return cur
+}
+
+// updateArg is an update's second argument: a document or a pipeline.
+func (c *collObj) updateArg(a goja.FunctionCall) any {
+	u := c.s.arg(a, 1)
+	switch u.(type) {
+	case bson.D, bson.A:
+		return u
+	}
+	c.s.throw(fmt.Errorf("update must be a document or a pipeline"))
+	return nil
+}
+
+func (c *collObj) insertDocs(docs bson.A, o bson.D) goja.Value {
+	s := c.s
+	if len(docs) == 0 {
+		s.throw(fmt.Errorf("insertMany needs at least one document"))
+	}
+	for i, d := range docs {
+		if _, ok := d.(bson.D); !ok {
+			s.throw(fmt.Errorf("document %d is not a document", i))
+		}
+	}
+	io := options.InsertMany()
+	if v, ok := optVal(o, "ordered"); ok {
+		b, _ := v.(bool)
+		io.SetOrdered(b)
+	}
+	r, err := c.mc().InsertMany(s.ctx, []any(docs), io)
+	s.check(err)
+	ids := bson.D{}
+	for i, id := range r.InsertedIDs {
+		ids = append(ids, bson.E{Key: strconv.Itoa(i), Value: id})
+	}
+	return s.resultDoc("acknowledged", r.Acknowledged, "insertedIds", ids)
+}
+
+func (c *collObj) insertDoc(doc any) goja.Value {
+	d, ok := doc.(bson.D)
+	if !ok {
+		c.s.throw(fmt.Errorf("insertOne needs a document"))
+	}
+	r, err := c.mc().InsertOne(c.s.ctx, d)
+	c.s.check(err)
+	return c.s.resultDoc("acknowledged", r.Acknowledged, "insertedId", r.InsertedID)
+}
+
+func (c *collObj) jsGetName(goja.FunctionCall) goja.Value { return c.s.vm.ToValue(c.name) }
+
+func (c *collObj) jsGetFullName(goja.FunctionCall) goja.Value {
+	return c.s.vm.ToValue(c.db + "." + c.name)
+}
+
+func (c *collObj) jsGetDB(goja.FunctionCall) goja.Value {
+	return c.s.vm.NewDynamicObject(&dbObj{s: c.s, name: c.db})
+}
+
+func (c *collObj) jsFind(a goja.FunctionCall) goja.Value {
+	return c.s.vm.NewDynamicObject(c.findCursor(a))
+}
+
+func (c *collObj) jsFindOne(a goja.FunctionCall) goja.Value {
+	cur := c.findCursor(a)
+	cur.limit = 1
+	docs, _ := cur.page(0, 1)
+	if len(docs) == 0 {
+		return goja.Null()
+	}
+	return c.s.toJS(docs[0])
+}
+
+func (c *collObj) jsAggregate(a goja.FunctionCall) goja.Value {
+	s := c.s
+	var p bson.A
+	var o bson.D
+	if arr, ok := s.arg(a, 0).(bson.A); ok {
+		p, o = arr, s.optDoc(a, 1)
+	} else {
+		for i := range a.Arguments {
+			p = append(p, s.docArg(a, i, "stage"))
+		}
+	}
+	return s.aggregate(&cursor{s: s, db: c.db, coll: c.name, agg: true, pipeline: p, opts: o, limit: -1})
+}
+
+func (c *collObj) jsInsertOne(a goja.FunctionCall) goja.Value { return c.insertDoc(c.s.arg(a, 0)) }
+
+func (c *collObj) jsInsertMany(a goja.FunctionCall) goja.Value {
+	arr, _ := c.s.arg(a, 0).(bson.A)
+	return c.insertDocs(arr, c.s.optDoc(a, 1))
+}
+
+func (c *collObj) jsInsert(a goja.FunctionCall) goja.Value {
+	v := c.s.arg(a, 0)
+	if arr, ok := v.(bson.A); ok {
+		return c.insertDocs(arr, c.s.optDoc(a, 1))
+	}
+	return c.insertDoc(v)
+}
+
+func (c *collObj) jsUpdateOne(a goja.FunctionCall) goja.Value {
+	s := c.s
+	r, err := c.mc().UpdateOne(s.ctx, s.docArg(a, 0, "filter"), c.updateArg(a), updateOptions(options.UpdateOne(), s.optDoc(a, 2)))
+	s.check(err)
+	return s.updateResult(r)
+}
+
+func (c *collObj) jsUpdateMany(a goja.FunctionCall) goja.Value {
+	s := c.s
+	r, err := c.mc().UpdateMany(s.ctx, s.docArg(a, 0, "filter"), c.updateArg(a), updateOptions(options.UpdateMany(), s.optDoc(a, 2)))
+	s.check(err)
+	return s.updateResult(r)
+}
+
+func (c *collObj) jsUpdate(a goja.FunctionCall) goja.Value {
+	if optBool(c.s.optDoc(a, 2), "multi") {
+		return c.jsUpdateMany(a)
+	}
+	return c.jsUpdateOne(a)
+}
+
+func (c *collObj) jsReplaceOne(a goja.FunctionCall) goja.Value {
+	s := c.s
+	ro := options.Replace()
+	if optBool(s.optDoc(a, 2), "upsert") {
+		ro.SetUpsert(true)
+	}
+	r, err := c.mc().ReplaceOne(s.ctx, s.docArg(a, 0, "filter"), s.docArg(a, 1, "replacement"), ro)
+	s.check(err)
+	return s.updateResult(r)
+}
+
+func (c *collObj) jsDeleteOne(a goja.FunctionCall) goja.Value {
+	return c.s.deleteResult(c.mc().DeleteOne(c.s.ctx, c.s.docArg(a, 0, "filter")))
+}
+
+func (c *collObj) jsDeleteMany(a goja.FunctionCall) goja.Value {
+	return c.s.deleteResult(c.mc().DeleteMany(c.s.ctx, c.s.docArg(a, 0, "filter")))
+}
+
+func (c *collObj) jsRemove(a goja.FunctionCall) goja.Value {
+	justOne := a.Argument(1).ToBoolean()
+	if o, ok := a.Argument(1).(*goja.Object); ok {
+		justOne = o.Get("justOne") != nil && o.Get("justOne").ToBoolean()
+	}
+	if justOne {
+		return c.jsDeleteOne(a)
+	}
+	return c.jsDeleteMany(a)
+}
+
+// findOneAndOpts is what findOneAndUpdate, findOneAndReplace and findOneAndDelete read from their options.
+type findOneAndOpts struct {
+	o                bson.D
+	after            bool
+	sort, projection any
+	hasSort, hasProj bool
+}
+
+func readFindOneAnd(o bson.D) findOneAndOpts {
+	f := findOneAndOpts{o: o, after: optBool(o, "returnNewDocument")}
+	if v, ok := optVal(o, "returnDocument"); ok {
+		f.after = v == "after"
+	}
+	f.sort, f.hasSort = optVal(o, "sort")
+	f.projection, f.hasProj = optVal(o, "projection")
+	return f
+}
+
+// oneResult is the document a findOneAnd… returns, or null.
+func (s *Shell) oneResult(res *mongo.SingleResult) goja.Value {
+	var d bson.D
+	if err := res.Decode(&d); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return goja.Null()
+		}
+		s.throw(err)
+	}
+	return s.toJS(d)
+}
+
+func (c *collObj) jsFindOneAndUpdate(a goja.FunctionCall) goja.Value {
+	s := c.s
+	f := readFindOneAnd(s.optDoc(a, 2))
+	fo := options.FindOneAndUpdate()
+	if f.after {
+		fo.SetReturnDocument(options.After)
+	}
+	if optBool(f.o, "upsert") {
+		fo.SetUpsert(true)
+	}
+	if f.hasSort {
+		fo.SetSort(f.sort)
+	}
+	if f.hasProj {
+		fo.SetProjection(f.projection)
+	}
+	if v, ok := optVal(f.o, "arrayFilters"); ok {
+		if arr, ok := v.(bson.A); ok {
+			fo.SetArrayFilters([]any(arr))
+		}
+	}
+	return s.oneResult(c.mc().FindOneAndUpdate(s.ctx, s.docArg(a, 0, "filter"), c.updateArg(a), fo))
+}
+
+func (c *collObj) jsFindOneAndReplace(a goja.FunctionCall) goja.Value {
+	s := c.s
+	f := readFindOneAnd(s.optDoc(a, 2))
+	fo := options.FindOneAndReplace()
+	if f.after {
+		fo.SetReturnDocument(options.After)
+	}
+	if optBool(f.o, "upsert") {
+		fo.SetUpsert(true)
+	}
+	if f.hasSort {
+		fo.SetSort(f.sort)
+	}
+	if f.hasProj {
+		fo.SetProjection(f.projection)
+	}
+	return s.oneResult(c.mc().FindOneAndReplace(s.ctx, s.docArg(a, 0, "filter"), s.docArg(a, 1, "replacement"), fo))
+}
+
+func (c *collObj) jsFindOneAndDelete(a goja.FunctionCall) goja.Value {
+	s := c.s
+	f := readFindOneAnd(s.optDoc(a, 1))
+	fo := options.FindOneAndDelete()
+	if f.hasSort {
+		fo.SetSort(f.sort)
+	}
+	if f.hasProj {
+		fo.SetProjection(f.projection)
+	}
+	return s.oneResult(c.mc().FindOneAndDelete(s.ctx, s.docArg(a, 0, "filter"), fo))
+}
+
+func (c *collObj) jsCountDocuments(a goja.FunctionCall) goja.Value {
+	s := c.s
+	o := options.Count()
+	opt := s.optDoc(a, 1)
+	if n, ok := optInt(opt, "limit"); ok {
+		o.SetLimit(n)
+	}
+	if n, ok := optInt(opt, "skip"); ok {
+		o.SetSkip(n)
+	}
+	n, err := c.mc().CountDocuments(s.ctx, s.docArg(a, 0, "filter"), o)
+	s.check(err)
+	return s.vm.ToValue(n)
+}
+
+func (c *collObj) jsEstimatedDocumentCount(goja.FunctionCall) goja.Value {
+	n, err := c.mc().EstimatedDocumentCount(c.s.ctx)
+	c.s.check(err)
+	return c.s.vm.ToValue(n)
+}
+
+func (c *collObj) jsCount(a goja.FunctionCall) goja.Value {
+	s := c.s
+	f := s.docArg(a, 0, "filter")
+	var n int64
+	var err error
+	if len(f) == 0 {
+		n, err = c.mc().EstimatedDocumentCount(s.ctx)
+	} else {
+		n, err = c.mc().CountDocuments(s.ctx, f)
+	}
+	s.check(err)
+	return s.vm.ToValue(n)
+}
+
+func (c *collObj) jsDistinct(a goja.FunctionCall) goja.Value {
+	r := c.mc().Distinct(c.s.ctx, a.Argument(0).String(), c.s.docArg(a, 1, "filter"))
+	var vals bson.A
+	c.s.check(r.Decode(&vals))
+	return c.s.toJS(vals)
+}
+
+func (c *collObj) jsCreateIndex(a goja.FunctionCall) goja.Value {
+	spec := append(bson.D{{Key: "key", Value: c.s.docArg(a, 0, "keys")}}, c.s.optDoc(a, 1)...)
+	names := c.createIndexes([]bson.D{spec})
+	return c.s.vm.ToValue(names[0])
+}
+
+func (c *collObj) jsCreateIndexes(a goja.FunctionCall) goja.Value {
+	s := c.s
+	arr, _ := s.arg(a, 0).(bson.A)
+	o := s.optDoc(a, 1)
+	specs := make([]bson.D, 0, len(arr))
+	for _, k := range arr {
+		kd, ok := k.(bson.D)
+		if !ok {
+			s.throw(fmt.Errorf("index keys must be documents"))
+		}
+		specs = append(specs, append(bson.D{{Key: "key", Value: kd}}, o...))
+	}
+	names := c.createIndexes(specs)
+	items := make([]any, len(names))
+	for i, n := range names {
+		items[i] = n
+	}
+	return s.vm.NewArray(items...)
+}
+
+func (c *collObj) jsGetIndexes(goja.FunctionCall) goja.Value {
+	ix, err := c.s.c.Indexes(c.s.ctx, c.db, c.name)
+	c.s.check(err)
+	a := make(bson.A, len(ix))
+	for i, x := range ix {
+		v, _ := FromVal(x.Spec)
+		a[i] = v
+	}
+	return c.s.toJS(a)
+}
+
+func (c *collObj) jsDropIndex(a goja.FunctionCall) goja.Value {
+	return c.command(bson.D{{Key: "dropIndexes", Value: c.name}, {Key: "index", Value: c.s.arg(a, 0)}})
+}
+
+func (c *collObj) jsDropIndexes(a goja.FunctionCall) goja.Value {
+	ix := c.s.arg(a, 0)
+	if ix == nil {
+		ix = "*"
+	}
+	return c.command(bson.D{{Key: "dropIndexes", Value: c.name}, {Key: "index", Value: ix}})
+}
+
+func (c *collObj) jsDrop(goja.FunctionCall) goja.Value {
+	c.s.check(c.mc().Drop(c.s.ctx))
+	return c.s.vm.ToValue(true)
+}
+
+func (c *collObj) jsRenameCollection(a goja.FunctionCall) goja.Value {
+	r, err := c.s.c.RunCommand(c.s.ctx, "admin", bson.D{{Key: "renameCollection", Value: c.db + "." + c.name},
+		{Key: "to", Value: c.db + "." + a.Argument(0).String()}, {Key: "dropTarget", Value: a.Argument(1).ToBoolean()}})
+	c.s.check(err)
+	return c.s.toJS(r)
+}
+
+func (c *collObj) jsStats(goja.FunctionCall) goja.Value {
+	return c.command(bson.D{{Key: "collStats", Value: c.name}})
+}
+
+func (c *collObj) jsRunCommand(a goja.FunctionCall) goja.Value {
+	return c.command(append(bson.D{{Key: a.Argument(0).String(), Value: c.name}}, c.s.optDoc(a, 1)...))
+}
+
+func (c *collObj) jsExists(goja.FunctionCall) goja.Value {
+	s := c.s
+	cur, err := s.c.cl.Database(c.db).ListCollections(s.ctx, bson.D{{Key: "name", Value: c.name}})
+	s.check(err)
+	var docs []bson.D
+	s.check(cur.All(s.ctx, &docs))
+	if len(docs) == 0 {
+		return goja.Null()
+	}
+	return s.toJS(docs[0])
 }
 
 // updateSetter is what updateOne and updateMany options have in common.
@@ -1389,6 +1504,7 @@ type cursor struct {
 	peeked  bool
 	done    bool
 	methods map[string]goja.Value
+	self    goja.Value // the cursor as a JavaScript object, for chaining without a this
 	// written: an aggregate ending in $out or $merge has already run.
 	written bool
 }
@@ -1625,218 +1741,238 @@ func (c *cursor) Delete(string) bool { return false }
 func (c *cursor) Keys() []string     { return nil }
 
 func (c *cursor) makeMethods() map[string]goja.Value {
-	s, vm := c.s, c.s.vm
-	var self goja.Value
-	ret := func() goja.Value {
-		if self == nil {
-			self = vm.NewDynamicObject(c)
-		}
-		return self
-	}
-	// The object the methods were called on, so chaining returns the same cursor.
-	chain := func(f func(a goja.FunctionCall)) goja.Value {
-		return vm.ToValue(func(a goja.FunctionCall) goja.Value {
-			if c.live != nil {
-				s.throw(fmt.Errorf("the cursor has already been iterated"))
-			}
-			f(a)
-			if o, ok := a.This.(*goja.Object); ok {
-				return o
-			}
-			return ret()
-		})
-	}
-	fn := func(f func(a goja.FunctionCall) goja.Value) goja.Value { return vm.ToValue(f) }
-	// stage appends a stage to an aggregation; false for a find cursor.
-	stage := func(name string, v any) bool {
-		if !c.agg {
-			return false
-		}
-		if c.writes() {
-			s.throw(fmt.Errorf("%s can't follow a pipeline ending in $out or $merge", name))
-		}
-		c.pipeline = append(c.pipeline, bson.D{{Key: name, Value: v}})
-		return true
-	}
-	setOpt := func(k string) goja.Value {
-		return chain(func(a goja.FunctionCall) { c.opts = append(c.opts, bson.E{Key: k, Value: s.arg(a, 0)}) })
-	}
-	all := func() []goja.Value {
-		var out []goja.Value
-		for {
-			d, ok := c.next()
-			if !ok {
-				return out
-			}
-			out = append(out, c.applyJS(d))
-		}
-	}
-	m := map[string]goja.Value{
+	fn := func(f func(a goja.FunctionCall) goja.Value) goja.Value { return c.s.vm.ToValue(f) }
+	return map[string]goja.Value{
 		// On an aggregation these add pipeline stages, as the Node.js driver does.
-		"sort": chain(func(a goja.FunctionCall) {
-			c.sort = s.docArg(a, 0, "sort")
-			stage("$sort", c.sort)
-		}),
-		"limit": chain(func(a goja.FunctionCall) {
-			n := a.Argument(0).ToInteger()
-			if n < 0 {
-				n = -n
-			}
-			if !stage("$limit", n) {
-				c.limit = n
-			}
-		}),
-		"skip": chain(func(a goja.FunctionCall) {
-			if n := a.Argument(0).ToInteger(); !stage("$skip", n) {
-				c.skip = n
-			}
-		}),
-		"projection": chain(func(a goja.FunctionCall) {
-			if p := s.docArg(a, 0, "projection"); !stage("$project", p) {
-				c.projection = p
-			}
-		}),
-		"project": chain(func(a goja.FunctionCall) {
-			if p := s.docArg(a, 0, "projection"); !stage("$project", p) {
-				c.projection = p
-			}
-		}),
-		"hint":      setOpt("hint"),
-		"collation": setOpt("collation"),
-		"comment":   setOpt("comment"),
-		"batchSize": setOpt("batchSize"),
-		"maxTimeMS": setOpt("maxTimeMS"),
-		"max":       setOpt("max"),
-		"min":       setOpt("min"),
-		"returnKey": setOpt("returnKey"),
-		"allowDiskUse": chain(func(a goja.FunctionCall) {
-			c.opts = append(c.opts, bson.E{Key: "allowDiskUse", Value: goja.IsUndefined(a.Argument(0)) || a.Argument(0).ToBoolean()})
-		}),
-		"noCursorTimeout": chain(func(goja.FunctionCall) { c.opts = append(c.opts, bson.E{Key: "noCursorTimeout", Value: true}) }),
-		"showRecordId":    chain(func(goja.FunctionCall) { c.opts = append(c.opts, bson.E{Key: "showRecordId", Value: true}) }),
-		"readPref":        chain(func(goja.FunctionCall) {}),
-		"pretty":          chain(func(goja.FunctionCall) {}),
-		"map": chain(func(a goja.FunctionCall) {
-			f, ok := goja.AssertFunction(a.Argument(0))
-			if !ok {
-				s.throw(fmt.Errorf("map needs a function"))
-			}
-			c.transform = append(c.transform, f)
-		}),
-		"toArray": fn(func(goja.FunctionCall) goja.Value {
-			items := all()
-			anys := make([]any, len(items))
-			for i, v := range items {
-				anys[i] = v
-			}
-			return vm.NewArray(anys...)
-		}),
-		"forEach": fn(func(a goja.FunctionCall) goja.Value {
-			f, ok := goja.AssertFunction(a.Argument(0))
-			if !ok {
-				s.throw(fmt.Errorf("forEach needs a function"))
-			}
-			for {
-				d, ok := c.next()
-				if !ok {
-					return goja.Undefined()
-				}
-				r, err := f(goja.Undefined(), c.applyJS(d))
-				if err != nil {
-					panic(err)
-				}
-				if r != nil && r.Export() == false {
-					return goja.Undefined()
-				}
-			}
-		}),
-		"hasNext": fn(func(goja.FunctionCall) goja.Value { return vm.ToValue(c.hasNext()) }),
-		"next": fn(func(goja.FunctionCall) goja.Value {
-			d, ok := c.next()
-			if !ok {
-				s.throw(fmt.Errorf("cursor is exhausted"))
-			}
-			return c.applyJS(d)
-		}),
-		"tryNext": fn(func(goja.FunctionCall) goja.Value {
-			d, ok := c.next()
-			if !ok {
-				return goja.Null()
-			}
-			return c.applyJS(d)
-		}),
-		"isExhausted": fn(func(goja.FunctionCall) goja.Value { return vm.ToValue(!c.hasNext()) }),
-		"itcount": fn(func(goja.FunctionCall) goja.Value {
-			n := 0
-			for {
-				if _, ok := c.next(); !ok {
-					return vm.ToValue(n)
-				}
-				n++
-			}
-		}),
-		"count": fn(func(goja.FunctionCall) goja.Value {
-			if c.agg {
-				s.throw(fmt.Errorf("count is not available on an aggregation cursor; use itcount()"))
-			}
-			n, err := s.c.cl.Database(c.db).Collection(c.coll).CountDocuments(s.ctx, c.filter)
-			s.check(err)
-			return vm.ToValue(n)
-		}),
-		"size": fn(func(goja.FunctionCall) goja.Value {
-			o := options.Count()
-			if c.skip > 0 {
-				o.SetSkip(c.skip)
-			}
-			if c.limit > 0 {
-				o.SetLimit(c.limit)
-			}
-			n, err := s.c.cl.Database(c.db).Collection(c.coll).CountDocuments(s.ctx, c.filter, o)
-			s.check(err)
-			return vm.ToValue(n)
-		}),
-		"explain": fn(func(a goja.FunctionCall) goja.Value {
-			verb := "queryPlanner"
-			if v, ok := a.Argument(0).Export().(string); ok {
-				verb = v
-			} else if a.Argument(0).ToBoolean() {
-				verb = "allPlansExecution"
-			}
-			var inner bson.D
-			if c.agg {
-				inner = bson.D{{Key: "aggregate", Value: c.coll}, {Key: "pipeline", Value: c.pipeline}, {Key: "cursor", Value: bson.D{}}}
-				if c.coll == "" {
-					inner[0].Value = int32(1)
-				}
-			} else {
-				inner = bson.D{{Key: "find", Value: c.coll}, {Key: "filter", Value: c.filter}}
-				if c.projection != nil {
-					inner = append(inner, bson.E{Key: "projection", Value: c.projection})
-				}
-				if c.sort != nil {
-					inner = append(inner, bson.E{Key: "sort", Value: c.sort})
-				}
-				if c.skip > 0 {
-					inner = append(inner, bson.E{Key: "skip", Value: c.skip})
-				}
-				if c.limit > 0 {
-					inner = append(inner, bson.E{Key: "limit", Value: c.limit})
-				}
-			}
-			r, err := s.c.RunCommand(s.ctx, c.db, bson.D{{Key: "explain", Value: inner}, {Key: "verbosity", Value: verb}})
-			s.check(err)
-			return s.toJS(r)
-		}),
-		"close": fn(func(goja.FunctionCall) goja.Value {
-			if c.live != nil {
-				c.live.Close(s.ctx)
-			}
-			c.done = true
-			return goja.Undefined()
-		}),
-		"toString": fn(func(goja.FunctionCall) goja.Value { return vm.ToValue("Cursor(" + c.ns() + ")") }),
+		"sort":            c.chain(c.jsSort),
+		"limit":           c.chain(c.jsLimit),
+		"skip":            c.chain(c.jsSkip),
+		"projection":      c.chain(c.jsProject),
+		"project":         c.chain(c.jsProject),
+		"hint":            c.setOpt("hint"),
+		"collation":       c.setOpt("collation"),
+		"comment":         c.setOpt("comment"),
+		"batchSize":       c.setOpt("batchSize"),
+		"maxTimeMS":       c.setOpt("maxTimeMS"),
+		"max":             c.setOpt("max"),
+		"min":             c.setOpt("min"),
+		"returnKey":       c.setOpt("returnKey"),
+		"allowDiskUse":    c.chain(c.jsAllowDiskUse),
+		"noCursorTimeout": c.chain(func(goja.FunctionCall) { c.opts = append(c.opts, bson.E{Key: "noCursorTimeout", Value: true}) }),
+		"showRecordId":    c.chain(func(goja.FunctionCall) { c.opts = append(c.opts, bson.E{Key: "showRecordId", Value: true}) }),
+		"readPref":        c.chain(func(goja.FunctionCall) {}),
+		"pretty":          c.chain(func(goja.FunctionCall) {}),
+		"map":             c.chain(c.jsMap),
+		"toArray":         fn(c.jsToArray),
+		"forEach":         fn(c.jsForEach),
+		"hasNext":         fn(func(goja.FunctionCall) goja.Value { return c.s.vm.ToValue(c.hasNext()) }),
+		"next":            fn(c.jsNext),
+		"tryNext":         fn(c.jsTryNext),
+		"isExhausted":     fn(func(goja.FunctionCall) goja.Value { return c.s.vm.ToValue(!c.hasNext()) }),
+		"itcount":         fn(c.jsItcount),
+		"count":           fn(c.jsCount),
+		"size":            fn(c.jsSize),
+		"explain":         fn(c.jsExplain),
+		"close":           fn(c.jsClose),
+		"toString":        fn(func(goja.FunctionCall) goja.Value { return c.s.vm.ToValue("Cursor(" + c.ns() + ")") }),
 	}
-	return m
+}
+
+// chain makes a method that changes the cursor before it's read and returns
+// the object it was called on, so calls chain on the same cursor.
+func (c *cursor) chain(f func(a goja.FunctionCall)) goja.Value {
+	return c.s.vm.ToValue(func(a goja.FunctionCall) goja.Value {
+		if c.live != nil {
+			c.s.throw(fmt.Errorf("the cursor has already been iterated"))
+		}
+		f(a)
+		if o, ok := a.This.(*goja.Object); ok {
+			return o
+		}
+		if c.self == nil {
+			c.self = c.s.vm.NewDynamicObject(c)
+		}
+		return c.self
+	})
+}
+
+// setOpt makes a chaining method that passes its argument on as option k.
+func (c *cursor) setOpt(k string) goja.Value {
+	return c.chain(func(a goja.FunctionCall) { c.opts = append(c.opts, bson.E{Key: k, Value: c.s.arg(a, 0)}) })
+}
+
+// addStage appends a stage to an aggregation; false for a find cursor.
+func (c *cursor) addStage(name string, v any) bool {
+	if !c.agg {
+		return false
+	}
+	if c.writes() {
+		c.s.throw(fmt.Errorf("%s can't follow a pipeline ending in $out or $merge", name))
+	}
+	c.pipeline = append(c.pipeline, bson.D{{Key: name, Value: v}})
+	return true
+}
+
+func (c *cursor) jsSort(a goja.FunctionCall) {
+	c.sort = c.s.docArg(a, 0, "sort")
+	c.addStage("$sort", c.sort)
+}
+
+func (c *cursor) jsLimit(a goja.FunctionCall) {
+	n := a.Argument(0).ToInteger()
+	if n < 0 {
+		n = -n
+	}
+	if !c.addStage("$limit", n) {
+		c.limit = n
+	}
+}
+
+func (c *cursor) jsSkip(a goja.FunctionCall) {
+	if n := a.Argument(0).ToInteger(); !c.addStage("$skip", n) {
+		c.skip = n
+	}
+}
+
+func (c *cursor) jsProject(a goja.FunctionCall) {
+	if p := c.s.docArg(a, 0, "projection"); !c.addStage("$project", p) {
+		c.projection = p
+	}
+}
+
+func (c *cursor) jsAllowDiskUse(a goja.FunctionCall) {
+	c.opts = append(c.opts, bson.E{Key: "allowDiskUse", Value: goja.IsUndefined(a.Argument(0)) || a.Argument(0).ToBoolean()})
+}
+
+func (c *cursor) jsMap(a goja.FunctionCall) {
+	f, ok := goja.AssertFunction(a.Argument(0))
+	if !ok {
+		c.s.throw(fmt.Errorf("map needs a function"))
+	}
+	c.transform = append(c.transform, f)
+}
+
+func (c *cursor) jsToArray(goja.FunctionCall) goja.Value {
+	var items []any
+	for {
+		d, ok := c.next()
+		if !ok {
+			return c.s.vm.NewArray(items...)
+		}
+		items = append(items, c.applyJS(d))
+	}
+}
+
+func (c *cursor) jsForEach(a goja.FunctionCall) goja.Value {
+	f, ok := goja.AssertFunction(a.Argument(0))
+	if !ok {
+		c.s.throw(fmt.Errorf("forEach needs a function"))
+	}
+	for {
+		d, ok := c.next()
+		if !ok {
+			return goja.Undefined()
+		}
+		r, err := f(goja.Undefined(), c.applyJS(d))
+		if err != nil {
+			panic(err)
+		}
+		if r != nil && r.Export() == false {
+			return goja.Undefined()
+		}
+	}
+}
+
+func (c *cursor) jsNext(goja.FunctionCall) goja.Value {
+	d, ok := c.next()
+	if !ok {
+		c.s.throw(fmt.Errorf("cursor is exhausted"))
+	}
+	return c.applyJS(d)
+}
+
+func (c *cursor) jsTryNext(goja.FunctionCall) goja.Value {
+	d, ok := c.next()
+	if !ok {
+		return goja.Null()
+	}
+	return c.applyJS(d)
+}
+
+func (c *cursor) jsItcount(goja.FunctionCall) goja.Value {
+	n := 0
+	for {
+		if _, ok := c.next(); !ok {
+			return c.s.vm.ToValue(n)
+		}
+		n++
+	}
+}
+
+func (c *cursor) jsCount(goja.FunctionCall) goja.Value {
+	s := c.s
+	if c.agg {
+		s.throw(fmt.Errorf("count is not available on an aggregation cursor; use itcount()"))
+	}
+	n, err := s.c.cl.Database(c.db).Collection(c.coll).CountDocuments(s.ctx, c.filter)
+	s.check(err)
+	return s.vm.ToValue(n)
+}
+
+func (c *cursor) jsSize(goja.FunctionCall) goja.Value {
+	s := c.s
+	o := options.Count()
+	if c.skip > 0 {
+		o.SetSkip(c.skip)
+	}
+	if c.limit > 0 {
+		o.SetLimit(c.limit)
+	}
+	n, err := s.c.cl.Database(c.db).Collection(c.coll).CountDocuments(s.ctx, c.filter, o)
+	s.check(err)
+	return s.vm.ToValue(n)
+}
+
+func (c *cursor) jsExplain(a goja.FunctionCall) goja.Value {
+	s := c.s
+	verb := "queryPlanner"
+	if v, ok := a.Argument(0).Export().(string); ok {
+		verb = v
+	} else if a.Argument(0).ToBoolean() {
+		verb = "allPlansExecution"
+	}
+	var inner bson.D
+	if c.agg {
+		inner = bson.D{{Key: "aggregate", Value: c.coll}, {Key: "pipeline", Value: c.pipeline}, {Key: "cursor", Value: bson.D{}}}
+		if c.coll == "" {
+			inner[0].Value = int32(1)
+		}
+	} else {
+		inner = bson.D{{Key: "find", Value: c.coll}, {Key: "filter", Value: c.filter}}
+		if c.projection != nil {
+			inner = append(inner, bson.E{Key: "projection", Value: c.projection})
+		}
+		if c.sort != nil {
+			inner = append(inner, bson.E{Key: "sort", Value: c.sort})
+		}
+		if c.skip > 0 {
+			inner = append(inner, bson.E{Key: "skip", Value: c.skip})
+		}
+		if c.limit > 0 {
+			inner = append(inner, bson.E{Key: "limit", Value: c.limit})
+		}
+	}
+	r, err := s.c.RunCommand(s.ctx, c.db, bson.D{{Key: "explain", Value: inner}, {Key: "verbosity", Value: verb}})
+	s.check(err)
+	return s.toJS(r)
+}
+
+func (c *cursor) jsClose(goja.FunctionCall) goja.Value {
+	if c.live != nil {
+		c.live.Close(c.s.ctx)
+	}
+	c.done = true
+	return goja.Undefined()
 }
 
 // CollectionNames lists collection names of the shell's current database, for completion.
