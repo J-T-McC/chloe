@@ -4,6 +4,7 @@ import { connById } from "../../store";
 import { track, useTransfer } from "./state";
 import { Modal } from "../Modal";
 import { Field, Check } from "../form";
+import { WizardSteps } from "./wizard";
 
 const FORMATS: Array<{ f: Format; label: string; desc: string }> = [
   { f: Format.CSV, label: "CSV", desc: "Comma separated values (.csv)" },
@@ -98,13 +99,7 @@ export function ExportWizard() {
       className="wizard"
       onClose={close}
     >
-      <div className="wizard-steps">
-        {(isQuery ? (["format", "options"] as Step[]) : (["format", "tables", "options"] as Step[])).map((s, i) => (
-          <span key={s} className={step === s ? "active" : ""}>
-            {i + 1}. {s === "format" ? "Format" : s === "tables" ? "Tables & Columns" : "Options"}
-          </span>
-        ))}
-      </div>
+      <WizardSteps step={step} steps={(isQuery ? (["format", "options"] as Step[]) : (["format", "tables", "options"] as Step[])).map((s) => [s, { format: "Format", tables: "Tables & Columns", options: "Options" }[s]])} />
       <div className="modal-body">
         {step === "format" && (
           <div className="format-list">

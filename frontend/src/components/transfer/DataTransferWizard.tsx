@@ -1,6 +1,6 @@
 // Data Transfer (Tools > Data Transfer): copy tables and views, structure and rows,
 // between databases, schemas and connections, including between engines.
-import { ArrowLeftRight, ArrowRight, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import { DBType, Explorer, Layouts, ObjectKind, Transfer, arr, errorText, type DataTransferRequest, type Endpoint, type TransferOptions } from "../../api";
@@ -8,9 +8,8 @@ import { connDialect } from "../../dialect";
 import { connById, useApp } from "../../store";
 import { openMenu } from "../ContextMenu";
 import { alert, prompt } from "../Dialogs";
-import { ConnIcon } from "../icons";
-import { track, useTransfer } from "./state";
-import { EndpointPicker, JobProgress } from "./shared";
+import { JobProgress } from "./shared";
+import { EndpointPair, EndpointsHeader, WizardFooter, WizardSteps, emptyEnd, presetEnd, useWizardJob } from "./wizard";
 import { Modal, ModalFooter } from "../Modal";
 import { Check } from "../form";
 
@@ -18,7 +17,7 @@ const useDT = create<{ open: boolean; source?: Endpoint }>(() => ({ open: false 
 
 /** Open the wizard, optionally starting from a source database (and schema). */
 export function openDataTransfer(source?: Partial<Endpoint>) {
-  useDT.setState({ open: true, source: source?.connId ? { connId: source.connId, database: source.database ?? "", schema: source.schema ?? "" } : undefined });
+  useDT.setState({ open: true, source: presetEnd(source) });
 }
 
 const SQL_TYPES: string[] = [DBType.MySQL, DBType.MariaDB, DBType.PostgreSQL, DBType.SQLite];
@@ -46,7 +45,6 @@ interface Profile {
   options: TransferOptions;
 }
 
-const emptyEnd = (): Endpoint => ({ connId: "", database: "", schema: "" });
 
 export function DataTransferWizard() {
   const { open, source: preset } = useDT();
@@ -59,16 +57,15 @@ export function DataTransferWizard() {
   const [avail, setAvail] = useState<{ tables: string[]; views: string[] }>({ tables: [], views: [] });
   const [options, setOptions] = useState<TransferOptions | null>(null);
   const [showOptions, setShowOptions] = useState(false);
-  const [jobId, setJobId] = useState("");
   const [error, setError] = useState("");
-  const job = useTransfer((s) => s.jobs.find((j) => j.id === jobId));
+  const { job, running, reset, start: startJob, stop } = useWizardJob();
   useEffect(() => setError(""), [tables, views, source, target]);
 
   useEffect(() => {
     if (!open) return;
     setStep("general");
     setError("");
-    setJobId("");
+    reset();
     setSource(preset ?? emptyEnd());
     setTarget(emptyEnd());
     setTables({ all: false, names: [] });
@@ -91,7 +88,6 @@ export function DataTransferWizard() {
   const sqlConns = connections.filter((c) => SQL_TYPES.includes(c.type));
   const sameEngine = source.connId && target.connId && connDialect(source.connId) === connDialect(target.connId);
   const toDialect = target.connId ? connDialect(target.connId) : "";
-  const running = job?.status === "running";
 
   const ready = (e: Endpoint) => !!e.connId && !!e.database && (connDialect(e.connId) !== "postgres" || !!e.schema);
   const sameSide = source.connId === target.connId && source.database === target.database && (source.schema ?? "") === (target.schema ?? "");
@@ -111,9 +107,7 @@ export function DataTransferWizard() {
   const start = async () => {
     setError("");
     try {
-      const j = await track(Transfer.DataTransfer(request()));
-      useTransfer.setState({ jobsOpen: false });
-      setJobId(j.id);
+      await startJob(Transfer.DataTransfer(request()));
       setStep("progress");
     } catch (e) {
       setError(errorText(e));
@@ -170,51 +164,13 @@ export function DataTransferWizard() {
     );
   };
 
-  const header = (e: Endpoint) => {
-    const c = connById(e.connId);
-    return c ? (
-      <span className="dt-end">
-        <ConnIcon type={c.type} preset={c.preset} size={20} />
-        <span>
-          <strong>{c.name}</strong>
-          <span className="muted">{[e.database, e.schema].filter(Boolean).join(".") || "—"}</span>
-        </span>
-      </span>
-    ) : (
-      <span className="dt-end muted">Not chosen</span>
-    );
-  };
-
   return (
     <Modal title="Data Transfer" className="wizard wide data-transfer" onClose={running || showOptions ? undefined : close}>
-      <div className="dt-header">
-        {header(source)}
-        <ArrowRight size={18} className="muted" />
-        {header(target)}
-      </div>
-      <div className="wizard-steps">
-        {STEPS.map(([s, label], i) => (
-          <span key={s} className={step === s ? "active" : ""}>
-            {i + 1}. {label}
-          </span>
-        ))}
-      </div>
+      <EndpointsHeader source={source} target={target} />
+      <WizardSteps steps={STEPS} step={step} />
       <div className="modal-body dt-body">
         {step === "general" && (
-          <div className="dt-general">
-            <EndpointPicker title="Source" value={source} onChange={setSource} conns={sqlConns} />
-            <button
-              className="dt-swap"
-              title="Swap source and target"
-              onClick={() => {
-                setSource(target);
-                setTarget(source);
-              }}
-            >
-              <ArrowLeftRight size={16} />
-            </button>
-            <EndpointPicker title="Target" value={target} onChange={setTarget} conns={sqlConns} allowNew create={options.createTargetDatabase} />
-          </div>
+          <EndpointPair source={source} target={target} setSource={setSource} setTarget={setTarget} conns={sqlConns} allowNew create={options.createTargetDatabase} />
         )}
         {step === "objects" && (
           <div className="dt-objects">
@@ -247,7 +203,19 @@ export function DataTransferWizard() {
         {step === "progress" && job && <JobProgress job={job} />}
       </div>
       {error && <div className="status-line err">{error}</div>}
-      <div className="modal-footer">
+      <WizardFooter
+        last={step === "progress"}
+        running={running}
+        onStop={stop}
+        onClose={close}
+        after={<button onClick={() => setStep("summary")}>Back</button>}
+        onBack={step !== "general" ? back : undefined}
+        next={
+          <button className="primary" onClick={next}>
+            {step === "summary" ? "Start" : "Next"}
+          </button>
+        }
+      >
         <button disabled={running} onClick={saveProfile}>
           Save Profile
         </button>
@@ -257,28 +225,7 @@ export function DataTransferWizard() {
         <button disabled={running || step === "progress"} onClick={() => setShowOptions(true)}>
           Options…
         </button>
-        <span className="spacer" />
-        {step === "progress" ? (
-          running ? (
-            <button onClick={() => Transfer.CancelJob(jobId)}>Stop</button>
-          ) : (
-            <>
-              <button onClick={() => setStep("summary")}>Back</button>
-              <button className="primary" onClick={close}>
-                Close
-              </button>
-            </>
-          )
-        ) : (
-          <>
-            <button onClick={close}>Cancel</button>
-            {step !== "general" && <button onClick={back}>Back</button>}
-            <button className="primary" onClick={next}>
-              {step === "summary" ? "Start" : "Next"}
-            </button>
-          </>
-        )}
-      </div>
+      </WizardFooter>
       {showOptions && <OptionsDialog value={options} sameEngine={!!sameEngine} to={toDialect} onClose={(o) => (o && setOptions(o), setShowOptions(false))} />}
     </Modal>
   );

@@ -6,6 +6,7 @@ import { refreshFolder } from "../../tableActions";
 import { track, useTransfer } from "./state";
 import { Modal } from "../Modal";
 import { Field, Check } from "../form";
+import { WizardSteps } from "./wizard";
 
 type Step = "source" | "target" | "mapping" | "mode";
 
@@ -179,13 +180,7 @@ export function ImportWizard() {
       className="wizard wide"
       onClose={close}
     >
-      <div className="wizard-steps">
-        {steps.map((s, i) => (
-          <span key={s} className={step === s ? "active" : ""}>
-            {i + 1}. {{ source: "Source File", target: "Target Table", mapping: "Field Mappings", mode: "Import Mode" }[s]}
-          </span>
-        ))}
-      </div>
+      <WizardSteps step={step} steps={steps.map((s) => [s, { source: "Source File", target: "Target Table", mapping: "Field Mappings", mode: "Import Mode" }[s]])} />
       <div className="modal-body">
         {step === "source" && (
           <>
