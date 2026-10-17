@@ -124,6 +124,10 @@ type dataSync struct {
 	src    driver.Conn
 	dst    driver.Conn
 	tables []*syncTable
+	// While comparing, every table is read on these two sessions rather than
+	// logging in twice per table.
+	ss, ts    driver.Session
+	comparing bool
 }
 
 // syncKeep is how many records of each kind a table's comparison keeps for
@@ -176,7 +180,8 @@ func (m *Manager) CompareData(ctx context.Context, req DataSyncRequest) (DataSyn
 	if req.Source == req.Target {
 		return DataSyncComparison{}, errors.New("the source and the target are the same")
 	}
-	ds := &dataSync{req: req, src: src, dst: dst}
+	ds := &dataSync{req: req, src: src, dst: dst, comparing: true}
+	defer ds.closeSessions()
 	for _, mt := range req.Tables {
 		st := &syncTable{res: DataSyncResult{Source: mt.Source, Target: mt.Target}}
 		if err := m.compareTable(ctx, ds, mt, st); err != nil {
@@ -432,17 +437,11 @@ var errSyncOrder = errors.New("rows are not in key order")
 // identical rows. Ordered, it holds one row per side; otherwise it holds the
 // target's rows by key.
 func (ds *dataSync) diff(ctx context.Context, st *syncTable, emit func(DataSyncRecord) error) (int, error) {
-	r := ds.req
-	tss, err := ds.dst.NewSession(ctx, r.Target.Database, r.Target.Schema)
+	sss, tss, done, err := ds.sessions(ctx)
 	if err != nil {
 		return 0, err
 	}
-	defer tss.Close()
-	sss, err := ds.src.NewSession(ctx, r.Source.Database, r.Source.Schema)
-	if err != nil {
-		return 0, err
-	}
-	defer sss.Close()
+	defer done()
 	trows, err := tss.Query(ctx, st.dstSQL)
 	if err != nil {
 		return 0, fmt.Errorf("target: %w", err)
@@ -561,6 +560,45 @@ func (ds *dataSync) diff(ctx context.Context, st *syncTable, emit func(DataSyncR
 		if err != nil {
 			return 0, err
 		}
+	}
+}
+
+// sessions returns the comparison's sessions, opening them on first use; done
+// closes them unless they're kept for the comparison's next table.
+func (ds *dataSync) sessions(ctx context.Context) (src, dst driver.Session, done func(), err error) {
+	r := ds.req
+	open := func() (driver.Session, driver.Session, error) {
+		t, err := ds.dst.NewSession(ctx, r.Target.Database, r.Target.Schema)
+		if err != nil {
+			return nil, nil, err
+		}
+		s, err := ds.src.NewSession(ctx, r.Source.Database, r.Source.Schema)
+		if err != nil {
+			t.Close()
+			return nil, nil, err
+		}
+		return s, t, nil
+	}
+	if ds.comparing {
+		if ds.ss == nil {
+			if ds.ss, ds.ts, err = open(); err != nil {
+				return nil, nil, nil, err
+			}
+		}
+		return ds.ss, ds.ts, func() {}, nil
+	}
+	if src, dst, err = open(); err != nil {
+		return nil, nil, nil, err
+	}
+	return src, dst, func() { src.Close(); dst.Close() }, nil
+}
+
+func (ds *dataSync) closeSessions() {
+	ds.comparing = false
+	if ds.ss != nil {
+		ds.ss.Close()
+		ds.ts.Close()
+		ds.ss, ds.ts = nil, nil
 	}
 }
 
