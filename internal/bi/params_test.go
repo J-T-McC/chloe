@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"chloe/internal/driver"
 )
 
 func paramWorkspace(t *testing.T) Workspace {
@@ -116,5 +118,44 @@ func TestParametersInQueries(t *testing.T) {
 	src.SQL = "SELECT [$min_total] AS x"
 	if _, err := From(pg, src); err == nil {
 		t.Error("unresolved parameter ran")
+	}
+}
+
+// bindParams reads a query the way the statement splitter does: a reference is
+// replaced only in code, refused in quoted strings, and left alone in comments
+// and quoted identifiers, whatever quoting the dialect has.
+func TestBindParamsQuoting(t *testing.T) {
+	v := Values{"p": "x"}
+	fields := func(string) string { return TypeString }
+	cases := []struct {
+		d       driver.Dialect
+		sql     string
+		want    string // "" when refused
+		wantArg int
+	}{
+		{pg, "SELECT [$p]", "SELECT $1", 1},
+		{pg, "SELECT '[$p]'", "", 0},
+		{pg, `SELECT E'\' [$p]'`, "", 0},
+		{pg, `SELECT '\' , [$p]`, `SELECT '\' , $1`, 1}, // no E: the backslash is just a character
+		{pg, "SELECT $t$ [$p] $t$", "", 0},
+		{pg, "SELECT $$ ) $$, [$p]", "SELECT $$ ) $$, $1", 1},
+		{pg, "SELECT a$b$ , [$p]", "SELECT a$b$ , $1", 1},                 // a$b$ is an identifier, not a dollar quote
+		{pg, "SELECT /* /* */ [$p] */ 1", "SELECT /* /* */ [$p] */ 1", 0}, // PostgreSQL comments nest
+		{pg, `SELECT "[$p]" FROM t`, `SELECT "[$p]" FROM t`, 0},
+		{pg, "SELECT 1 -- [$p]\n, [$p]", "SELECT 1 -- [$p]\n, $1", 1},
+		{mysql, `SELECT "[$p]"`, "", 0}, // a string on MySQL
+		{mysql, `SELECT 'it\'s [$p]'`, "", 0},
+		{mysql, "SELECT `[$p]`, [$p] # [$p]", "SELECT `[$p]`, ? # [$p]", 1},
+		{mysql, "SELECT /* [$p] */ [$p]", "SELECT /* [$p] */ ?", 1},
+		{SQLite, "SELECT [$p], [col]", "SELECT ?, [col]", 1},
+	}
+	for _, c := range cases {
+		got, args, err := bindParams(c.d, c.sql, v, fields)
+		switch {
+		case c.want == "" && err == nil:
+			t.Errorf("%s %q: bound as %q, want refused", c.d.Name, c.sql, got)
+		case c.want != "" && (err != nil || got != c.want || len(args) != c.wantArg):
+			t.Errorf("%s %q: got %q %v %v, want %q with %d args", c.d.Name, c.sql, got, args, err, c.want, c.wantArg)
+		}
 	}
 }

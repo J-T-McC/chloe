@@ -129,6 +129,17 @@ func TestCheckReadOnly(t *testing.T) {
 		{mysqlD, "/*!CREATE TABLE pwned AS*/ SELECT * FROM t", "executable comments"},
 		{mysqlD, "DROP TABLE t", "only runs read"},
 		{mysqlD, "SELECT 1; SELECT 2", "exactly one"},
+		// The statement count reads quoting as the server does (sqlsplit.Pieces).
+		{mysqlD, "SELECT ';' ; DROP TABLE t", "exactly one"},
+		{mysqlD, `SELECT 'a\';' ; DROP TABLE t`, "exactly one"},
+		{mysqlD, "SELECT 1 /* /* */ ; DROP TABLE t */", "exactly one"}, // MySQL comments don't nest
+		{mysqlD, "SELECT 1 /*!; DROP TABLE t */", "executable comments"},
+		{mysqlD, "SELECT `a;b` FROM t", ""},
+		{pgD, "SELECT $$;$$; DROP TABLE t", "exactly one"},
+		{pgD, "SELECT $q$ ; DROP TABLE t $q$", ""},
+		{pgD, `SELECT E'\';' ; DROP TABLE t`, "exactly one"},
+		{pgD, `SELECT '\'; DROP TABLE t; --'`, "exactly one"}, // no E: the backslash doesn't escape
+		{pgD, "SELECT 1 /* /* */ ; DROP TABLE t */", ""},      // PostgreSQL comments nest
 		{pgD, "SHOW search_path", ""},
 		{pgD, "TRUNCATE t", "only runs read"},
 		{pgD, "", "exactly one"},
