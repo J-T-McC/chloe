@@ -413,7 +413,8 @@ func TestIntegrationCatalogEnums(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, c := range cat.Columns {
-				if c.Table == "orders" && c.Name == "status" {
+				// Other schemas (an e2e transfer's copy) can have an orders table too.
+				if c.Table == "orders" && c.Name == "status" && (e.schema == "" || c.Schema == e.schema) {
 					if strings.Join(c.EnumValues, ",") != "new,paid,shipped" {
 						t.Fatalf("enum values %q", c.EnumValues)
 					}
