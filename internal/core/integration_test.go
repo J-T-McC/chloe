@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"chloe/internal/core"
+	"chloe/internal/driver"
 	_ "chloe/internal/driver/mysql"
 	_ "chloe/internal/driver/postgres"
 	_ "chloe/internal/driver/sqlite"
@@ -467,6 +468,44 @@ func TestIntegrationCancelAtSessionLimit(t *testing.T) {
 			_, _ = m.Execute(ctx, sid, sleep, core.ExecOptions{})
 			if d := time.Since(start); d > 5*time.Second {
 				t.Fatalf("cancel took %s", d)
+			}
+		})
+	}
+}
+
+// A warm read session's next read reuses the read-only transaction the last
+// one chained, and it is still read-only, even after a read that failed.
+func TestIntegrationReadSessionStaysReadOnly(t *testing.T) {
+	for _, e := range engines() {
+		t.Run(e.conn.Name, func(t *testing.T) {
+			m, id := setup(t, e)
+			ctx := context.Background()
+			pg := e.conn.Type == model.PostgreSQL
+			read := func(sql string) (string, error) {
+				var out string
+				err := m.WithReadSession(ctx, id, e.database, e.schema, func(ds driver.Session, _ driver.Dialect) error {
+					rows, err := ds.Query(ctx, sql)
+					if err != nil {
+						return err
+					}
+					defer rows.Close()
+					cell := make([]*string, 1)
+					if rows.Next(cell) && cell[0] != nil {
+						out = *cell[0]
+					}
+					return rows.Err()
+				})
+				return out, err
+			}
+			for i := range 3 {
+				// (MySQL's @@transaction_read_only is the session default, not the transaction's.)
+				if v, err := read("SELECT current_setting('transaction_read_only')"); pg && (err != nil || v != "on") {
+					t.Fatalf("read %d: read only = %q %v", i, v, err)
+				}
+				_, err := read("UPDATE customers SET full_name = full_name WHERE id = 1")
+				if err == nil || !strings.Contains(strings.ToLower(err.Error()), "read-only transaction") && !strings.Contains(err.Error(), "READ ONLY transaction") {
+					t.Fatalf("read %d: update: %v", i, err)
+				}
 			}
 		})
 	}

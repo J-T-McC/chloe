@@ -123,6 +123,24 @@ func EndReadOnly(ds Session, d Dialect) error {
 
 const endReadOnlyTimeout = 10 * time.Second
 
+// RestartReadOnly ends what BeginReadOnly started and opens the next read-only
+// transaction in the same statement (ROLLBACK AND CHAIN keeps READ ONLY), so a
+// session kept for more reads needs no BEGIN on its next use. begun reports the
+// new transaction; ok false means the session should be closed. A server
+// without AND CHAIN (PostgreSQL before 12) gets a plain ROLLBACK.
+func RestartReadOnly(ds Session, d Dialect) (begun, ok bool) {
+	if d.Name == "sqlite" {
+		return true, true // query_only stays on
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), endReadOnlyTimeout)
+	defer cancel()
+	if _, err := ds.Exec(ctx, "ROLLBACK AND CHAIN"); err == nil {
+		return true, true
+	}
+	_, err := ds.Exec(ctx, "ROLLBACK")
+	return false, err == nil
+}
+
 // TransactionalDDL reports whether DDL can run inside a transaction (all but MySQL).
 func (d Dialect) TransactionalDDL() bool { return d.Name != "mysql" }
 

@@ -35,7 +35,14 @@ type biPool struct {
 type idleSession struct {
 	ds    driver.Session
 	since time.Time
+	begun bool // a read-only transaction is already open
 }
+
+// biBegunFresh is how long a session's open read-only transaction is trusted
+// without starting it again: starting it is what notices a session the server
+// has closed (or an idle-in-transaction timeout), so one idle for longer
+// begins again.
+var biBegunFresh = 10 * time.Second
 
 func (b *biSessions) pool(m *Manager, connID string) *biPool {
 	b.mu.Lock()
@@ -56,31 +63,32 @@ func (b *biSessions) pool(m *Manager, connID string) *biPool {
 }
 
 // take waits for a free slot and returns a warm session for the database and
-// schema if one is idle (reused reports which), else nil for the caller to open.
-func (b *biSessions) take(ctx context.Context, p *biPool, key string) (ds driver.Session, reused bool, err error) {
+// schema if one is idle (reused reports which, begun whether its read-only
+// transaction is open and fresh), else nil for the caller to open.
+func (b *biSessions) take(ctx context.Context, p *biPool, key string) (ds driver.Session, reused, begun bool, err error) {
 	select {
 	case p.slots <- struct{}{}:
 	case <-ctx.Done():
-		return nil, false, ctx.Err()
+		return nil, false, false, ctx.Err()
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for list := p.idle[key]; len(list) > 0; list = p.idle[key] {
 		s := list[len(list)-1]
 		p.idle[key] = list[:len(list)-1]
-		if time.Since(s.since) < BIIdleSession {
-			return s.ds, true, nil
+		if idle := time.Since(s.since); idle < BIIdleSession {
+			return s.ds, true, s.begun && idle < biBegunFresh, nil
 		}
 		go s.ds.Close()
 	}
-	return nil, false, nil
+	return nil, false, false, nil
 }
 
 // give frees the slot, keeping the session for the next read when it's healthy.
-func (b *biSessions) give(p *biPool, key string, ds driver.Session, keep bool) {
+func (b *biSessions) give(p *biPool, key string, ds driver.Session, keep, begun bool) {
 	if ds != nil && keep {
 		b.mu.Lock()
-		p.idle[key] = append(p.idle[key], idleSession{ds: ds, since: time.Now()})
+		p.idle[key] = append(p.idle[key], idleSession{ds: ds, since: time.Now(), begun: begun})
 		b.mu.Unlock()
 		time.AfterFunc(BIIdleSession, func() { b.prune(p) })
 	} else if ds != nil {
@@ -153,13 +161,16 @@ func (m *Manager) withBISession(ctx context.Context, connID, database, schema st
 	d := c.Dialect()
 	p := m.bi.pool(m, connID)
 	key := database + "\x00" + schema
-	ds, reused, err := m.bi.take(ctx, p, key)
+	ds, reused, begun, err := m.bi.take(ctx, p, key)
 	if err != nil {
 		return err
 	}
 	keep := false
-	defer func() { m.bi.give(p, key, ds, keep) }()
+	defer func() { m.bi.give(p, key, ds, keep, begun) }()
 	begin := func() error {
+		if begun {
+			return nil // the last read left the next read-only transaction open
+		}
 		if ds == nil {
 			if ds, err = c.NewSession(ctx, database, schema); err != nil {
 				return err
@@ -196,6 +207,6 @@ func (m *Manager) withBISession(ctx context.Context, connID, database, schema st
 	if ctx.Err() != nil {
 		return err
 	}
-	keep = driver.EndReadOnly(ds, d) == nil
+	begun, keep = driver.RestartReadOnly(ds, d)
 	return err
 }
