@@ -235,55 +235,11 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 		})
 
 	add(s, srv, ep, readOnlyTool("get_workspace", "Get BI workspace", "Returns a workspace's data sources (connection, table or query, mode, fields, filters) and charts (type, shelves, properties). Definitions only; get_chart_data reads data."),
-		func(ctx context.Context, c *call, in WorkspaceArgs) (WorkspaceOut, error) {
-			p, w, err := c.workspace(in.Workspace)
-			if err != nil {
-				return WorkspaceOut{}, err
-			}
-			out := WorkspaceOut{WorkspaceInfo: workspaceInfo(p, w), Theme: w.Theme, Sources: []SourceOut{}, ChartList: []ChartOut{}, Boards: []DashboardOut{}}
-			for _, d := range w.Dashboards {
-				out.Boards = append(out.Boards, DashboardOut{Dashboard: d, Editable: agentMade(d.CreatedBy)})
-			}
-			for _, prm := range w.Parameters {
-				out.Params = append(out.Params, ParamOut{Parameter: prm, Editable: agentMade(prm.CreatedBy)})
-			}
-			hidden := map[string]bool{}
-			for _, d := range w.DataSources {
-				conn, err := c.s.m.Store.Profile(d.ConnID)
-				if err != nil || !c.readable(d) {
-					// Only the name of a source on a connection this endpoint can't read.
-					hidden[d.ID] = true
-					out.Sources = append(out.Sources, SourceOut{DataSource: bi.DataSource{Meta: bi.Meta{ID: d.ID, Name: d.Name}, Mode: d.Mode}, Connection: "(not shared with this endpoint)"})
-					continue
-				}
-				out.Sources = append(out.Sources, SourceOut{DataSource: d, Connection: conn.Name, Editable: agentMade(d.CreatedBy)})
-			}
-			for _, ch := range w.Charts {
-				if hidden[ch.DataSource] {
-					ch = bi.Chart{Meta: bi.Meta{ID: ch.ID, Name: ch.Name}, DataSource: ch.DataSource, Type: ch.Type}
-				}
-				out.ChartList = append(out.ChartList, ChartOut{Chart: ch, Editable: agentMade(ch.CreatedBy) && !hidden[ch.DataSource]})
-			}
-			return out, nil
-		})
+		toolListWorkspaces)
 
 	add(s, srv, ep, writeTool("create_workspace", "Create BI workspace",
 		"Creates an empty BI workspace in Chloe's library, for data sources and charts.", false),
-		func(ctx context.Context, c *call, in CreateWorkspaceArgs) (WorkspaceInfo, error) {
-			name := strings.TrimSpace(in.Name)
-			if name == "" {
-				return WorkspaceInfo{}, errors.New("name is required")
-			}
-			w := bi.New(name)
-			w.CreatedBy = "mcp:" + c.ep.Name
-			p, err := c.s.m.Store.BI().Create(w)
-			if err != nil {
-				return WorkspaceInfo{}, err
-			}
-			c.act.SQL = p
-			c.biChanged(p)
-			return workspaceInfo(p, w), nil
-		})
+		toolCreateWorkspace)
 
 	add(s, srv, ep, writeTool("create_data_source", "Create data source",
 		"Adds a data source to a workspace: a table or view, or one read-only query, on a connection shared with you. "+
@@ -291,331 +247,401 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			"A live source's SQL runs whenever its charts are drawn (charts with filters of their own read it again), so check its plan with EXPLAIN first: "+
 			"filter on indexed columns inside the SQL (a [$parameter] for the time window) rather than on columns it computes, and group to the grain the charts need. "+
 			"See guide topic reports.", false),
-		func(ctx context.Context, c *call, in CreateSourceArgs) (SourceOut, error) {
-			p, _, err := c.workspace(in.Workspace)
-			if err != nil {
-				return SourceOut{}, err
-			}
-			tg, err := c.resolve(ctx, in.Connection, in.Database, in.Schema, store.MCPRead)
-			if err != nil {
-				return SourceOut{}, err
-			}
-			src := bi.DataSource{Meta: bi.Meta{Name: in.Name, CreatedBy: "mcp:" + c.ep.Name}, ConnID: tg.connID, Database: tg.database, Schema: tg.schema,
-				Table: in.Table, SQL: in.SQL, Mode: in.Mode, Timezone: in.Timezone, CustomFields: in.CustomFields, Joins: in.Joins}
-			if err := c.checkSource(tg, src); err != nil {
-				return SourceOut{}, err
-			}
-			if src.Filters, err = filters(in.Filters); err != nil {
-				return SourceOut{}, err
-			}
-			c.act.SQL = in.SQL
-			if in.Table != "" {
-				c.act.SQL = in.Table
-			}
-			saved, err := c.s.m.BISaveSource(ctx, p, src)
-			if err != nil {
-				return SourceOut{}, err
-			}
-			c.biChanged(p)
-			return SourceOut{DataSource: saved, Connection: tg.conn, Editable: true}, nil
-		})
+		toolCreateDataSource)
 
 	add(s, srv, ep, writeTool("edit_data_source", "Edit data source",
 		"Changes a data source created over MCP: its table or query, mode, time zone, filters (each replaced when given), or its name. "+
 			"Charts built on it keep working while the fields they use remain. The user's own data sources can't be changed.", true),
-		func(ctx context.Context, c *call, in EditSourceArgs) (SourceOut, error) {
-			p, w, err := c.workspace(in.Workspace)
-			if err != nil {
-				return SourceOut{}, err
-			}
-			found := findSource(&w, in.DataSource)
-			if found == nil {
-				return SourceOut{}, fmt.Errorf("no data source %q in the workspace (see get_workspace)", in.DataSource)
-			}
-			if !agentMade(found.CreatedBy) {
-				return SourceOut{}, errors.New("this is one of the user's data sources; agents can't change them, so create one of your own")
-			}
-			src := *found
-			if in.Table != "" && in.SQL != "" {
-				return SourceOut{}, errors.New("pass table or sql, not both")
-			}
-			if in.Table != "" {
-				src.Table, src.SQL = in.Table, ""
-			}
-			if in.SQL != "" {
-				src.Table, src.SQL = "", in.SQL
-			}
-			if r := strings.TrimSpace(in.Rename); r != "" {
-				src.Name = r
-			}
-			if in.Mode != "" {
-				src.Mode = in.Mode
-			}
-			if in.Timezone != nil {
-				src.Timezone = *in.Timezone
-			}
-			if in.CustomFields != nil {
-				src.CustomFields = in.CustomFields
-			}
-			if in.Joins != nil {
-				src.Joins = in.Joins
-			}
-			if in.Filters != nil {
-				if src.Filters, err = filters(in.Filters); err != nil {
-					return SourceOut{}, err
-				}
-			}
-			tg, err := c.resolve(ctx, src.ConnID, src.Database, src.Schema, store.MCPRead)
-			if err != nil {
-				return SourceOut{}, err
-			}
-			if err := c.checkSource(tg, src); err != nil {
-				return SourceOut{}, err
-			}
-			c.act.SQL = src.SQL
-			// Charts on the source must still work: removing a custom field or a filter's
-			// field they use is refused, naming them (the fields stay as they were
-			// unless the table or query changed, which re-reads them).
-			if src.Table == found.Table && src.SQL == found.SQL {
-				var broken []string
-				for _, ch := range w.ChartsUsing(src.ID) {
-					if _, err := ch.Check(src, c.dialectName(src.ConnID)); err != nil {
-						broken = append(broken, fmt.Sprintf("%q (%v)", ch.Name, err))
-					}
-				}
-				if len(broken) > 0 {
-					return SourceOut{}, fmt.Errorf("this change would break charts on the data source: %s", strings.Join(broken, "; "))
-				}
-			}
-			saved, err := c.s.m.BISaveSource(ctx, p, src)
-			if err != nil {
-				return SourceOut{}, err
-			}
-			c.biChanged(p)
-			return SourceOut{DataSource: saved, Connection: tg.conn, Editable: true}, nil
-		})
+		toolEditDataSource)
 
 	add(s, srv, ep, writeTool("create_chart", "Create chart",
 		"Adds a chart on one of the workspace's data sources. Chloe builds its query from the fields you place: "+
 			"dimension (categories or X axis; date fields are grouped by bucket), series (splits into colours or stacks), value (aggregated measures), secondary (bar and line charts' lines; scatter point size), target (kpi target, gauge maximum, scatter Y). "+
 			"waterfall shows each dimension value's change with a running total; tornado mirrors exactly two series values; trend shows the latest period against the one before (properties.sameDays: against the same days of it while the latest is still going); pivot crosses rows (dimension) with columns (series). "+
 			"Types and their shelves: "+chartTypesText()+". The chart is saved in the workspace for the user to open; get_chart_data returns what it shows.", false),
-		func(ctx context.Context, c *call, in CreateChartArgs) (ChartOut, error) {
-			p, w, err := c.workspace(in.Workspace)
-			if err != nil {
-				return ChartOut{}, err
-			}
-			src := findSource(&w, in.DataSource)
-			if src == nil {
-				return ChartOut{}, fmt.Errorf("no data source %q in the workspace (see get_workspace)", in.DataSource)
-			}
-			if !c.readable(*src) {
-				return ChartOut{}, fmt.Errorf("data source %q reads a connection that isn't shared with this endpoint", src.Name)
-			}
-			ch := bi.Chart{Meta: bi.Meta{Name: in.Name, CreatedBy: "mcp:" + c.ep.Name}, DataSource: src.ID, Type: "bar"}
-			if err := c.applySpec(&ch, *src, in.ChartSpec); err != nil {
-				return ChartOut{}, err
-			}
-			saved, err := c.putChart(p, ch)
-			return ChartOut{Chart: saved, Editable: true}, err
-		})
+		toolCreateChart)
 
 	add(s, srv, ep, writeTool("edit_chart", "Edit chart",
 		"Changes a chart created over MCP: its type, shelves, filters, sort, top and properties (each replaced when given), or its name. "+
 			"The user's own charts can't be changed; create a chart of your own instead.", true),
-		func(ctx context.Context, c *call, in EditChartArgs) (ChartOut, error) {
-			p, w, err := c.workspace(in.Workspace)
-			if err != nil {
-				return ChartOut{}, err
-			}
-			ch := findChart(&w, in.Chart)
-			if ch == nil {
-				return ChartOut{}, fmt.Errorf("no chart %q in the workspace (see get_workspace)", in.Chart)
-			}
-			if !agentMade(ch.CreatedBy) {
-				return ChartOut{}, errors.New("this is one of the user's charts; agents can't change them, so create a chart of your own")
-			}
-			src := w.Source(ch.DataSource)
-			if src == nil {
-				return ChartOut{}, errors.New("the chart's data source is no longer in the workspace")
-			}
-			if !c.readable(*src) {
-				return ChartOut{}, fmt.Errorf("data source %q reads a connection that isn't shared with this endpoint", src.Name)
-			}
-			edited := *ch
-			if r := strings.TrimSpace(in.Rename); r != "" {
-				edited.Name = r
-			}
-			if err := c.applySpec(&edited, *src, in.ChartSpec); err != nil {
-				return ChartOut{}, err
-			}
-			saved, err := c.putChart(p, edited)
-			return ChartOut{Chart: saved, Editable: true}, err
-		})
+		toolEditChart)
 
 	add(s, srv, ep, readOnlyTool("get_chart_data", "Get chart data",
 		"Reads what a chart shows: one row per dimension (and series) value with its aggregated values, in the chart's order, as the user sees it in Chloe. "+
 			"Values are unformatted numbers (the chart's number format is display only); periods with no rows on a date axis are included, with 0 for sums and counts."),
-		func(ctx context.Context, c *call, in ChartDataArgs) (ChartDataOut, error) {
-			_, w, err := c.workspace(in.Workspace)
-			if err != nil {
-				return ChartDataOut{}, err
-			}
-			ch := findChart(&w, in.Chart)
-			if ch == nil {
-				return ChartDataOut{}, fmt.Errorf("no chart %q in the workspace (see get_workspace)", in.Chart)
-			}
-			src := w.Source(ch.DataSource)
-			if src == nil {
-				return ChartDataOut{}, errors.New("the chart's data source is no longer in the workspace")
-			}
-			if err := c.canRead(ctx, *src); err != nil {
-				return ChartDataOut{}, err
-			}
-			// Data read now; with the SQL, the chart's own query on the database.
-			data, err := c.s.m.BIChartData(ctx, w, *ch, in.Parameters, core.BIRead{Since: time.Now(), Uncached: in.IncludeSQL})
-			c.act.SQL = data.SQL
-			c.act.Rows = int64(len(data.Rows))
-			if err != nil {
-				return ChartDataOut{}, err
-			}
-			out := ChartDataOut{Columns: data.Columns, Rows: data.Rows, RowCount: len(data.Rows), Truncated: data.Truncated, Complete: data.Complete, Mode: data.Mode, AsOf: data.RanAt, Previous: data.Previous}
-			if in.IncludeSQL {
-				out.SQL = data.SQL
-			}
-			return out, nil
-		})
+		toolGetChartData)
 
 	add(s, srv, ep, writeTool("create_parameter", "Create parameter",
 		"Adds a parameter to a workspace: a named value that data source queries ([$name] where a value goes; it is bound, never pasted into the SQL), "+
 			"filter values (a whole value of [$name]), chart titles and dashboard text refer to. The user can change it on dashboards; get_chart_data and refresh_dashboard take parameters to read with other values.", false),
-		func(ctx context.Context, c *call, in CreateParameterArgs) (ParamOut, error) {
-			p, _, err := c.workspace(in.Workspace)
-			if err != nil {
-				return ParamOut{}, err
-			}
-			prm := bi.Parameter{Meta: bi.Meta{Name: in.Name, CreatedBy: "mcp:" + c.ep.Name}}
-			in.ParameterSpec.apply(&prm)
-			saved, err := c.putParam(p, prm)
-			return ParamOut{Parameter: saved, Editable: true}, err
-		})
+		toolCreateParameter)
 
 	add(s, srv, ep, writeTool("edit_parameter", "Edit parameter",
 		"Changes a parameter created over MCP: its type, allowed values or current value (each replaced when given).", false),
-		func(ctx context.Context, c *call, in EditParameterArgs) (ParamOut, error) {
-			p, w, err := c.workspace(in.Workspace)
-			if err != nil {
-				return ParamOut{}, err
-			}
-			prm := w.Param(in.Parameter)
-			if prm == nil {
-				return ParamOut{}, fmt.Errorf("no parameter %q in the workspace (see get_workspace)", in.Parameter)
-			}
-			if !agentMade(prm.CreatedBy) {
-				return ParamOut{}, fmt.Errorf("parameter %q belongs to the user; agents edit only parameters they created", prm.Name)
-			}
-			next := *prm
-			in.ParameterSpec.apply(&next)
-			saved, err := c.putParam(p, next)
-			return ParamOut{Parameter: saved, Editable: true}, err
-		})
+		toolEditParameter)
 
 	add(s, srv, ep, writeTool("delete_parameter", "Delete parameter",
 		"Deletes a parameter created over MCP. Refused while a data source, chart or dashboard text still refers to it.", true),
-		func(ctx context.Context, c *call, in EditParameterArgs) (DeletedOut, error) {
-			p, w, err := c.workspace(in.Workspace)
-			if err != nil {
-				return DeletedOut{}, err
-			}
-			prm := w.Param(in.Parameter)
-			if prm == nil {
-				return DeletedOut{}, fmt.Errorf("no parameter %q in the workspace (see get_workspace)", in.Parameter)
-			}
-			if !agentMade(prm.CreatedBy) {
-				return DeletedOut{}, fmt.Errorf("parameter %q belongs to the user; agents delete only parameters they created", prm.Name)
-			}
-			if users := w.ParamUsers(prm.Name); len(users) > 0 {
-				return DeletedOut{}, fmt.Errorf("$%s is still used by %s; change those first", prm.Name, strings.Join(users, ", "))
-			}
-			if _, err := c.s.m.Store.BI().Update(p, func(w *bi.Workspace) error { return w.Delete(prm.ID) }); err != nil {
-				return DeletedOut{}, err
-			}
-			c.act.SQL = p + " › $" + prm.Name
-			c.biChanged(p)
-			return DeletedOut{Deleted: prm.Name}, nil
-		})
+		toolDeleteParameter)
 
 	add(s, srv, ep, writeTool("delete_chart", "Delete chart",
 		"Deletes a chart created over MCP (scratch work, a chart you replaced). The user's own charts can't be deleted.", true),
-		func(ctx context.Context, c *call, in ChartArgs) (DeletedOut, error) {
-			p, w, err := c.workspace(in.Workspace)
-			if err != nil {
-				return DeletedOut{}, err
-			}
-			ch := findChart(&w, in.Chart)
-			if ch == nil {
-				return DeletedOut{}, fmt.Errorf("no chart %q in the workspace (see get_workspace)", in.Chart)
-			}
-			if !agentMade(ch.CreatedBy) {
-				return DeletedOut{}, errors.New("this is one of the user's charts; agents can only delete charts they created")
-			}
-			id, name := ch.ID, ch.Name
-			if _, err := c.s.m.Store.BI().Update(p, func(w *bi.Workspace) error { return w.Delete(id) }); err != nil {
-				return DeletedOut{}, err
-			}
-			c.act.SQL = p + " › " + name
-			c.biChanged(p)
-			return DeletedOut{Deleted: name}, nil
-		})
+		toolDeleteChart)
 
 	add(s, srv, ep, writeTool("delete_data_source", "Delete data source",
 		"Deletes a data source created over MCP, with its archive snapshot. Delete the charts built on it first; "+
 			"the user's own data sources can't be deleted.", true),
-		func(ctx context.Context, c *call, in SourceArgs) (DeletedOut, error) {
-			p, w, err := c.workspace(in.Workspace)
-			if err != nil {
-				return DeletedOut{}, err
-			}
-			src := findSource(&w, in.DataSource)
-			if src == nil {
-				return DeletedOut{}, fmt.Errorf("no data source %q in the workspace (see get_workspace)", in.DataSource)
-			}
-			if !agentMade(src.CreatedBy) {
-				return DeletedOut{}, errors.New("this is one of the user's data sources; agents can only delete data sources they created")
-			}
-			if users := w.ChartsUsing(src.ID); len(users) > 0 {
-				var names []string
-				for _, u := range users {
-					names = append(names, u.Name)
-				}
-				return DeletedOut{}, fmt.Errorf("charts are built on %q: %s; delete them first", src.Name, strings.Join(names, ", "))
-			}
-			id, name := src.ID, src.Name
-			if _, err := c.s.m.Store.BI().DeleteObject(p, id); err != nil {
-				return DeletedOut{}, err
-			}
-			c.act.SQL = p + " › " + name
-			c.biChanged(p)
-			return DeletedOut{Deleted: name}, nil
-		})
+		toolDeleteDataSource)
 
 	add(s, srv, ep, writeTool("open_chart", "Open chart",
 		"Opens a chart in Chloe for the user.", false),
-		func(ctx context.Context, c *call, in ChartArgs) (ChartOut, error) {
-			p, w, err := c.workspace(in.Workspace)
-			if err != nil {
-				return ChartOut{}, err
+		toolOpenChart)
+}
+
+func toolListWorkspaces(ctx context.Context, c *call, in WorkspaceArgs) (WorkspaceOut, error) {
+	p, w, err := c.workspace(in.Workspace)
+	if err != nil {
+		return WorkspaceOut{}, err
+	}
+	out := WorkspaceOut{WorkspaceInfo: workspaceInfo(p, w), Theme: w.Theme, Sources: []SourceOut{}, ChartList: []ChartOut{}, Boards: []DashboardOut{}}
+	for _, d := range w.Dashboards {
+		out.Boards = append(out.Boards, DashboardOut{Dashboard: d, Editable: agentMade(d.CreatedBy)})
+	}
+	for _, prm := range w.Parameters {
+		out.Params = append(out.Params, ParamOut{Parameter: prm, Editable: agentMade(prm.CreatedBy)})
+	}
+	hidden := map[string]bool{}
+	for _, d := range w.DataSources {
+		conn, err := c.s.m.Store.Profile(d.ConnID)
+		if err != nil || !c.readable(d) {
+			// Only the name of a source on a connection this endpoint can't read.
+			hidden[d.ID] = true
+			out.Sources = append(out.Sources, SourceOut{DataSource: bi.DataSource{Meta: bi.Meta{ID: d.ID, Name: d.Name}, Mode: d.Mode}, Connection: "(not shared with this endpoint)"})
+			continue
+		}
+		out.Sources = append(out.Sources, SourceOut{DataSource: d, Connection: conn.Name, Editable: agentMade(d.CreatedBy)})
+	}
+	for _, ch := range w.Charts {
+		if hidden[ch.DataSource] {
+			ch = bi.Chart{Meta: bi.Meta{ID: ch.ID, Name: ch.Name}, DataSource: ch.DataSource, Type: ch.Type}
+		}
+		out.ChartList = append(out.ChartList, ChartOut{Chart: ch, Editable: agentMade(ch.CreatedBy) && !hidden[ch.DataSource]})
+	}
+	return out, nil
+}
+
+func toolCreateWorkspace(ctx context.Context, c *call, in CreateWorkspaceArgs) (WorkspaceInfo, error) {
+	name := strings.TrimSpace(in.Name)
+	if name == "" {
+		return WorkspaceInfo{}, errors.New("name is required")
+	}
+	w := bi.New(name)
+	w.CreatedBy = "mcp:" + c.ep.Name
+	p, err := c.s.m.Store.BI().Create(w)
+	if err != nil {
+		return WorkspaceInfo{}, err
+	}
+	c.act.SQL = p
+	c.biChanged(p)
+	return workspaceInfo(p, w), nil
+}
+
+func toolCreateDataSource(ctx context.Context, c *call, in CreateSourceArgs) (SourceOut, error) {
+	p, _, err := c.workspace(in.Workspace)
+	if err != nil {
+		return SourceOut{}, err
+	}
+	tg, err := c.resolve(ctx, in.Connection, in.Database, in.Schema, store.MCPRead)
+	if err != nil {
+		return SourceOut{}, err
+	}
+	src := bi.DataSource{Meta: bi.Meta{Name: in.Name, CreatedBy: "mcp:" + c.ep.Name}, ConnID: tg.connID, Database: tg.database, Schema: tg.schema,
+		Table: in.Table, SQL: in.SQL, Mode: in.Mode, Timezone: in.Timezone, CustomFields: in.CustomFields, Joins: in.Joins}
+	if err := c.checkSource(tg, src); err != nil {
+		return SourceOut{}, err
+	}
+	if src.Filters, err = filters(in.Filters); err != nil {
+		return SourceOut{}, err
+	}
+	c.act.SQL = in.SQL
+	if in.Table != "" {
+		c.act.SQL = in.Table
+	}
+	saved, err := c.s.m.BISaveSource(ctx, p, src)
+	if err != nil {
+		return SourceOut{}, err
+	}
+	c.biChanged(p)
+	return SourceOut{DataSource: saved, Connection: tg.conn, Editable: true}, nil
+}
+
+func toolEditDataSource(ctx context.Context, c *call, in EditSourceArgs) (SourceOut, error) {
+	p, w, err := c.workspace(in.Workspace)
+	if err != nil {
+		return SourceOut{}, err
+	}
+	found := findSource(&w, in.DataSource)
+	if found == nil {
+		return SourceOut{}, fmt.Errorf("no data source %q in the workspace (see get_workspace)", in.DataSource)
+	}
+	if !agentMade(found.CreatedBy) {
+		return SourceOut{}, errors.New("this is one of the user's data sources; agents can't change them, so create one of your own")
+	}
+	src := *found
+	if in.Table != "" && in.SQL != "" {
+		return SourceOut{}, errors.New("pass table or sql, not both")
+	}
+	if in.Table != "" {
+		src.Table, src.SQL = in.Table, ""
+	}
+	if in.SQL != "" {
+		src.Table, src.SQL = "", in.SQL
+	}
+	if r := strings.TrimSpace(in.Rename); r != "" {
+		src.Name = r
+	}
+	if in.Mode != "" {
+		src.Mode = in.Mode
+	}
+	if in.Timezone != nil {
+		src.Timezone = *in.Timezone
+	}
+	if in.CustomFields != nil {
+		src.CustomFields = in.CustomFields
+	}
+	if in.Joins != nil {
+		src.Joins = in.Joins
+	}
+	if in.Filters != nil {
+		if src.Filters, err = filters(in.Filters); err != nil {
+			return SourceOut{}, err
+		}
+	}
+	tg, err := c.resolve(ctx, src.ConnID, src.Database, src.Schema, store.MCPRead)
+	if err != nil {
+		return SourceOut{}, err
+	}
+	if err := c.checkSource(tg, src); err != nil {
+		return SourceOut{}, err
+	}
+	c.act.SQL = src.SQL
+	// Charts on the source must still work: removing a custom field or a filter's
+	// field they use is refused, naming them (the fields stay as they were
+	// unless the table or query changed, which re-reads them).
+	if src.Table == found.Table && src.SQL == found.SQL {
+		var broken []string
+		for _, ch := range w.ChartsUsing(src.ID) {
+			if _, err := ch.Check(src, c.dialectName(src.ConnID)); err != nil {
+				broken = append(broken, fmt.Sprintf("%q (%v)", ch.Name, err))
 			}
-			ch := findChart(&w, in.Chart)
-			if ch == nil {
-				return ChartOut{}, fmt.Errorf("no chart %q in the workspace (see get_workspace)", in.Chart)
-			}
-			if c.s.events == nil {
-				return ChartOut{}, errors.New("Chloe's window isn't available")
-			}
-			c.s.events.OpenBI(p, ch.ID)
-			return ChartOut{Chart: *ch, Editable: agentMade(ch.CreatedBy)}, nil
-		})
+		}
+		if len(broken) > 0 {
+			return SourceOut{}, fmt.Errorf("this change would break charts on the data source: %s", strings.Join(broken, "; "))
+		}
+	}
+	saved, err := c.s.m.BISaveSource(ctx, p, src)
+	if err != nil {
+		return SourceOut{}, err
+	}
+	c.biChanged(p)
+	return SourceOut{DataSource: saved, Connection: tg.conn, Editable: true}, nil
+}
+
+func toolCreateChart(ctx context.Context, c *call, in CreateChartArgs) (ChartOut, error) {
+	p, w, err := c.workspace(in.Workspace)
+	if err != nil {
+		return ChartOut{}, err
+	}
+	src := findSource(&w, in.DataSource)
+	if src == nil {
+		return ChartOut{}, fmt.Errorf("no data source %q in the workspace (see get_workspace)", in.DataSource)
+	}
+	if !c.readable(*src) {
+		return ChartOut{}, fmt.Errorf("data source %q reads a connection that isn't shared with this endpoint", src.Name)
+	}
+	ch := bi.Chart{Meta: bi.Meta{Name: in.Name, CreatedBy: "mcp:" + c.ep.Name}, DataSource: src.ID, Type: "bar"}
+	if err := c.applySpec(&ch, *src, in.ChartSpec); err != nil {
+		return ChartOut{}, err
+	}
+	saved, err := c.putChart(p, ch)
+	return ChartOut{Chart: saved, Editable: true}, err
+}
+
+func toolEditChart(ctx context.Context, c *call, in EditChartArgs) (ChartOut, error) {
+	p, w, err := c.workspace(in.Workspace)
+	if err != nil {
+		return ChartOut{}, err
+	}
+	ch := findChart(&w, in.Chart)
+	if ch == nil {
+		return ChartOut{}, fmt.Errorf("no chart %q in the workspace (see get_workspace)", in.Chart)
+	}
+	if !agentMade(ch.CreatedBy) {
+		return ChartOut{}, errors.New("this is one of the user's charts; agents can't change them, so create a chart of your own")
+	}
+	src := w.Source(ch.DataSource)
+	if src == nil {
+		return ChartOut{}, errors.New("the chart's data source is no longer in the workspace")
+	}
+	if !c.readable(*src) {
+		return ChartOut{}, fmt.Errorf("data source %q reads a connection that isn't shared with this endpoint", src.Name)
+	}
+	edited := *ch
+	if r := strings.TrimSpace(in.Rename); r != "" {
+		edited.Name = r
+	}
+	if err := c.applySpec(&edited, *src, in.ChartSpec); err != nil {
+		return ChartOut{}, err
+	}
+	saved, err := c.putChart(p, edited)
+	return ChartOut{Chart: saved, Editable: true}, err
+}
+
+func toolGetChartData(ctx context.Context, c *call, in ChartDataArgs) (ChartDataOut, error) {
+	_, w, err := c.workspace(in.Workspace)
+	if err != nil {
+		return ChartDataOut{}, err
+	}
+	ch := findChart(&w, in.Chart)
+	if ch == nil {
+		return ChartDataOut{}, fmt.Errorf("no chart %q in the workspace (see get_workspace)", in.Chart)
+	}
+	src := w.Source(ch.DataSource)
+	if src == nil {
+		return ChartDataOut{}, errors.New("the chart's data source is no longer in the workspace")
+	}
+	if err := c.canRead(ctx, *src); err != nil {
+		return ChartDataOut{}, err
+	}
+	// Data read now; with the SQL, the chart's own query on the database.
+	data, err := c.s.m.BIChartData(ctx, w, *ch, in.Parameters, core.BIRead{Since: time.Now(), Uncached: in.IncludeSQL})
+	c.act.SQL = data.SQL
+	c.act.Rows = int64(len(data.Rows))
+	if err != nil {
+		return ChartDataOut{}, err
+	}
+	out := ChartDataOut{Columns: data.Columns, Rows: data.Rows, RowCount: len(data.Rows), Truncated: data.Truncated, Complete: data.Complete, Mode: data.Mode, AsOf: data.RanAt, Previous: data.Previous}
+	if in.IncludeSQL {
+		out.SQL = data.SQL
+	}
+	return out, nil
+}
+
+func toolCreateParameter(ctx context.Context, c *call, in CreateParameterArgs) (ParamOut, error) {
+	p, _, err := c.workspace(in.Workspace)
+	if err != nil {
+		return ParamOut{}, err
+	}
+	prm := bi.Parameter{Meta: bi.Meta{Name: in.Name, CreatedBy: "mcp:" + c.ep.Name}}
+	in.ParameterSpec.apply(&prm)
+	saved, err := c.putParam(p, prm)
+	return ParamOut{Parameter: saved, Editable: true}, err
+}
+
+func toolEditParameter(ctx context.Context, c *call, in EditParameterArgs) (ParamOut, error) {
+	p, w, err := c.workspace(in.Workspace)
+	if err != nil {
+		return ParamOut{}, err
+	}
+	prm := w.Param(in.Parameter)
+	if prm == nil {
+		return ParamOut{}, fmt.Errorf("no parameter %q in the workspace (see get_workspace)", in.Parameter)
+	}
+	if !agentMade(prm.CreatedBy) {
+		return ParamOut{}, fmt.Errorf("parameter %q belongs to the user; agents edit only parameters they created", prm.Name)
+	}
+	next := *prm
+	in.ParameterSpec.apply(&next)
+	saved, err := c.putParam(p, next)
+	return ParamOut{Parameter: saved, Editable: true}, err
+}
+
+func toolDeleteParameter(ctx context.Context, c *call, in EditParameterArgs) (DeletedOut, error) {
+	p, w, err := c.workspace(in.Workspace)
+	if err != nil {
+		return DeletedOut{}, err
+	}
+	prm := w.Param(in.Parameter)
+	if prm == nil {
+		return DeletedOut{}, fmt.Errorf("no parameter %q in the workspace (see get_workspace)", in.Parameter)
+	}
+	if !agentMade(prm.CreatedBy) {
+		return DeletedOut{}, fmt.Errorf("parameter %q belongs to the user; agents delete only parameters they created", prm.Name)
+	}
+	if users := w.ParamUsers(prm.Name); len(users) > 0 {
+		return DeletedOut{}, fmt.Errorf("$%s is still used by %s; change those first", prm.Name, strings.Join(users, ", "))
+	}
+	if _, err := c.s.m.Store.BI().Update(p, func(w *bi.Workspace) error { return w.Delete(prm.ID) }); err != nil {
+		return DeletedOut{}, err
+	}
+	c.act.SQL = p + " › $" + prm.Name
+	c.biChanged(p)
+	return DeletedOut{Deleted: prm.Name}, nil
+}
+
+func toolDeleteChart(ctx context.Context, c *call, in ChartArgs) (DeletedOut, error) {
+	p, w, err := c.workspace(in.Workspace)
+	if err != nil {
+		return DeletedOut{}, err
+	}
+	ch := findChart(&w, in.Chart)
+	if ch == nil {
+		return DeletedOut{}, fmt.Errorf("no chart %q in the workspace (see get_workspace)", in.Chart)
+	}
+	if !agentMade(ch.CreatedBy) {
+		return DeletedOut{}, errors.New("this is one of the user's charts; agents can only delete charts they created")
+	}
+	id, name := ch.ID, ch.Name
+	if _, err := c.s.m.Store.BI().Update(p, func(w *bi.Workspace) error { return w.Delete(id) }); err != nil {
+		return DeletedOut{}, err
+	}
+	c.act.SQL = p + " › " + name
+	c.biChanged(p)
+	return DeletedOut{Deleted: name}, nil
+}
+
+func toolDeleteDataSource(ctx context.Context, c *call, in SourceArgs) (DeletedOut, error) {
+	p, w, err := c.workspace(in.Workspace)
+	if err != nil {
+		return DeletedOut{}, err
+	}
+	src := findSource(&w, in.DataSource)
+	if src == nil {
+		return DeletedOut{}, fmt.Errorf("no data source %q in the workspace (see get_workspace)", in.DataSource)
+	}
+	if !agentMade(src.CreatedBy) {
+		return DeletedOut{}, errors.New("this is one of the user's data sources; agents can only delete data sources they created")
+	}
+	if users := w.ChartsUsing(src.ID); len(users) > 0 {
+		var names []string
+		for _, u := range users {
+			names = append(names, u.Name)
+		}
+		return DeletedOut{}, fmt.Errorf("charts are built on %q: %s; delete them first", src.Name, strings.Join(names, ", "))
+	}
+	id, name := src.ID, src.Name
+	if _, err := c.s.m.Store.BI().DeleteObject(p, id); err != nil {
+		return DeletedOut{}, err
+	}
+	c.act.SQL = p + " › " + name
+	c.biChanged(p)
+	return DeletedOut{Deleted: name}, nil
+}
+
+func toolOpenChart(ctx context.Context, c *call, in ChartArgs) (ChartOut, error) {
+	p, w, err := c.workspace(in.Workspace)
+	if err != nil {
+		return ChartOut{}, err
+	}
+	ch := findChart(&w, in.Chart)
+	if ch == nil {
+		return ChartOut{}, fmt.Errorf("no chart %q in the workspace (see get_workspace)", in.Chart)
+	}
+	if c.s.events == nil {
+		return ChartOut{}, errors.New("Chloe's window isn't available")
+	}
+	c.s.events.OpenBI(p, ch.ID)
+	return ChartOut{Chart: *ch, Editable: agentMade(ch.CreatedBy)}, nil
 }
 
 // workspace reads a workspace of Chloe's library by name or path; no other file is opened.

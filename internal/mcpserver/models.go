@@ -91,186 +91,196 @@ func (s *Server) addModelTools(srv *mcp.Server, ep string) {
 		})
 
 	add(s, srv, ep, readOnlyTool("get_model", "Get model", "Returns a model's tables: columns, keys, indexes, foreign keys and options."),
-		func(ctx context.Context, c *call, in GetModelArgs) (ModelOut, error) {
-			p, m, err := c.model(in.Model)
-			if err != nil {
-				return ModelOut{}, err
-			}
-			out := ModelOut{ModelInfo: c.modelInfo(p, m), Schema: m.Schema, Detail: []design.Table{}}
-			for _, t := range m.Tables {
-				if len(in.Tables) == 0 || slices.ContainsFunc(in.Tables, func(n string) bool { return strings.EqualFold(n, t.Name) || strings.EqualFold(n, datamodel.Key(t)) }) {
-					out.Detail = append(out.Detail, t)
-				}
-			}
-			if data, _ := json.Marshal(out.Detail); len(data) > maxResultBytes {
-				return ModelOut{}, fmt.Errorf("the model is too large to return at once (%d KB); pass tables", len(data)>>10)
-			}
-			return out, nil
-		})
+		toolListModels)
 
 	add(s, srv, ep, writeTool("create_model", "Create model",
 		"Creates a model you can edit: empty (name and dialect), reverse engineered from a database (connection, database, schema, tables), "+
 			"or a copy of another model (copy_of). It's saved in Chloe's model library.", false),
-		func(ctx context.Context, c *call, in CreateModelArgs) (ModelInfo, error) {
-			var m datamodel.Model
-			switch {
-			case in.CopyOf != "" && in.Connection != "":
-				return ModelInfo{}, errors.New("pass copy_of or connection, not both")
-			case in.CopyOf != "":
-				_, src, err := c.model(in.CopyOf)
-				if err != nil {
-					return ModelInfo{}, err
-				}
-				m = src
-			case in.Connection != "":
-				tg, err := c.resolve(ctx, in.Connection, in.Database, in.Schema, store.MCPRead)
-				if err != nil {
-					return ModelInfo{}, err
-				}
-				if tg.typ == model.SQLite {
-					return ModelInfo{}, errors.New("models support MySQL, MariaDB and PostgreSQL, not SQLite")
-				}
-				if m, err = c.s.m.ReverseModel(ctx, tg.connID, tg.database, tg.schema, in.Tables); err != nil {
-					return ModelInfo{}, err
-				}
-			default:
-				d := strings.ToLower(in.Dialect)
-				if d == "postgresql" {
-					d = "postgres"
-				}
-				if d != "mysql" && d != "mariadb" && d != "postgres" {
-					return ModelInfo{}, errors.New("an empty model needs dialect mysql or postgres")
-				}
-				m = datamodel.New("", d)
-			}
-			if name := strings.TrimSpace(in.Name); name != "" {
-				m.Name = name
-			}
-			if strings.TrimSpace(m.Name) == "" {
-				return ModelInfo{}, errors.New("name is required")
-			}
-			p, err := c.saveNewModel(&m)
-			if err != nil {
-				return ModelInfo{}, err
-			}
-			return c.modelInfo(p, m), nil
-		})
+		toolCreateModel)
 
 	add(s, srv, ep, writeTool("edit_model", "Edit model",
 		"Changes a model created over MCP: adds or replaces tables (set_tables), drops tables, or renames it. "+
 			"Other tables are kept. The user's own models can't be edited; copy one with create_model first. It never touches a database.", true),
-		func(ctx context.Context, c *call, in EditModelArgs) (ModelInfo, error) {
-			p, m, err := c.model(in.Model)
-			if err != nil {
-				return ModelInfo{}, err
-			}
-			if !agentMade(m.CreatedBy) {
-				return ModelInfo{}, errors.New("this is one of the user's models; agents can't change them, so copy it with create_model(copy_of) and edit the copy")
-			}
-			key := func(t design.Table) string {
-				if m.Dialect == "postgres" && t.Schema == "" {
-					t.Schema = m.Schema
-				}
-				return strings.ToLower(datamodel.Key(t))
-			}
-			for _, name := range in.DropTables {
-				n := len(m.Tables)
-				m.Tables = slices.DeleteFunc(m.Tables, func(t design.Table) bool {
-					if strings.EqualFold(t.Name, name) || strings.EqualFold(datamodel.Key(t), name) {
-						delete(m.Positions, datamodel.Key(t))
-						return true
-					}
-					return false
-				})
-				if len(m.Tables) == n {
-					return ModelInfo{}, fmt.Errorf("no table %q in the model", name)
-				}
-			}
-			for i, raw := range in.SetTables {
-				t, err := decodeTable(raw)
-				if err != nil {
-					return ModelInfo{}, fmt.Errorf("set_tables[%d]: %w", i, err)
-				}
-				t.Database, t.OrigName = "", ""
-				if j := slices.IndexFunc(m.Tables, func(o design.Table) bool { return key(o) == key(t) }); j >= 0 {
-					m.Tables[j] = t
-				} else {
-					m.Tables = append(m.Tables, t)
-				}
-			}
-			if r := strings.TrimSpace(in.Rename); r != "" {
-				m.Name = r
-			}
-			if err := m.Validate(); err != nil {
-				return ModelInfo{}, err
-			}
-			// Catch fields that won't generate (a default that isn't one
-			// expression, say) now rather than at generate_sql.
-			if len(in.SetTables) > 0 {
-				gen, err := m.Generator()
-				if err != nil {
-					return ModelInfo{}, err
-				}
-				for _, raw := range in.SetTables {
-					t, _ := decodeTable(raw)
-					if _, err := gen.Create(t); err != nil {
-						return ModelInfo{}, fmt.Errorf("table %q: %w", t.Name, err)
-					}
-				}
-			}
-			if err := datamodel.Write(p, m); err != nil {
-				return ModelInfo{}, err
-			}
-			if c.s.events != nil {
-				c.s.events.ModelChanged(p)
-			}
-			return c.modelInfo(p, m), nil
-		})
+		toolEditModel)
 
 	add(s, srv, ep, readOnlyTool("generate_sql", "Generate model SQL",
 		"Returns the model as SQL without running it: CREATE statements, or with a connection the statements that would bring that database in line with the model. "+
 			"Applying them is up to the user (Synchronize to Database, or a query tab)."),
-		func(ctx context.Context, c *call, in SQLArgs) (SQLOut, error) {
-			_, m, err := c.model(in.Model)
-			if err != nil {
-				return SQLOut{}, err
-			}
-			if in.Connection == "" {
-				stmts, err := m.GenerateSQL(datamodel.Target{Database: in.Database, Schema: in.Schema})
-				return SQLOut{Statements: nonNil(stmts)}, err
-			}
-			tg, err := c.resolve(ctx, in.Connection, in.Database, in.Schema, store.MCPRead)
-			if err != nil {
-				return SQLOut{}, err
-			}
-			if tg.typ == model.SQLite {
-				return SQLOut{}, errors.New("models support MySQL, MariaDB and PostgreSQL, not SQLite")
-			}
-			schema := ""
-			if tg.typ == model.PostgreSQL {
-				schema = tg.schema
-			}
-			plan, err := c.s.m.PlanModelSync(ctx, tg.connID, m, datamodel.Target{Database: tg.database, Schema: schema}, false)
-			if err != nil {
-				return SQLOut{}, err
-			}
-			c.act.SQL = strings.Join(plan.Statements(), ";\n")
-			return SQLOut{Statements: nonNil(plan.Statements()), Unchanged: plan.Unchanged, Warnings: plan.Warnings}, nil
-		})
+		toolGenerateSql)
 
 	add(s, srv, ep, writeTool("open_model", "Open model",
 		"Opens a model's diagram in Chloe for the user.", false),
-		func(ctx context.Context, c *call, in ModelArgs) (ModelInfo, error) {
-			p, m, err := c.model(in.Model)
-			if err != nil {
-				return ModelInfo{}, err
+		toolOpenModel)
+}
+
+func toolListModels(ctx context.Context, c *call, in GetModelArgs) (ModelOut, error) {
+	p, m, err := c.model(in.Model)
+	if err != nil {
+		return ModelOut{}, err
+	}
+	out := ModelOut{ModelInfo: c.modelInfo(p, m), Schema: m.Schema, Detail: []design.Table{}}
+	for _, t := range m.Tables {
+		if len(in.Tables) == 0 || slices.ContainsFunc(in.Tables, func(n string) bool { return strings.EqualFold(n, t.Name) || strings.EqualFold(n, datamodel.Key(t)) }) {
+			out.Detail = append(out.Detail, t)
+		}
+	}
+	if data, _ := json.Marshal(out.Detail); len(data) > maxResultBytes {
+		return ModelOut{}, fmt.Errorf("the model is too large to return at once (%d KB); pass tables", len(data)>>10)
+	}
+	return out, nil
+}
+
+func toolCreateModel(ctx context.Context, c *call, in CreateModelArgs) (ModelInfo, error) {
+	var m datamodel.Model
+	switch {
+	case in.CopyOf != "" && in.Connection != "":
+		return ModelInfo{}, errors.New("pass copy_of or connection, not both")
+	case in.CopyOf != "":
+		_, src, err := c.model(in.CopyOf)
+		if err != nil {
+			return ModelInfo{}, err
+		}
+		m = src
+	case in.Connection != "":
+		tg, err := c.resolve(ctx, in.Connection, in.Database, in.Schema, store.MCPRead)
+		if err != nil {
+			return ModelInfo{}, err
+		}
+		if tg.typ == model.SQLite {
+			return ModelInfo{}, errors.New("models support MySQL, MariaDB and PostgreSQL, not SQLite")
+		}
+		if m, err = c.s.m.ReverseModel(ctx, tg.connID, tg.database, tg.schema, in.Tables); err != nil {
+			return ModelInfo{}, err
+		}
+	default:
+		d := strings.ToLower(in.Dialect)
+		if d == "postgresql" {
+			d = "postgres"
+		}
+		if d != "mysql" && d != "mariadb" && d != "postgres" {
+			return ModelInfo{}, errors.New("an empty model needs dialect mysql or postgres")
+		}
+		m = datamodel.New("", d)
+	}
+	if name := strings.TrimSpace(in.Name); name != "" {
+		m.Name = name
+	}
+	if strings.TrimSpace(m.Name) == "" {
+		return ModelInfo{}, errors.New("name is required")
+	}
+	p, err := c.saveNewModel(&m)
+	if err != nil {
+		return ModelInfo{}, err
+	}
+	return c.modelInfo(p, m), nil
+}
+
+func toolEditModel(ctx context.Context, c *call, in EditModelArgs) (ModelInfo, error) {
+	p, m, err := c.model(in.Model)
+	if err != nil {
+		return ModelInfo{}, err
+	}
+	if !agentMade(m.CreatedBy) {
+		return ModelInfo{}, errors.New("this is one of the user's models; agents can't change them, so copy it with create_model(copy_of) and edit the copy")
+	}
+	key := func(t design.Table) string {
+		if m.Dialect == "postgres" && t.Schema == "" {
+			t.Schema = m.Schema
+		}
+		return strings.ToLower(datamodel.Key(t))
+	}
+	for _, name := range in.DropTables {
+		n := len(m.Tables)
+		m.Tables = slices.DeleteFunc(m.Tables, func(t design.Table) bool {
+			if strings.EqualFold(t.Name, name) || strings.EqualFold(datamodel.Key(t), name) {
+				delete(m.Positions, datamodel.Key(t))
+				return true
 			}
-			if c.s.events == nil {
-				return ModelInfo{}, errors.New("Chloe's window isn't available")
-			}
-			c.s.events.OpenModel(p)
-			return c.modelInfo(p, m), nil
+			return false
 		})
+		if len(m.Tables) == n {
+			return ModelInfo{}, fmt.Errorf("no table %q in the model", name)
+		}
+	}
+	for i, raw := range in.SetTables {
+		t, err := decodeTable(raw)
+		if err != nil {
+			return ModelInfo{}, fmt.Errorf("set_tables[%d]: %w", i, err)
+		}
+		t.Database, t.OrigName = "", ""
+		if j := slices.IndexFunc(m.Tables, func(o design.Table) bool { return key(o) == key(t) }); j >= 0 {
+			m.Tables[j] = t
+		} else {
+			m.Tables = append(m.Tables, t)
+		}
+	}
+	if r := strings.TrimSpace(in.Rename); r != "" {
+		m.Name = r
+	}
+	if err := m.Validate(); err != nil {
+		return ModelInfo{}, err
+	}
+	// Catch fields that won't generate (a default that isn't one
+	// expression, say) now rather than at generate_sql.
+	if len(in.SetTables) > 0 {
+		gen, err := m.Generator()
+		if err != nil {
+			return ModelInfo{}, err
+		}
+		for _, raw := range in.SetTables {
+			t, _ := decodeTable(raw)
+			if _, err := gen.Create(t); err != nil {
+				return ModelInfo{}, fmt.Errorf("table %q: %w", t.Name, err)
+			}
+		}
+	}
+	if err := datamodel.Write(p, m); err != nil {
+		return ModelInfo{}, err
+	}
+	if c.s.events != nil {
+		c.s.events.ModelChanged(p)
+	}
+	return c.modelInfo(p, m), nil
+}
+
+func toolGenerateSql(ctx context.Context, c *call, in SQLArgs) (SQLOut, error) {
+	_, m, err := c.model(in.Model)
+	if err != nil {
+		return SQLOut{}, err
+	}
+	if in.Connection == "" {
+		stmts, err := m.GenerateSQL(datamodel.Target{Database: in.Database, Schema: in.Schema})
+		return SQLOut{Statements: nonNil(stmts)}, err
+	}
+	tg, err := c.resolve(ctx, in.Connection, in.Database, in.Schema, store.MCPRead)
+	if err != nil {
+		return SQLOut{}, err
+	}
+	if tg.typ == model.SQLite {
+		return SQLOut{}, errors.New("models support MySQL, MariaDB and PostgreSQL, not SQLite")
+	}
+	schema := ""
+	if tg.typ == model.PostgreSQL {
+		schema = tg.schema
+	}
+	plan, err := c.s.m.PlanModelSync(ctx, tg.connID, m, datamodel.Target{Database: tg.database, Schema: schema}, false)
+	if err != nil {
+		return SQLOut{}, err
+	}
+	c.act.SQL = strings.Join(plan.Statements(), ";\n")
+	return SQLOut{Statements: nonNil(plan.Statements()), Unchanged: plan.Unchanged, Warnings: plan.Warnings}, nil
+}
+
+func toolOpenModel(ctx context.Context, c *call, in ModelArgs) (ModelInfo, error) {
+	p, m, err := c.model(in.Model)
+	if err != nil {
+		return ModelInfo{}, err
+	}
+	if c.s.events == nil {
+		return ModelInfo{}, errors.New("Chloe's window isn't available")
+	}
+	c.s.events.OpenModel(p)
+	return c.modelInfo(p, m), nil
 }
 
 // model reads a model of Chloe's library by its path; no other file is opened.

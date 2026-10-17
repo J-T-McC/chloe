@@ -588,221 +588,239 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 		})
 
 	add(s, srv, ep, readOnlyTool("list_schemas", "List schemas", "Lists the schemas of a PostgreSQL database."),
-		func(ctx context.Context, c *call, in DBArgs) (NamesOut, error) {
-			t, err := c.resolve(ctx, in.Connection, in.Database, in.Schema, store.MCPRead)
-			if err != nil {
-				return NamesOut{}, err
-			}
-			if t.typ != model.PostgreSQL {
-				return NamesOut{}, errors.New("only PostgreSQL databases have schemas")
-			}
-			names, err := c.s.m.ListSchemas(ctx, t.connID, t.database)
-			return NamesOut{Names: nonNil(names)}, err
-		})
+		toolListConnections)
 
 	add(s, srv, ep, readOnlyTool("list_tables", "List tables", "Lists the tables and views of a database (PostgreSQL: of one schema), with estimated row counts."),
-		func(ctx context.Context, c *call, in DBArgs) (TablesOut, error) {
-			t, err := c.resolve(ctx, in.Connection, in.Database, in.Schema, store.MCPRead)
-			if err != nil {
-				return TablesOut{}, err
-			}
-			out := TablesOut{Tables: []TableOut{}}
-			kinds := []model.ObjectKind{model.KindTable, model.KindView}
-			if t.typ == model.PostgreSQL {
-				kinds = append(kinds, model.KindMatView)
-			}
-			for _, k := range kinds {
-				objs, err := c.s.m.ListObjects(ctx, t.connID, t.database, t.schema, k)
-				if err != nil {
-					return out, err
-				}
-				for _, o := range objs {
-					out.Tables = append(out.Tables, TableOut{Name: o.Name, Kind: string(k), Rows: o.Rows, Comment: o.Comment})
-				}
-			}
-			return out, nil
-		})
+		toolListTables)
 
 	add(s, srv, ep, readOnlyTool("describe_table", "Describe table", "Shows a table's or view's columns (type, nullable, default, primary key), indexes and foreign keys. "+
 		"Check it before writing a query: filters on indexed columns stay fast on big tables, and the foreign keys give the joins."),
-		func(ctx context.Context, c *call, in TableArgs) (model.TableDetail, error) {
-			t, err := c.resolve(ctx, in.Connection, in.Database, in.Schema, store.MCPRead)
-			if err != nil {
-				return model.TableDetail{}, err
-			}
-			return c.s.m.TableDetail(ctx, t.connID, t.ref(in.Table, model.KindTable))
-		})
+		toolDescribeTable)
 
 	add(s, srv, ep, readOnlyTool("get_ddl", "Get DDL", "Returns the CREATE statement of a table, view, function, procedure, trigger or other object."),
-		func(ctx context.Context, c *call, in DDLArgs) (DDLOut, error) {
-			t, err := c.resolve(ctx, in.Connection, in.Database, in.Schema, store.MCPRead)
-			if err != nil {
-				return DDLOut{}, err
-			}
-			kind := model.ObjectKind(in.Kind)
-			if !slices.Contains([]model.ObjectKind{model.KindTable, model.KindView, model.KindMatView, model.KindFunction, model.KindProcedure,
-				model.KindTrigger, model.KindEvent, model.KindSequence, model.KindType, model.KindIndex}, kind) {
-				return DDLOut{}, fmt.Errorf("unknown kind %q", in.Kind)
-			}
-			ddl, err := c.s.m.DDL(ctx, t.connID, t.ref(in.Name, kind))
-			return DDLOut{DDL: ddl}, err
-		})
+		toolGetDdl)
 
 	add(s, srv, ep, readOnlyTool("select_rows", "Select rows", "Reads rows from a table or view, with optional column list, conditions, ordering and paging."),
-		func(ctx context.Context, c *call, in SelectArgs) (RowsOut, error) {
-			t, err := c.resolve(ctx, in.Connection, in.Database, in.Schema, store.MCPRead)
-			if err != nil {
-				return RowsOut{}, err
-			}
-			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
-			defer cancel()
-			detail, err := c.s.m.TableDetail(ctx, t.connID, t.ref(in.Table, model.KindTable))
-			if err != nil {
-				return RowsOut{}, err
-			}
-			if len(detail.Columns) == 0 {
-				return RowsOut{}, fmt.Errorf("no table or view %q", in.Table)
-			}
-			limit := clampLimit(in.Limit)
-			var out RowsOut
-			d, err := c.s.m.Dialect(t.connID)
-			if err != nil {
-				return RowsOut{}, err
-			}
-			q, err := newBuilder(d, detail).selectRows(in.Columns, in.Where, in.OrderBy, limit+1, max(in.Offset, 0))
-			if err != nil {
-				return RowsOut{}, err
-			}
-			c.act.SQL = display(d, q)
-			err = c.s.m.WithReadSession(ctx, t.connID, t.database, t.schema, func(ds driver.Session, _ driver.Dialect) error {
-				out, err = readRows(ctx, ds, q, limit)
-				return err
-			})
-			c.act.Rows = int64(out.RowCount)
-			return out, err
-		})
+		toolSelectRows)
 
 	add(s, srv, ep, readOnlyTool("run_query", "Run read-only query",
 		"Runs one read-only SQL statement (SELECT, WITH, EXPLAIN, SHOW…) in a read-only transaction and returns its rows. "+
 			"Filter and aggregate in the SQL: at most 1000 rows come back. Use EXPLAIN (MySQL and PostgreSQL also EXPLAIN ANALYZE; SQLite EXPLAIN QUERY PLAN) "+
 			"to check that a query over a big table uses an index before running it or saving it. "+
 			"Not available on connections where some databases are hidden from this endpoint (except PostgreSQL)."),
-		func(ctx context.Context, c *call, in QueryArgs) (RowsOut, error) {
-			t, err := c.resolve(ctx, in.Connection, in.Database, in.Schema, store.MCPRead)
-			if err != nil {
-				return RowsOut{}, err
-			}
-			// MySQL and SQLite queries can name any database of the connection, so
-			// raw SQL is only allowed when every database is readable.
-			if t.typ != model.PostgreSQL {
-				if t.access.hidesDatabases() {
-					return RowsOut{}, errors.New("run_query isn't available here because some databases of this connection are hidden from this endpoint; use select_rows")
-				}
-			}
-			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
-			defer cancel()
-			limit := clampLimit(in.Limit)
-			var out RowsOut
-			d, err := c.s.m.Dialect(t.connID)
-			if err != nil {
-				return RowsOut{}, err
-			}
-			sql, err := checkReadOnly(d, in.SQL)
-			c.act.SQL = strings.TrimSpace(in.SQL)
-			if err != nil {
-				return RowsOut{}, err
-			}
-			err = c.s.m.WithReadSession(ctx, t.connID, t.database, t.schema, func(ds driver.Session, _ driver.Dialect) error {
-				// One row past the limit tells readRows the result was truncated.
-				out, err = readRows(ctx, ds, stmt{SQL: limitRead(d, sql, limit+1)}, limit)
-				return err
-			})
-			c.act.Rows = int64(out.RowCount)
-			return out, err
-		})
+		toolRunQuery)
 
 	if !writes {
 		return
 	}
 	add(s, srv, ep, writeTool("insert_rows", "Insert rows", "Inserts rows into a table in one transaction. The user approves it in Chloe unless they've turned on danger mode. "+
 		"Send all the rows in one call (up to 1000): each call is one approval.", false),
-		func(ctx context.Context, c *call, in InsertArgs) (InsertOut, error) {
-			if len(in.Rows) == 0 {
-				return InsertOut{}, errors.New("rows is empty")
-			}
-			if len(in.Rows) > maxInsertRows {
-				return InsertOut{}, fmt.Errorf("insert at most %d rows per call", maxInsertRows)
-			}
-			var out InsertOut
-			err := c.write(ctx, in.TableArgs, func(ctx context.Context, with sessionFn, d driver.Dialect, b *builder) (int64, error) {
-				stmts := make([]stmt, len(in.Rows))
-				shown := make([]string, 0, 6)
-				for i, row := range in.Rows {
-					var err error
-					if stmts[i], err = b.insert(row); err != nil {
-						return 0, fmt.Errorf("row %d: %w", i+1, err)
-					}
-					if i < 5 {
-						shown = append(shown, display(d, stmts[i])+";")
-					}
-				}
-				if len(stmts) > 5 {
-					shown = append(shown, fmt.Sprintf("-- … and %d more rows", len(stmts)-5))
-				}
-				n := int64(len(stmts))
-				c.act.SQL = strings.Join(shown, "\n")
-				if err := c.approve(ctx, ApprovalRequest{Connection: c.act.Connection, Database: c.act.Database, Table: in.Table,
-					Summary: fmt.Sprintf("Insert %s into %s", plural(n, "row"), in.Table), SQL: c.act.SQL, Rows: n}); err != nil {
-					return 0, err
-				}
-				ctx, cancel := context.WithTimeout(ctx, statementTimeout)
-				defer cancel()
-				return n, with(func(ds driver.Session) error {
-					return driver.InTx(ctx, ds, func() error {
-						pk := b.primaryKey()
-						for i, q := range stmts {
-							key, err := insertOne(ctx, ds, d, b, q, in.Rows[i], pk)
-							if err != nil {
-								return fmt.Errorf("row %d: %w", i+1, err)
-							}
-							if key != nil {
-								out.Keys = append(out.Keys, key)
-							}
-						}
-						out.Inserted = n
-						return nil
-					})
-				})
-			})
-			return out, err
-		})
+		toolInsertRows)
 
 	add(s, srv, ep, writeTool("update_rows", "Update rows", "Changes columns of the rows matching the conditions to the same values, in one transaction. The user approves it in Chloe unless they've turned on danger mode. "+
 		"Match on the primary key where you can; select_rows with the same conditions shows what will change.", true),
-		func(ctx context.Context, c *call, in UpdateArgs) (ChangedOut, error) {
-			var out ChangedOut
-			err := c.write(ctx, in.TableArgs, func(ctx context.Context, with sessionFn, d driver.Dialect, b *builder) (int64, error) {
-				n, err := c.matchingThenRun(ctx, with, d, b, in.Where, in.Table, "Update", func(k *keySet) (stmt, error) {
-					return b.update(in.Set, in.Where, k)
-				})
-				out.Rows = n
-				return n, err
-			})
-			return out, err
-		})
+		toolUpdateRows)
 
 	add(s, srv, ep, writeTool("delete_rows", "Delete rows", "Deletes the rows matching the conditions, in one transaction. The user approves it in Chloe unless they've turned on danger mode.", true),
-		func(ctx context.Context, c *call, in DeleteArgs) (ChangedOut, error) {
-			var out ChangedOut
-			err := c.write(ctx, in.TableArgs, func(ctx context.Context, with sessionFn, d driver.Dialect, b *builder) (int64, error) {
-				n, err := c.matchingThenRun(ctx, with, d, b, in.Where, in.Table, "Delete", func(k *keySet) (stmt, error) {
-					return b.delete(in.Where, k)
-				})
-				out.Rows = n
-				return n, err
-			})
+		toolDeleteRows)
+}
+
+func toolListConnections(ctx context.Context, c *call, in DBArgs) (NamesOut, error) {
+	t, err := c.resolve(ctx, in.Connection, in.Database, in.Schema, store.MCPRead)
+	if err != nil {
+		return NamesOut{}, err
+	}
+	if t.typ != model.PostgreSQL {
+		return NamesOut{}, errors.New("only PostgreSQL databases have schemas")
+	}
+	names, err := c.s.m.ListSchemas(ctx, t.connID, t.database)
+	return NamesOut{Names: nonNil(names)}, err
+}
+
+func toolListTables(ctx context.Context, c *call, in DBArgs) (TablesOut, error) {
+	t, err := c.resolve(ctx, in.Connection, in.Database, in.Schema, store.MCPRead)
+	if err != nil {
+		return TablesOut{}, err
+	}
+	out := TablesOut{Tables: []TableOut{}}
+	kinds := []model.ObjectKind{model.KindTable, model.KindView}
+	if t.typ == model.PostgreSQL {
+		kinds = append(kinds, model.KindMatView)
+	}
+	for _, k := range kinds {
+		objs, err := c.s.m.ListObjects(ctx, t.connID, t.database, t.schema, k)
+		if err != nil {
 			return out, err
+		}
+		for _, o := range objs {
+			out.Tables = append(out.Tables, TableOut{Name: o.Name, Kind: string(k), Rows: o.Rows, Comment: o.Comment})
+		}
+	}
+	return out, nil
+}
+
+func toolDescribeTable(ctx context.Context, c *call, in TableArgs) (model.TableDetail, error) {
+	t, err := c.resolve(ctx, in.Connection, in.Database, in.Schema, store.MCPRead)
+	if err != nil {
+		return model.TableDetail{}, err
+	}
+	return c.s.m.TableDetail(ctx, t.connID, t.ref(in.Table, model.KindTable))
+}
+
+func toolGetDdl(ctx context.Context, c *call, in DDLArgs) (DDLOut, error) {
+	t, err := c.resolve(ctx, in.Connection, in.Database, in.Schema, store.MCPRead)
+	if err != nil {
+		return DDLOut{}, err
+	}
+	kind := model.ObjectKind(in.Kind)
+	if !slices.Contains([]model.ObjectKind{model.KindTable, model.KindView, model.KindMatView, model.KindFunction, model.KindProcedure,
+		model.KindTrigger, model.KindEvent, model.KindSequence, model.KindType, model.KindIndex}, kind) {
+		return DDLOut{}, fmt.Errorf("unknown kind %q", in.Kind)
+	}
+	ddl, err := c.s.m.DDL(ctx, t.connID, t.ref(in.Name, kind))
+	return DDLOut{DDL: ddl}, err
+}
+
+func toolSelectRows(ctx context.Context, c *call, in SelectArgs) (RowsOut, error) {
+	t, err := c.resolve(ctx, in.Connection, in.Database, in.Schema, store.MCPRead)
+	if err != nil {
+		return RowsOut{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, statementTimeout)
+	defer cancel()
+	detail, err := c.s.m.TableDetail(ctx, t.connID, t.ref(in.Table, model.KindTable))
+	if err != nil {
+		return RowsOut{}, err
+	}
+	if len(detail.Columns) == 0 {
+		return RowsOut{}, fmt.Errorf("no table or view %q", in.Table)
+	}
+	limit := clampLimit(in.Limit)
+	var out RowsOut
+	d, err := c.s.m.Dialect(t.connID)
+	if err != nil {
+		return RowsOut{}, err
+	}
+	q, err := newBuilder(d, detail).selectRows(in.Columns, in.Where, in.OrderBy, limit+1, max(in.Offset, 0))
+	if err != nil {
+		return RowsOut{}, err
+	}
+	c.act.SQL = display(d, q)
+	err = c.s.m.WithReadSession(ctx, t.connID, t.database, t.schema, func(ds driver.Session, _ driver.Dialect) error {
+		out, err = readRows(ctx, ds, q, limit)
+		return err
+	})
+	c.act.Rows = int64(out.RowCount)
+	return out, err
+}
+
+func toolRunQuery(ctx context.Context, c *call, in QueryArgs) (RowsOut, error) {
+	t, err := c.resolve(ctx, in.Connection, in.Database, in.Schema, store.MCPRead)
+	if err != nil {
+		return RowsOut{}, err
+	}
+	// MySQL and SQLite queries can name any database of the connection, so
+	// raw SQL is only allowed when every database is readable.
+	if t.typ != model.PostgreSQL {
+		if t.access.hidesDatabases() {
+			return RowsOut{}, errors.New("run_query isn't available here because some databases of this connection are hidden from this endpoint; use select_rows")
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, statementTimeout)
+	defer cancel()
+	limit := clampLimit(in.Limit)
+	var out RowsOut
+	d, err := c.s.m.Dialect(t.connID)
+	if err != nil {
+		return RowsOut{}, err
+	}
+	sql, err := checkReadOnly(d, in.SQL)
+	c.act.SQL = strings.TrimSpace(in.SQL)
+	if err != nil {
+		return RowsOut{}, err
+	}
+	err = c.s.m.WithReadSession(ctx, t.connID, t.database, t.schema, func(ds driver.Session, _ driver.Dialect) error {
+		// One row past the limit tells readRows the result was truncated.
+		out, err = readRows(ctx, ds, stmt{SQL: limitRead(d, sql, limit+1)}, limit)
+		return err
+	})
+	c.act.Rows = int64(out.RowCount)
+	return out, err
+}
+
+func toolInsertRows(ctx context.Context, c *call, in InsertArgs) (InsertOut, error) {
+	if len(in.Rows) == 0 {
+		return InsertOut{}, errors.New("rows is empty")
+	}
+	if len(in.Rows) > maxInsertRows {
+		return InsertOut{}, fmt.Errorf("insert at most %d rows per call", maxInsertRows)
+	}
+	var out InsertOut
+	err := c.write(ctx, in.TableArgs, func(ctx context.Context, with sessionFn, d driver.Dialect, b *builder) (int64, error) {
+		stmts := make([]stmt, len(in.Rows))
+		shown := make([]string, 0, 6)
+		for i, row := range in.Rows {
+			var err error
+			if stmts[i], err = b.insert(row); err != nil {
+				return 0, fmt.Errorf("row %d: %w", i+1, err)
+			}
+			if i < 5 {
+				shown = append(shown, display(d, stmts[i])+";")
+			}
+		}
+		if len(stmts) > 5 {
+			shown = append(shown, fmt.Sprintf("-- … and %d more rows", len(stmts)-5))
+		}
+		n := int64(len(stmts))
+		c.act.SQL = strings.Join(shown, "\n")
+		if err := c.approve(ctx, ApprovalRequest{Connection: c.act.Connection, Database: c.act.Database, Table: in.Table,
+			Summary: fmt.Sprintf("Insert %s into %s", plural(n, "row"), in.Table), SQL: c.act.SQL, Rows: n}); err != nil {
+			return 0, err
+		}
+		ctx, cancel := context.WithTimeout(ctx, statementTimeout)
+		defer cancel()
+		return n, with(func(ds driver.Session) error {
+			return driver.InTx(ctx, ds, func() error {
+				pk := b.primaryKey()
+				for i, q := range stmts {
+					key, err := insertOne(ctx, ds, d, b, q, in.Rows[i], pk)
+					if err != nil {
+						return fmt.Errorf("row %d: %w", i+1, err)
+					}
+					if key != nil {
+						out.Keys = append(out.Keys, key)
+					}
+				}
+				out.Inserted = n
+				return nil
+			})
 		})
+	})
+	return out, err
+}
+
+func toolUpdateRows(ctx context.Context, c *call, in UpdateArgs) (ChangedOut, error) {
+	var out ChangedOut
+	err := c.write(ctx, in.TableArgs, func(ctx context.Context, with sessionFn, d driver.Dialect, b *builder) (int64, error) {
+		n, err := c.matchingThenRun(ctx, with, d, b, in.Where, in.Table, "Update", func(k *keySet) (stmt, error) {
+			return b.update(in.Set, in.Where, k)
+		})
+		out.Rows = n
+		return n, err
+	})
+	return out, err
+}
+
+func toolDeleteRows(ctx context.Context, c *call, in DeleteArgs) (ChangedOut, error) {
+	var out ChangedOut
+	err := c.write(ctx, in.TableArgs, func(ctx context.Context, with sessionFn, d driver.Dialect, b *builder) (int64, error) {
+		n, err := c.matchingThenRun(ctx, with, d, b, in.Where, in.Table, "Delete", func(k *keySet) (stmt, error) {
+			return b.delete(in.Where, k)
+		})
+		out.Rows = n
+		return n, err
+	})
+	return out, err
 }
 
 // sessionFn runs fn on a fresh session of the table's database.

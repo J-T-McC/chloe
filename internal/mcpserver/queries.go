@@ -58,89 +58,97 @@ const maxQueryBytes = 256 << 10
 func (s *Server) addQueryTools(srv *mcp.Server, ep string) {
 	add(s, srv, ep, readOnlyTool("list_saved_queries", "List saved queries",
 		"Lists the queries the user saved in a database's Queries folder (PostgreSQL: in one schema)."),
-		func(ctx context.Context, c *call, in DBArgs) (SavedQueriesOut, error) {
-			t, err := c.lookup(in.Connection, in.Database, in.Schema, store.MCPRead)
-			if err != nil {
-				return SavedQueriesOut{}, err
-			}
-			out := SavedQueriesOut{Queries: []SavedQueryOut{}}
-			for _, q := range c.s.m.Store.Workspace().Queries(t.connID, t.database, t.schema) {
-				out.Queries = append(out.Queries, SavedQueryOut{Name: q.Name, Modified: q.Modified})
-			}
-			return out, nil
-		})
+		toolListSavedQueries)
 
 	add(s, srv, ep, readOnlyTool("get_saved_query", "Get saved query", "Returns the SQL of a saved query."),
-		func(ctx context.Context, c *call, in SavedQueryArgs) (SavedQueryOut, error) {
-			t, err := c.lookup(in.Connection, in.Database, in.Schema, store.MCPRead)
-			if err != nil {
-				return SavedQueryOut{}, err
-			}
-			q, err := c.savedQuery(t, in.Name)
-			if err != nil {
-				return SavedQueryOut{}, err
-			}
-			return SavedQueryOut{Name: q.Name, SQL: q.SQL, Modified: q.Modified}, nil
-		})
+		toolGetSavedQuery)
 
 	add(s, srv, ep, writeTool("save_query", "Save query",
 		"Saves SQL as a new query in a database's Queries folder, where the user can open and run it. "+
 			"It never runs the SQL and never replaces an existing query: pick a name that isn't taken (see list_saved_queries).", false),
-		func(ctx context.Context, c *call, in SaveQueryArgs) (SavedQueryOut, error) {
-			t, err := c.lookup(in.Connection, in.Database, in.Schema, store.MCPRead)
-			if err != nil {
-				return SavedQueryOut{}, err
-			}
-			c.act.SQL = in.SQL
-			if err := checkQueryText(in.SQL); err != nil {
-				return SavedQueryOut{}, err
-			}
-			ws := c.s.m.Store.Workspace()
-			name := strings.TrimSpace(in.Name)
-			if _, err := c.savedQuery(t, name); err == nil {
-				return SavedQueryOut{}, fmt.Errorf("a query named %q already exists; agents can't replace saved queries, so choose another name", name)
-			}
-			q, err := ws.SaveQuery(store.SavedQuery{ConnID: t.connID, Database: t.database, Schema: t.schema, Name: name, SQL: in.SQL})
-			if err != nil {
-				return SavedQueryOut{}, err
-			}
-			if c.s.events != nil {
-				c.s.events.QuerySaved(t.connID, t.database, t.schema)
-			}
-			return SavedQueryOut{Name: q.Name, Modified: q.Modified}, nil
-		})
+		toolSaveQuery)
 
 	add(s, srv, ep, writeTool("open_query_tab", "Open query tab",
 		"Opens a query tab in Chloe with SQL for the user to review, edit and run, or opens one of their saved queries. "+
 			"Nothing runs and you don't see the results; tell the user what the SQL does.", false),
-		func(ctx context.Context, c *call, in OpenTabArgs) (OpenedOut, error) {
-			t, err := c.lookup(in.Connection, in.Database, in.Schema, store.MCPRead)
-			if err != nil {
-				return OpenedOut{}, err
-			}
-			tab := QueryTab{ConnID: t.connID, Database: t.database, Schema: t.schema, Title: strings.TrimSpace(in.Name)}
-			if in.SQL == "" {
-				q, err := c.savedQuery(t, in.Name)
-				if err != nil {
-					return OpenedOut{}, err
-				}
-				tab.Title, tab.QueryName = q.Name, q.Name
-			} else {
-				if err := checkQueryText(in.SQL); err != nil {
-					return OpenedOut{}, err
-				}
-				if tab.Title == "" {
-					tab.Title = "Query from " + c.ep.Name
-				}
-				tab.SQL = in.SQL
-			}
-			c.act.SQL = in.SQL
-			if c.s.events == nil {
-				return OpenedOut{}, errors.New("Chloe's window isn't available")
-			}
-			c.s.events.OpenQueryTab(tab)
-			return OpenedOut{Opened: tab.Title}, nil
-		})
+		toolOpenQueryTab)
+}
+
+func toolListSavedQueries(ctx context.Context, c *call, in DBArgs) (SavedQueriesOut, error) {
+	t, err := c.lookup(in.Connection, in.Database, in.Schema, store.MCPRead)
+	if err != nil {
+		return SavedQueriesOut{}, err
+	}
+	out := SavedQueriesOut{Queries: []SavedQueryOut{}}
+	for _, q := range c.s.m.Store.Workspace().Queries(t.connID, t.database, t.schema) {
+		out.Queries = append(out.Queries, SavedQueryOut{Name: q.Name, Modified: q.Modified})
+	}
+	return out, nil
+}
+
+func toolGetSavedQuery(ctx context.Context, c *call, in SavedQueryArgs) (SavedQueryOut, error) {
+	t, err := c.lookup(in.Connection, in.Database, in.Schema, store.MCPRead)
+	if err != nil {
+		return SavedQueryOut{}, err
+	}
+	q, err := c.savedQuery(t, in.Name)
+	if err != nil {
+		return SavedQueryOut{}, err
+	}
+	return SavedQueryOut{Name: q.Name, SQL: q.SQL, Modified: q.Modified}, nil
+}
+
+func toolSaveQuery(ctx context.Context, c *call, in SaveQueryArgs) (SavedQueryOut, error) {
+	t, err := c.lookup(in.Connection, in.Database, in.Schema, store.MCPRead)
+	if err != nil {
+		return SavedQueryOut{}, err
+	}
+	c.act.SQL = in.SQL
+	if err := checkQueryText(in.SQL); err != nil {
+		return SavedQueryOut{}, err
+	}
+	ws := c.s.m.Store.Workspace()
+	name := strings.TrimSpace(in.Name)
+	if _, err := c.savedQuery(t, name); err == nil {
+		return SavedQueryOut{}, fmt.Errorf("a query named %q already exists; agents can't replace saved queries, so choose another name", name)
+	}
+	q, err := ws.SaveQuery(store.SavedQuery{ConnID: t.connID, Database: t.database, Schema: t.schema, Name: name, SQL: in.SQL})
+	if err != nil {
+		return SavedQueryOut{}, err
+	}
+	if c.s.events != nil {
+		c.s.events.QuerySaved(t.connID, t.database, t.schema)
+	}
+	return SavedQueryOut{Name: q.Name, Modified: q.Modified}, nil
+}
+
+func toolOpenQueryTab(ctx context.Context, c *call, in OpenTabArgs) (OpenedOut, error) {
+	t, err := c.lookup(in.Connection, in.Database, in.Schema, store.MCPRead)
+	if err != nil {
+		return OpenedOut{}, err
+	}
+	tab := QueryTab{ConnID: t.connID, Database: t.database, Schema: t.schema, Title: strings.TrimSpace(in.Name)}
+	if in.SQL == "" {
+		q, err := c.savedQuery(t, in.Name)
+		if err != nil {
+			return OpenedOut{}, err
+		}
+		tab.Title, tab.QueryName = q.Name, q.Name
+	} else {
+		if err := checkQueryText(in.SQL); err != nil {
+			return OpenedOut{}, err
+		}
+		if tab.Title == "" {
+			tab.Title = "Query from " + c.ep.Name
+		}
+		tab.SQL = in.SQL
+	}
+	c.act.SQL = in.SQL
+	if c.s.events == nil {
+		return OpenedOut{}, errors.New("Chloe's window isn't available")
+	}
+	c.s.events.OpenQueryTab(tab)
+	return OpenedOut{Opened: tab.Title}, nil
 }
 
 func (c *call) savedQuery(t target, name string) (store.SavedQuery, error) {
