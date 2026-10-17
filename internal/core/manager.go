@@ -64,6 +64,7 @@ type Manager struct {
 	bi      biSessions    // BI read sessions per connection
 	biCache biResultCache // live BI chart results read recently
 	biBatch biBatcher     // chart reads waiting to share a read of their source
+	biZones sync.Map      // connID + "\x00" + zone -> time MySQL last confirmed it knows the zone
 }
 
 type openConn struct {

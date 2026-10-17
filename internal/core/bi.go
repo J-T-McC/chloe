@@ -53,17 +53,25 @@ func (m *Manager) biLive(ctx context.Context, src bi.DataSource, fn func(context
 	ctx, cancel := context.WithTimeout(ctx, BITimeout)
 	defer cancel()
 	return m.withBISession(ctx, src.ConnID, src.Database, src.Schema, func(ds driver.Session, d driver.Dialect) error {
-		if err := checkZone(ctx, ds, d, src.Timezone); err != nil {
+		if err := m.checkZone(ctx, ds, d, src.ConnID, src.Timezone); err != nil {
 			return err
 		}
 		return fn(ctx, ds, d)
 	})
 }
 
+// zoneCheckTTL is how long a MySQL server is taken to still know a time zone it knew.
+const zoneCheckTTL = 10 * time.Minute
+
 // checkZone makes sure the server knows a data source's time zone: MySQL's
-// CONVERT_TZ quietly returns NULL when its time zone tables aren't loaded.
-func checkZone(ctx context.Context, ds driver.Session, d driver.Dialect, tz string) error {
+// CONVERT_TZ quietly returns NULL when its time zone tables aren't loaded. A
+// zone that passed is not asked about again for zoneCheckTTL.
+func (m *Manager) checkZone(ctx context.Context, ds driver.Session, d driver.Dialect, connID, tz string) error {
 	if tz == "" || d.Name != "mysql" {
+		return nil
+	}
+	key := connID + "\x00" + tz
+	if at, ok := m.biZones.Load(key); ok && time.Since(at.(time.Time)) < zoneCheckTTL {
 		return nil
 	}
 	_, rows, _, err := readStmt(ctx, ds, bi.Stmt{SQL: "SELECT CONVERT_TZ('2000-01-01 00:00:00', '+00:00', ?)", Args: []any{tz}}, 1)
@@ -71,8 +79,10 @@ func checkZone(ctx context.Context, ds driver.Session, d driver.Dialect, tz stri
 		return err
 	}
 	if len(rows) == 0 || rows[0][0] == nil {
+		m.biZones.Delete(key)
 		return fmt.Errorf("MySQL doesn't know the time zone %q: load its time zone tables (mysql_tzinfo_to_sql /usr/share/zoneinfo | mysql -u root mysql), or clear the data source's time zone", tz)
 	}
+	m.biZones.Store(key, time.Now())
 	return nil
 }
 
