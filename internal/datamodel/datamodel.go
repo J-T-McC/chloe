@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"chloe/internal/design"
+	"chloe/internal/sqlq"
 )
 
 const Format = "chloe-model"
@@ -219,7 +220,7 @@ func (m Model) sequences(t design.Table) (before, after []string) {
 	if m.Dialect != "postgres" {
 		return nil, nil
 	}
-	tbl := `"` + strings.ReplaceAll(t.Schema, `"`, `""`) + `"."` + strings.ReplaceAll(t.Name, `"`, `""`) + `"`
+	tbl := sqlq.Quoted(t.Schema) + "." + sqlq.Quoted(t.Name)
 	for _, c := range t.Columns {
 		if c.Default == nil {
 			continue
@@ -230,7 +231,7 @@ func (m Model) sequences(t design.Table) (before, after []string) {
 		}
 		seq := strings.ReplaceAll(mm[1], "''", "'")
 		before = append(before, "CREATE SEQUENCE IF NOT EXISTS "+seq)
-		after = append(after, fmt.Sprintf(`ALTER SEQUENCE %s OWNED BY %s."%s"`, seq, tbl, strings.ReplaceAll(c.Name, `"`, `""`)))
+		after = append(after, fmt.Sprintf(`ALTER SEQUENCE %s OWNED BY %s.%s`, seq, tbl, sqlq.Quoted(c.Name)))
 	}
 	return before, after
 }

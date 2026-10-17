@@ -39,3 +39,16 @@ func TestBalanced(t *testing.T) {
 		}
 	}
 }
+
+func TestQuoting(t *testing.T) {
+	for _, c := range []struct{ got, want string }{
+		{String(`it's \`), `'it''s \'`},
+		{MySQLString(`it's \'`), `'it''s \\'''`},
+		{Backtick("a`b"), "`a``b`"},
+		{Quoted(`a"b`), `"a""b"`},
+	} {
+		if c.got != c.want {
+			t.Errorf("got %s, want %s", c.got, c.want)
+		}
+	}
+}

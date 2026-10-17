@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"chloe/internal/design"
+	"chloe/internal/sqlq"
 )
 
 // TableDiff is one table's result of comparing a source structure to a target:
@@ -76,11 +77,11 @@ func (m Model) Compare(existing []design.Table, to Target) ([]TableDiff, error) 
 	sort.Strings(names)
 	for _, n := range names {
 		t := have[strings.ToLower(n)]
-		q := "`" + strings.ReplaceAll(t.Name, "`", "``") + "`"
+		q := sqlq.Backtick(t.Name)
 		if m.Dialect == "postgres" {
-			q = `"` + strings.ReplaceAll(t.Schema, `"`, `""`) + `"."` + strings.ReplaceAll(t.Name, `"`, `""`) + `"`
+			q = sqlq.Quoted(t.Schema) + "." + sqlq.Quoted(t.Name)
 		} else if to.Database != "" {
-			q = "`" + strings.ReplaceAll(to.Database, "`", "``") + "`." + q
+			q = sqlq.Backtick(to.Database) + "." + q
 		}
 		out = append(out, TableDiff{Name: t.Name, Op: "drop", Statements: []string{"DROP TABLE " + q}})
 	}

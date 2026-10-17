@@ -648,11 +648,10 @@ func unquote(s string, backslashes bool) (string, bool) {
 
 // quote writes a string literal for the target dialect.
 func (c *converter) quote(s string) string {
-	s = strings.ReplaceAll(s, "'", "''")
 	if c.to == "mysql" {
-		s = strings.ReplaceAll(s, `\`, `\\`)
+		return sqlq.MySQLString(s)
 	}
-	return "'" + s + "'"
+	return sqlq.String(s)
 }
 
 func splitEnum(list string) []string {

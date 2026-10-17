@@ -11,6 +11,7 @@ import (
 	"chloe/internal/design"
 	"chloe/internal/model"
 	"chloe/internal/privs"
+	"chloe/internal/sqlq"
 	"chloe/internal/sqlsplit"
 	"chloe/internal/tunnel"
 )
@@ -160,15 +161,10 @@ type Dialect struct {
 
 // QuoteIdent quotes an identifier, doubling embedded quote characters.
 func (d Dialect) QuoteIdent(s string) string {
-	q := d.IdentQuote
-	out := q
-	for _, r := range s {
-		if string(r) == q {
-			out += q
-		}
-		out += string(r)
+	if d.IdentQuote == "`" {
+		return sqlq.Backtick(s)
 	}
-	return out + q
+	return sqlq.Quoted(s)
 }
 
 // Placeholder returns the n-th (1-based) bind parameter marker.

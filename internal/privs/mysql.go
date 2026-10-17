@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"chloe/internal/sqlq"
 )
 
-func myq(s string) string { return "`" + strings.ReplaceAll(s, "`", "``") + "`" }
+func myq(s string) string { return sqlq.Backtick(s) }
 
-func myStr(s string) string {
-	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `''`).Replace(s) + "'"
-}
+func myStr(s string) string { return sqlq.MySQLString(s) }
 
 // myAccount quotes 'user'@'host'.
 func myAccount(name, host string) string {
