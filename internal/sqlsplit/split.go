@@ -29,17 +29,33 @@ type Statement struct {
 // Split returns the non-empty statements in script.
 func Split(script string, d Dialect) []Statement {
 	var out []Statement
-	delim := ";"
-	stmtStart := 0
-	i := 0
+	sp := splitter{d: d, delim: ";", line: 1}
+	sp.scan(script, 0, 0, true, func(st Statement) { out = append(out, st) })
+	return out
+}
+
+// splitter is the state carried from one statement to the next.
+type splitter struct {
+	d     Dialect
+	delim string // MySQL DELIMITER changes it
+	// Statements start in order, so count lines from the previous start rather than
+	// from the top of the script each time (that was quadratic on big files).
+	line, linePos int // linePos is absolute
+}
+
+// scan splits script[from:], where script begins at absolute offset base and
+// script[:from] is context only (the start of a line, the byte before a word).
+// At eof the last statement runs to the end; otherwise scan stops before it and
+// returns where it starts, to be scanned again with more text.
+func (sp *splitter) scan(script string, base, from int, eof bool, out func(Statement)) int {
+	d := sp.d
+	stmtStart := from
+	i := from
 	n := len(script)
 
 	// SQLite trigger bodies: words seen in the statement and BEGIN/CASE … END depth.
 	words, depth := 0, 0
 	create, trigger := false, false
-	// Statements start in order, so count lines from the previous start rather than
-	// from the top of the script each time (that was quadratic on big files).
-	line, linePos := 1, 0
 	emit := func(end int) {
 		words, depth, create, trigger = 0, 0, false, false
 		raw := script[stmtStart:end]
@@ -47,13 +63,13 @@ func Split(script string, d Dialect) []Statement {
 		if trimmed != "" && !onlyComments(trimmed, d) {
 			lead := len(raw) - len(strings.TrimLeftFunc(raw, unicode.IsSpace))
 			start := stmtStart + lead
-			line += strings.Count(script[linePos:start], "\n")
-			linePos = start
-			out = append(out, Statement{
+			sp.line += strings.Count(script[sp.linePos-base:start], "\n")
+			sp.linePos = base + start
+			out(Statement{
 				SQL:       strings.TrimRightFunc(script[start:end], unicode.IsSpace),
-				Start:     start,
-				End:       end,
-				StartLine: line,
+				Start:     base + start,
+				End:       base + end,
+				StartLine: sp.line,
 			})
 		}
 	}
@@ -67,7 +83,7 @@ func Split(script string, d Dialect) []Statement {
 				return false
 			}
 		}
-		return true
+		return base == 0
 	}
 
 	for i < n {
@@ -76,14 +92,17 @@ func Split(script string, d Dialect) []Statement {
 		// MySQL client-side DELIMITER command (must start a line).
 		if d == MySQL && (c == 'D' || c == 'd') && atLineStart(i) && hasPrefixFold(script[i:], "delimiter") &&
 			i+9 < n && (script[i+9] == ' ' || script[i+9] == '\t') {
-			emit(i)
 			lineEnd := strings.IndexByte(script[i:], '\n')
 			if lineEnd < 0 {
+				if !eof {
+					return stmtStart // the rest of the line is still to come
+				}
 				lineEnd = n - i
 			}
+			emit(i)
 			arg := strings.TrimSpace(script[i+9 : i+lineEnd])
 			if arg != "" {
-				delim = strings.Fields(arg)[0]
+				sp.delim = strings.Fields(arg)[0]
 			}
 			i += lineEnd
 			stmtStart = i
@@ -140,18 +159,24 @@ func Split(script string, d Dialect) []Statement {
 				i += j + 1
 				continue
 			}
+			if !eof {
+				return stmtStart // the ] may be still to come
+			}
 		}
 
-		if strings.HasPrefix(script[i:], delim) && depth == 0 {
+		if strings.HasPrefix(script[i:], sp.delim) && depth == 0 {
 			emit(i)
-			i += len(delim)
+			i += len(sp.delim)
 			stmtStart = i
 			continue
 		}
 		i++
 	}
+	if !eof {
+		return stmtStart
+	}
 	emit(n)
-	return out
+	return n
 }
 
 // StatementAt returns the statement containing byte offset pos (or the nearest one

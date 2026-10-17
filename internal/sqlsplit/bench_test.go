@@ -15,3 +15,23 @@ func BenchmarkSplitLargeScript(b *testing.B) {
 		}
 	}
 }
+
+// One 16 MB statement: reads double while it's unfinished, so it is scanned a
+// few times, not once per chunk.
+func BenchmarkScanLongStatement(b *testing.B) {
+	script := "insert into t values " + strings.Repeat("(1, 'abc'), ", 16<<20/12) + "(2, 'x');"
+	for b.Loop() {
+		s := NewScanner(strings.NewReader(script), MySQL)
+		for _, ok := s.Next(); ok; _, ok = s.Next() {
+		}
+	}
+}
+
+func BenchmarkScanManyStatements(b *testing.B) {
+	script := strings.Repeat("insert into t values (1, 'a;b');\n", 160000)
+	for b.Loop() {
+		s := NewScanner(strings.NewReader(script), MySQL)
+		for _, ok := s.Next(); ok; _, ok = s.Next() {
+		}
+	}
+}
