@@ -12,7 +12,7 @@ import { newView, viewDesign } from "./designer/ViewDesigner";
 import { objectsAreaMenu, openERD } from "../menus";
 import { openExport, openImport } from "./transfer/state";
 import { connById, dbKey, useApp } from "../store";
-import { TreeNode, folderKey, forgetListings, listObjects, useTree } from "../tree";
+import { NodeOf, folderKey, forgetListings, listObjects, useTree } from "../tree";
 import { openMenu } from "./ContextMenu";
 import { Split } from "./Split";
 import { KIND_LABEL, KindIcon } from "./icons";
@@ -107,25 +107,26 @@ function SqlObjectsPane() {
   if (!sel || (!sel.connId && sel.group === undefined)) return <Welcome />;
   if (!sel.connId) return <div className="center-hint">Group “{sel.group}” — select a connection.</div>;
   if (!connected) return <div className="center-hint">Open the connection to browse its objects.</div>;
-  if (sel.database && !dbOpen)
+  const database = sel.database;
+  if (database && !dbOpen)
     return (
       <div className="center-hint">
         Database “{sel.database}” is closed.
         <div>
-          <button onClick={() => useTree.getState().expand({ key: `${sel.connId}/${sel.database}`, type: "db", label: sel.database!, connId: sel.connId, database: sel.database, depth: 1, expandable: true })}>
+          <button onClick={() => useTree.getState().expand({ key: `${sel.connId}/${sel.database}`, type: "db", label: database, connId: sel.connId, database, depth: 1, expandable: true })}>
             Open Database
           </button>
         </div>
       </div>
     );
-  if (!sel.database || needsSchema) return <div className="center-hint">Select a {needsSchema && sel.database ? "schema" : "database"} in the connection tree.</div>;
+  if (!database || needsSchema) return <div className="center-hint">Select a {needsSchema && sel.database ? "schema" : "database"} in the connection tree.</div>;
 
-  const asNode = (o: ObjectInfo): TreeNode => ({
+  const asNode = (o: ObjectInfo): NodeOf<"object"> => ({
     key: "",
     type: "object",
     label: o.name,
     connId: sel.connId,
-    database: sel.database,
+    database,
     schema: o.schema || sel.schema,
     kind: o.kind,
     info: o,
@@ -137,7 +138,7 @@ function SqlObjectsPane() {
   const isQueries = kind === ObjectKind.KindQuery;
   // Saved queries are Chloe's: they have a modified time even where server objects show an owner.
   const showModified = sel.schema === undefined || isQueries;
-  const refOfObj = (o: ObjectInfo): ObjectRef => ({ database: sel.database!, schema: o.schema || sel.schema, name: o.name, kind: o.kind, signature: o.signature });
+  const refOfObj = (o: ObjectInfo): ObjectRef => ({ database, schema: o.schema || sel.schema, name: o.name, kind: o.kind, signature: o.signature });
   const clickRow = (e: React.MouseEvent, o: ObjectInfo) => {
     if (e.metaKey || e.ctrlKey) {
       const names = pickedSet.has(o.name) ? pickedNames.filter((n) => n !== o.name) : [...pickedNames, o.name];
@@ -156,7 +157,7 @@ function SqlObjectsPane() {
   const vItems = rowsV.getVirtualItems();
   const padTop = vItems[0]?.start ?? 0;
   const padBottom = rowsV.getTotalSize() - (vItems[vItems.length - 1]?.end ?? 0);
-  const tableRefs = pickedList.map((o) => ({ database: sel.database!, schema: o.schema || sel.schema, name: o.name, kind: o.kind }));
+  const tableRefs = pickedList.map((o) => ({ database, schema: o.schema || sel.schema, name: o.name, kind: o.kind }));
   const showRows = kind === ObjectKind.KindTable || kind === ObjectKind.KindMatView;
 
   return (
@@ -166,7 +167,7 @@ function SqlObjectsPane() {
           <Table2 size={14} /> {isData ? "Open" : isQueries ? "Open Query" : "View DDL"}
         </button>
         {isQueries && (
-          <button disabled={!pickedList.length} onClick={() => deleteSavedQueries(sel.connId, sel.database!, sel.schema, pickedNames)}>
+          <button disabled={!pickedList.length} onClick={() => deleteSavedQueries(sel.connId, database, sel.schema, pickedNames)}>
             <Trash2 size={14} /> Delete Query
           </button>
         )}
@@ -175,7 +176,7 @@ function SqlObjectsPane() {
             <button disabled={!picked} onClick={() => picked && viewDesign(sel.connId, refOfObj(picked))}>
               <PencilRuler size={14} /> Design View
             </button>
-            <button onClick={() => newView(sel.connId, sel.database!, sel.schema, kind === ObjectKind.KindMatView)}>
+            <button onClick={() => newView(sel.connId, database, sel.schema, kind === ObjectKind.KindMatView)}>
               <Plus size={14} /> New {kind === ObjectKind.KindMatView ? "Materialized View" : "View"}
             </button>
             <button disabled={pickedList.length !== 1} onClick={() => picked && runTableAction(sel.connId, refOfObj(picked), TableAction.ActionDrop)}>
@@ -185,28 +186,28 @@ function SqlObjectsPane() {
         )}
         {kind === ObjectKind.KindTable && (
           <>
-            <button disabled={!picked} onClick={() => picked && designTable(sel.connId, { ...picked, database: sel.database!, schema: picked.schema || sel.schema })}>
+            <button disabled={!picked} onClick={() => picked && designTable(sel.connId, { ...picked, database, schema: picked.schema || sel.schema })}>
               <PencilRuler size={14} /> Design Table
             </button>
-            <button onClick={() => newTable(sel.connId, sel.database!, sel.schema)}>
+            <button onClick={() => newTable(sel.connId, database, sel.schema)}>
               <Plus size={14} /> New Table
             </button>
             <button disabled={pickedList.length !== 1} onClick={() => picked && runTableAction(sel.connId, refOfObj(picked), TableAction.ActionDrop)}>
               <Trash2 size={14} /> Delete Table
             </button>
             <span className="tb-sep" />
-            <button title="Import Wizard" onClick={() => openImport({ connId: sel.connId, database: sel.database!, schema: sel.schema, table: pickedList.length === 1 ? tableRefs[0] : undefined })}>
+            <button title="Import Wizard" onClick={() => openImport({ connId: sel.connId, database, schema: sel.schema, table: pickedList.length === 1 ? tableRefs[0] : undefined })}>
               <Download size={14} /> Import
             </button>
-            <button title="Export Wizard" onClick={() => openExport({ connId: sel.connId, database: sel.database!, schema: sel.schema, tables: tableRefs })}>
+            <button title="Export Wizard" onClick={() => openExport({ connId: sel.connId, database, schema: sel.schema, tables: tableRefs })}>
               <Upload size={14} /> Export
             </button>
-            <button title="ER Diagram" onClick={() => openERD(sel.connId, sel.database!, sel.schema)}>
+            <button title="ER Diagram" onClick={() => openERD(sel.connId, database, sel.schema)}>
               <Network size={14} /> ER Diagram
             </button>
           </>
         )}
-        <button onClick={() => newQuery(sel.connId, sel.database, sel.schema)}>
+        <button onClick={() => newQuery(sel.connId, database, sel.schema)}>
           <FilePlus2 size={14} /> New Query
         </button>
         <button
@@ -214,15 +215,15 @@ function SqlObjectsPane() {
             reloadList();
             // keep the tree in sync
             const tree = useTree.getState();
-            const key = kind && folderKey(sel.connId, sel.database, sel.schema, kind);
-            if (key && tree.children[key]) tree.refresh({ key, type: "folder", label: "", connId: sel.connId, database: sel.database, schema: sel.schema, kind, depth: 0, expandable: true });
+            const key = kind && folderKey(sel.connId, database, sel.schema, kind);
+            if (key && tree.children[key]) tree.refresh({ key, type: "folder", label: "", connId: sel.connId, database, schema: sel.schema, kind, depth: 0, expandable: true });
           }}
         >
           <RefreshCw size={14} className={loading ? "spin" : ""} />
         </button>
         <span className="tb-sep" />
         <span className="crumbs">
-          {[connById(sel.connId)?.name, sel.database, sel.schema, KIND_LABEL[kind!]].filter(Boolean).join(" › ")}
+          {[connById(sel.connId)?.name, database, sel.schema, KIND_LABEL[kind!]].filter(Boolean).join(" › ")}
         </span>
         <span className="spacer" />
         <input className="search" placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} />
@@ -239,7 +240,7 @@ function SqlObjectsPane() {
           className="object-list"
           ref={scroller}
           tabIndex={0}
-          onContextMenu={(e) => openMenu(e, objectsAreaMenu(sel.connId, sel.database!, sel.schema, kind))}
+          onContextMenu={(e) => openMenu(e, objectsAreaMenu(sel.connId, database, sel.schema, kind))}
           onMouseDown={(e) => e.target === e.currentTarget && setPicked(null)}
           onKeyDown={(e) => {
             const meta = e.metaKey || e.ctrlKey;
@@ -257,16 +258,16 @@ function SqlObjectsPane() {
               viewDesign(sel.connId, refOfObj(picked));
             } else if (meta && e.key === "n" && kind === ObjectKind.KindTable) {
               e.preventDefault();
-              newTable(sel.connId, sel.database!, sel.schema);
+              newTable(sel.connId, database, sel.schema);
             } else if (meta && e.key === "n" && isView) {
               e.preventDefault();
-              newView(sel.connId, sel.database!, sel.schema, kind === ObjectKind.KindMatView);
+              newView(sel.connId, database, sel.schema, kind === ObjectKind.KindMatView);
             } else if (meta && (e.key === "t" || (e.key === "q" && !/Mac/i.test(navigator.platform)))) {
               // Handled here (not globally) so the picked table becomes the SELECT.
               e.preventDefault();
               e.stopPropagation();
               const isData = picked && (picked.kind === ObjectKind.KindTable || picked.kind === ObjectKind.KindView || picked.kind === ObjectKind.KindMatView);
-              newQuery(sel.connId, sel.database, sel.schema, isData ? selectAllSQL(sel.connId, refOfObj(picked!)) : "");
+              newQuery(sel.connId, database, sel.schema, isData ? selectAllSQL(sel.connId, refOfObj(picked!)) : "");
             } else if (meta && e.key === "r") {
               e.preventDefault();
               reloadList();
@@ -330,7 +331,7 @@ function SqlObjectsPane() {
           pickedList.length > 1 ? (
           <div className="info-panel empty">{pickedList.length} objects selected</div>
         ) : (
-          <InfoPanel key={listKey} connId={sel.connId} object={picked} database={sel.database} schema={sel.schema} />
+          <InfoPanel key={listKey} connId={sel.connId} object={picked} database={database} schema={sel.schema} />
         )
         }
       />

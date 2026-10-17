@@ -7,22 +7,32 @@ import { isPG } from "./dialect";
 
 export type NodeType = "group" | "conn" | "db" | "schema" | "folder" | "object";
 
-export interface TreeNode {
+interface NodeBase {
   key: string;
-  /** group nodes: the group name */
-  group?: string;
-  type: NodeType;
   label: string;
   connId: string;
+  depth: number;
+  expandable: boolean;
+  /** group nodes: the group name */
+  group?: string;
   database?: string;
   schema?: string;
   kind?: ObjectKind;
   info?: ObjectInfo;
   /** Redis databases: number of keys */
   count?: number;
-  depth: number;
-  expandable: boolean;
 }
+
+/** A row of the connection tree; what each type always has is required. */
+export type TreeNode =
+  | (NodeBase & { type: "group"; group: string })
+  | (NodeBase & { type: "conn" })
+  | (NodeBase & { type: "db"; database: string })
+  | (NodeBase & { type: "schema"; database: string; schema: string })
+  | (NodeBase & { type: "folder"; database: string; kind: ObjectKind })
+  | (NodeBase & { type: "object"; database: string; kind: ObjectKind; info: ObjectInfo });
+
+export type NodeOf<T extends NodeType> = Extract<TreeNode, { type: T }>;
 
 interface TreeState {
   expanded: Record<string, boolean>;
@@ -108,7 +118,7 @@ async function loadChildren(n: TreeNode): Promise<TreeNode[]> {
     case "db":
       if (isMongo(n.connId)) return folders(n, MONGO_FOLDERS);
       if (isPG(n.connId)) {
-        const schemas = arr(await Explorer.ListSchemas(n.connId, n.database!));
+        const schemas = arr(await Explorer.ListSchemas(n.connId, n.database));
         return schemas.map((s) => ({ key: `${n.key}/${s}`, type: "schema", label: s, connId: n.connId, database: n.database, schema: s, depth: d, expandable: true }));
       }
       return folders(n, connById(n.connId)?.type === DBType.SQLite ? SQLITE_FOLDERS : MYSQL_FOLDERS);
@@ -117,7 +127,7 @@ async function loadChildren(n: TreeNode): Promise<TreeNode[]> {
     case "folder": {
       if (isMongo(n.connId)) {
         const view = n.kind === ObjectKind.KindView;
-        const colls = arr(await Mongo.Collections(n.connId, n.database!, false)).filter((c) => (c.type === "view") === view);
+        const colls = arr(await Mongo.Collections(n.connId, n.database, false)).filter((c) => (c.type === "view") === view);
         return colls.map((c) => ({
           key: `${n.key}/${c.name}`,
           type: "object",
@@ -125,12 +135,12 @@ async function loadChildren(n: TreeNode): Promise<TreeNode[]> {
           connId: n.connId,
           database: n.database,
           kind: n.kind,
-          info: { database: n.database!, name: c.name, kind: n.kind! },
+          info: { database: n.database, name: c.name, kind: n.kind },
           depth: d,
           expandable: false,
         }));
       }
-      const objs = await listObjects(n.connId, n.database!, n.schema, n.kind!);
+      const objs = await listObjects(n.connId, n.database, n.schema, n.kind);
       return objs.map((o) => ({
         key: `${n.key}/${o.name}${o.signature ? `(${o.signature})` : ""}`,
         type: "object",
@@ -153,7 +163,7 @@ export function folderKey(connId: string, database: string | undefined, schema: 
   return [connId, database, schema, "#" + kind].filter(Boolean).join("/");
 }
 
-function folders(n: TreeNode, kinds: ObjectKind[]): TreeNode[] {
+function folders(n: NodeOf<"db" | "schema">, kinds: ObjectKind[]): TreeNode[] {
   return kinds.map((k) => ({
     key: `${n.key}/#${k}`,
     type: "folder",
@@ -189,8 +199,8 @@ export const useTree = create<TreeState>((set, get) => ({
 
   async expand(node) {
     // Expanding a closed database opens it first (Navicat's "Open Database").
-    if (node.type === "db" && !useApp.getState().isDbOpen(node.connId, node.database!)) {
-      if (!(await useApp.getState().openDatabase(node.connId, node.database!))) return;
+    if (node.type === "db" && !useApp.getState().isDbOpen(node.connId, node.database)) {
+      if (!(await useApp.getState().openDatabase(node.connId, node.database))) return;
     }
     set((s) => ({ expanded: { ...s.expanded, [node.key]: true } }));
     if (get().children[node.key] || get().loading[node.key]) return;
@@ -243,22 +253,22 @@ export const useTree = create<TreeState>((set, get) => ({
   async reveal(t) {
     const conn = connById(t.connId);
     if (!conn) return;
-    const node = (key: string, type: NodeType, extra: Partial<TreeNode> = {}): TreeNode => ({ key, type, label: "", connId: t.connId, depth: 0, expandable: true, ...extra });
+    const base = (key: string) => ({ key, label: "", connId: t.connId, depth: 0, expandable: true });
     // Hidden by a search? Clear it so the target can show.
     set((s) => ({ filter: "", expanded: conn.group ? { ...s.expanded, ["group:" + conn.group]: true } : s.expanded }));
     let key = t.connId;
-    await get().expand(node(key, "conn"));
+    await get().expand({ ...base(key), type: "conn" });
     const redis = conn.type === DBType.Redis;
     if (t.database !== undefined && t.database !== "") {
       key = redis ? `${t.connId}/db${t.database}` : `${t.connId}/${t.database}`;
-      if (!redis) await get().expand(node(key, "db", { database: t.database }));
+      if (!redis) await get().expand({ ...base(key), type: "db", database: t.database });
       if (!redis && t.schema && isPG(t.connId)) {
         key = `${key}/${t.schema}`;
-        await get().expand(node(key, "schema", { database: t.database, schema: t.schema }));
+        await get().expand({ ...base(key), type: "schema", database: t.database, schema: t.schema });
       }
       if (!redis && t.kind) {
         key = `${key}/#${t.kind}`;
-        await get().expand(node(key, "folder", { database: t.database, schema: t.schema, kind: t.kind }));
+        await get().expand({ ...base(key), type: "folder", database: t.database, schema: t.schema, kind: t.kind });
         if (t.name) {
           const objKey = `${key}/${t.name}${t.signature ? `(${t.signature})` : ""}`;
           if (get().children[key]?.some((c) => c.key === objKey)) key = objKey;
