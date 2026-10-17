@@ -276,3 +276,35 @@ func TestMCPGroupAccessFollowsGroups(t *testing.T) {
 		t.Fatalf("delete: %+v", e)
 	}
 }
+
+// countingSecrets counts keychain reads.
+type countingSecrets struct {
+	MemorySecrets
+	gets int
+}
+
+func (c *countingSecrets) Get(key string) (string, error) { c.gets++; return c.MemorySecrets.Get(key) }
+
+// Profile serves a connection's settings without touching the keychain.
+func TestProfileReadsNoSecrets(t *testing.T) {
+	sec := &countingSecrets{}
+	s, err := Open(t.TempDir(), sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.Save(model.Connection{Name: "db", Type: model.PostgreSQL, Password: "pw", SavePassword: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sec.gets = 0
+	p, err := s.Profile(c.ID)
+	if err != nil || p.Type != model.PostgreSQL || p.Password != "" || sec.gets != 0 {
+		t.Fatalf("profile %+v %v, %d keychain reads", p, err, sec.gets)
+	}
+	if g, _ := s.Get(c.ID); g.Password != "pw" {
+		t.Fatalf("get %+v", g)
+	}
+	if _, err := s.Profile("nope"); err != ErrNotFound {
+		t.Fatal(err)
+	}
+}

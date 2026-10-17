@@ -252,7 +252,7 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			}
 			hidden := map[string]bool{}
 			for _, d := range w.DataSources {
-				conn, err := c.s.m.Store.Get(d.ConnID)
+				conn, err := c.s.m.Store.Profile(d.ConnID)
 				if err != nil || !c.readable(d) {
 					// Only the name of a source on a connection this endpoint can't read.
 					hidden[d.ID] = true
@@ -876,7 +876,7 @@ func (c *call) applySpec(ch *bi.Chart, src bi.DataSource, in ChartSpec) error {
 }
 
 func (c *call) dialectName(connID string) string {
-	conn, err := c.s.m.Store.Get(connID)
+	conn, err := c.s.m.Store.Profile(connID)
 	if err != nil {
 		return ""
 	}

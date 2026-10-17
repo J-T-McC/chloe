@@ -18,7 +18,7 @@ func (m *Manager) Ensure(ctx context.Context, connID string) error {
 
 // ConnType reports a saved connection's engine.
 func (m *Manager) ConnType(connID string) (model.DBType, error) {
-	c, err := m.Store.Get(connID)
+	c, err := m.Store.Profile(connID)
 	return c.Type, err
 }
 
