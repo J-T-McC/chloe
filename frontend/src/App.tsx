@@ -244,7 +244,7 @@ const TabContent = memo(function TabContent({ tab, active }: { tab: Tab; active:
     case "ddl":
       return <DDLView connId={tab.connId!} objRef={tab.ref!} />;
     case "monitor":
-      return <ServerMonitor tab={tab} />;
+      return <ServerMonitor tab={tab} active={active} />;
     case "design":
       return <TableDesigner tab={tab} />;
     case "erd":
