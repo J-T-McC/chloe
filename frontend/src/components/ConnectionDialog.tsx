@@ -4,6 +4,7 @@ import { Connection, Connections, DBType, Preset, SSHAuth, Transfer, arr, errorT
 import { useApp } from "../store";
 import { prompt } from "./Dialogs";
 import { DBIcon, PresetIcon } from "./icons";
+import { Modal, ModalFooter } from "./Modal";
 
 const ENGINES: Array<{ type: DBType; label: string; ready: boolean }> = [
   { type: DBType.MySQL, label: "MySQL", ready: true },
@@ -89,53 +90,47 @@ function TypePicker({ onPick, onCancel }: { onPick(c: Connection): void; onCance
   };
 
   return (
-    <div className="modal-backdrop" onMouseDown={onCancel}>
-      <div className="modal picker" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === "Escape" && onCancel()}>
-        <div className="modal-title">New Connection</div>
-        <div className="modal-body">
-          <div className="url-paste">
-            <Link2 size={14} />
-            <input
-              placeholder="Paste a connection URL (postgresql://… or mysql://…)"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && url && fromUrl()}
-            />
-            <button disabled={!url} onClick={fromUrl}>
-              Use URL
-            </button>
-          </div>
-          {err && <div className="status-line err">{err}</div>}
-          <div className="picker-search">
-            <Search size={13} />
-            <input autoFocus placeholder="Search connection types" value={filter} onChange={(e) => setFilter(e.target.value)} />
-          </div>
-          {!!engines.length && <div className="picker-heading">Databases</div>}
-          <div className="type-grid">
-            {engines.map((t) => (
-              <button key={t.type} className="type-card" disabled={!t.ready} onClick={() => onPick(blankConnection(t.type))} title={t.ready ? "" : "Coming in a later phase"}>
-                <DBIcon type={t.type} size={28} />
-                <span>{t.label}</span>
-              </button>
-            ))}
-          </div>
-          {!!hosted.length && <div className="picker-heading">Hosted services</div>}
-          <div className="type-grid">
-            {hosted.map((p) => (
-              <button key={p.id} className="type-card" onClick={() => onPick(blankConnection(p.type, p))} title={p.description}>
-                <PresetIcon id={p.id} size={28} />
-                <span>{p.name}</span>
-                <small>{engineLabel(p.type)}</small>
-              </button>
-            ))}
-          </div>
+    <Modal title="New Connection" className="picker" onClose={onCancel}>
+      <div className="modal-body">
+        <div className="url-paste">
+          <Link2 size={14} />
+          <input
+            placeholder="Paste a connection URL (postgresql://… or mysql://…)"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && url && fromUrl()}
+          />
+          <button disabled={!url} onClick={fromUrl}>
+            Use URL
+          </button>
         </div>
-        <div className="modal-footer">
-          <span className="spacer" />
-          <button onClick={onCancel}>Cancel</button>
+        {err && <div className="status-line err">{err}</div>}
+        <div className="picker-search">
+          <Search size={13} />
+          <input autoFocus placeholder="Search connection types" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        </div>
+        {!!engines.length && <div className="picker-heading">Databases</div>}
+        <div className="type-grid">
+          {engines.map((t) => (
+            <button key={t.type} className="type-card" disabled={!t.ready} onClick={() => onPick(blankConnection(t.type))} title={t.ready ? "" : "Coming in a later phase"}>
+              <DBIcon type={t.type} size={28} />
+              <span>{t.label}</span>
+            </button>
+          ))}
+        </div>
+        {!!hosted.length && <div className="picker-heading">Hosted services</div>}
+        <div className="type-grid">
+          {hosted.map((p) => (
+            <button key={p.id} className="type-card" onClick={() => onPick(blankConnection(p.type, p))} title={p.description}>
+              <PresetIcon id={p.id} size={28} />
+              <span>{p.name}</span>
+              <small>{engineLabel(p.type)}</small>
+            </button>
+          ))}
         </div>
       </div>
-    </div>
+      <ModalFooter onCancel={onCancel} />
+    </Modal>
   );
 }
 
@@ -226,269 +221,267 @@ function ConnectionForm({ initial, onClose }: { initial: Connection; onClose(): 
   ];
 
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal conn-dialog" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === "Escape" && onClose()}>
-        <div className="modal-title">
+    <Modal
+      title={
+        <>
           {preset ? <PresetIcon id={preset.id} size={18} /> : <DBIcon type={conn.type} size={18} />}
           {conn.id ? `Edit Connection — ${conn.name}` : `New ${preset?.name ?? engineLabel(conn.type)} Connection`}
-        </div>
-        <div className="seg-tabs">
-          {sections.map(([k, label]) => (
-            <button key={k} className={section === k ? "active" : ""} onClick={() => setSection(k)}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className="modal-body form">
-          <ConnectionDiagram
-            probe={probe}
-            ssh={conn.ssh.enabled && !sqlite}
-            ssl={conn.ssl.enabled && !sqlite}
-            type={conn.type}
-            sshHost={conn.ssh.host}
-            dbHost={sqlite ? fileBase(conn.sqlite?.path) || "file" : conn.host}
-          />
-          {section === "general" && (
-            <>
-              {preset && (
-                <div className="preset-help">
-                  <Info size={14} />
-                  <span>{preset.help}</span>
-                </div>
-              )}
-              <Field label="Connection Name">
-                <input autoFocus value={conn.name} placeholder={preset?.name || (sqlite ? fileBase(conn.sqlite?.path) : conn.host) || engineLabel(conn.type)} onChange={(e) => set({ name: e.target.value })} />
-              </Field>
-              <Field label="Add To">
-                <select
-                  value={conn.group ?? ""}
-                  onChange={async (e) => {
-                    if (e.target.value === "\u0000new") {
-                      const g = await prompt("New Group", { message: "Group name" });
-                      if (g?.trim()) {
-                        await Connections.AddGroup(g.trim()).catch(() => {});
-                        await useApp.getState().loadConnections();
-                        set({ group: g.trim() });
-                      }
-                    } else set({ group: e.target.value });
-                  }}
-                >
-                  <option value="">My Connections</option>
-                  {groups.map((g) => (
-                    <option key={g} value={g}>
-                      {g}
-                    </option>
-                  ))}
-                  <option value={"\u0000new"}>New Group…</option>
-                </select>
-              </Field>
-              <hr />
-              {sqlite ? (
-                <SQLiteFields conn={conn} setLite={setLite} />
-              ) : mongo ? (
-                <MongoFields conn={conn} set={set} setMongo={setMongo} pasteURL={pasteURL} />
-              ) : (
-                <>
-              <Field label="Host">
-                <div className="row">
-                  <input value={conn.host} placeholder={preset ? hostPlaceholder(preset) : "localhost"} onChange={(e) => set({ host: e.target.value })} />
-                  <button title="Fill from a connection URL" onClick={pasteURL}>
-                    <Link2 size={13} /> URL
-                  </button>
-                </div>
-              </Field>
-              <Field label="Port">
-                <input className="narrow" type="number" value={conn.port || ""} placeholder={String(DEFAULT_PORTS[conn.type] ?? "")} onChange={(e) => set({ port: Number(e.target.value) })} />
-              </Field>
-              {!redis && (
-                <Field label="Initial Database">
-                  <input value={conn.initialDatabase ?? ""} placeholder={pg ? "postgres" : "(none)"} onChange={(e) => set({ initialDatabase: e.target.value })} />
-                </Field>
-              )}
-              <Field label="User Name">
-                <input value={conn.user} placeholder={redis ? "(default user; Redis 6+ ACL users)" : ""} onChange={(e) => set({ user: e.target.value })} />
-              </Field>
-              <Field label="Password">
-                <SecretInput value={conn.password ?? ""} placeholder={conn.savePassword ? "" : "Used for testing only; asked on connect"} onChange={(v) => set({ password: v })} />
-              </Field>
-              <Field label="">
-                <Check label="Save password" checked={conn.savePassword} onChange={(v) => set({ savePassword: v })} />
-              </Field>
-                </>
-              )}
-              <Field label="Color">
-                <div className="swatches">
-                  {["", "#e5534b", "#e8963c", "#d6b63a", "#4fae5a", "#3b8eea", "#9a6bd8", "#8b8f98"].map((c) => (
-                    <button key={c || "none"} className={"swatch" + ((conn.color ?? "") === c ? " on" : "")} style={{ background: c || "transparent" }} onClick={() => set({ color: c })} />
-                  ))}
-                </div>
-              </Field>
-            </>
-          )}
-
-          {section === "advanced" && (
-            <>
-              <Field label="">
-                <Check label="Auto connect when Chloe starts" checked={conn.advanced.autoConnect} onChange={(v) => setAdv({ autoConnect: v })} />
-              </Field>
-              <ToggleNumber label="Limit connection sessions" value={conn.advanced.sessionLimit} def={10} onChange={(v) => setAdv({ sessionLimit: v })} />
-              {!sqlite && <ToggleNumber label="Keepalive interval (sec)" value={conn.advanced.keepaliveSec} def={240} onChange={(v) => setAdv({ keepaliveSec: v })} />}
-              <ToggleNumber
-                label={sqlite ? "Busy timeout (sec)" : "Connection timeout (sec)"}
-                value={conn.advanced.connectTimeoutSec}
-                def={sqlite ? 5 : 15}
-                onChange={(v) => setAdv({ connectTimeoutSec: v })}
-              />
-              {(redis || mongo) && (
-                <>
-                  <ToggleNumber label="Read timeout (sec)" value={conn.advanced.readTimeoutSec} def={30} onChange={(v) => setAdv({ readTimeoutSec: v })} />
-                  <ToggleNumber label="Write timeout (sec)" value={conn.advanced.writeTimeoutSec} def={30} onChange={(v) => setAdv({ writeTimeoutSec: v })} />
-                </>
-              )}
-              {mysql && (
-                <>
-                  <ToggleNumber label="Read timeout (sec)" value={conn.advanced.readTimeoutSec} def={30} onChange={(v) => setAdv({ readTimeoutSec: v })} />
-                  <ToggleNumber label="Write timeout (sec)" value={conn.advanced.writeTimeoutSec} def={30} onChange={(v) => setAdv({ writeTimeoutSec: v })} />
-                  <Field label="Client Character Set">
-                    <select value={conn.advanced.encoding || "auto"} onChange={(e) => setAdv({ encoding: e.target.value === "auto" ? "" : e.target.value })}>
-                      {["auto", "utf8mb4", "utf8mb3", "latin1", "ascii", "binary", "gbk", "big5", "sjis", "euckr"].map((x) => (
-                        <option key={x}>{x}</option>
-                      ))}
-                    </select>
-                  </Field>
-                  <Field label="">
-                    <Check label="Use compression" checked={conn.advanced.compression} onChange={(v) => setAdv({ compression: v })} />
-                  </Field>
-                  <Field label="">
-                    <Check label="Use cleartext authentication plugin" checked={conn.advanced.cleartextAuth} onChange={(v) => setAdv({ cleartextAuth: v })} />
-                  </Field>
-                  <ToggleText
-                    label="Use socket file"
-                    value={conn.advanced.socketFile ?? ""}
-                    def="/tmp/mysql.sock"
-                    disabled={conn.ssh.enabled}
-                    hint={conn.ssh.enabled ? "Not available with an SSH tunnel" : undefined}
-                    onChange={(v) => setAdv({ socketFile: v })}
-                  />
-                </>
-              )}
-              {pg && (
-                <Field label="Connection Parameters">
-                  <textarea rows={3} placeholder={"one key=value per line\napplication_name=reports\noptions=-c statement_timeout=30000"} value={conn.advanced.connectionParams ?? ""} onChange={(e) => setAdv({ connectionParams: e.target.value })} />
-                </Field>
-              )}
-              {!mongo && (
+        </>
+      }
+      className="conn-dialog"
+      onClose={onClose}
+    >
+      <div className="seg-tabs">
+        {sections.map(([k, label]) => (
+          <button key={k} className={section === k ? "active" : ""} onClick={() => setSection(k)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="modal-body form">
+        <ConnectionDiagram
+          probe={probe}
+          ssh={conn.ssh.enabled && !sqlite}
+          ssl={conn.ssl.enabled && !sqlite}
+          type={conn.type}
+          sshHost={conn.ssh.host}
+          dbHost={sqlite ? fileBase(conn.sqlite?.path) || "file" : conn.host}
+        />
+        {section === "general" && (
+          <>
+            {preset && (
+              <div className="preset-help">
+                <Info size={14} />
+                <span>{preset.help}</span>
+              </div>
+            )}
+            <Field label="Connection Name">
+              <input autoFocus value={conn.name} placeholder={preset?.name || (sqlite ? fileBase(conn.sqlite?.path) : conn.host) || engineLabel(conn.type)} onChange={(e) => set({ name: e.target.value })} />
+            </Field>
+            <Field label="Add To">
+              <select
+                value={conn.group ?? ""}
+                onChange={async (e) => {
+                  if (e.target.value === "\u0000new") {
+                    const g = await prompt("New Group", { message: "Group name" });
+                    if (g?.trim()) {
+                      await Connections.AddGroup(g.trim()).catch(() => {});
+                      await useApp.getState().loadConnections();
+                      set({ group: g.trim() });
+                    }
+                  } else set({ group: e.target.value });
+                }}
+              >
+                <option value="">My Connections</option>
+                {groups.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+                <option value={"\u0000new"}>New Group…</option>
+              </select>
+            </Field>
+            <hr />
+            {sqlite ? (
+              <SQLiteFields conn={conn} setLite={setLite} />
+            ) : mongo ? (
+              <MongoFields conn={conn} set={set} setMongo={setMongo} pasteURL={pasteURL} />
+            ) : (
               <>
-              <Field label="Initial Queries">
-                <textarea rows={3} placeholder={mysql ? "SET time_zone = '+00:00';" : sqlite ? "PRAGMA journal_mode = WAL;" : "SET search_path TO app, public;"} value={conn.advanced.initialQueries ?? ""} onChange={(e) => setAdv({ initialQueries: e.target.value })} />
+            <Field label="Host">
+              <div className="row">
+                <input value={conn.host} placeholder={preset ? hostPlaceholder(preset) : "localhost"} onChange={(e) => set({ host: e.target.value })} />
+                <button title="Fill from a connection URL" onClick={pasteURL}>
+                  <Link2 size={13} /> URL
+                </button>
+              </div>
+            </Field>
+            <Field label="Port">
+              <input className="narrow" type="number" value={conn.port || ""} placeholder={String(DEFAULT_PORTS[conn.type] ?? "")} onChange={(e) => set({ port: Number(e.target.value) })} />
+            </Field>
+            {!redis && (
+              <Field label="Initial Database">
+                <input value={conn.initialDatabase ?? ""} placeholder={pg ? "postgres" : "(none)"} onChange={(e) => set({ initialDatabase: e.target.value })} />
               </Field>
-              <p className="hint">Initial queries run on every new query tab and table view session.</p>
+            )}
+            <Field label="User Name">
+              <input value={conn.user} placeholder={redis ? "(default user; Redis 6+ ACL users)" : ""} onChange={(e) => set({ user: e.target.value })} />
+            </Field>
+            <Field label="Password">
+              <SecretInput value={conn.password ?? ""} placeholder={conn.savePassword ? "" : "Used for testing only; asked on connect"} onChange={(v) => set({ password: v })} />
+            </Field>
+            <Field label="">
+              <Check label="Save password" checked={conn.savePassword} onChange={(v) => set({ savePassword: v })} />
+            </Field>
               </>
-              )}
-            </>
-          )}
+            )}
+            <Field label="Color">
+              <div className="swatches">
+                {["", "#e5534b", "#e8963c", "#d6b63a", "#4fae5a", "#3b8eea", "#9a6bd8", "#8b8f98"].map((c) => (
+                  <button key={c || "none"} className={"swatch" + ((conn.color ?? "") === c ? " on" : "")} style={{ background: c || "transparent" }} onClick={() => set({ color: c })} />
+                ))}
+              </div>
+            </Field>
+          </>
+        )}
 
-          {section === "databases" && (sqlite ? <AttachedTab conn={conn} setLite={setLite} /> : <DatabasesTab conn={conn} setDBs={setDBs} />)}
-
-          {section === "ssl" && (
-            <>
-              <Field label="">
-                <Check label="Use SSL" checked={conn.ssl.enabled} onChange={(v) => setSSL({ enabled: v })} />
-              </Field>
-              <fieldset disabled={!conn.ssl.enabled}>
-                {pg && (
-                  <Field label="SSL Mode">
-                    <select value={conn.ssl.mode || "require"} onChange={(e) => setSSL({ mode: e.target.value })}>
-                      {["prefer", "allow", "require", "verify-ca", "verify-full"].map((m) => (
-                        <option key={m}>{m}</option>
-                      ))}
-                    </select>
-                  </Field>
-                )}
-                <FileField label="CA Certificate" value={conn.ssl.caFile ?? ""} onChange={(v) => setSSL({ caFile: v })} />
-                <FileField label="Client Certificate" value={conn.ssl.certFile ?? ""} onChange={(v) => setSSL({ certFile: v })} />
-                <FileField label="Client Key" value={conn.ssl.keyFile ?? ""} onChange={(v) => setSSL({ keyFile: v })} />
-                {pg && <FileField label="Revocation List" value={conn.ssl.crlFile ?? ""} onChange={(v) => setSSL({ crlFile: v })} />}
-                {mysql && (
-                  <>
-                    <Field label="">
-                      <Check label="Verify server certificate against CA" checked={conn.ssl.verifyHost} onChange={(v) => setSSL({ verifyHost: v })} />
-                    </Field>
-                    <Field label="Specified Cipher">
-                      <input value={conn.ssl.cipher ?? ""} placeholder="(any) e.g. ECDHE-RSA-AES128-GCM-SHA256" onChange={(e) => setSSL({ cipher: e.target.value })} />
-                    </Field>
-                  </>
-                )}
-              </fieldset>
-              {!conn.ssl.enabled && (pg || mysql) && <p className="hint">Without SSL, Chloe still encrypts the connection if the server offers TLS{pg ? " (sslmode=prefer)" : ""}; Use SSL requires it.</p>}
-            </>
-          )}
-
-          {section === "ssh" && (
-            <>
-              <Field label="">
-                <Check label="Use SSH Tunnel" checked={conn.ssh.enabled} onChange={(v) => setSSH({ enabled: v })} />
-              </Field>
-              <fieldset disabled={!conn.ssh.enabled}>
-                <Field label="Host">
-                  <input value={conn.ssh.host} onChange={(e) => setSSH({ host: e.target.value })} />
-                </Field>
-                <Field label="Port">
-                  <input className="narrow" type="number" value={conn.ssh.port || 22} onChange={(e) => setSSH({ port: Number(e.target.value) })} />
-                </Field>
-                <Field label="User Name">
-                  <input value={conn.ssh.user} onChange={(e) => setSSH({ user: e.target.value })} />
-                </Field>
-                <Field label="Authentication">
-                  <select value={conn.ssh.auth} onChange={(e) => setSSH({ auth: e.target.value as SSHAuth })}>
-                    <option value={SSHAuth.SSHPassword}>Password</option>
-                    <option value={SSHAuth.SSHPublicKey}>Public Key</option>
-                    <option value={SSHAuth.SSHPasswordPublicKey}>Password and Public Key</option>
-                    <option value={SSHAuth.SSHAgent}>SSH Agent</option>
+        {section === "advanced" && (
+          <>
+            <Field label="">
+              <Check label="Auto connect when Chloe starts" checked={conn.advanced.autoConnect} onChange={(v) => setAdv({ autoConnect: v })} />
+            </Field>
+            <ToggleNumber label="Limit connection sessions" value={conn.advanced.sessionLimit} def={10} onChange={(v) => setAdv({ sessionLimit: v })} />
+            {!sqlite && <ToggleNumber label="Keepalive interval (sec)" value={conn.advanced.keepaliveSec} def={240} onChange={(v) => setAdv({ keepaliveSec: v })} />}
+            <ToggleNumber
+              label={sqlite ? "Busy timeout (sec)" : "Connection timeout (sec)"}
+              value={conn.advanced.connectTimeoutSec}
+              def={sqlite ? 5 : 15}
+              onChange={(v) => setAdv({ connectTimeoutSec: v })}
+            />
+            {(redis || mongo) && (
+              <>
+                <ToggleNumber label="Read timeout (sec)" value={conn.advanced.readTimeoutSec} def={30} onChange={(v) => setAdv({ readTimeoutSec: v })} />
+                <ToggleNumber label="Write timeout (sec)" value={conn.advanced.writeTimeoutSec} def={30} onChange={(v) => setAdv({ writeTimeoutSec: v })} />
+              </>
+            )}
+            {mysql && (
+              <>
+                <ToggleNumber label="Read timeout (sec)" value={conn.advanced.readTimeoutSec} def={30} onChange={(v) => setAdv({ readTimeoutSec: v })} />
+                <ToggleNumber label="Write timeout (sec)" value={conn.advanced.writeTimeoutSec} def={30} onChange={(v) => setAdv({ writeTimeoutSec: v })} />
+                <Field label="Client Character Set">
+                  <select value={conn.advanced.encoding || "auto"} onChange={(e) => setAdv({ encoding: e.target.value === "auto" ? "" : e.target.value })}>
+                    {["auto", "utf8mb4", "utf8mb3", "latin1", "ascii", "binary", "gbk", "big5", "sjis", "euckr"].map((x) => (
+                      <option key={x}>{x}</option>
+                    ))}
                   </select>
                 </Field>
-                {(conn.ssh.auth === SSHAuth.SSHPassword || conn.ssh.auth === SSHAuth.SSHPasswordPublicKey) && (
-                  <Field label="Password">
-                    <SecretInput value={conn.ssh.password ?? ""} onChange={(v) => setSSH({ password: v })} />
-                  </Field>
-                )}
-                {(conn.ssh.auth === SSHAuth.SSHPublicKey || conn.ssh.auth === SSHAuth.SSHPasswordPublicKey) && (
-                  <>
-                    <FileField label="Private Key" value={conn.ssh.privateKeyPath ?? ""} placeholder="~/.ssh/id_ed25519" onChange={(v) => setSSH({ privateKeyPath: v })} />
-                    <Field label="Passphrase">
-                      <SecretInput value={conn.ssh.passphrase ?? ""} onChange={(v) => setSSH({ passphrase: v })} />
-                    </Field>
-                  </>
-                )}
-                {conn.ssh.auth !== SSHAuth.SSHAgent && (
-                  <Field label="">
-                    <Check label="Save password / passphrase" checked={conn.ssh.savePassword} onChange={(v) => setSSH({ savePassword: v })} />
-                  </Field>
-                )}
-              </fieldset>
+                <Field label="">
+                  <Check label="Use compression" checked={conn.advanced.compression} onChange={(v) => setAdv({ compression: v })} />
+                </Field>
+                <Field label="">
+                  <Check label="Use cleartext authentication plugin" checked={conn.advanced.cleartextAuth} onChange={(v) => setAdv({ cleartextAuth: v })} />
+                </Field>
+                <ToggleText
+                  label="Use socket file"
+                  value={conn.advanced.socketFile ?? ""}
+                  def="/tmp/mysql.sock"
+                  disabled={conn.ssh.enabled}
+                  hint={conn.ssh.enabled ? "Not available with an SSH tunnel" : undefined}
+                  onChange={(v) => setAdv({ socketFile: v })}
+                />
+              </>
+            )}
+            {pg && (
+              <Field label="Connection Parameters">
+                <textarea rows={3} placeholder={"one key=value per line\napplication_name=reports\noptions=-c statement_timeout=30000"} value={conn.advanced.connectionParams ?? ""} onChange={(e) => setAdv({ connectionParams: e.target.value })} />
+              </Field>
+            )}
+            {!mongo && (
+            <>
+            <Field label="Initial Queries">
+              <textarea rows={3} placeholder={mysql ? "SET time_zone = '+00:00';" : sqlite ? "PRAGMA journal_mode = WAL;" : "SET search_path TO app, public;"} value={conn.advanced.initialQueries ?? ""} onChange={(e) => setAdv({ initialQueries: e.target.value })} />
+            </Field>
+            <p className="hint">Initial queries run on every new query tab and table view session.</p>
             </>
-          )}
+            )}
+          </>
+        )}
 
-          {section === "remarks" && <textarea className="remarks" rows={12} placeholder="Notes about this connection" value={conn.remark ?? ""} onChange={(e) => set({ remark: e.target.value })} />}
-        </div>
-        {status && <div className={"status-line " + (status.ok ? "ok" : "err")}>{status.text}</div>}
-        <div className="modal-footer">
-          <button onClick={test} disabled={busy}>
-            {busy ? "Testing…" : "Test Connection"}
-          </button>
-          {conn.id && (
-            <button title="Copy connection URL (without password)" onClick={async () => copyText(await Connections.URL(conn.id))}>
-              <Clipboard size={13} /> Copy URL
-            </button>
-          )}
-          <span className="spacer" />
-          <button onClick={onClose}>Cancel</button>
-          <button className="primary" onClick={save}>
-            Save
-          </button>
-        </div>
+        {section === "databases" && (sqlite ? <AttachedTab conn={conn} setLite={setLite} /> : <DatabasesTab conn={conn} setDBs={setDBs} />)}
+
+        {section === "ssl" && (
+          <>
+            <Field label="">
+              <Check label="Use SSL" checked={conn.ssl.enabled} onChange={(v) => setSSL({ enabled: v })} />
+            </Field>
+            <fieldset disabled={!conn.ssl.enabled}>
+              {pg && (
+                <Field label="SSL Mode">
+                  <select value={conn.ssl.mode || "require"} onChange={(e) => setSSL({ mode: e.target.value })}>
+                    {["prefer", "allow", "require", "verify-ca", "verify-full"].map((m) => (
+                      <option key={m}>{m}</option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+              <FileField label="CA Certificate" value={conn.ssl.caFile ?? ""} onChange={(v) => setSSL({ caFile: v })} />
+              <FileField label="Client Certificate" value={conn.ssl.certFile ?? ""} onChange={(v) => setSSL({ certFile: v })} />
+              <FileField label="Client Key" value={conn.ssl.keyFile ?? ""} onChange={(v) => setSSL({ keyFile: v })} />
+              {pg && <FileField label="Revocation List" value={conn.ssl.crlFile ?? ""} onChange={(v) => setSSL({ crlFile: v })} />}
+              {mysql && (
+                <>
+                  <Field label="">
+                    <Check label="Verify server certificate against CA" checked={conn.ssl.verifyHost} onChange={(v) => setSSL({ verifyHost: v })} />
+                  </Field>
+                  <Field label="Specified Cipher">
+                    <input value={conn.ssl.cipher ?? ""} placeholder="(any) e.g. ECDHE-RSA-AES128-GCM-SHA256" onChange={(e) => setSSL({ cipher: e.target.value })} />
+                  </Field>
+                </>
+              )}
+            </fieldset>
+            {!conn.ssl.enabled && (pg || mysql) && <p className="hint">Without SSL, Chloe still encrypts the connection if the server offers TLS{pg ? " (sslmode=prefer)" : ""}; Use SSL requires it.</p>}
+          </>
+        )}
+
+        {section === "ssh" && (
+          <>
+            <Field label="">
+              <Check label="Use SSH Tunnel" checked={conn.ssh.enabled} onChange={(v) => setSSH({ enabled: v })} />
+            </Field>
+            <fieldset disabled={!conn.ssh.enabled}>
+              <Field label="Host">
+                <input value={conn.ssh.host} onChange={(e) => setSSH({ host: e.target.value })} />
+              </Field>
+              <Field label="Port">
+                <input className="narrow" type="number" value={conn.ssh.port || 22} onChange={(e) => setSSH({ port: Number(e.target.value) })} />
+              </Field>
+              <Field label="User Name">
+                <input value={conn.ssh.user} onChange={(e) => setSSH({ user: e.target.value })} />
+              </Field>
+              <Field label="Authentication">
+                <select value={conn.ssh.auth} onChange={(e) => setSSH({ auth: e.target.value as SSHAuth })}>
+                  <option value={SSHAuth.SSHPassword}>Password</option>
+                  <option value={SSHAuth.SSHPublicKey}>Public Key</option>
+                  <option value={SSHAuth.SSHPasswordPublicKey}>Password and Public Key</option>
+                  <option value={SSHAuth.SSHAgent}>SSH Agent</option>
+                </select>
+              </Field>
+              {(conn.ssh.auth === SSHAuth.SSHPassword || conn.ssh.auth === SSHAuth.SSHPasswordPublicKey) && (
+                <Field label="Password">
+                  <SecretInput value={conn.ssh.password ?? ""} onChange={(v) => setSSH({ password: v })} />
+                </Field>
+              )}
+              {(conn.ssh.auth === SSHAuth.SSHPublicKey || conn.ssh.auth === SSHAuth.SSHPasswordPublicKey) && (
+                <>
+                  <FileField label="Private Key" value={conn.ssh.privateKeyPath ?? ""} placeholder="~/.ssh/id_ed25519" onChange={(v) => setSSH({ privateKeyPath: v })} />
+                  <Field label="Passphrase">
+                    <SecretInput value={conn.ssh.passphrase ?? ""} onChange={(v) => setSSH({ passphrase: v })} />
+                  </Field>
+                </>
+              )}
+              {conn.ssh.auth !== SSHAuth.SSHAgent && (
+                <Field label="">
+                  <Check label="Save password / passphrase" checked={conn.ssh.savePassword} onChange={(v) => setSSH({ savePassword: v })} />
+                </Field>
+              )}
+            </fieldset>
+          </>
+        )}
+
+        {section === "remarks" && <textarea className="remarks" rows={12} placeholder="Notes about this connection" value={conn.remark ?? ""} onChange={(e) => set({ remark: e.target.value })} />}
       </div>
-    </div>
+      {status && <div className={"status-line " + (status.ok ? "ok" : "err")}>{status.text}</div>}
+      <ModalFooter onCancel={onClose} onOk={save} okLabel="Save">
+        <button onClick={test} disabled={busy}>
+          {busy ? "Testing…" : "Test Connection"}
+        </button>
+        {conn.id && (
+          <button title="Copy connection URL (without password)" onClick={async () => copyText(await Connections.URL(conn.id))}>
+            <Clipboard size={13} /> Copy URL
+          </button>
+        )}
+      </ModalFooter>
+    </Modal>
   );
 }
 

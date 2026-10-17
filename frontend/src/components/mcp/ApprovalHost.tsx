@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { Events, MCP, arr, type MCPApproval } from "../../api";
+import { Modal } from "../Modal";
 
 const useApprovals = create<{ queue: MCPApproval[] }>(() => ({ queue: [] }));
 
@@ -36,46 +37,43 @@ export function ApprovalHost() {
   };
 
   return (
-    <div className="modal-backdrop">
-      <div className="modal mcp-approval" role="dialog" aria-label="Approve AI change" onKeyDown={(e) => e.key === "Escape" && answer(false)}>
-        <div className="modal-title">{req.kind === "connection" ? "Add this connection?" : "Allow this change?"}</div>
-        <div className="modal-body">
-          <p className="dialog-message">
-            <strong>{req.endpoint}</strong> wants to <strong>{req.summary.charAt(0).toLowerCase() + req.summary.slice(1)}</strong>
-          </p>
-          {req.kind !== "connection" && (
-            <div className="mcp-approval-target">
-              {req.connection}
-              {req.database ? ` › ${req.database}` : ""}
-            </div>
-          )}
-          <pre className="mcp-approval-sql">{req.sql}</pre>
-          {req.askPassword && (
-            <label className="mcp-approval-password">
-              Password
-              <input
-                type="password"
-                aria-label="Connection password"
-                autoComplete="off"
-                value={password}
-                placeholder={req.hasPassword ? "Leave empty to use the one the agent sent" : ""}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </label>
-          )}
-          {req.warning && <p className="mcp-approval-warning">{req.warning}</p>}
-          <p className="hint">The agent waits for your answer. With no answer in two minutes the change is declined.{waiting > 1 ? ` ${waiting - 1} more waiting.` : ""}</p>
-        </div>
-        <div className="modal-footer">
-          <span className="spacer" />
-          <button disabled={busy} onClick={() => answer(false)}>
-            Deny
-          </button>
-          <button className="primary" disabled={busy} onClick={() => answer(true)}>
-            Approve
-          </button>
-        </div>
+    <Modal title={req.kind === "connection" ? "Add this connection?" : "Allow this change?"} className="mcp-approval" label="Approve AI change" backdropCloses={false} onClose={() => answer(false)}>
+      <div className="modal-body">
+        <p className="dialog-message">
+          <strong>{req.endpoint}</strong> wants to <strong>{req.summary.charAt(0).toLowerCase() + req.summary.slice(1)}</strong>
+        </p>
+        {req.kind !== "connection" && (
+          <div className="mcp-approval-target">
+            {req.connection}
+            {req.database ? ` › ${req.database}` : ""}
+          </div>
+        )}
+        <pre className="mcp-approval-sql">{req.sql}</pre>
+        {req.askPassword && (
+          <label className="mcp-approval-password">
+            Password
+            <input
+              type="password"
+              aria-label="Connection password"
+              autoComplete="off"
+              value={password}
+              placeholder={req.hasPassword ? "Leave empty to use the one the agent sent" : ""}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </label>
+        )}
+        {req.warning && <p className="mcp-approval-warning">{req.warning}</p>}
+        <p className="hint">The agent waits for your answer. With no answer in two minutes the change is declined.{waiting > 1 ? ` ${waiting - 1} more waiting.` : ""}</p>
       </div>
-    </div>
+      <div className="modal-footer">
+        <span className="spacer" />
+        <button disabled={busy} onClick={() => answer(false)}>
+          Deny
+        </button>
+        <button className="primary" disabled={busy} onClick={() => answer(true)}>
+          Approve
+        </button>
+      </div>
+    </Modal>
   );
 }

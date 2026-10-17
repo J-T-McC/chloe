@@ -13,6 +13,7 @@ import { Split } from "../Split";
 import { EndpointPicker, JobProgress } from "./shared";
 import { track, useTransfer } from "./state";
 import { Toolbar } from "../Toolbar";
+import { Modal } from "../Modal";
 
 const useSS = create<{ open: boolean; source?: Endpoint }>(() => ({ open: false }));
 
@@ -127,134 +128,131 @@ export function StructureSyncWizard() {
   const scriptText = script.join(";\n\n") + (script.length ? ";" : "");
 
   return (
-    <div className="modal-backdrop" onMouseDown={() => !running && !busy && close()}>
-      <div className="modal wizard wide data-transfer structure-sync" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === "Escape" && !running && close()}>
-        <div className="modal-title">Structure Synchronization</div>
-        <div className="dt-header">
-          {header(source)}
-          <ArrowRight size={18} className="muted" />
-          {header(target)}
-        </div>
-        <div className="wizard-steps">
-          {STEPS.map(([s, label], i) => (
-            <span key={s} className={step === s ? "active" : ""}>
-              {i + 1}. {label}
-            </span>
-          ))}
-        </div>
-        <div className="modal-body dt-body">
-          {step === "general" && (
-            <>
-              <div className="dt-general">
-                <EndpointPicker title="Source" value={source} onChange={setSource} conns={conns} />
-                <button
-                  className="dt-swap"
-                  title="Swap source and target"
-                  onClick={() => {
-                    setSource(target);
-                    setTarget(source);
-                  }}
-                >
-                  <ArrowLeftRight size={16} />
-                </button>
-                <EndpointPicker title="Target" value={target} onChange={setTarget} conns={conns} />
-              </div>
-              <fieldset className="ss-options">
-                <legend>Compare Options</legend>
-                <label className="check">
-                  <input type="checkbox" checked={opts.compareTables} onChange={(e) => setOpts({ ...opts, compareTables: e.target.checked })} /> Compare tables
-                </label>
-                <label className="check">
-                  <input type="checkbox" checked={opts.compareViews} onChange={(e) => setOpts({ ...opts, compareViews: e.target.checked })} /> Compare views
-                </label>
-                {pg && (
-                  <label className="check">
-                    <input type="checkbox" checked={opts.dropCascade} onChange={(e) => setOpts({ ...opts, dropCascade: e.target.checked })} /> Drop with CASCADE
-                  </label>
-                )}
-              </fieldset>
-            </>
-          )}
-          {step === "results" && (
-            <Results
-              items={items}
-              checked={checked}
-              setChecked={setChecked}
-              showSame={showSame}
-              setShowSame={setShowSame}
-              sel={sel}
-              setSel={setSel}
-              source={source}
-              target={target}
-              onRecompare={compare}
-              busy={busy}
-            />
-          )}
-          {step === "deploy" && (
-            <div className="ss-deploy">
-              <Toolbar>
-                <button onClick={() => copyText(scriptText)}>
-                  <Copy size={14} /> Copy Script
-                </button>
-                <button
-                  onClick={() => {
-                    newQuery(target.connId, target.database, target.schema || undefined, scriptText);
-                    close();
-                  }}
-                >
-                  <FilePlus2 size={14} /> Open in Query Editor
-                </button>
-                <span className="spacer" />
-                <label className="check">
-                  <input type="checkbox" checked={continueOnError} onChange={(e) => setContinueOnError(e.target.checked)} /> Continue on error
-                </label>
-                <span className="muted">{script.length} statement(s)</span>
-              </Toolbar>
-              <div className="ss-script">
-                <CodeBlock code={scriptText} />
-              </div>
+    <Modal title="Structure Synchronization" className="wizard wide data-transfer structure-sync" onClose={running || busy ? undefined : close}>
+      <div className="dt-header">
+        {header(source)}
+        <ArrowRight size={18} className="muted" />
+        {header(target)}
+      </div>
+      <div className="wizard-steps">
+        {STEPS.map(([s, label], i) => (
+          <span key={s} className={step === s ? "active" : ""}>
+            {i + 1}. {label}
+          </span>
+        ))}
+      </div>
+      <div className="modal-body dt-body">
+        {step === "general" && (
+          <>
+            <div className="dt-general">
+              <EndpointPicker title="Source" value={source} onChange={setSource} conns={conns} />
+              <button
+                className="dt-swap"
+                title="Swap source and target"
+                onClick={() => {
+                  setSource(target);
+                  setTarget(source);
+                }}
+              >
+                <ArrowLeftRight size={16} />
+              </button>
+              <EndpointPicker title="Target" value={target} onChange={setTarget} conns={conns} />
             </div>
-          )}
-          {step === "log" && job && <JobProgress job={job} />}
-        </div>
-        {error && <div className="status-line err">{error}</div>}
-        <div className="modal-footer">
-          <span className="spacer" />
-          {step === "log" ? (
-            running ? (
-              <button onClick={() => Transfer.CancelJob(jobId)}>Stop</button>
-            ) : (
-              <>
-                <button onClick={compare}>Recompare</button>
-                <button className="primary" onClick={close}>
-                  Close
-                </button>
-              </>
-            )
+            <fieldset className="ss-options">
+              <legend>Compare Options</legend>
+              <label className="check">
+                <input type="checkbox" checked={opts.compareTables} onChange={(e) => setOpts({ ...opts, compareTables: e.target.checked })} /> Compare tables
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={opts.compareViews} onChange={(e) => setOpts({ ...opts, compareViews: e.target.checked })} /> Compare views
+              </label>
+              {pg && (
+                <label className="check">
+                  <input type="checkbox" checked={opts.dropCascade} onChange={(e) => setOpts({ ...opts, dropCascade: e.target.checked })} /> Drop with CASCADE
+                </label>
+              )}
+            </fieldset>
+          </>
+        )}
+        {step === "results" && (
+          <Results
+            items={items}
+            checked={checked}
+            setChecked={setChecked}
+            showSame={showSame}
+            setShowSame={setShowSame}
+            sel={sel}
+            setSel={setSel}
+            source={source}
+            target={target}
+            onRecompare={compare}
+            busy={busy}
+          />
+        )}
+        {step === "deploy" && (
+          <div className="ss-deploy">
+            <Toolbar>
+              <button onClick={() => copyText(scriptText)}>
+                <Copy size={14} /> Copy Script
+              </button>
+              <button
+                onClick={() => {
+                  newQuery(target.connId, target.database, target.schema || undefined, scriptText);
+                  close();
+                }}
+              >
+                <FilePlus2 size={14} /> Open in Query Editor
+              </button>
+              <span className="spacer" />
+              <label className="check">
+                <input type="checkbox" checked={continueOnError} onChange={(e) => setContinueOnError(e.target.checked)} /> Continue on error
+              </label>
+              <span className="muted">{script.length} statement(s)</span>
+            </Toolbar>
+            <div className="ss-script">
+              <CodeBlock code={scriptText} />
+            </div>
+          </div>
+        )}
+        {step === "log" && job && <JobProgress job={job} />}
+      </div>
+      {error && <div className="status-line err">{error}</div>}
+      <div className="modal-footer">
+        <span className="spacer" />
+        {step === "log" ? (
+          running ? (
+            <button onClick={() => Transfer.CancelJob(jobId)}>Stop</button>
           ) : (
             <>
-              <button onClick={close}>Cancel</button>
-              {step !== "general" && <button onClick={() => setStep(step === "deploy" ? "results" : "general")}>Back</button>}
-              {step === "general" && (
-                <button className="primary" disabled={busy || (!opts.compareTables && !opts.compareViews)} onClick={compare}>
-                  {busy ? "Comparing…" : "Compare"}
-                </button>
-              )}
-              {step === "results" && (
-                <button className="primary" disabled={!chosen.length} onClick={toDeploy}>
-                  Next
-                </button>
-              )}
-              {step === "deploy" && (
-                <button className="primary" onClick={start}>
-                  Start
-                </button>
-              )}
+              <button onClick={compare}>Recompare</button>
+              <button className="primary" onClick={close}>
+                Close
+              </button>
             </>
-          )}
-        </div>
+          )
+        ) : (
+          <>
+            <button onClick={close}>Cancel</button>
+            {step !== "general" && <button onClick={() => setStep(step === "deploy" ? "results" : "general")}>Back</button>}
+            {step === "general" && (
+              <button className="primary" disabled={busy || (!opts.compareTables && !opts.compareViews)} onClick={compare}>
+                {busy ? "Comparing…" : "Compare"}
+              </button>
+            )}
+            {step === "results" && (
+              <button className="primary" disabled={!chosen.length} onClick={toDeploy}>
+                Next
+              </button>
+            )}
+            {step === "deploy" && (
+              <button className="primary" onClick={start}>
+                Start
+              </button>
+            )}
+          </>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 }
 

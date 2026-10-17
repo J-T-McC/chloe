@@ -2,6 +2,7 @@
 // data source for the table or query and an empty chart on it, and opens the chart.
 import { useEffect, useState } from "react";
 import { B, BI, arr, errorText } from "../../api";
+import { Modal, ModalFooter } from "../Modal";
 import { biChanged, openObject, useCreateChart } from "./actions";
 
 const NEW = "\u0000new";
@@ -40,42 +41,33 @@ export function CreateChartDialog() {
     }
   };
   return (
-    <div className="modal-backdrop" onMouseDown={close}>
-      <div className="modal small" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => (e.key === "Escape" ? close() : e.key === "Enter" && !busy ? ok() : null)}>
-        <div className="modal-title">Create Chart</div>
-        <div className="modal-body form">
-          <p className="dialog-message">A data source for {src.table ? `“${src.table}”` : "this query"} and a new chart on it will be added to a BI workspace.</p>
+    <Modal title="Create Chart" className="small" onClose={close} onKeyDown={(e) => e.key === "Enter" && !busy && ok()}>
+      <div className="modal-body form">
+        <p className="dialog-message">A data source for {src.table ? `“${src.table}”` : "this query"} and a new chart on it will be added to a BI workspace.</p>
+        <div className="field">
+          <label>Workspace</label>
+          <div className="field-input">
+            <select aria-label="Workspace" value={target} onChange={(e) => setTarget(e.target.value)} autoFocus>
+              {items.map((w) => (
+                <option key={w.path} value={w.path}>
+                  {w.name}
+                </option>
+              ))}
+              <option value={NEW}>New workspace…</option>
+            </select>
+          </div>
+        </div>
+        {target === NEW && (
           <div className="field">
-            <label>Workspace</label>
+            <label>Name</label>
             <div className="field-input">
-              <select aria-label="Workspace" value={target} onChange={(e) => setTarget(e.target.value)} autoFocus>
-                {items.map((w) => (
-                  <option key={w.path} value={w.path}>
-                    {w.name}
-                  </option>
-                ))}
-                <option value={NEW}>New workspace…</option>
-              </select>
+              <input aria-label="New workspace name" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
           </div>
-          {target === NEW && (
-            <div className="field">
-              <label>Name</label>
-              <div className="field-input">
-                <input aria-label="New workspace name" value={name} onChange={(e) => setName(e.target.value)} />
-              </div>
-            </div>
-          )}
-          {error && <div className="error-banner">{error}</div>}
-        </div>
-        <div className="modal-footer">
-          <span className="spacer" />
-          <button onClick={close}>Cancel</button>
-          <button className="primary" disabled={busy || (target === NEW && !name.trim())} onClick={ok}>
-            {busy ? "Creating…" : "Create Chart"}
-          </button>
-        </div>
+        )}
+        {error && <div className="error-banner">{error}</div>}
       </div>
-    </div>
+      <ModalFooter onCancel={close} onOk={ok} okLabel={busy ? "Creating…" : "Create Chart"} okDisabled={busy || (target === NEW && !name.trim())} />
+    </Modal>
   );
 }

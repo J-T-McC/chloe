@@ -17,6 +17,7 @@ import { ModelTableDialog } from "./ModelTableDialog";
 import { SyncDialog } from "./SyncDialog";
 import { Toolbar } from "../Toolbar";
 import { useSavableTab } from "../useSavableTab";
+import { Modal, ModalFooter } from "../Modal";
 
 interface ModelState {
   model: DM.Model;
@@ -421,21 +422,13 @@ function SqlDialog({ sql, name, onClose }: { sql: string[]; name: string; onClos
     }
   };
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal wizard wide" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === "Escape" && onClose()}>
-        <div className="modal-title">Export SQL</div>
-        <div className="modal-body model-sql">
-          <CodeBlock code={text} />
-        </div>
-        <div className="modal-footer">
-          <button onClick={() => copyText(text)}>Copy</button>
-          <span className="spacer" />
-          <button onClick={onClose}>Close</button>
-          <button className="primary" onClick={saveFile}>
-            Save…
-          </button>
-        </div>
+    <Modal title="Export SQL" className="wizard wide" onClose={onClose}>
+      <div className="modal-body model-sql">
+        <CodeBlock code={text} />
       </div>
-    </div>
+      <ModalFooter onCancel={onClose} cancelLabel="Close" onOk={saveFile} okLabel="Save…">
+        <button onClick={() => copyText(text)}>Copy</button>
+      </ModalFooter>
+    </Modal>
   );
 }

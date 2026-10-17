@@ -5,6 +5,7 @@ import { Mongo, errorText, type MG } from "../../api";
 import { editorTheme, monaco, type Monaco } from "../../editor/monaco";
 import { mongoEditorOptions, registerMongoLanguage, setMongoContext } from "../../editor/mongo";
 import { formatVal } from "../../mongo/docs";
+import { Modal, ModalFooter } from "../Modal";
 
 interface Request {
   connId: string;
@@ -81,26 +82,15 @@ function DocEditorDialog({ req }: { req: Request }) {
   }, []);
 
   return (
-    <div className="modal-backdrop" onMouseDown={() => close(false)}>
-      <div className="modal doc-editor" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === "Escape" && close(false)}>
-        <div className="modal-title">
-          {adding ? "Add Document" : "Edit Document"} — {req.coll}
-        </div>
-        <div className="modal-body">
-          <div className="doc-editor-host" ref={host} />
-          <div className="muted small">
-            {adding ? "A document, or an array of documents to add several." : "The whole document is replaced; _id stays the same."} Shell syntax: ObjectId(), ISODate(), NumberLong()…
-          </div>
-        </div>
-        {error && <div className="status-line err">{error}</div>}
-        <div className="modal-footer">
-          <span className="spacer" />
-          <button onClick={() => close(false)}>Cancel</button>
-          <button className="primary" disabled={busy} onClick={save}>
-            {adding ? "Add" : "Save"}
-          </button>
+    <Modal title={`${adding ? "Add Document" : "Edit Document"} — ${req.coll}`} className="doc-editor" onClose={() => close(false)}>
+      <div className="modal-body">
+        <div className="doc-editor-host" ref={host} />
+        <div className="muted small">
+          {adding ? "A document, or an array of documents to add several." : "The whole document is replaced; _id stays the same."} Shell syntax: ObjectId(), ISODate(), NumberLong()…
         </div>
       </div>
-    </div>
+      {error && <div className="status-line err">{error}</div>}
+      <ModalFooter onCancel={() => close(false)} onOk={save} okLabel={adding ? "Add" : "Save"} okDisabled={busy} />
+    </Modal>
   );
 }

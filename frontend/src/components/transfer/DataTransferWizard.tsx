@@ -11,6 +11,7 @@ import { alert, prompt } from "../Dialogs";
 import { ConnIcon } from "../icons";
 import { track, useTransfer } from "./state";
 import { EndpointPicker, JobProgress } from "./shared";
+import { Modal, ModalFooter } from "../Modal";
 
 const useDT = create<{ open: boolean; source?: Endpoint }>(() => ({ open: false }));
 
@@ -184,108 +185,105 @@ export function DataTransferWizard() {
   };
 
   return (
-    <div className="modal-backdrop" onMouseDown={() => !running && close()}>
-      <div className="modal wizard wide data-transfer" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === "Escape" && !running && !showOptions && close()}>
-        <div className="modal-title">Data Transfer</div>
-        <div className="dt-header">
-          {header(source)}
-          <ArrowRight size={18} className="muted" />
-          {header(target)}
-        </div>
-        <div className="wizard-steps">
-          {STEPS.map(([s, label], i) => (
-            <span key={s} className={step === s ? "active" : ""}>
-              {i + 1}. {label}
-            </span>
-          ))}
-        </div>
-        <div className="modal-body dt-body">
-          {step === "general" && (
-            <div className="dt-general">
-              <EndpointPicker title="Source" value={source} onChange={setSource} conns={sqlConns} />
-              <button
-                className="dt-swap"
-                title="Swap source and target"
-                onClick={() => {
-                  setSource(target);
-                  setTarget(source);
-                }}
-              >
-                <ArrowLeftRight size={16} />
-              </button>
-              <EndpointPicker title="Target" value={target} onChange={setTarget} conns={sqlConns} allowNew create={options.createTargetDatabase} />
-            </div>
-          )}
-          {step === "objects" && (
-            <div className="dt-objects">
-              <ObjectGroup label="Tables" all={avail.tables} pick={tables} onChange={setTables} />
-              <ObjectGroup label="Views" all={avail.views} pick={views} onChange={setViews} note={!sameEngine && avail.views.length ? "Views are only copied between databases of the same engine." : undefined} />
-            </div>
-          )}
-          {step === "summary" && (
-            <div className="dt-summary">
-              <p>
-                {[summaryText("table", tables, avail.tables), summaryText("view", views, avail.views)].filter(Boolean).join(", ")} from{" "}
-                <strong>{connById(source.connId)?.name}</strong> to <strong>{connById(target.connId)?.name}</strong>.
-              </p>
-              <div className="dt-summary-grid">
-                <div className="dt-summary-row head">
-                  <span>Source Object</span>
-                  <span>Target Object</span>
-                </div>
-                {summaryRows(tables, avail.tables, "tables").concat(summaryRows(views, avail.views, "views")).map(([s, t]) => (
-                  <div key={s} className="dt-summary-row">
-                    <span>{s}</span>
-                    <span>{t}</span>
-                  </div>
-                ))}
+    <Modal title="Data Transfer" className="wizard wide data-transfer" onClose={running || showOptions ? undefined : close}>
+      <div className="dt-header">
+        {header(source)}
+        <ArrowRight size={18} className="muted" />
+        {header(target)}
+      </div>
+      <div className="wizard-steps">
+        {STEPS.map(([s, label], i) => (
+          <span key={s} className={step === s ? "active" : ""}>
+            {i + 1}. {label}
+          </span>
+        ))}
+      </div>
+      <div className="modal-body dt-body">
+        {step === "general" && (
+          <div className="dt-general">
+            <EndpointPicker title="Source" value={source} onChange={setSource} conns={sqlConns} />
+            <button
+              className="dt-swap"
+              title="Swap source and target"
+              onClick={() => {
+                setSource(target);
+                setTarget(source);
+              }}
+            >
+              <ArrowLeftRight size={16} />
+            </button>
+            <EndpointPicker title="Target" value={target} onChange={setTarget} conns={sqlConns} allowNew create={options.createTargetDatabase} />
+          </div>
+        )}
+        {step === "objects" && (
+          <div className="dt-objects">
+            <ObjectGroup label="Tables" all={avail.tables} pick={tables} onChange={setTables} />
+            <ObjectGroup label="Views" all={avail.views} pick={views} onChange={setViews} note={!sameEngine && avail.views.length ? "Views are only copied between databases of the same engine." : undefined} />
+          </div>
+        )}
+        {step === "summary" && (
+          <div className="dt-summary">
+            <p>
+              {[summaryText("table", tables, avail.tables), summaryText("view", views, avail.views)].filter(Boolean).join(", ")} from{" "}
+              <strong>{connById(source.connId)?.name}</strong> to <strong>{connById(target.connId)?.name}</strong>.
+            </p>
+            <div className="dt-summary-grid">
+              <div className="dt-summary-row head">
+                <span>Source Object</span>
+                <span>Target Object</span>
               </div>
-              <label className="check">
-                <input type="checkbox" checked={options.continueOnError} onChange={(e) => setOptions({ ...options, continueOnError: e.target.checked })} /> Continue on error
-              </label>
-              <label className="check">
-                <input type="checkbox" checked={options.dropTarget} onChange={(e) => setOptions({ ...options, dropTarget: e.target.checked })} /> Drop target objects before create
-              </label>
+              {summaryRows(tables, avail.tables, "tables").concat(summaryRows(views, avail.views, "views")).map(([s, t]) => (
+                <div key={s} className="dt-summary-row">
+                  <span>{s}</span>
+                  <span>{t}</span>
+                </div>
+              ))}
             </div>
-          )}
-          {step === "progress" && job && <JobProgress job={job} />}
-        </div>
-        {error && <div className="status-line err">{error}</div>}
-        <div className="modal-footer">
-          <button disabled={running} onClick={saveProfile}>
-            Save Profile
-          </button>
-          <button disabled={running} onClick={loadProfile}>
-            Load Profile <ChevronDown size={12} />
-          </button>
-          <button disabled={running || step === "progress"} onClick={() => setShowOptions(true)}>
-            Options…
-          </button>
-          <span className="spacer" />
-          {step === "progress" ? (
-            running ? (
-              <button onClick={() => Transfer.CancelJob(jobId)}>Stop</button>
-            ) : (
-              <>
-                <button onClick={() => setStep("summary")}>Back</button>
-                <button className="primary" onClick={close}>
-                  Close
-                </button>
-              </>
-            )
+            <label className="check">
+              <input type="checkbox" checked={options.continueOnError} onChange={(e) => setOptions({ ...options, continueOnError: e.target.checked })} /> Continue on error
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={options.dropTarget} onChange={(e) => setOptions({ ...options, dropTarget: e.target.checked })} /> Drop target objects before create
+            </label>
+          </div>
+        )}
+        {step === "progress" && job && <JobProgress job={job} />}
+      </div>
+      {error && <div className="status-line err">{error}</div>}
+      <div className="modal-footer">
+        <button disabled={running} onClick={saveProfile}>
+          Save Profile
+        </button>
+        <button disabled={running} onClick={loadProfile}>
+          Load Profile <ChevronDown size={12} />
+        </button>
+        <button disabled={running || step === "progress"} onClick={() => setShowOptions(true)}>
+          Options…
+        </button>
+        <span className="spacer" />
+        {step === "progress" ? (
+          running ? (
+            <button onClick={() => Transfer.CancelJob(jobId)}>Stop</button>
           ) : (
             <>
-              <button onClick={close}>Cancel</button>
-              {step !== "general" && <button onClick={back}>Back</button>}
-              <button className="primary" onClick={next}>
-                {step === "summary" ? "Start" : "Next"}
+              <button onClick={() => setStep("summary")}>Back</button>
+              <button className="primary" onClick={close}>
+                Close
               </button>
             </>
-          )}
-        </div>
-        {showOptions && <OptionsDialog value={options} sameEngine={!!sameEngine} to={toDialect} onClose={(o) => (o && setOptions(o), setShowOptions(false))} />}
+          )
+        ) : (
+          <>
+            <button onClick={close}>Cancel</button>
+            {step !== "general" && <button onClick={back}>Back</button>}
+            <button className="primary" onClick={next}>
+              {step === "summary" ? "Start" : "Next"}
+            </button>
+          </>
+        )}
       </div>
-    </div>
+      {showOptions && <OptionsDialog value={options} sameEngine={!!sameEngine} to={toDialect} onClose={(o) => (o && setOptions(o), setShowOptions(false))} />}
+    </Modal>
   );
 }
 
@@ -355,69 +353,60 @@ function OptionsDialog({ value, sameEngine, to, onClose }: { value: TransferOpti
     </label>
   );
   return (
-    <div className="modal-backdrop" onMouseDown={() => onClose()}>
-      <div className="modal dt-options" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => (e.stopPropagation(), e.key === "Escape" && onClose())}>
-        <div className="modal-title">Options</div>
-        <div className="modal-body dt-options-body">
-          <fieldset>
-            <legend>Table Options</legend>
-            {box("createTables", "Create tables")}
-            {box("includeIndexes", "Include indexes", !o.createTables, true)}
-            {box("includeForeignKeys", "Include foreign key constraints", !o.createTables, true)}
-            {box("includeChecks", "Include checks", !o.createTables, true)}
-            {box("includeUniques", "Include uniques", !o.createTables, true)}
-            {box("includeAutoIncrement", "Include auto increment", !o.createTables, true)}
-            {sameEngine && box("includeTriggers", "Include triggers", !o.createTables, true)}
-            {sameEngine && to !== "sqlite" && box("includeCharset", "Include character set", !o.createTables, true)}
-            {sameEngine && to === "mysql" && box("includeEngine", "Include engine/table type", !o.createTables, true)}
-            {sameEngine && box("includeOtherOptions", "Include other table options", !o.createTables, true)}
+    <Modal title="Options" className="dt-options" onClose={() => onClose()} onKeyDown={(e) => e.stopPropagation()}>
+      <div className="modal-body dt-options-body">
+        <fieldset>
+          <legend>Table Options</legend>
+          {box("createTables", "Create tables")}
+          {box("includeIndexes", "Include indexes", !o.createTables, true)}
+          {box("includeForeignKeys", "Include foreign key constraints", !o.createTables, true)}
+          {box("includeChecks", "Include checks", !o.createTables, true)}
+          {box("includeUniques", "Include uniques", !o.createTables, true)}
+          {box("includeAutoIncrement", "Include auto increment", !o.createTables, true)}
+          {sameEngine && box("includeTriggers", "Include triggers", !o.createTables, true)}
+          {sameEngine && to !== "sqlite" && box("includeCharset", "Include character set", !o.createTables, true)}
+          {sameEngine && to === "mysql" && box("includeEngine", "Include engine/table type", !o.createTables, true)}
+          {sameEngine && box("includeOtherOptions", "Include other table options", !o.createTables, true)}
+          <label className="check">
+            <input type="checkbox" checked={!!o.convertNames} onChange={(e) => set({ convertNames: e.target.checked ? "lower" : "" })} /> Convert object name to
+          </label>
+          <div className="indent row">
             <label className="check">
-              <input type="checkbox" checked={!!o.convertNames} onChange={(e) => set({ convertNames: e.target.checked ? "lower" : "" })} /> Convert object name to
+              <input type="radio" disabled={!o.convertNames} checked={o.convertNames !== "upper"} onChange={() => set({ convertNames: "lower" })} /> Lower case
             </label>
-            <div className="indent row">
-              <label className="check">
-                <input type="radio" disabled={!o.convertNames} checked={o.convertNames !== "upper"} onChange={() => set({ convertNames: "lower" })} /> Lower case
+            <label className="check">
+              <input type="radio" disabled={!o.convertNames} checked={o.convertNames === "upper"} onChange={() => set({ convertNames: "upper" })} /> Upper case
+            </label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Record Options</legend>
+          {box("createRecords", "Create records")}
+          {box("emptyTarget", "Empty target tables before creating records", !o.createRecords, true)}
+          {box("useTransaction", "Use transaction", !o.createRecords, true)}
+          {box("extendedInserts", "Use extended insert statements", !o.createRecords, true)}
+          {to !== "" && (
+            <>
+              <label className="check indent">
+                <input type="checkbox" disabled={!o.createRecords} checked={o.insertMode === "ignore"} onChange={(e) => set({ insertMode: e.target.checked ? "ignore" : "" })} /> Use ignore insert statements
               </label>
-              <label className="check">
-                <input type="radio" disabled={!o.convertNames} checked={o.convertNames === "upper"} onChange={() => set({ convertNames: "upper" })} /> Upper case
-              </label>
-            </div>
-          </fieldset>
-          <fieldset>
-            <legend>Record Options</legend>
-            {box("createRecords", "Create records")}
-            {box("emptyTarget", "Empty target tables before creating records", !o.createRecords, true)}
-            {box("useTransaction", "Use transaction", !o.createRecords, true)}
-            {box("extendedInserts", "Use extended insert statements", !o.createRecords, true)}
-            {to !== "" && (
-              <>
+              {to !== "postgres" && (
                 <label className="check indent">
-                  <input type="checkbox" disabled={!o.createRecords} checked={o.insertMode === "ignore"} onChange={(e) => set({ insertMode: e.target.checked ? "ignore" : "" })} /> Use ignore insert statements
+                  <input type="checkbox" disabled={!o.createRecords} checked={o.insertMode === "replace"} onChange={(e) => set({ insertMode: e.target.checked ? "replace" : "" })} /> Use replace insert statements
                 </label>
-                {to !== "postgres" && (
-                  <label className="check indent">
-                    <input type="checkbox" disabled={!o.createRecords} checked={o.insertMode === "replace"} onChange={(e) => set({ insertMode: e.target.checked ? "replace" : "" })} /> Use replace insert statements
-                  </label>
-                )}
-              </>
-            )}
-          </fieldset>
-          <fieldset>
-            <legend>Other Options</legend>
-            {box("continueOnError", "Continue on error")}
-            {box("dropTarget", "Drop target objects before create")}
-            {to === "postgres" && box("dropCascade", "Drop with CASCADE", !o.dropTarget, true)}
-            {to !== "sqlite" && box("createTargetDatabase", to === "postgres" ? "Create target database/schema if not exist" : "Create target database if not exist")}
-          </fieldset>
-        </div>
-        <div className="modal-footer">
-          <span className="spacer" />
-          <button onClick={() => onClose()}>Cancel</button>
-          <button className="primary" onClick={() => onClose(o)}>
-            OK
-          </button>
-        </div>
+              )}
+            </>
+          )}
+        </fieldset>
+        <fieldset>
+          <legend>Other Options</legend>
+          {box("continueOnError", "Continue on error")}
+          {box("dropTarget", "Drop target objects before create")}
+          {to === "postgres" && box("dropCascade", "Drop with CASCADE", !o.dropTarget, true)}
+          {to !== "sqlite" && box("createTargetDatabase", to === "postgres" ? "Create target database/schema if not exist" : "Create target database if not exist")}
+        </fieldset>
       </div>
-    </div>
+      <ModalFooter onCancel={() => onClose()} onOk={() => onClose(o)} />
+    </Modal>
   );
 }

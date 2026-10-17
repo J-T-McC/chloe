@@ -5,6 +5,7 @@ import { DBType, DM, Explorer, Models, arr, errorText } from "../../api";
 import { invalidateCatalog } from "../../editor/completion";
 import { useApp } from "../../store";
 import { CodeBlock } from "../ObjectsPane";
+import { Modal } from "../Modal";
 
 const KIND_LABEL: Record<string, string> = { create: "Create", alter: "Modify", drop: "Delete" };
 
@@ -95,100 +96,97 @@ export function SyncDialog({ model, onClose, onSynced }: { model: DM.Model; onCl
   };
 
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal wizard wide sync-dialog" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === "Escape" && onClose()}>
-        <div className="modal-title">Synchronize to Database</div>
-        <div className="modal-body form">
-          <div className="field">
-            <label>Connection</label>
-            <div className="field-input">
-              <select value={connId} onChange={(e) => setConnId(e.target.value)}>
-                {!connections.length && <option value="">No {pg ? "PostgreSQL" : "MySQL"} connections</option>}
-                {connections.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+    <Modal title="Synchronize to Database" className="wizard wide sync-dialog" onClose={onClose}>
+      <div className="modal-body form">
+        <div className="field">
+          <label>Connection</label>
+          <div className="field-input">
+            <select value={connId} onChange={(e) => setConnId(e.target.value)}>
+              {!connections.length && <option value="">No {pg ? "PostgreSQL" : "MySQL"} connections</option>}
+              {connections.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
           </div>
-          <div className="field">
-            <label>Database</label>
-            <div className="field-input row">
-              <select value={database} onChange={(e) => (setDatabase(e.target.value), setPlan(null))}>
-                {databases.map((d) => (
-                  <option key={d}>{d}</option>
-                ))}
-              </select>
-              {pg && (
-                <select value={schema} onChange={(e) => (setSchema(e.target.value), setPlan(null))} title="Schema">
-                  <option value="">(table schemas)</option>
-                  {schemas.map((s) => (
-                    <option key={s}>{s}</option>
-                  ))}
-                </select>
-              )}
-            </div>
-          </div>
-          <div className="field">
-            <label />
-            <div className="field-input">
-              <label className="check">
-                <input type="checkbox" checked={dropMissing} onChange={(e) => (setDropMissing(e.target.checked), setPlan(null))} /> Delete tables that aren't in the model
-              </label>
-            </div>
-          </div>
-          {plan && (
-            <div className="sync-plan">
-              <div className="sync-actions">
-                {!arr(plan.actions).length && <div className="center-hint">The database already matches the model.</div>}
-                {arr(plan.actions).map((a, i) => (
-                  <label key={i} className="sync-action">
-                    <input type="checkbox" checked={!!include[i]} onChange={(e) => setInclude((x) => ({ ...x, [i]: e.target.checked }))} />
-                    {a.table.startsWith("(") ? (
-                      <>
-                        <span className="badge kind-create">Add</span>
-                        <span>Foreign keys of new tables</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className={`badge kind-${a.kind}`}>{KIND_LABEL[a.kind] ?? a.kind}</span>
-                        <span>{a.table}</span>
-                      </>
-                    )}
-                    <span className="muted">{arr(a.statements).length} statement(s)</span>
-                  </label>
-                ))}
-                {arr(plan.unchanged).length > 0 && <div className="muted small">Unchanged: {arr(plan.unchanged).join(", ")}</div>}
-                {arr(plan.warnings).map((w, i) => (
-                  <div key={i} className="badge warn block">
-                    {w}
-                  </div>
-                ))}
-              </div>
-              <div className="sync-sql">{statements.length ? <CodeBlock code={statements.join(";\n\n") + ";"} /> : <div className="center-hint">Nothing selected.</div>}</div>
-            </div>
-          )}
         </div>
-        {error && (
-          <div className="status-line err">
-            {error.text}
-            {error.sql && <pre>{error.sql}</pre>}
+        <div className="field">
+          <label>Database</label>
+          <div className="field-input row">
+            <select value={database} onChange={(e) => (setDatabase(e.target.value), setPlan(null))}>
+              {databases.map((d) => (
+                <option key={d}>{d}</option>
+              ))}
+            </select>
+            {pg && (
+              <select value={schema} onChange={(e) => (setSchema(e.target.value), setPlan(null))} title="Schema">
+                <option value="">(table schemas)</option>
+                {schemas.map((s) => (
+                  <option key={s}>{s}</option>
+                ))}
+              </select>
+            )}
+          </div>
+        </div>
+        <div className="field">
+          <label />
+          <div className="field-input">
+            <label className="check">
+              <input type="checkbox" checked={dropMissing} onChange={(e) => (setDropMissing(e.target.checked), setPlan(null))} /> Delete tables that aren't in the model
+            </label>
+          </div>
+        </div>
+        {plan && (
+          <div className="sync-plan">
+            <div className="sync-actions">
+              {!arr(plan.actions).length && <div className="center-hint">The database already matches the model.</div>}
+              {arr(plan.actions).map((a, i) => (
+                <label key={i} className="sync-action">
+                  <input type="checkbox" checked={!!include[i]} onChange={(e) => setInclude((x) => ({ ...x, [i]: e.target.checked }))} />
+                  {a.table.startsWith("(") ? (
+                    <>
+                      <span className="badge kind-create">Add</span>
+                      <span>Foreign keys of new tables</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className={`badge kind-${a.kind}`}>{KIND_LABEL[a.kind] ?? a.kind}</span>
+                      <span>{a.table}</span>
+                    </>
+                  )}
+                  <span className="muted">{arr(a.statements).length} statement(s)</span>
+                </label>
+              ))}
+              {arr(plan.unchanged).length > 0 && <div className="muted small">Unchanged: {arr(plan.unchanged).join(", ")}</div>}
+              {arr(plan.warnings).map((w, i) => (
+                <div key={i} className="badge warn block">
+                  {w}
+                </div>
+              ))}
+            </div>
+            <div className="sync-sql">{statements.length ? <CodeBlock code={statements.join(";\n\n") + ";"} /> : <div className="center-hint">Nothing selected.</div>}</div>
           </div>
         )}
-        {done && <div className="status-line ok">{done}</div>}
-        <div className="modal-footer">
-          <span className="spacer" />
-          <button onClick={onClose}>{done ? "Close" : "Cancel"}</button>
-          <button disabled={!connId || !database || busy} onClick={compare}>
-            {busy && !plan ? "Comparing…" : "Compare"}
-          </button>
-          <button className="primary" disabled={!plan || !statements.length || busy} onClick={execute}>
-            Execute
-          </button>
-        </div>
       </div>
-    </div>
+      {error && (
+        <div className="status-line err">
+          {error.text}
+          {error.sql && <pre>{error.sql}</pre>}
+        </div>
+      )}
+      {done && <div className="status-line ok">{done}</div>}
+      <div className="modal-footer">
+        <span className="spacer" />
+        <button onClick={onClose}>{done ? "Close" : "Cancel"}</button>
+        <button disabled={!connId || !database || busy} onClick={compare}>
+          {busy && !plan ? "Comparing…" : "Compare"}
+        </button>
+        <button className="primary" disabled={!plan || !statements.length || busy} onClick={execute}>
+          Execute
+        </button>
+      </div>
+    </Modal>
   );
 }
 

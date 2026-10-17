@@ -4,6 +4,7 @@ import { D, Explorer, Format, ImportMode, ImportOptions, ImportPreview, ObjectKi
 import { connById, useApp } from "../../store";
 import { refreshFolder } from "../../tableActions";
 import { track, useTransfer } from "./state";
+import { Modal } from "../Modal";
 
 type Step = "source" | "target" | "mapping" | "mode";
 
@@ -168,232 +169,235 @@ export function ImportWizard() {
   const canNext = step === "source" ? !!preview?.columns.length : step === "target" ? !!table.trim() : step === "mapping" ? included.length > 0 : true;
 
   return (
-    <div className="modal-backdrop" onMouseDown={close}>
-      <div className="modal wizard wide" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === "Escape" && close()}>
-        <div className="modal-title">
+    <Modal
+      title={
+        <>
           Import Wizard <span className="muted">— {connById(target.connId)?.name} › {[target.database, target.schema].filter(Boolean).join(".")}</span>
-        </div>
-        <div className="wizard-steps">
-          {steps.map((s, i) => (
-            <span key={s} className={step === s ? "active" : ""}>
-              {i + 1}. {{ source: "Source File", target: "Target Table", mapping: "Field Mappings", mode: "Import Mode" }[s]}
-            </span>
-          ))}
-        </div>
-        <div className="modal-body">
-          {step === "source" && (
-            <>
-              <div className="row">
-                <button onClick={choose}>
-                  <FolderOpen size={14} /> Choose File…
-                </button>
-                <span className="mono small">{path || "No file chosen"}</span>
-              </div>
-              {path && (
-                <div className="source-opts">
-                  <label>
-                    Format
-                    <select value={opts.format} onChange={(e) => set({ format: e.target.value as Format })}>
-                      <option value={Format.CSV}>CSV</option>
-                      <option value={Format.TXT}>Text (tab)</option>
-                      <option value={Format.$JSON}>JSON</option>
-                      <option value={Format.JSONL}>JSON Lines</option>
-                      <option value={Format.XLSX}>Excel</option>
-                    </select>
-                  </label>
-                  {(opts.format === Format.CSV || opts.format === Format.TXT) && (
-                    <>
-                      <label>
-                        Encoding
-                        <select value={opts.encoding} onChange={(e) => set({ encoding: e.target.value })}>
-                          {encodings.map((x) => (
-                            <option key={x}>{x}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        Delimiter
-                        <select value={opts.fieldDelimiter || (opts.format === Format.TXT ? "\t" : ",")} onChange={(e) => set({ fieldDelimiter: e.target.value })}>
-                          <option value=",">Comma</option>
-                          <option value={"\t"}>Tab</option>
-                          <option value=";">Semicolon</option>
-                          <option value="|">Pipe</option>
-                        </select>
-                      </label>
-                    </>
-                  )}
-                  {opts.format === Format.XLSX && !!preview?.sheets?.length && (
+        </>
+      }
+      className="wizard wide"
+      onClose={close}
+    >
+      <div className="wizard-steps">
+        {steps.map((s, i) => (
+          <span key={s} className={step === s ? "active" : ""}>
+            {i + 1}. {{ source: "Source File", target: "Target Table", mapping: "Field Mappings", mode: "Import Mode" }[s]}
+          </span>
+        ))}
+      </div>
+      <div className="modal-body">
+        {step === "source" && (
+          <>
+            <div className="row">
+              <button onClick={choose}>
+                <FolderOpen size={14} /> Choose File…
+              </button>
+              <span className="mono small">{path || "No file chosen"}</span>
+            </div>
+            {path && (
+              <div className="source-opts">
+                <label>
+                  Format
+                  <select value={opts.format} onChange={(e) => set({ format: e.target.value as Format })}>
+                    <option value={Format.CSV}>CSV</option>
+                    <option value={Format.TXT}>Text (tab)</option>
+                    <option value={Format.$JSON}>JSON</option>
+                    <option value={Format.JSONL}>JSON Lines</option>
+                    <option value={Format.XLSX}>Excel</option>
+                  </select>
+                </label>
+                {(opts.format === Format.CSV || opts.format === Format.TXT) && (
+                  <>
                     <label>
-                      Sheet
-                      <select value={opts.sheet ?? preview.sheets[0]} onChange={(e) => set({ sheet: e.target.value })}>
-                        {preview.sheets.map((x) => (
+                      Encoding
+                      <select value={opts.encoding} onChange={(e) => set({ encoding: e.target.value })}>
+                        {encodings.map((x) => (
                           <option key={x}>{x}</option>
                         ))}
                       </select>
                     </label>
-                  )}
-                  {opts.format !== Format.$JSON && opts.format !== Format.JSONL && (
-                    <>
-                      <label>
-                        Field name row
-                        <input className="narrow" type="number" min={0} value={opts.headerRow} onChange={(e) => set({ headerRow: Number(e.target.value) })} />
-                      </label>
-                      <label>
-                        First data row
-                        <input className="narrow" type="number" min={1} value={opts.firstDataRow || opts.headerRow + 1} onChange={(e) => set({ firstDataRow: Number(e.target.value) })} />
-                      </label>
-                    </>
-                  )}
-                  <label className="check">
-                    <input type="checkbox" checked={opts.emptyAsNull} onChange={(e) => set({ emptyAsNull: e.target.checked })} /> Empty string as NULL
-                  </label>
-                </div>
-              )}
-              {preview && <PreviewTable preview={preview} />}
-            </>
-          )}
-
-          {step === "target" && (
-            <div className="form">
-              <div className="field">
-                <label />
-                <div className="field-input">
-                  <label className="check">
-                    <input type="radio" checked={!isNew} onChange={() => (setIsNew(false), setTable(tables.includes(table) ? table : ""))} /> Existing table
-                  </label>
-                  <label className="check">
-                    <input type="radio" checked={isNew} onChange={() => setIsNew(true)} /> New table
-                  </label>
-                </div>
-              </div>
-              <div className="field">
-                <label>Target Table</label>
-                <div className="field-input">
-                  {isNew ? (
-                    <input value={table} onChange={(e) => setTable(e.target.value)} />
-                  ) : (
-                    <select value={table} onChange={(e) => setTable(e.target.value)}>
-                      <option value="">Choose a table…</option>
-                      {tables.map((t) => (
-                        <option key={t}>{t}</option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {step === "mapping" && (
-            <>
-              <div className="row">
-                {!isNew && (
-                  <>
-                    <button onClick={() => setMapping((m) => m.map((r) => ({ ...r, target: targetCols.find((t) => t.toLowerCase() === r.source.toLowerCase()) ?? "", include: targetCols.some((t) => t.toLowerCase() === r.source.toLowerCase()) })))}>
-                      Match All By Name
-                    </button>
-                    <button onClick={() => setMapping((m) => m.map((r, i) => ({ ...r, target: targetCols[i] ?? "", include: i < targetCols.length })))}>Match All By Position</button>
-                    <button onClick={() => setMapping((m) => m.map((r) => ({ ...r, target: "", include: false })))}>Clear All Matches</button>
+                    <label>
+                      Delimiter
+                      <select value={opts.fieldDelimiter || (opts.format === Format.TXT ? "\t" : ",")} onChange={(e) => set({ fieldDelimiter: e.target.value })}>
+                        <option value=",">Comma</option>
+                        <option value={"\t"}>Tab</option>
+                        <option value=";">Semicolon</option>
+                        <option value="|">Pipe</option>
+                      </select>
+                    </label>
                   </>
                 )}
-                <span className="muted">{included.length} of {mapping.length} fields imported</span>
-              </div>
-              <table className="mapping">
-                <thead>
-                  <tr>
-                    <th />
-                    <th>Source Field</th>
-                    <th>Target Field</th>
-                    {isNew && <th>Type</th>}
-                    {isNew && <th>Primary Key</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {mapping.map((r, i) => (
-                    <tr key={i}>
-                      <td>
-                        <input type="checkbox" checked={r.include} onChange={(e) => setMap(i, { include: e.target.checked })} />
-                      </td>
-                      <td>{r.source}</td>
-                      <td>
-                        {isNew ? (
-                          <input value={r.target} onChange={(e) => setMap(i, { target: e.target.value })} />
-                        ) : (
-                          <select value={r.target} onChange={(e) => setMap(i, { target: e.target.value, include: !!e.target.value })}>
-                            <option value="">(skip)</option>
-                            {targetCols.map((c) => (
-                              <option key={c}>{c}</option>
-                            ))}
-                          </select>
-                        )}
-                      </td>
-                      {isNew && (
-                        <td>
-                          <input className="mono" value={r.type} onChange={(e) => setMap(i, { type: e.target.value })} />
-                        </td>
-                      )}
-                      {isNew && (
-                        <td className="center">
-                          <input type="checkbox" checked={r.pk} onChange={(e) => setMap(i, { pk: e.target.checked })} />
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </>
-          )}
-
-          {step === "mode" && (
-            <div className="mode-step">
-              {isNew ? (
-                <p className="hint">The new table is created, then every record is added.</p>
-              ) : (
-                <div className="modes">
-                  {MODES.map(([m, label]) => (
-                    <label key={m} className="check">
-                      <input type="radio" checked={mode === m} onChange={() => setMode(m)} /> {label}
+                {opts.format === Format.XLSX && !!preview?.sheets?.length && (
+                  <label>
+                    Sheet
+                    <select value={opts.sheet ?? preview.sheets[0]} onChange={(e) => set({ sheet: e.target.value })}>
+                      {preview.sheets.map((x) => (
+                        <option key={x}>{x}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {opts.format !== Format.$JSON && opts.format !== Format.JSONL && (
+                  <>
+                    <label>
+                      Field name row
+                      <input className="narrow" type="number" min={0} value={opts.headerRow} onChange={(e) => set({ headerRow: Number(e.target.value) })} />
                     </label>
-                  ))}
-                  {mode !== ImportMode.ImportAppend && mode !== ImportMode.ImportCopy && <p className="hint">Records are matched on the table's primary key, which must be mapped.</p>}
-                </div>
-              )}
-              <hr />
-              <label className="check">
-                <input type="checkbox" checked={transaction} onChange={(e) => setTransaction(e.target.checked)} /> Run in a single transaction (all or nothing)
-              </label>
-              <label className="check">
-                <input type="checkbox" checked={continueOnError} disabled={transaction} onChange={(e) => setContinueOnError(e.target.checked)} /> Continue on error (skip bad records)
-              </label>
-              {!pg && (
+                    <label>
+                      First data row
+                      <input className="narrow" type="number" min={1} value={opts.firstDataRow || opts.headerRow + 1} onChange={(e) => set({ firstDataRow: Number(e.target.value) })} />
+                    </label>
+                  </>
+                )}
                 <label className="check">
-                  <input type="checkbox" checked={noFK} onChange={(e) => setNoFK(e.target.checked)} /> Ignore foreign key constraints
+                  <input type="checkbox" checked={opts.emptyAsNull} onChange={(e) => set({ emptyAsNull: e.target.checked })} /> Empty string as NULL
                 </label>
-              )}
-              <label className="row">
-                Records per statement
-                <input className="narrow" type="number" min={1} value={batch} onChange={(e) => setBatch(Math.max(1, Number(e.target.value)))} />
-              </label>
+              </div>
+            )}
+            {preview && <PreviewTable preview={preview} />}
+          </>
+        )}
+
+        {step === "target" && (
+          <div className="form">
+            <div className="field">
+              <label />
+              <div className="field-input">
+                <label className="check">
+                  <input type="radio" checked={!isNew} onChange={() => (setIsNew(false), setTable(tables.includes(table) ? table : ""))} /> Existing table
+                </label>
+                <label className="check">
+                  <input type="radio" checked={isNew} onChange={() => setIsNew(true)} /> New table
+                </label>
+              </div>
             </div>
-          )}
-        </div>
-        {error && <div className="status-line err">{error}</div>}
-        <div className="modal-footer">
-          <span className="spacer" />
-          <button onClick={close}>Cancel</button>
-          {prev && <button onClick={() => setStep(prev)}>Back</button>}
-          {next ? (
-            <button className="primary" disabled={!canNext} onClick={() => setStep(next)}>
-              Next
-            </button>
-          ) : (
-            <button className="primary" onClick={start}>
-              Start
-            </button>
-          )}
-        </div>
+            <div className="field">
+              <label>Target Table</label>
+              <div className="field-input">
+                {isNew ? (
+                  <input value={table} onChange={(e) => setTable(e.target.value)} />
+                ) : (
+                  <select value={table} onChange={(e) => setTable(e.target.value)}>
+                    <option value="">Choose a table…</option>
+                    {tables.map((t) => (
+                      <option key={t}>{t}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {step === "mapping" && (
+          <>
+            <div className="row">
+              {!isNew && (
+                <>
+                  <button onClick={() => setMapping((m) => m.map((r) => ({ ...r, target: targetCols.find((t) => t.toLowerCase() === r.source.toLowerCase()) ?? "", include: targetCols.some((t) => t.toLowerCase() === r.source.toLowerCase()) })))}>
+                    Match All By Name
+                  </button>
+                  <button onClick={() => setMapping((m) => m.map((r, i) => ({ ...r, target: targetCols[i] ?? "", include: i < targetCols.length })))}>Match All By Position</button>
+                  <button onClick={() => setMapping((m) => m.map((r) => ({ ...r, target: "", include: false })))}>Clear All Matches</button>
+                </>
+              )}
+              <span className="muted">{included.length} of {mapping.length} fields imported</span>
+            </div>
+            <table className="mapping">
+              <thead>
+                <tr>
+                  <th />
+                  <th>Source Field</th>
+                  <th>Target Field</th>
+                  {isNew && <th>Type</th>}
+                  {isNew && <th>Primary Key</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {mapping.map((r, i) => (
+                  <tr key={i}>
+                    <td>
+                      <input type="checkbox" checked={r.include} onChange={(e) => setMap(i, { include: e.target.checked })} />
+                    </td>
+                    <td>{r.source}</td>
+                    <td>
+                      {isNew ? (
+                        <input value={r.target} onChange={(e) => setMap(i, { target: e.target.value })} />
+                      ) : (
+                        <select value={r.target} onChange={(e) => setMap(i, { target: e.target.value, include: !!e.target.value })}>
+                          <option value="">(skip)</option>
+                          {targetCols.map((c) => (
+                            <option key={c}>{c}</option>
+                          ))}
+                        </select>
+                      )}
+                    </td>
+                    {isNew && (
+                      <td>
+                        <input className="mono" value={r.type} onChange={(e) => setMap(i, { type: e.target.value })} />
+                      </td>
+                    )}
+                    {isNew && (
+                      <td className="center">
+                        <input type="checkbox" checked={r.pk} onChange={(e) => setMap(i, { pk: e.target.checked })} />
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {step === "mode" && (
+          <div className="mode-step">
+            {isNew ? (
+              <p className="hint">The new table is created, then every record is added.</p>
+            ) : (
+              <div className="modes">
+                {MODES.map(([m, label]) => (
+                  <label key={m} className="check">
+                    <input type="radio" checked={mode === m} onChange={() => setMode(m)} /> {label}
+                  </label>
+                ))}
+                {mode !== ImportMode.ImportAppend && mode !== ImportMode.ImportCopy && <p className="hint">Records are matched on the table's primary key, which must be mapped.</p>}
+              </div>
+            )}
+            <hr />
+            <label className="check">
+              <input type="checkbox" checked={transaction} onChange={(e) => setTransaction(e.target.checked)} /> Run in a single transaction (all or nothing)
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={continueOnError} disabled={transaction} onChange={(e) => setContinueOnError(e.target.checked)} /> Continue on error (skip bad records)
+            </label>
+            {!pg && (
+              <label className="check">
+                <input type="checkbox" checked={noFK} onChange={(e) => setNoFK(e.target.checked)} /> Ignore foreign key constraints
+              </label>
+            )}
+            <label className="row">
+              Records per statement
+              <input className="narrow" type="number" min={1} value={batch} onChange={(e) => setBatch(Math.max(1, Number(e.target.value)))} />
+            </label>
+          </div>
+        )}
       </div>
-    </div>
+      {error && <div className="status-line err">{error}</div>}
+      <div className="modal-footer">
+        <span className="spacer" />
+        <button onClick={close}>Cancel</button>
+        {prev && <button onClick={() => setStep(prev)}>Back</button>}
+        {next ? (
+          <button className="primary" disabled={!canNext} onClick={() => setStep(next)}>
+            Next
+          </button>
+        ) : (
+          <button className="primary" onClick={start}>
+            Start
+          </button>
+        )}
+      </div>
+    </Modal>
   );
 }
 
