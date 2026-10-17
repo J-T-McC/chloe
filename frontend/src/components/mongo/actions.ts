@@ -2,7 +2,7 @@
 import { Connection, Connections, Mongo, ObjectKind, errorText, copyText } from "../../api";
 import { invalidateMongoCatalog } from "../../editor/mongo";
 import { connById, useApp } from "../../store";
-import { TreeNode, useTree } from "../../tree";
+import { NodeOf, TreeNode, useTree } from "../../tree";
 import { MenuItem } from "../ContextMenu";
 import { alert, confirm, prompt } from "../Dialogs";
 import { exportCollection, importCollection } from "./transferState";
@@ -172,9 +172,9 @@ export function collectionMenu(connId: string, db: string, names: string[], kind
   ];
 }
 
-export function mongoDbMenu(n: TreeNode, dbOpen: boolean): MenuItem[] {
+export function mongoDbMenu(n: NodeOf<"db">, dbOpen: boolean): MenuItem[] {
   const tree = useTree.getState();
-  const db = n.database!;
+  const db = n.database;
   return [
     dbOpen ? { label: "Close Database", onClick: () => tree.closeDatabase(n) } : { label: "Open Database", onClick: () => tree.expand(n) },
     { label: "New Database…", onClick: () => newDatabase(n.connId) },

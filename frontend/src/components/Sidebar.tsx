@@ -46,7 +46,7 @@ export function Sidebar() {
   const [drop, setDrop] = useState<{ key: string; pos: Drop["pos"] } | null>(null);
   const dnd = useMemo<RowDnd>(() => {
     const resolve = (e: React.DragEvent, n?: TreeNode) => {
-      const target: DropTarget | null = !n ? { type: "end" } : n.type === "conn" ? { type: "conn", id: n.connId } : n.type === "group" ? { type: "group", name: n.group! } : null;
+      const target: DropTarget | null = !n ? { type: "end" } : n.type === "conn" ? { type: "conn", id: n.connId } : n.type === "group" ? { type: "group", name: n.group } : null;
       if (!drag.current || !target) return null;
       const r = e.currentTarget.getBoundingClientRect();
       return resolveDrop(drag.current, target, (e.clientY - r.top) / r.height, connections, groups);
@@ -144,7 +144,7 @@ export function Sidebar() {
                 loading={!!loading[n.key]}
                 error={errors[n.key]}
                 connected={!!open[n.connId]}
-                dbOpen={n.type === "db" ? (n.count !== undefined ? n.count > 0 : !!openDbs[dbKey(n.connId, n.database!)]) : true}
+                dbOpen={n.type === "db" ? (n.count !== undefined ? n.count > 0 : !!openDbs[dbKey(n.connId, n.database)]) : true}
                 selected={selectedKey === n.key}
                 drop={drop?.key === n.key ? drop.pos : undefined}
                 dnd={filter.trim() === "" ? dnd : undefined}

@@ -5,7 +5,7 @@ import { openRedisConsole } from "./redis/actions";
 import { collectionMenu, designCollection, mongoConnMenu, mongoDbMenu, newMongoQuery } from "./mongo/actions";
 import { openUsers } from "./users/actions";
 import { connById, useApp } from "../store";
-import { TreeNode, useTree } from "../tree";
+import { NodeOf, TreeNode, useTree } from "../tree";
 import { MenuItem } from "./ContextMenu";
 import { alert, confirm, prompt } from "./Dialogs";
 import { newTable } from "../tableActions";
@@ -57,8 +57,11 @@ export async function refreshSelected() {
   if (sel.database) key += "/" + sel.database;
   if (sel.schema) key += "/" + sel.schema;
   if (sel.kind) key += "/#" + sel.kind;
-  const type = sel.kind ? "folder" : sel.schema ? "schema" : sel.database ? "db" : "conn";
-  await tree.refresh({ key, type, label: "", connId: sel.connId, database: sel.database, schema: sel.schema, kind: sel.kind, depth: 0, expandable: true });
+  const base = { key, label: "", connId: sel.connId, depth: 0, expandable: true };
+  const db = sel.database;
+  await tree.refresh(
+    !db ? { ...base, type: "conn" } : sel.kind ? { ...base, type: "folder", database: db, schema: sel.schema, kind: sel.kind } : sel.schema ? { ...base, type: "schema", database: db, schema: sel.schema } : { ...base, type: "db", database: db },
+  );
 }
 
 async function showInfo(connId: string) {
@@ -105,7 +108,7 @@ export function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuI
           onClick: async () => {
             const name = await prompt("Rename Group", { defaultValue: n.group });
             if (name?.trim() && name.trim() !== n.group) {
-              await Connections.RenameGroup(n.group!, name.trim()).catch((e) => alert("Couldn't rename group", errorText(e)));
+              await Connections.RenameGroup(n.group, name.trim()).catch((e) => alert("Couldn't rename group", errorText(e)));
               await reload();
             }
           },
@@ -114,7 +117,7 @@ export function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuI
           label: "Delete Group",
           onClick: async () => {
             if (await confirm(`Delete group “${n.group}”?`, { message: "Its connections move to the top level; nothing else is deleted.", okLabel: "Delete Group" })) {
-              await Connections.DeleteGroup(n.group!);
+              await Connections.DeleteGroup(n.group);
               await reload();
             }
           },
@@ -197,12 +200,12 @@ export function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuI
           : { label: "Open Database", onClick: () => tree.expand(n) },
         { label: "New Database…", onClick: () => openDatabaseDialog(n.connId) },
         { label: "Edit Database…", onClick: () => openDatabaseDialog(n.connId, n.database) },
-        { label: "Delete Database", onClick: () => deleteDatabase(n.connId, n.database!) },
+        { label: "Delete Database", onClick: () => deleteDatabase(n.connId, n.database) },
         { separator: true },
         { label: "New Query", onClick: () => newQuery(n.connId, n.database) },
-        ...(isPG(n.connId) ? [] : [{ label: "New Table", onClick: () => newTable(n.connId, n.database!) }]),
+        ...(isPG(n.connId) ? [] : [{ label: "New Table", onClick: () => newTable(n.connId, n.database) }]),
         { separator: true },
-        ...(isPG(n.connId) ? [{ label: "Execute SQL File…", onClick: () => openExecuteFile(n.connId, n.database!) }] : databaseTools(n.connId, n.database!)),
+        ...(isPG(n.connId) ? [{ label: "Execute SQL File…", onClick: () => openExecuteFile(n.connId, n.database) }] : databaseTools(n.connId, n.database)),
         { label: "Data Transfer…", onClick: () => openDataTransfer({ connId: n.connId, database: n.database }) },
         ...(isPG(n.connId) ? [] : [{ label: "Structure Synchronization…", onClick: () => openStructureSync({ connId: n.connId, database: n.database }) }]),
         ...(isPG(n.connId) ? [] : [{ label: "Data Synchronization…", onClick: () => openDataSync({ connId: n.connId, database: n.database }) }]),
@@ -213,9 +216,9 @@ export function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuI
     case "schema":
       return [
         { label: "New Query", onClick: () => newQuery(n.connId, n.database, n.schema) },
-        { label: "New Table", onClick: () => newTable(n.connId, n.database!, n.schema) },
+        { label: "New Table", onClick: () => newTable(n.connId, n.database, n.schema) },
         { separator: true },
-        ...databaseTools(n.connId, n.database!, n.schema),
+        ...databaseTools(n.connId, n.database, n.schema),
         { label: "Data Transfer…", onClick: () => openDataTransfer({ connId: n.connId, database: n.database, schema: n.schema }) },
         { label: "Structure Synchronization…", onClick: () => openStructureSync({ connId: n.connId, database: n.database, schema: n.schema }) },
         { label: "Data Synchronization…", onClick: () => openDataSync({ connId: n.connId, database: n.database, schema: n.schema }) },
@@ -226,7 +229,7 @@ export function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuI
     case "folder":
       if (connById(n.connId)?.type === DBType.MongoDB)
         return [
-          { label: n.kind === ObjectKind.KindView ? "New View" : "New Collection", onClick: () => designCollection(n.connId, n.database!, undefined, n.kind) },
+          { label: n.kind === ObjectKind.KindView ? "New View" : "New Collection", onClick: () => designCollection(n.connId, n.database, undefined, n.kind) },
           { label: "New Query", onClick: () => newMongoQuery(n.connId, n.database) },
           { separator: true },
           { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) },
@@ -236,20 +239,20 @@ export function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuI
           { label: "New Query", onClick: () => newQuery(n.connId, n.database, n.schema) },
           { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) },
         ];
-      if (n.kind === ObjectKind.KindTable || n.kind === ObjectKind.KindView || n.kind === ObjectKind.KindMatView) return [...objectsAreaMenu(n.connId, n.database!, n.schema, n.kind).slice(0, -1), { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) }];
+      if (n.kind === ObjectKind.KindTable || n.kind === ObjectKind.KindView || n.kind === ObjectKind.KindMatView) return [...objectsAreaMenu(n.connId, n.database, n.schema, n.kind).slice(0, -1), { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) }];
       return [
         { label: "New Query", onClick: () => newQuery(n.connId, n.database, n.schema) },
         { label: "Refresh", shortcut: "⌘R", onClick: () => tree.refresh(n) },
       ];
     case "object":
-      if (connById(n.connId)?.type === DBType.MongoDB) return collectionMenu(n.connId, n.database!, [n.label], n.kind);
+      if (connById(n.connId)?.type === DBType.MongoDB) return collectionMenu(n.connId, n.database, [n.label], n.kind);
       return objectMenu(n.connId, [refOf(n)], n.info?.comment);
   }
 }
 
 
 
-function sqliteDbMenu(n: TreeNode, dbOpen: boolean): MenuItem[] {
+function sqliteDbMenu(n: NodeOf<"db">, dbOpen: boolean): MenuItem[] {
   const tree = useTree.getState();
   return [
     dbOpen ? { label: "Close Database", onClick: () => tree.closeDatabase(n) } : { label: "Open Database", onClick: () => tree.expand(n) },
@@ -290,7 +293,7 @@ function redisConnMenu(n: TreeNode, c: Connection, connected: boolean): MenuItem
   ];
 }
 
-function redisDbMenu(n: TreeNode): MenuItem[] {
+function redisDbMenu(n: NodeOf<"db">): MenuItem[] {
   const db = Number(n.database);
   const refreshConn = () => useTree.getState().refresh({ key: n.connId, type: "conn", label: "", connId: n.connId, depth: 0, expandable: true });
   return [

@@ -5,19 +5,19 @@ import { newMongoQuery, openCollection } from "../components/mongo/actions";
 import { qualifiedName } from "../dialect";
 import { openSavedQuery } from "../queries";
 import { connById, useApp } from "../store";
-import type { TreeNode } from "../tree";
+import type { NodeOf } from "../tree";
 
-export function refOf(n: TreeNode): ObjectRef {
-  return { database: n.database!, schema: n.schema, name: n.info!.name, kind: n.kind!, signature: n.info?.signature };
+export function refOf(n: NodeOf<"object">): ObjectRef {
+  return { database: n.database, schema: n.schema, name: n.info.name, kind: n.kind, signature: n.info.signature };
 }
 
-export function openObject(n: TreeNode) {
+export function openObject(n: NodeOf<"object">) {
   const app = useApp.getState();
-  if (connById(n.connId)?.type === DBType.MongoDB) return openCollection(n.connId, n.database!, n.info?.name ?? n.label, n.kind);
-  if (n.kind === ObjectKind.KindQuery) return openSavedQuery(n.connId, n.database!, n.schema, n.info?.name ?? n.label);
+  if (connById(n.connId)?.type === DBType.MongoDB) return openCollection(n.connId, n.database, n.info.name, n.kind);
+  if (n.kind === ObjectKind.KindQuery) return openSavedQuery(n.connId, n.database, n.schema, n.info.name);
   const ref = refOf(n);
   if (n.kind === ObjectKind.KindTable || n.kind === ObjectKind.KindView || n.kind === ObjectKind.KindMatView) {
-    app.openTab({ kind: "table", title: n.info!.name, connId: n.connId, database: n.database, schema: n.schema, ref });
+    app.openTab({ kind: "table", title: n.info.name, connId: n.connId, database: n.database, schema: n.schema, ref });
   } else {
     openDDL(n.connId, ref);
   }
