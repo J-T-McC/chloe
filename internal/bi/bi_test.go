@@ -14,6 +14,7 @@ import (
 
 	"chloe/internal/driver"
 	"chloe/internal/sqlsplit"
+	"chloe/internal/tz"
 )
 
 var (
@@ -484,10 +485,10 @@ func TestTimezone(t *testing.T) {
 	if q, _, _ := ChartQuery(SQLite, Table(`"data"`), src, c, 10); !strings.Contains(q.SQL, `strftime('%Y-%m-%d', chloe_tz("placed_at", 'America/Los_Angeles'))`) {
 		t.Errorf("sqlite: %s", q.SQL)
 	}
-	if got, _ := InZone("2026-09-16 05:30:00", "America/Los_Angeles"); got != "2026-09-15 22:30:00" {
+	if got, _ := tz.In("2026-09-16 05:30:00", "America/Los_Angeles"); got != "2026-09-15 22:30:00" {
 		t.Errorf("in zone: %s", got)
 	}
-	if got, _ := InZone("2026-09-16 05:30:00+02", "America/Los_Angeles"); got != "2026-09-15 20:30:00" {
+	if got, _ := tz.In("2026-09-16 05:30:00+02", "America/Los_Angeles"); got != "2026-09-15 20:30:00" {
 		t.Errorf("zoned value: %s", got)
 	}
 }

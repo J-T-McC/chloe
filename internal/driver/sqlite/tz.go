@@ -6,7 +6,7 @@ import (
 
 	gosqlite "modernc.org/sqlite"
 
-	"chloe/internal/bi"
+	"chloe/internal/tz"
 )
 
 // chloe_tz(value, zone) converts a stored date/time (UTC unless it carries a
@@ -26,7 +26,7 @@ func init() {
 		default:
 			return nil, nil
 		}
-		if out, ok := bi.InZone(s, zone); ok {
+		if out, ok := tz.In(s, zone); ok {
 			return out, nil
 		}
 		return nil, nil

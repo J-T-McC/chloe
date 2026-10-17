@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"chloe/internal/tz"
 )
 
 // MaxChartRows bounds what one chart query returns.
@@ -57,7 +59,7 @@ func SameDays(src DataSource, c Chart, cols []Column, rows [][]any) (prev Chart,
 	if !slices.Contains([]string{"week", "month", "quarter", "year"}, unit) || dim < 0 {
 		return prev, nil, false
 	}
-	today := PeriodStart(now().In(location(src.Timezone)), "day")
+	today := PeriodStart(now().In(tz.Location(src.Timezone)), "day")
 	start := PeriodStart(today, unit)
 	if last := rows[len(rows)-1]; dim >= len(last) || key(last[dim]) != PeriodLabel(unit, start) {
 		return prev, nil, false
@@ -104,7 +106,7 @@ func FilterWindow(src DataSource, c Chart) *Window {
 			w.To = &t
 		}
 	}
-	date := func(s string) (time.Time, bool) { return ParseDateTime(s) }
+	date := func(s string) (time.Time, bool) { return tz.ParseDateTime(s) }
 	for _, f := range append(slices.Clone(src.Filters), c.Filters...) {
 		if f.Disabled || f.Negate || f.Field != c.Dimension[0].Field || f.check() != nil {
 			continue
@@ -112,11 +114,11 @@ func FilterWindow(src DataSource, c Chart) *Window {
 		switch f.Op {
 		case "in_last":
 			n, _ := strconv.Atoi(f.Values[0])
-			today := now().In(location(src.Timezone))
+			today := now().In(tz.Location(src.Timezone))
 			from(Since(today, n, f.Values[1]))
 			to(today)
 		case "in_period", "to_date":
-			a, b, _ := DynamicRange(f, now().In(location(src.Timezone)))
+			a, b, _ := DynamicRange(f, now().In(tz.Location(src.Timezone)))
 			from(a)
 			to(b.AddDate(0, 0, -1)) // the range's last day
 		case "between":
@@ -156,7 +158,7 @@ func FilterWindow(src DataSource, c Chart) *Window {
 		return nil
 	}
 	// An open-ended range from a date runs to today (in the source's zone).
-	if today := now().In(location(src.Timezone)); w.To == nil && !w.From.After(today) {
+	if today := now().In(tz.Location(src.Timezone)); w.To == nil && !w.From.After(today) {
 		w.To = &today
 	}
 	return &w
@@ -492,7 +494,7 @@ func NormalizeDate(s string) string {
 	if !dateLike(s) {
 		return s
 	}
-	if t, ok := ParseDateTime(s); ok && hasZone(s) {
+	if t, ok := tz.ParseDateTime(s); ok && hasZone(s) {
 		return t.Format("2006-01-02 15:04:05.999999")
 	}
 	end := 10

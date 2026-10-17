@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"chloe/internal/driver"
+	"chloe/internal/tz"
 )
 
 // Parameter is a named value, global to its workspace, that data source queries,
@@ -83,7 +84,7 @@ func (p Parameter) typed(v string) error {
 			return fmt.Errorf("$%s is a number, not %q", p.Name, v)
 		}
 	case TypeDateTime:
-		if _, ok := ParseDateTime(v); !ok {
+		if _, ok := tz.ParseDateTime(v); !ok {
 			return fmt.Errorf("$%s is a date (2026-10-15 or 2026-10-15 09:30), not %q", p.Name, v)
 		}
 	}

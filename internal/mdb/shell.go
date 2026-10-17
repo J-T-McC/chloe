@@ -502,7 +502,7 @@ func (s *Shell) throw(err error) { panic(s.vm.NewGoError(err)) }
 
 func (s *Shell) check(err error) {
 	if err != nil {
-		s.throw(writeError(err))
+		s.throw(WriteError(err))
 	}
 }
 
@@ -906,42 +906,8 @@ func (c *collObj) makeMethods() map[string]goja.Value {
 		}
 		return cur
 	}
-	updateOpts := func(o bson.D) *options.UpdateOneOptionsBuilder {
-		u := options.UpdateOne()
-		if optBool(o, "upsert") {
-			u.SetUpsert(true)
-		}
-		if v, ok := optVal(o, "arrayFilters"); ok {
-			if a, ok := v.(bson.A); ok {
-				u.SetArrayFilters([]any(a))
-			}
-		}
-		if v, ok := optVal(o, "collation"); ok {
-			u.SetCollation(collation(v))
-		}
-		if v, ok := optVal(o, "hint"); ok {
-			u.SetHint(v)
-		}
-		return u
-	}
-	updateManyOpts := func(o bson.D) *options.UpdateManyOptionsBuilder {
-		u := options.UpdateMany()
-		if optBool(o, "upsert") {
-			u.SetUpsert(true)
-		}
-		if v, ok := optVal(o, "arrayFilters"); ok {
-			if a, ok := v.(bson.A); ok {
-				u.SetArrayFilters([]any(a))
-			}
-		}
-		if v, ok := optVal(o, "collation"); ok {
-			u.SetCollation(collation(v))
-		}
-		if v, ok := optVal(o, "hint"); ok {
-			u.SetHint(v)
-		}
-		return u
-	}
+	updateOpts := func(o bson.D) *options.UpdateOneOptionsBuilder { return updateOptions(options.UpdateOne(), o) }
+	updateManyOpts := func(o bson.D) *options.UpdateManyOptionsBuilder { return updateOptions(options.UpdateMany(), o) }
 	updResult := func(r *mongo.UpdateResult) goja.Value {
 		return obj("acknowledged", r.Acknowledged, "insertedId", r.UpsertedID, "matchedCount", r.MatchedCount,
 			"modifiedCount", r.ModifiedCount, "upsertedCount", r.UpsertedCount)
@@ -1266,6 +1232,33 @@ func (c *collObj) makeMethods() map[string]goja.Value {
 			return s.toJS(docs[0])
 		}),
 	}
+}
+
+// updateSetter is what updateOne and updateMany options have in common.
+type updateSetter[B any] interface {
+	SetUpsert(bool) B
+	SetArrayFilters([]any) B
+	SetCollation(*options.Collation) B
+	SetHint(any) B
+}
+
+// updateOptions applies the shell's update options to u.
+func updateOptions[B updateSetter[B]](u B, o bson.D) B {
+	if optBool(o, "upsert") {
+		u.SetUpsert(true)
+	}
+	if v, ok := optVal(o, "arrayFilters"); ok {
+		if a, ok := v.(bson.A); ok {
+			u.SetArrayFilters([]any(a))
+		}
+	}
+	if v, ok := optVal(o, "collation"); ok {
+		u.SetCollation(collation(v))
+	}
+	if v, ok := optVal(o, "hint"); ok {
+		u.SetHint(v)
+	}
+	return u
 }
 
 func collation(v any) *options.Collation {
