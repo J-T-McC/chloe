@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 
+	"golang.org/x/sync/errgroup"
+
 	"chloe/internal/datamodel"
 	"chloe/internal/design"
 	"chloe/internal/driver"
@@ -462,11 +464,11 @@ func (m *Manager) ReverseModel(ctx context.Context, connID, database, schema str
 			names = append(names, o.Name)
 		}
 	}
-	for _, n := range names {
-		t, err := c.LoadDesign(ctx, tableRef(database, schema, n))
-		if err != nil {
-			return mdl, fmt.Errorf("%s: %w", n, err)
-		}
+	tables, err := loadDesigns(ctx, c, database, schema, names)
+	if err != nil {
+		return mdl, err
+	}
+	for _, t := range tables {
 		// Models are database-independent; keep only the PostgreSQL schema.
 		t.Database = ""
 		mdl.Tables = append(mdl.Tables, t)
@@ -491,13 +493,13 @@ func (m *Manager) PlanModelSync(ctx context.Context, connID string, mdl datamode
 	if err != nil {
 		return datamodel.SyncPlan{}, err
 	}
-	var existing []design.Table
-	for _, o := range objs {
-		t, err := c.LoadDesign(ctx, tableRef(to.Database, schema, o.Name))
-		if err != nil {
-			return datamodel.SyncPlan{}, err
-		}
-		existing = append(existing, t)
+	names := make([]string, len(objs))
+	for i, o := range objs {
+		names[i] = o.Name
+	}
+	existing, err := loadDesigns(ctx, c, to.Database, schema, names)
+	if err != nil {
+		return datamodel.SyncPlan{}, err
 	}
 	if mdl.Dialect == "postgres" {
 		to.Schema = schema
@@ -512,6 +514,28 @@ func (m *Manager) ApplyModelSync(ctx context.Context, connID string, to datamode
 		return ApplyResult{Error: err.Error()}
 	}
 	return m.ExecuteDDL(ctx, connID, to.Database, to.Schema, plan.Statements(), c.Dialect().TransactionalDDL())
+}
+
+// designLoads is how many tables loadDesigns reads at once: each takes about ten
+// catalog queries, which is what makes a schema of hundreds of tables slow.
+const designLoads = 4
+
+// loadDesigns loads the designs of the named tables, a few at a time, in order.
+func loadDesigns(ctx context.Context, c driver.Conn, database, schema string, names []string) ([]design.Table, error) {
+	out := make([]design.Table, len(names))
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(designLoads)
+	for i, n := range names {
+		g.Go(func() error {
+			t, err := c.LoadDesign(gctx, tableRef(database, schema, n))
+			if err != nil {
+				return fmt.Errorf("%s: %w", n, err)
+			}
+			out[i] = t
+			return nil
+		})
+	}
+	return out, g.Wait()
 }
 
 func tableRef(database, schema, name string) model.ObjectRef {
