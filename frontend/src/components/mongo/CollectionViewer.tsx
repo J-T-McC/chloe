@@ -11,25 +11,17 @@ import { DocsMode, DocsView } from "./DocsView";
 import { designCollection } from "./actions";
 import { exportCollection, importCollection } from "./TransferDialog";
 import { Toolbar } from "../Toolbar";
+import { safeStorage } from "../../prefs";
 
 const PAGE_SIZES = [100, 500, 1000, 5000];
 
 export function readMode(): DocsMode {
-  try {
-    const m = localStorage.getItem("chloe.mongoView");
-    if (m === "grid" || m === "tree" || m === "json") return m;
-  } catch {
-    /* storage unavailable */
-  }
-  return "grid";
+  const m = safeStorage.getItem("chloe.mongoView");
+  return m === "grid" || m === "tree" || m === "json" ? m : "grid";
 }
 
 export function writeMode(m: DocsMode) {
-  try {
-    localStorage.setItem("chloe.mongoView", m);
-  } catch {
-    /* storage unavailable */
-  }
+  safeStorage.setItem("chloe.mongoView", m);
 }
 
 export function ModeSwitch({ mode, onChange }: { mode: DocsMode; onChange(m: DocsMode): void }) {

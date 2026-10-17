@@ -2,24 +2,7 @@
 // uses this so panes can be resized like in Navicat.
 import type { ReactNode } from "react";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
-
-// localStorage can throw (private mode, blocked storage); sizes are a convenience.
-const storage = {
-  getItem(key: string) {
-    try {
-      return localStorage.getItem(key);
-    } catch {
-      return null;
-    }
-  },
-  setItem(key: string, value: string) {
-    try {
-      localStorage.setItem(key, value);
-    } catch {
-      /* ignore */
-    }
-  },
-};
+import { safeStorage } from "../prefs";
 
 type Size = number | string; // number = pixels, "30%" or "30" = percent
 
@@ -42,7 +25,7 @@ export interface SplitProps {
 }
 
 export function Split(p: SplitProps) {
-  const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: `chloe:split:${p.id}`, storage, onlySaveAfterUserInteractions: true });
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: `chloe:split:${p.id}`, storage: safeStorage, onlySaveAfterUserInteractions: true });
   return (
     <Group orientation={p.vertical ? "vertical" : "horizontal"} className={"split " + (p.className ?? "")} defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged}>
       <Panel id="first" defaultSize={p.firstSize} minSize={p.minFirst} maxSize={p.maxFirst}>

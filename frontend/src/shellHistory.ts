@@ -2,6 +2,8 @@
 // read. Like redis-cli and mongosh, commands that carry credentials are kept for
 // the session (↑ still finds them) but never written there.
 
+import { safeStorage } from "./prefs";
+
 const MAX = 200;
 
 const REDIS_CONFIG_SECRETS = new Set(["requirepass", "masterauth", "tls-key-file-pass", "tls-client-key-file-pass"]);
@@ -36,10 +38,10 @@ export class ShellHistory {
   ) {
     let saved: string[] = [];
     try {
-      const v = JSON.parse(localStorage.getItem(key) || "[]");
+      const v = JSON.parse(safeStorage.getItem(key) || "[]");
       if (Array.isArray(v)) saved = v.filter((x) => typeof x === "string");
     } catch {
-      /* history is a convenience */
+      /* not JSON: start over */
     }
     this.items = saved.filter((c) => !sensitive(c));
     // Drop anything an earlier release saved before it redacted.
@@ -52,10 +54,6 @@ export class ShellHistory {
   }
 
   private save() {
-    try {
-      localStorage.setItem(this.key, JSON.stringify(this.items.filter((c) => !this.sensitive(c))));
-    } catch {
-      /* history is a convenience */
-    }
+    safeStorage.setItem(this.key, JSON.stringify(this.items.filter((c) => !this.sensitive(c))));
   }
 }

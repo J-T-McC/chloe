@@ -1,6 +1,7 @@
 // Appearance: follow the system, or force light or dark. The choice is cached in
 // localStorage for the first paint and stored with the app's settings.
 import { Layouts } from "./api";
+import { safeStorage } from "./prefs";
 
 export type ThemePref = "system" | "light" | "dark";
 
@@ -10,12 +11,8 @@ const listeners = new Set<() => void>();
 let pref: ThemePref = readCache();
 
 function readCache(): ThemePref {
-  try {
-    const v = localStorage.getItem(KEY);
-    return v === "light" || v === "dark" ? v : "system";
-  } catch {
-    return "system";
-  }
+  const v = safeStorage.getItem(KEY);
+  return v === "light" || v === "dark" ? v : "system";
 }
 
 export const themePref = () => pref;
@@ -30,11 +27,7 @@ function apply() {
 
 export function setThemePref(p: ThemePref) {
   pref = p;
-  try {
-    localStorage.setItem(KEY, p);
-  } catch {
-    /* cache only */
-  }
+  safeStorage.setItem(KEY, p);
   Layouts.Set(KEY, p).catch(() => {});
   apply();
 }

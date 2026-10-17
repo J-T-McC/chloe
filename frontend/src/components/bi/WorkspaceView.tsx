@@ -13,6 +13,7 @@ import { biChanged, openObject, useBIVersion, workspaceTitle } from "./actions";
 import { ChartTypeIcon } from "./icons";
 import { ParameterDialog, paramRefs } from "./Parameters";
 import { Toolbar } from "../Toolbar";
+import { safeStorage } from "../../prefs";
 
 type Filter = "all" | "source" | "chart" | "dashboard" | "parameter";
 
@@ -29,20 +30,8 @@ interface Item {
   remarks?: string;
 }
 
-const pref = (k: string, d: string) => {
-  try {
-    return localStorage.getItem(k) ?? d;
-  } catch {
-    return d;
-  }
-};
-const setPref = (k: string, v: string) => {
-  try {
-    localStorage.setItem(k, v);
-  } catch {
-    /* ignore */
-  }
-};
+const pref = (k: string, d: string) => safeStorage.getItem(k) ?? d;
+const setPref = safeStorage.setItem;
 
 export function useWorkspace(path: string) {
   const version = useBIVersion((s) => s.ws[path] ?? 0);
