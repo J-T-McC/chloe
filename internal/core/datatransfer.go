@@ -104,7 +104,7 @@ func (m *Manager) DataTransfer(req DataTransferRequest) (Job, error) {
 
 func endpointName(m *Manager, e Endpoint) string {
 	name := e.ConnID
-	if p, err := m.Store.Get(e.ConnID); err == nil {
+	if p, err := m.Store.Profile(e.ConnID); err == nil {
 		name = p.Name
 	}
 	parts := []string{name}

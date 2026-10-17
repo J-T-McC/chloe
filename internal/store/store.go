@@ -136,6 +136,19 @@ func (s *Store) Groups() []string {
 	return slices.Clone(s.groups)
 }
 
+// Profile returns a connection without reading its secrets from the keychain,
+// for callers that only need its name, type or settings.
+func (s *Store) Profile(id string) (model.Connection, error) {
+	s.mu.RLock()
+	c, ok := s.conns[id]
+	s.mu.RUnlock()
+	if !ok {
+		return c, ErrNotFound
+	}
+	c.Password, c.SSH.Password, c.SSH.Passphrase = "", "", ""
+	return c, nil
+}
+
 // Get returns a connection with its saved secrets filled in.
 func (s *Store) Get(id string) (model.Connection, error) {
 	s.mu.RLock()

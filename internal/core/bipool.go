@@ -45,7 +45,7 @@ func (b *biSessions) pool(m *Manager, connID string) *biPool {
 	p := b.pools[connID]
 	if p == nil {
 		n := BIMaxSessions
-		if c, err := m.Store.Get(connID); err == nil && c.Advanced.SessionLimit > 0 {
+		if c, err := m.Store.Profile(connID); err == nil && c.Advanced.SessionLimit > 0 {
 			n = min(n, max(1, c.Advanced.SessionLimit-1))
 		}
 		p = &biPool{slots: make(chan struct{}, n), idle: map[string][]idleSession{}}
