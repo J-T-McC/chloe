@@ -37,7 +37,15 @@ var (
 func normWords(s string) string { return strings.ToUpper(strings.Join(strings.Fields(s), " ")) }
 
 // checkFields rejects any field the generators write raw that isn't one piece.
-func checkFields(t Table, d sqlsplit.Dialect) error {
+// Expressions in loaded (the table as read from the database, for an ALTER) are
+// the server's own text and are taken as they are.
+func checkFields(t Table, d sqlsplit.Dialect, loaded *Table) error {
+	known := map[string]bool{}
+	if loaded != nil {
+		for _, s := range expressions(*loaded) {
+			known[s] = true
+		}
+	}
 	wordOpt := func(what, v string) error {
 		if v != "" && !wordRe.MatchString(v) {
 			return fmt.Errorf("%s %q is not a valid name", what, v)
@@ -51,6 +59,9 @@ func checkFields(t Table, d sqlsplit.Dialect) error {
 		return nil
 	}
 	ex := func(what, v string) error {
+		if known[v] {
+			return nil
+		}
 		if err := oneExpr(v, d); err != nil {
 			return fmt.Errorf("%s: %w", what, err)
 		}
@@ -157,14 +168,46 @@ func checkFields(t Table, d sqlsplit.Dialect) error {
 	return num("table auto increment", o.AutoIncrement)
 }
 
+// expressions lists the expression fields of t that checkFields checks.
+func expressions(t Table) []string {
+	var out []string
+	for _, c := range t.Columns {
+		if c.Default != nil {
+			out = append(out, *c.Default)
+		}
+		out = append(out, c.GeneratedExpr)
+	}
+	for _, ix := range t.Indexes {
+		out = append(out, ix.Where)
+		for _, c := range ix.Columns {
+			out = append(out, c.Expr)
+		}
+	}
+	for _, c := range t.Checks {
+		out = append(out, c.Expr)
+	}
+	for _, tr := range t.Triggers {
+		out = append(out, tr.When, tr.Function)
+	}
+	return out
+}
+
 // oneExpr checks that s is a single expression for dialect d: its strings,
 // quoted names and dollar quotes are closed, its parentheses balance, and it has
-// no comment or statement delimiter. Where the server's reading of backslashes
-// depends on its settings (MySQL sql_mode, PostgreSQL standard_conforming_strings),
-// s must pass both readings.
+// no comment or statement delimiter.
+//
+// MySQL strings are read with backslash escapes: that is the default sql_mode and
+// how information_schema hands back defaults, checks and generated expressions
+// ('it\'s'). Chloe's MySQL connections run one statement per call, so a server
+// with NO_BACKSLASH_ESCAPES still can't be given a second statement. PostgreSQL
+// connections run several, so there s must pass both readings of
+// standard_conforming_strings.
 func oneExpr(s string, d sqlsplit.Dialect) error {
-	if d == sqlsplit.SQLite {
+	switch d {
+	case sqlsplit.SQLite:
 		return scanExpr(s, d, false)
+	case sqlsplit.MySQL:
+		return scanExpr(s, d, true)
 	}
 	if err := scanExpr(s, d, false); err != nil {
 		return err
@@ -257,11 +300,11 @@ var delimiterLine = regexp.MustCompile(`(?im)^[ \t]*delimiter[ \t]`)
 // checked validates t's raw fields for dialect d, runs gen, and makes sure each
 // statement it returns is a single statement. MySQL trigger bodies hold their own
 // semicolons; the server takes one statement per call, so they're left to it.
-func checked(t Table, d sqlsplit.Dialect, gen func() ([]string, error)) ([]string, error) {
+func checked(t Table, loaded *Table, d sqlsplit.Dialect, gen func() ([]string, error)) ([]string, error) {
 	if err := Validate(t); err != nil {
 		return nil, err
 	}
-	if err := checkFields(t, d); err != nil {
+	if err := checkFields(t, d, loaded); err != nil {
 		return nil, err
 	}
 	stmts, err := gen()

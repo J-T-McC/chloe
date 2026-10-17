@@ -89,11 +89,11 @@ func TestRejectsSmuggledSQL(t *testing.T) {
 	}
 }
 
-// Values that differ in how MySQL reads backslashes (sql_mode) or PostgreSQL
-// (standard_conforming_strings) must be safe under both readings.
+// MySQL strings are read with backslash escapes; PostgreSQL values must be safe
+// under both readings of standard_conforming_strings.
 func TestBackslashReadings(t *testing.T) {
 	bad := map[sqlsplit.Dialect][]string{
-		sqlsplit.MySQL:    {`'a\'; DROP TABLE users; -- '`, `"a\"; DROP TABLE users; -- "`},
+		sqlsplit.MySQL:    {`'a\\'; DROP TABLE users; -- '`, `"a\\"; DROP TABLE users; -- "`, `'a\'`},
 		sqlsplit.Postgres: {`'a\'; DROP TABLE users; -- '`, `'a\'`, `$$x`, `$a$ x $b$`},
 	}
 	for d, vs := range bad {
@@ -107,7 +107,9 @@ func TestBackslashReadings(t *testing.T) {
 
 func TestAcceptsRealValues(t *testing.T) {
 	ok := map[sqlsplit.Dialect][]string{
-		sqlsplit.MySQL:    {"0", "'it''s'", `'a\\b'`, "CURRENT_TIMESTAMP", "(now() + interval 1 day)", "`a` > 0 and (`b` in ('x','y'))", "_utf8mb4'x'"},
+		sqlsplit.MySQL: {"0", "'it''s'", `'a\\b'`, "CURRENT_TIMESTAMP", "(now() + interval 1 day)", "`a` > 0 and (`b` in ('x','y'))", "_utf8mb4'x'",
+			// As information_schema hands them back.
+			`(title <> _utf8mb4'(') or (title <> _utf8mb4')') or (title <> _utf8mb4'it\'s')`, `_utf8mb4'C:\\dir\\'`},
 		sqlsplit.Postgres: {"nextval('t_id_seq'::regclass)", "'{}'::text[]", `E'a\\b'`, "$$x;y$$", "$1", `"Weird ""name""" > 0`, "(a # b) > 0", `E'a\'; b'`},
 		sqlsplit.SQLite:   {"0", "'x;y'", "[a b] > 0", "(datetime('now'))", "`a` + 1"},
 	}
@@ -127,18 +129,18 @@ func TestAcceptsRealValues(t *testing.T) {
 		{Name: "f", Type: "geometry", Length: "Point", Scale: "4326"},
 		{Name: "g", Type: "UNSIGNED BIG INT"},
 	} {
-		if err := checkFields(Table{Columns: []Column{c}}, sqlsplit.Postgres); err != nil {
+		if err := checkFields(Table{Columns: []Column{c}}, sqlsplit.Postgres, nil); err != nil {
 			t.Errorf("%s: %v", c.Type, err)
 		}
 	}
 	my := Column{Name: "e", Type: "enum", Length: `'a','it''s', 'b\\'`, Charset: "utf8mb4", Collation: "utf8mb4_0900_ai_ci"}
-	if err := checkFields(Table{Columns: []Column{my}, Options: Options{Engine: "InnoDB", AutoIncrement: "42"}}, sqlsplit.MySQL); err != nil {
+	if err := checkFields(Table{Columns: []Column{my}, Options: Options{Engine: "InnoDB", AutoIncrement: "42"}}, sqlsplit.MySQL, nil); err != nil {
 		t.Error(err)
 	}
 	for _, a := range []string{"", "set null", "SET  DEFAULT", "Cascade"} {
 		tb := base()
 		tb.ForeignKeys = []ForeignKey{{Name: "f", Columns: []string{"id"}, RefTable: "u", RefColumns: []string{"id"}, OnDelete: a}}
-		if err := checkFields(tb, sqlsplit.MySQL); err != nil {
+		if err := checkFields(tb, sqlsplit.MySQL, nil); err != nil {
 			t.Errorf("%q: %v", a, err)
 		}
 	}
@@ -156,7 +158,31 @@ func TestCheckedSplitsOutput(t *testing.T) {
 	gen := func() ([]string, error) {
 		return []string{"CREATE TABLE t (id int DEFAULT 'a'); DROP TABLE users; --')"}, nil
 	}
-	if _, err := checked(base(), sqlsplit.Postgres, gen); err == nil || !strings.Contains(err.Error(), "2 statements") {
+	if _, err := checked(base(), nil, sqlsplit.Postgres, gen); err == nil || !strings.Contains(err.Error(), "2 statements") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// Expressions read from the database are the server's own text: an ALTER keeps
+// them even where the stricter check would refuse them.
+func TestLoadedExpressionsKept(t *testing.T) {
+	old := base()
+	old.OrigName = "t"
+	for i := range old.Columns {
+		old.Columns[i].OrigName = old.Columns[i].Name
+	}
+	old.Checks = []Check{{Name: "c", OrigName: "c", Expr: `v <> 'a\'`}}
+	nw := old
+	nw.Columns = append([]Column(nil), old.Columns...)
+	nw.Columns[1].Comment = "changed"
+	if _, err := (Postgres{}).Alter(old, nw); err != nil {
+		t.Fatalf("unchanged check refused: %v", err)
+	}
+	if _, err := (Postgres{}).Create(nw); err == nil {
+		t.Fatal("create accepted an ambiguous literal")
+	}
+	nw.Checks = []Check{{Name: "c", OrigName: "c", Expr: `v <> 'b\'`}}
+	if _, err := (Postgres{}).Alter(old, nw); err == nil {
+		t.Fatal("alter accepted a new ambiguous literal")
 	}
 }

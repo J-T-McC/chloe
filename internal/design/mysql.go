@@ -171,7 +171,7 @@ func (g MySQL) triggerDDL(t Table, tr Trigger) string {
 }
 
 func (g MySQL) Create(t Table) ([]string, error) {
-	return checked(t, sqlsplit.MySQL, func() ([]string, error) { return g.create(t) })
+	return checked(t, nil, sqlsplit.MySQL, func() ([]string, error) { return g.create(t) })
 }
 
 func (g MySQL) create(t Table) ([]string, error) {
@@ -232,7 +232,7 @@ func (MySQL) validate(t Table) error {
 // Alter builds one ALTER TABLE with every clause (MySQL applies them atomically per
 // statement), followed by trigger changes, which need their own statements.
 func (g MySQL) Alter(old, nw Table) ([]string, error) {
-	return checked(nw, sqlsplit.MySQL, func() ([]string, error) { return g.alter(old, nw) })
+	return checked(nw, &old, sqlsplit.MySQL, func() ([]string, error) { return g.alter(old, nw) })
 }
 
 func (g MySQL) alter(old, nw Table) ([]string, error) {
