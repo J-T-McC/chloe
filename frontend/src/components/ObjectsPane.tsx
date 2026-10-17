@@ -86,6 +86,7 @@ function SqlObjectsPane() {
   // Selecting an object in the tree selects it here too.
   useEffect(() => {
     if (sel?.object) setPicked(objects.find((o) => o.name === sel.object!.name) ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setPicked is a new closure each render
   }, [sel?.object, objects]);
 
   const shown = useMemo(() => {

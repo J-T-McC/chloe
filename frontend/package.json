@@ -8,7 +8,8 @@
     "build:report": "vite build --config vite.report.config.ts",
     "build:dev": "tsc && npm run build:report && vite build --minify false --mode development",
     "build": "tsc && npm run build:report && vite build --mode production",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.19",
@@ -32,8 +33,11 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.0.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
     "jsdom": "^30.1.2",
     "typescript": "^5.2.2",
+    "typescript-eslint": "^8.71.2",
     "vite": "^8.0.5",
     "vitest": "^5.0.4"
   },

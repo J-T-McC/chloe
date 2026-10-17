@@ -59,7 +59,7 @@ export function StructureSyncWizard() {
     reset();
     setSource(preset ?? emptyEnd());
     setTarget(emptyEnd());
-  }, [open, preset]);
+  }, [open, preset, reset]);
   useEffect(() => setError(""), [source, target]);
 
   const chosen = useMemo(() => items.filter((it) => checked.has(key(it))), [items, checked]);

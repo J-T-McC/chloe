@@ -71,7 +71,7 @@ export function DataTransferWizard() {
     setTables({ all: false, names: [] });
     setViews({ all: false, names: [] });
     Transfer.DefaultTransferOptions().then(setOptions);
-  }, [open, preset]);
+  }, [open, preset, reset]);
 
   // Objects of the source.
   useEffect(() => {

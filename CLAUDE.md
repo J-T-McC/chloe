@@ -25,7 +25,7 @@ make db                                # start + seed MySQL :33306, Postgres :55
 CHLOE_DB_SLOT=N make db               # a separate set on ports +N*10 (chloe-mysql-N…); pass the same CHLOE_DB_SLOT to test-it, e2e and CHLOE_IT=1 go test
 make test                              # unit tests plus SQLite (no Docker needed)
 make test-it                           # start and seed the Docker databases, run integration tests
-make test-frontend                     # type check and frontend unit tests
+make test-frontend                     # type check, React hooks lint and frontend unit tests
 make e2e SCRIPT=smoke                  # Playwright against the browser build (smoke|sqlite|mongo|joins|mcp|...); reseeds first
 e2e/tester.sh                          # MCP sandbox for a tester agent (seeded games db, Reports on); then
 node e2e/mcp-call.mjs tools            #   list tools, or `node e2e/mcp-call.mjs <tool> '<json>'` (images saved to e2e/.tester/images)

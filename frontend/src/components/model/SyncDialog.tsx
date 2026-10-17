@@ -42,6 +42,7 @@ export function SyncDialog({ model, onClose, onSynced }: { model: DM.Model; onCl
         setError({ text: errorText(e) });
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the link only picks the first database shown
   }, [connId, model.name]);
 
   useEffect(() => {

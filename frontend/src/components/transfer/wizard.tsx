@@ -2,7 +2,7 @@
 // the source → target header, the step strip, the source/target pickers with the swap
 // button, the job a wizard starts, its footer and the deployment step.
 import { ArrowLeftRight, ArrowRight, Copy, FilePlus2 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { Transfer, copyText, type Endpoint, type Job } from "../../api";
 import { connById, useApp } from "../../store";
 import { ConnIcon } from "../icons";
@@ -87,10 +87,11 @@ export function EndpointPair(p: {
 export function useWizardJob() {
   const [id, setId] = useState("");
   const job = useTransfer((s) => s.jobs.find((j) => j.id === id));
+  const reset = useCallback(() => setId(""), []);
   return {
     job,
     running: job?.status === "running",
-    reset: () => setId(""),
+    reset,
     /** Starts the job here rather than in the Jobs panel; throws when it can't start. */
     async start(p: Promise<Job>) {
       const j = await track(p);

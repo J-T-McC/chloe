@@ -98,6 +98,7 @@ export function UserDesigner({ tab }: { tab: Tab }) {
   useEffect(() => {
     const base = draft?.name ? accountLabel(draft) : "Untitled";
     useApp.getState().updateTab(tab.id, { title: `${base} (${noun})` });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the title reads only the name and host
   }, [draft?.name, draft?.host, tab.id, noun]);
 
   const update = useCallback((fn: (u: P.User) => P.User) => setDraft((d) => (d ? fn(d) : d)), []);
