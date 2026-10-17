@@ -6,19 +6,19 @@ import { prompt } from "./Dialogs";
 import { DBIcon, PresetIcon } from "./icons";
 import { Modal, ModalFooter } from "./Modal";
 import { Field, Check } from "./form";
+import { engineLabel } from "../dialect";
 
-const ENGINES: Array<{ type: DBType; label: string; ready: boolean }> = [
-  { type: DBType.MySQL, label: "MySQL", ready: true },
-  { type: DBType.MariaDB, label: "MariaDB", ready: true },
-  { type: DBType.PostgreSQL, label: "PostgreSQL", ready: true },
-  { type: DBType.MongoDB, label: "MongoDB", ready: true },
-  { type: DBType.Redis, label: "Redis", ready: true },
-  { type: DBType.SQLite, label: "SQLite", ready: true },
-  { type: DBType.SQLServer, label: "SQL Server", ready: false },
-  { type: DBType.Oracle, label: "Oracle", ready: false },
+const ENGINES: Array<{ type: DBType; ready: boolean }> = [
+  { type: DBType.MySQL, ready: true },
+  { type: DBType.MariaDB, ready: true },
+  { type: DBType.PostgreSQL, ready: true },
+  { type: DBType.MongoDB, ready: true },
+  { type: DBType.Redis, ready: true },
+  { type: DBType.SQLite, ready: true },
+  { type: DBType.SQLServer, ready: false },
+  { type: DBType.Oracle, ready: false },
 ];
 
-const engineLabel = (t: DBType) => ENGINES.find((e) => e.type === t)?.label ?? t;
 const isMySQL = (t: DBType) => t === DBType.MySQL || t === DBType.MariaDB;
 
 type Section = "general" | "advanced" | "databases" | "ssl" | "ssh" | "remarks";
@@ -77,7 +77,7 @@ function TypePicker({ onPick, onCancel }: { onPick(c: Connection): void; onCance
   }, []);
 
   const f = filter.toLowerCase();
-  const engines = ENGINES.filter((e) => e.label.toLowerCase().includes(f));
+  const engines = ENGINES.filter((e) => engineLabel(e.type).toLowerCase().includes(f));
   const hosted = presets.filter((p) => (p.name + p.description).toLowerCase().includes(f));
 
   const fromUrl = async () => {
@@ -115,7 +115,7 @@ function TypePicker({ onPick, onCancel }: { onPick(c: Connection): void; onCance
           {engines.map((t) => (
             <button key={t.type} className="type-card" disabled={!t.ready} onClick={() => onPick(blankConnection(t.type))} title={t.ready ? "" : "Coming in a later phase"}>
               <DBIcon type={t.type} size={28} />
-              <span>{t.label}</span>
+              <span>{engineLabel(t.type)}</span>
             </button>
           ))}
         </div>

@@ -11,8 +11,8 @@ import { openExecuteFile, openExport, openImport, track } from "./components/tra
 import { connById, useApp } from "./store";
 import { designTable, newTable, runTableAction } from "./tableActions";
 import { reverseToModel } from "./components/model/actions";
+import { isPG, qualifiedName } from "./dialect";
 
-const isPG = (connId: string) => connById(connId)?.type === DBType.PostgreSQL;
 const isSQLite = (connId: string) => connById(connId)?.type === DBType.SQLite;
 
 /** Dump SQL File for a whole database/schema (tables empty) or chosen tables. */
@@ -139,7 +139,7 @@ export function viewMenu(connId: string, ref: ObjectRef): MenuItem[] {
     { separator: true },
     { label: "Query View", shortcut: "⌘T", onClick: () => newQuery(connId, ref.database, ref.schema, selectAllSQL(connId, ref)) },
     { label: "Show DDL", onClick: () => useApp.getState().openTab({ kind: "ddl", title: ref.name, connId, database: ref.database, schema: ref.schema, ref }) },
-    { label: "Export Wizard…", onClick: () => openExport({ connId, database: ref.database, schema: ref.schema, tables: [], sql: `SELECT * FROM ${quoted(connId, ref)}`, name: ref.name }) },
+    { label: "Export Wizard…", onClick: () => openExport({ connId, database: ref.database, schema: ref.schema, tables: [], sql: `SELECT * FROM ${qualifiedName(connId, ref, true)}`, name: ref.name }) },
     later("Data Dictionary…"),
     { separator: true },
     { label: "Copy", shortcut: "⌘C", onClick: () => copyText(ref.name) },
@@ -174,12 +174,6 @@ function refreshFolder(connId: string, ref: ObjectRef) {
   const tree = useTree.getState();
   const key = folderKey(connId, ref.database, ref.schema, ref.kind);
   if (tree.children[key]) tree.refresh({ key, type: "folder", label: "", connId, database: ref.database, schema: ref.schema, kind: ref.kind, depth: 0, expandable: true });
-}
-
-function quoted(connId: string, ref: ObjectRef) {
-  const q = isPG(connId) || isSQLite(connId) ? '"' : "`";
-  const qi = (s: string) => q + s.split(q).join(q + q) + q;
-  return isPG(connId) ? `${qi(ref.schema || "public")}.${qi(ref.name)}` : `${qi(ref.database)}.${qi(ref.name)}`;
 }
 
 /** Menu for the empty area of the object list (and the Tables folder). */

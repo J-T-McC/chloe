@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("./api", () => ({ Explorer: {}, ObjectKind: {}, errorText: String, arr: (x: unknown[]) => x ?? [] }));
+vi.mock("./api", () => ({ DBType: {}, Explorer: {}, ObjectKind: {}, errorText: String, arr: (x: unknown[]) => x ?? [] }));
 vi.mock("./store", () => ({ useApp: { getState: () => ({}) }, connById: () => undefined }));
 
 const { flatten, matchParts } = await import("./tree");

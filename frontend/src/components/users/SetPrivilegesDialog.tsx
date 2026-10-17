@@ -6,9 +6,10 @@ import { create } from "zustand";
 import { P, Users, arr, errorText } from "../../api";
 import { useApp } from "../../store";
 import { Combobox } from "../Combobox";
-import { accountLabel, isPGConn } from "./actions";
+import { accountLabel } from "./actions";
 import { Toolbar } from "../Toolbar";
 import { Modal, ModalFooter } from "../Modal";
+import { isPG } from "../../dialect";
 
 type Target = Omit<P.Grant, "privilege" | "grantable">;
 
@@ -32,7 +33,7 @@ export function SetPrivilegesDialog() {
 const rowKey = (r: { name: string; host?: string }) => accountLabel(r);
 
 function Inner({ connId, target, title }: { connId: string; target: Target; title: string }) {
-  const pg = isPGConn(connId);
+  const pg = isPG(connId);
   const [privList, setPrivList] = useState<string[]>([]);
   const [accounts, setAccounts] = useState<P.UserInfo[]>([]);
   const [original, setOriginal] = useState<Row[]>([]);

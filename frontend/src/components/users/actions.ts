@@ -1,20 +1,20 @@
-import { DBType, ObjectKind, P } from "../../api";
+import { ObjectKind, P } from "../../api";
 import { connById, useApp } from "../../store";
+import { isPG } from "../../dialect";
 
-export const isPGConn = (connId: string) => connById(connId)?.type === DBType.PostgreSQL;
 
 /** Display name of an account: user@host (MySQL) or the role name. */
 export const accountLabel = (u: { name: string; host?: string }) => (u.host ? `${u.name}@${u.host}` : u.name);
 
 /** Open the user list of a connection. */
 export function openUsers(connId: string) {
-  const pg = isPGConn(connId);
+  const pg = isPG(connId);
   useApp.getState().openTab({ kind: "users", title: `${pg ? "Roles" : "Users"} — ${connById(connId)?.name ?? ""}`, connId, ref: { database: "", name: "users", kind: ObjectKind.$zero } });
 }
 
 /** Open the user editor for an account, or a new one. */
 export function openUser(connId: string, u?: P.UserInfo) {
-  const pg = isPGConn(connId);
+  const pg = isPG(connId);
   useApp.getState().openTab({
     kind: "user",
     title: u ? `${accountLabel(u)} (${pg ? "role" : "user"})` : `Untitled (${pg ? "role" : "user"})`,

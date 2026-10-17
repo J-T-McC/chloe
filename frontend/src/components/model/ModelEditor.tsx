@@ -18,6 +18,7 @@ import { SyncDialog } from "./SyncDialog";
 import { Toolbar } from "../Toolbar";
 import { useSavableTab } from "../useSavableTab";
 import { Modal, ModalFooter } from "../Modal";
+import { engineLabel } from "../../dialect";
 
 interface ModelState {
   model: DM.Model;
@@ -346,7 +347,7 @@ function ModelEditorInner({ tab }: { tab: Tab }) {
         </button>
         <span className="spacer" />
         <span className="crumbs">
-          <span className="badge">{dialect === "postgres" ? "PostgreSQL" : "MySQL"}</span>
+          <span className="badge">{engineLabel(dialect)}</span>
           <input className="name-input" value={state.model.name} placeholder="model name" onChange={(e) => setModel({ name: e.target.value })} title="Model name" />
         </span>
         <div className="erd-search">

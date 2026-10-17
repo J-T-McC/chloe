@@ -5,12 +5,13 @@ import { P, Users, arr, errorText, copyText } from "../../api";
 import { Tab, useApp } from "../../store";
 import { openMenu } from "../ContextMenu";
 import { alert, confirm } from "../Dialogs";
-import { accountLabel, isPGConn, openUser } from "./actions";
+import { accountLabel, openUser } from "./actions";
 import { Toolbar } from "../Toolbar";
+import { isPG } from "../../dialect";
 
 export function UsersPane({ tab }: { tab: Tab }) {
   const connId = tab.connId!;
-  const pg = isPGConn(connId);
+  const pg = isPG(connId);
   const [users, setUsers] = useState<P.UserInfo[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);

@@ -19,6 +19,7 @@ import { openDataTransfer } from "./transfer/DataTransferWizard";
 import { openStructureSync } from "./transfer/StructureSyncWizard";
 import { openDataSync } from "./transfer/DataSyncWizard";
 import { Drag, Drop, DropTarget, resolveDrop } from "../connDrag";
+import { isPG, qualifiedName } from "../dialect";
 
 const ROW = 24;
 export const COLORS: Array<[string, string]> = [
@@ -306,12 +307,7 @@ export function newQuery(connId: string, database?: string, schema?: string, sql
 export function selectAllSQL(connId: string, ref: ObjectRef) {
   const type = connById(connId)?.type;
   if (type === DBType.MongoDB) return `db.getCollection(${JSON.stringify(ref.name)}).find({})`;
-  const pg = type === "postgres";
-  const q = pg || type === "sqlite" ? '"' : "`";
-  const qi = (s: string) => (/^[a-z_][a-z0-9_]*$/.test(s) ? s : q + s.split(q).join(q + q) + q);
-  const qualifier = pg ? (ref.schema && ref.schema !== "public" ? ref.schema : "") : type === "sqlite" && ref.database !== "main" ? ref.database : "";
-  const name = qualifier ? `${qi(qualifier)}.${qi(ref.name)}` : qi(ref.name);
-  return `SELECT * FROM ${name};`;
+  return `SELECT * FROM ${qualifiedName(connId, ref)};`;
 }
 
 export function openMonitor(connId: string) {
@@ -494,12 +490,12 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
         { label: "Delete Database", onClick: () => deleteDatabase(n.connId, n.database!) },
         { separator: true },
         { label: "New Query", onClick: () => newQuery(n.connId, n.database) },
-        ...(isPGConn(n.connId) ? [] : [{ label: "New Table", onClick: () => newTable(n.connId, n.database!) }]),
+        ...(isPG(n.connId) ? [] : [{ label: "New Table", onClick: () => newTable(n.connId, n.database!) }]),
         { separator: true },
-        ...(isPGConn(n.connId) ? [{ label: "Execute SQL File…", onClick: () => openExecuteFile(n.connId, n.database!) }] : databaseTools(n.connId, n.database!)),
+        ...(isPG(n.connId) ? [{ label: "Execute SQL File…", onClick: () => openExecuteFile(n.connId, n.database!) }] : databaseTools(n.connId, n.database!)),
         { label: "Data Transfer…", onClick: () => openDataTransfer({ connId: n.connId, database: n.database }) },
-        ...(isPGConn(n.connId) ? [] : [{ label: "Structure Synchronization…", onClick: () => openStructureSync({ connId: n.connId, database: n.database }) }]),
-        ...(isPGConn(n.connId) ? [] : [{ label: "Data Synchronization…", onClick: () => openDataSync({ connId: n.connId, database: n.database }) }]),
+        ...(isPG(n.connId) ? [] : [{ label: "Structure Synchronization…", onClick: () => openStructureSync({ connId: n.connId, database: n.database }) }]),
+        ...(isPG(n.connId) ? [] : [{ label: "Data Synchronization…", onClick: () => openDataSync({ connId: n.connId, database: n.database }) }]),
         { separator: true },
         { label: "Copy Name", onClick: () => copy(n.label) },
         { label: "Refresh", shortcut: "⌘R", disabled: !dbOpen, onClick: () => tree.refresh(n) },
@@ -553,7 +549,6 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
   }
 }
 
-const isPGConn = (id: string) => connById(id)?.type === "postgres";
 
 /** Menu of saved queries in a Queries folder or the Objects list. */
 export function savedQueryMenu(connId: string, database: string, schema: string | undefined, names: string[]): MenuItem[] {

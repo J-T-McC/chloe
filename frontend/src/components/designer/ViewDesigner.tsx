@@ -9,7 +9,7 @@ import { beautifyEditor } from "../../editor/format";
 import { Monaco, monaco } from "../../editor/monaco";
 import { Tab, connById, useApp } from "../../store";
 import { folderKey, useTree } from "../../tree";
-import { connDialect } from "../../dialect";
+import { connDialect, isPG } from "../../dialect";
 import { confirm, prompt } from "../Dialogs";
 import { CodeBlock } from "../ObjectsPane";
 import { Messages, ResultGrid, RunState } from "../QueryEditor";
@@ -26,7 +26,7 @@ const same = (a: D.View | null, b: D.View | null) => JSON.stringify(a) === JSON.
 
 export function ViewDesigner({ tab }: { tab: Tab }) {
   const connId = tab.connId!;
-  const pg = connById(connId)?.type === DBType.PostgreSQL;
+  const pg = isPG(connId);
   const sqlite = connById(connId)?.type === DBType.SQLite;
   const isNew = !tab.ref?.name;
   const [original, setOriginal] = useState<D.View | null>(null);
