@@ -59,6 +59,14 @@ func TestModels(t *testing.T) {
 	f.call(t, "edit_model", map[string]any{"model": p, "set_tables": []any{map[string]any{"name": "t", "colums": []any{}}}}, "unknown field")
 	f.call(t, "edit_model", map[string]any{"model": p, "set_tables": []any{map[string]any{"name": "t", "columns": []any{}}}}, "at least one column")
 	f.call(t, "edit_model", map[string]any{"model": p, "drop_tables": []any{"nope"}}, "no table")
+	// Fields written into the DDL must each be one piece of SQL.
+	for _, col := range []map[string]any{
+		{"name": "id", "type": "integer", "default": "0; DROP TABLE users"},
+		{"name": "id", "type": "integer); DROP TABLE users; --"},
+		{"name": "id", "type": "integer", "default": "'x"},
+	} {
+		f.call(t, "edit_model", map[string]any{"model": p, "set_tables": []any{map[string]any{"name": "t", "columns": []any{col}}}}, "column \"id\"")
+	}
 	out := f.call(t, "edit_model", map[string]any{"model": p, "set_tables": []any{customers, orders}, "rename": "Shop v3"}, "")
 	if out["table_count"] != 2.0 || out["name"] != "Shop v3" || f.events.models[len(f.events.models)-1] != p {
 		t.Fatalf("edit: %v %v", out, f.events.models)

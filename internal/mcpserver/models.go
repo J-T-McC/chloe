@@ -206,6 +206,20 @@ func (s *Server) addModelTools(srv *mcp.Server, ep string) {
 			if err := m.Validate(); err != nil {
 				return ModelInfo{}, err
 			}
+			// Catch fields that won't generate (a default that isn't one
+			// expression, say) now rather than at generate_sql.
+			if len(in.SetTables) > 0 {
+				gen, err := m.Generator()
+				if err != nil {
+					return ModelInfo{}, err
+				}
+				for _, raw := range in.SetTables {
+					t, _ := decodeTable(raw)
+					if _, err := gen.Create(t); err != nil {
+						return ModelInfo{}, fmt.Errorf("table %q: %w", t.Name, err)
+					}
+				}
+			}
 			if err := datamodel.Write(p, m); err != nil {
 				return ModelInfo{}, err
 			}

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"chloe/internal/sqlq"
+	"chloe/internal/sqlsplit"
 )
 
 // Postgres generates PostgreSQL DDL. Its statements are meant to run in one
@@ -207,6 +208,10 @@ func commentValue(s string) string {
 }
 
 func (g Postgres) Create(t Table) ([]string, error) {
+	return checked(t, sqlsplit.Postgres, func() ([]string, error) { return g.create(t) })
+}
+
+func (g Postgres) create(t Table) ([]string, error) {
 	if err := Validate(t); err != nil {
 		return nil, err
 	}
@@ -257,6 +262,10 @@ func pkDef(pk *PrimaryKey) string {
 }
 
 func (g Postgres) Alter(old, nw Table) ([]string, error) {
+	return checked(nw, sqlsplit.Postgres, func() ([]string, error) { return g.alter(old, nw) })
+}
+
+func (g Postgres) alter(old, nw Table) ([]string, error) {
 	if err := Validate(nw); err != nil {
 		return nil, err
 	}
