@@ -373,6 +373,81 @@ func checkRedisRead(args []string) error {
 	return fmt.Errorf("redis_command only runs read commands (GET, HGETALL, ZRANGE, XRANGE…); use redis_set, redis_edit, redis_delete or redis_expire to change data")
 }
 
+// checkRedisSize refuses a command that would read a whole collection of more
+// than maxRedisKeys elements: the server builds the full reply, blocking while
+// it does, before any of it could be cut. A bounded form is suggested instead.
+func checkRedisSize(ctx context.Context, cl redis.Cmdable, args []string) error {
+	if len(args) < 2 {
+		return nil
+	}
+	name, key := strings.ToUpper(args[0]), args[1]
+	opt := func(word string) (string, bool) {
+		for i := 2; i < len(args); i++ {
+			if strings.EqualFold(args[i], word) {
+				if word == "LIMIT" && i+2 < len(args) {
+					return args[i+2], true
+				}
+				if i+1 < len(args) {
+					return args[i+1], true
+				}
+				return "", true
+			}
+		}
+		return "", false
+	}
+	// bounded reports whether start..stop (as given to LRANGE or ZRANGE) asks for few enough elements.
+	bounded := func() bool {
+		if len(args) < 4 {
+			return false
+		}
+		a, err1 := strconv.ParseInt(args[2], 10, 64)
+		b, err2 := strconv.ParseInt(args[3], 10, 64)
+		return err1 == nil && err2 == nil && a >= 0 && b >= a && b-a < maxRedisKeys
+	}
+	limited := func(word string) bool {
+		n, ok := opt(word)
+		c, err := strconv.ParseInt(n, 10, 64)
+		return ok && err == nil && c >= 0 && c <= maxRedisKeys
+	}
+	var size func() (int64, error)
+	var hint string
+	switch name {
+	case "HGETALL", "HKEYS", "HVALS":
+		size, hint = func() (int64, error) { return cl.HLen(ctx, key).Result() }, "HSCAN "+key+" 0 COUNT 500"
+	case "SMEMBERS":
+		size, hint = func() (int64, error) { return cl.SCard(ctx, key).Result() }, "SSCAN "+key+" 0 COUNT 500"
+	case "LRANGE":
+		if bounded() {
+			return nil
+		}
+		size, hint = func() (int64, error) { return cl.LLen(ctx, key).Result() }, "LRANGE "+key+" 0 999"
+	case "ZRANGE", "ZREVRANGE":
+		_, byScore := opt("BYSCORE")
+		_, byLex := opt("BYLEX")
+		if limited("LIMIT") || !byScore && !byLex && bounded() {
+			return nil
+		}
+		size, hint = func() (int64, error) { return cl.ZCard(ctx, key).Result() }, "ZRANGE "+key+" 0 999, or ZSCAN "+key+" 0"
+	case "ZRANGEBYSCORE", "ZREVRANGEBYSCORE", "ZRANGEBYLEX", "ZREVRANGEBYLEX":
+		if limited("LIMIT") {
+			return nil
+		}
+		size, hint = func() (int64, error) { return cl.ZCard(ctx, key).Result() }, "the same command with LIMIT 0 1000"
+	case "XRANGE", "XREVRANGE":
+		if limited("COUNT") {
+			return nil
+		}
+		size, hint = func() (int64, error) { return cl.XLen(ctx, key).Result() }, "the same command with COUNT 1000"
+	default:
+		return nil
+	}
+	n, err := size()
+	if err != nil || n <= maxRedisKeys {
+		return nil // a wrong type or missing key gets the server's own answer
+	}
+	return fmt.Errorf("%s holds %d elements, more than the %d one read returns; use %s", key, n, maxRedisKeys, hint)
+}
+
 // quoteArgs renders a command like redis-cli input, for approvals and the log.
 func quoteArgs(args ...string) string {
 	parts := make([]string, len(args))
@@ -537,6 +612,9 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 			}
 			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
 			defer cancel()
+			if err := checkRedisSize(ctx, t.cl, in.Args); err != nil {
+				return RedisCommandOut{}, err
+			}
 			v, err := t.cl.Do(ctx, toAny(in.Args)...).Result()
 			if err != nil && !errors.Is(err, redis.Nil) {
 				return RedisCommandOut{}, err

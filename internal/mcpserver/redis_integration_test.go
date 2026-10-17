@@ -108,6 +108,22 @@ func TestIntegrationRedisTools(t *testing.T) {
 		t.Fatalf("command: %v", r)
 	}
 	f.call(t, "redis_command", at(map[string]any{"args": []any{"DEL", "greeting"}}), "only runs read commands")
+	// Whole reads of a big collection are refused with a bounded form to use instead.
+	bkv, _ := f.m.Redis(f.conn)
+	cl, ctx := bkv.DB(redisDB), context.Background()
+	big := make([]any, 0, 3000)
+	for i := range 1500 {
+		big = append(big, fmt.Sprint("f", i), "v")
+	}
+	cl.HSet(ctx, "big", big...)
+	cl.RPush(ctx, "longlist", big...)
+	f.call(t, "redis_command", at(map[string]any{"args": []any{"HGETALL", "big"}}), "big holds 1500 elements, more than the 1000 one read returns; use HSCAN big 0 COUNT 500")
+	f.call(t, "redis_command", at(map[string]any{"args": []any{"LRANGE", "longlist", "0", "-1"}}), "use LRANGE longlist 0 999")
+	if r := f.call(t, "redis_command", at(map[string]any{"args": []any{"LRANGE", "longlist", "0", "2"}}), ""); !strings.HasPrefix(r["reply"].(string), `1) "f0"`) {
+		t.Fatalf("bounded LRANGE: %v", r)
+	}
+	f.call(t, "redis_command", at(map[string]any{"args": []any{"HSCAN", "big", "0", "COUNT", "10"}}), "")
+	cl.Del(ctx, "big", "longlist")
 	f.call(t, "redis_scan", map[string]any{"connection": "cache", "db": 7}, "isn't shared")
 
 	// Writes, each approved.
@@ -167,7 +183,7 @@ func TestIntegrationRedisTools(t *testing.T) {
 	f.appr.mu.Unlock()
 
 	// Tester findings: cursors, counts, TTLs, duplicates, truncation.
-	cl := kv.DB(redisDB)
+	cl = kv.DB(redisDB)
 	f.call(t, "redis_get", at(map[string]any{"key": "late", "cursor": "-1"}), "isn't one redis_get returned")
 	f.call(t, "redis_scan", at(map[string]any{"cursor": "abc"}), "isn't one redis_scan returned")
 	for i := range 300 {
