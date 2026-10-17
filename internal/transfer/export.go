@@ -312,6 +312,19 @@ var (
 	byteaHexRe   = regexp.MustCompile(`^\\x[0-9A-Fa-f]*$`)
 )
 
+// canonicalNumber reports whether s is an integer or float exactly as
+// sqlcommon.FormatValue writes one.
+func canonicalNumber(s string) bool {
+	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return strconv.FormatInt(n, 10) == s
+	}
+	if !decimalRe.MatchString(s) {
+		return false
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	return err == nil && strconv.FormatFloat(f, 'g', -1, 64) == s
+}
+
 // Literal renders a display value as a SQL literal for the dialect. Display values come
 // from the database (SQLite lets any column hold text), so a value is only written raw
 // once it is known to be a number, boolean or hex string; anything else is quoted.
@@ -335,8 +348,16 @@ func Literal(v *string, typ string, dialect string) string {
 	}
 	if dialect == "sqlite" {
 		// Standard strings (no backslash escapes) and X'…' blobs.
-		if strings.Contains(t, "BLOB") && blobHexRe.MatchString(*v) {
+		blobAffinity := t == "" || strings.Contains(t, "BLOB")
+		if blobAffinity && blobHexRe.MatchString(*v) {
 			return "X'" + (*v)[2:] + "'"
+		}
+		// A column without type affinity keeps what it's given and compares
+		// without converting: 10 there isn't '10'. Its numbers arrive formatted
+		// as the driver formats them, so a value in exactly that form was a number
+		// (text like 007 or 1.0 stays text).
+		if blobAffinity && canonicalNumber(*v) {
+			return *v
 		}
 		return sqlq.String(*v)
 	}
