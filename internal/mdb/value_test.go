@@ -230,4 +230,41 @@ func TestEvalNumberLimits(t *testing.T) {
 	if _, err := EvalDoc(`{a: ObjectId("65a1b2c3d4e5f60718293a4b")}`); err != nil {
 		t.Errorf("after reassigning ObjectId: %v", err)
 	}
+	// Nor through the built-in prototypes.
+	for range 4 {
+		_, _ = EvalShell(`Object.defineProperty(Object.prototype, "$where", {get() { return "x" }})`)
+		_, _ = EvalShell(`(Array.prototype.concat = function () { return "changed" })`)
+	}
+	for range 4 {
+		d, err := EvalDoc(`{a: [1].concat([2]), b: {}}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := Format(ToVal(d), "", false); got != "{ a: [ 1, 2 ], b: {} }" {
+			t.Fatalf("after touching prototypes: %s", got)
+		}
+	}
+}
+
+// A regex is written as /…/ only when that reads back as the same regex; anything
+// else, such as a pattern ending in a backslash, becomes BSONRegExp(…).
+func TestRegexFormatRoundTrip(t *testing.T) {
+	for _, p := range []string{`x\`, `[/`, `a[`, `[\]`, "a\u2028b", `x`, `[a\]]`, `\[`, `a\/b`} {
+		doc := bson.D{{Key: "r", Value: bson.Regex{Pattern: p, Options: "i"}}, {Key: "s", Value: "/,p:Object.keys(this),q:"}, {Key: "t", Value: "}//"}}
+		text := Format(ToVal(doc), "", false)
+		back, err := EvalDoc(text)
+		if err != nil {
+			t.Errorf("%q: %s: %v", p, text, err)
+			continue
+		}
+		if !reflect.DeepEqual(back, doc) {
+			t.Errorf("%q: %s read back as %v", p, text, back)
+		}
+	}
+	if got := Format(ToVal(bson.D{{Key: "r", Value: bson.Regex{Pattern: `^a[b/]`}}}), "", false); !strings.Contains(got, "BSONRegExp") {
+		t.Errorf("slash in a class: %s", got)
+	}
+	if got := Format(ToVal(bson.D{{Key: "r", Value: bson.Regex{Pattern: `^a[bc]\d`, Options: "i"}}}), "", false); got != `{ r: /^a[bc]\d/i }` {
+		t.Errorf("plain regex: %s", got)
+	}
 }

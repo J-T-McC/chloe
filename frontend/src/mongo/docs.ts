@@ -84,8 +84,23 @@ export function formatCompact(v: Val, width = 80, depth = 0): string {
   return "{\n" + fields(v).map((f) => inner + key(f.k) + ": " + formatCompact(f.v, width - key(f.k).length - 2, depth + 1)).join(",\n") + "\n" + pad + "}";
 }
 
-/** Whether /pattern/options reads back as the same regex. */
-const regexLiteral = (pattern: string, opts: string) => /^[imsu]*$/.test(opts) && pattern !== "" && !/[/\n\r]/.test(pattern);
+/**
+ * Whether /pattern/options reads back as the same regex: the JavaScript lexer must end the literal at
+ * the closing slash, so the pattern can't hold a slash or line break, end in a backslash, or leave a
+ * character class open.
+ */
+function regexLiteral(pattern: string, opts: string): boolean {
+  if (!/^[imsu]*$/.test(opts) || pattern === "" || /[/\n\r\u2028\u2029]/.test(pattern)) return false;
+  let escaped = false;
+  let cls = false;
+  for (const ch of pattern) {
+    if (escaped) escaped = false;
+    else if (ch === "\\") escaped = true;
+    else if (ch === "[") cls = true;
+    else if (ch === "]") cls = false;
+  }
+  return !escaped && !cls;
+}
 
 function scalar(v: Val, json: boolean, display = false): string {
   const q = (s: string) => quote(s, json);
