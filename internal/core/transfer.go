@@ -325,18 +325,12 @@ func (im *importer) run(ctx context.Context, src transfer.Source) (string, error
 		}
 	}
 
-	switch {
-	case req.DisableFKChecks && im.d.Name == "mysql":
-		if err := exec("SET FOREIGN_KEY_CHECKS = 0"); err != nil {
+	// Before BEGIN: SQLite only takes it outside a transaction.
+	if off := im.d.ForeignKeyChecks(false); req.DisableFKChecks && off != "" {
+		if err := exec(off); err != nil {
 			return "", err
 		}
-		defer exec("SET FOREIGN_KEY_CHECKS = 1")
-	case req.DisableFKChecks && im.d.Name == "sqlite":
-		// Must be set outside a transaction to take effect.
-		if err := exec("PRAGMA foreign_keys = OFF"); err != nil {
-			return "", err
-		}
-		defer exec("PRAGMA foreign_keys = ON")
+		defer exec(im.d.ForeignKeyChecks(true))
 	}
 	if req.Transaction {
 		if err := exec("BEGIN"); err != nil {
@@ -360,12 +354,7 @@ func (im *importer) run(ctx context.Context, src transfer.Source) (string, error
 	if batch <= 0 {
 		batch = 500
 	}
-	// Bind-parameter limits (65535 for MySQL and PostgreSQL, 32766 for SQLite) cap the batch.
-	limit := 60000
-	if im.d.Name == "sqlite" {
-		limit = 32000
-	}
-	if max := limit / max(1, len(im.cols)); batch > max {
+	if max := im.d.MaxParams() / max(1, len(im.cols)); batch > max {
 		batch = max
 	}
 	if req.Mode == ImportUpdate || req.Mode == ImportDelete {

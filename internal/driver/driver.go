@@ -167,12 +167,68 @@ func (d Dialect) QuoteIdent(s string) string {
 	return sqlq.Quoted(s)
 }
 
+// NumberedParams reports whether placeholders are numbered ($1, $2…), so a
+// statement's arguments follow their numbers rather than their order in the text.
+func (d Dialect) NumberedParams() bool { return d.Name == "postgres" }
+
 // Placeholder returns the n-th (1-based) bind parameter marker.
 func (d Dialect) Placeholder(n int) string {
-	if d.Name == "postgres" {
+	if d.NumberedParams() {
 		return fmt.Sprintf("$%d", n)
 	}
 	return "?"
+}
+
+// MaxParams caps the bind parameters of one statement under the engine's limit
+// (65535 for MySQL and PostgreSQL, 32766 for SQLite).
+func (d Dialect) MaxParams() int {
+	if d.Name == "sqlite" {
+		return 32000
+	}
+	return 60000
+}
+
+// Begin is the statement that opens a transaction.
+func (d Dialect) Begin() string {
+	if d.Name == "mysql" {
+		return "START TRANSACTION"
+	}
+	return "BEGIN"
+}
+
+// ForeignKeyChecks returns the statement that turns foreign key checks on or off
+// for the session, or "" where the engine has none (PostgreSQL). SQLite only
+// takes it outside a transaction.
+func (d Dialect) ForeignKeyChecks(on bool) string {
+	switch d.Name {
+	case "mysql":
+		if on {
+			return "SET FOREIGN_KEY_CHECKS = 1"
+		}
+		return "SET FOREIGN_KEY_CHECKS = 0"
+	case "sqlite":
+		if on {
+			return "PRAGMA foreign_keys = ON"
+		}
+		return "PRAGMA foreign_keys = OFF"
+	}
+	return ""
+}
+
+// InTx runs fn inside a transaction on ds: COMMIT when fn succeeds, ROLLBACK
+// (even if ctx is done) when it fails.
+func InTx(ctx context.Context, ds Session, fn func() error) error {
+	if _, err := ds.Exec(ctx, "BEGIN"); err != nil {
+		return err
+	}
+	if err := fn(); err != nil {
+		rctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, _ = ds.Exec(rctx, "ROLLBACK")
+		return err
+	}
+	_, err := ds.Exec(ctx, "COMMIT")
+	return err
 }
 
 // Qualified returns a fully quoted object name.
