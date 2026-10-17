@@ -145,8 +145,7 @@ func (s *Store) Profile(id string) (model.Connection, error) {
 	if !ok {
 		return c, ErrNotFound
 	}
-	c.Password, c.SSH.Password, c.SSH.Passphrase = "", "", ""
-	return c, nil
+	return c.WithoutSecrets(), nil
 }
 
 // Get returns a connection with its saved secrets filled in.
@@ -177,16 +176,12 @@ func (s *Store) Save(c model.Connection) (model.Connection, error) {
 		return c, errors.New("connection name is required")
 	}
 	c.Group = strings.TrimSpace(c.Group)
-	if err := s.storeSecret(c.ID, "password", c.Password, c.SavePassword); err != nil {
-		return c, err
+	for _, sec := range c.Secrets() {
+		if err := s.storeSecret(c.ID, sec.Name, *sec.Value, sec.Save); err != nil {
+			return c, err
+		}
 	}
-	if err := s.storeSecret(c.ID, "ssh-password", c.SSH.Password, c.SSH.SavePassword); err != nil {
-		return c, err
-	}
-	if err := s.storeSecret(c.ID, "ssh-passphrase", c.SSH.Passphrase, c.SSH.SavePassword); err != nil {
-		return c, err
-	}
-	stripped := stripSecrets(c)
+	stripped := c.WithoutSecrets()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -414,11 +409,6 @@ func (s *Store) flushLocked() error {
 		}
 	}
 	return safefile.Write(s.path, data)
-}
-
-func stripSecrets(c model.Connection) model.Connection {
-	c.Password, c.SSH.Password, c.SSH.Passphrase = "", "", ""
-	return c
 }
 
 func secretKey(id, name string) string { return id + ":" + name }

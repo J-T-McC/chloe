@@ -75,13 +75,11 @@ func (s *ConnectionService) Get(id string) (model.Connection, error) {
 	if err != nil {
 		return c, err
 	}
-	mask := func(v string) string {
-		if v != "" {
-			return SecretPlaceholder
+	for _, sec := range c.Secrets() {
+		if *sec.Value != "" {
+			*sec.Value = SecretPlaceholder
 		}
-		return ""
 	}
-	c.Password, c.SSH.Password, c.SSH.Passphrase = mask(c.Password), mask(c.SSH.Password), mask(c.SSH.Passphrase)
 	return c, nil
 }
 
@@ -97,14 +95,11 @@ func (s *ConnectionService) resolveSecrets(c model.Connection) model.Connection 
 	if err != nil {
 		return c
 	}
-	if c.Password == SecretPlaceholder {
-		c.Password = stored.Password
-	}
-	if c.SSH.Password == SecretPlaceholder {
-		c.SSH.Password = stored.SSH.Password
-	}
-	if c.SSH.Passphrase == SecretPlaceholder {
-		c.SSH.Passphrase = stored.SSH.Passphrase
+	have := stored.Secrets()
+	for i, sec := range c.Secrets() {
+		if *sec.Value == SecretPlaceholder {
+			*sec.Value = *have[i].Value
+		}
 	}
 	return c
 }

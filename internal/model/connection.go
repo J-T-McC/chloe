@@ -15,6 +15,32 @@ const (
 	Oracle     DBType = "oracle"
 )
 
+// Secret is one of a connection's secrets: its keychain name, the field holding
+// it, and whether the user chose to save it.
+type Secret struct {
+	Name  string
+	Value *string
+	Save  bool
+}
+
+// Secrets lists every secret field of the connection. Code that strips, masks or
+// stores secrets goes through it, so a new secret field can't be missed.
+func (c *Connection) Secrets() []Secret {
+	return []Secret{
+		{"password", &c.Password, c.SavePassword},
+		{"ssh-password", &c.SSH.Password, c.SSH.SavePassword},
+		{"ssh-passphrase", &c.SSH.Passphrase, c.SSH.SavePassword},
+	}
+}
+
+// WithoutSecrets returns the connection with every secret field empty.
+func (c Connection) WithoutSecrets() Connection {
+	for _, s := range c.Secrets() {
+		*s.Value = ""
+	}
+	return c
+}
+
 // Connection is a saved connection profile. Secrets (passwords, passphrases)
 // are never persisted in this struct's JSON form; they live in the OS keychain.
 type Connection struct {
