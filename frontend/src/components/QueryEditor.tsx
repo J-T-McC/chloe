@@ -1,9 +1,9 @@
 import { Check, CircleStop, History, Minus, PanelBottom, Play, PlayCircle, Plus, Save, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DBType, Events, Explorer, Query, ResultEdit, StatementResult, arr, errorText } from "../api";
-import { autoTrigger, clearEditorContext, invalidateCatalog, preloadCatalog, registerSqlCompletion, setEditorContext } from "../editor/completion";
-import { beautifyEditor, registerFormatter } from "../editor/format";
-import { Monaco, editorTheme, monaco } from "../editor/monaco";
+import { invalidateCatalog, preloadCatalog, setEditorContext } from "../editor/completion";
+import { beautifyEditor } from "../editor/format";
+import { Monaco, monaco } from "../editor/monaco";
 import { Tab, connById, useApp } from "../store";
 import { Cell, DataGrid, GridEdits, MAX_CELL_CHARS, emptyEdits } from "./DataGrid";
 import { confirm } from "./Dialogs";
@@ -12,12 +12,13 @@ import { Split } from "./Split";
 import { useStable } from "./useStable";
 import { ValuePanel } from "./ValuePanel";
 import { readFlag, writeFlag } from "../prefs";
-import { connDialect, editorLanguage } from "../dialect";
+import { connDialect } from "../dialect";
 import { openExport } from "./transfer/state";
 import { createChartFrom } from "./bi/actions";
 import { queryTextChanged, registerQueryEditor, saveQueryTab } from "../queries";
 import { openHistoryLog } from "./HistoryLog";
 import { Toolbar } from "./Toolbar";
+import { createSqlEditor } from "../editor/sqlEditor";
 
 export interface RunState {
   results: StatementResult[];
@@ -53,26 +54,7 @@ export function QueryEditor({ tab }: { tab: Tab }) {
 
   // ---- editor --------------------------------------------------------------------
   useEffect(() => {
-    registerSqlCompletion();
-    registerFormatter();
-    const model = monaco.editor.createModel(tab.sql ?? "", editorLanguage(dialect));
-    const editor = monaco.editor.create(host.current!, {
-      model,
-      theme: editorTheme(),
-      automaticLayout: true,
-      minimap: { enabled: false },
-      fontSize: 13,
-      fontFamily: "SF Mono, Menlo, Consolas, monospace",
-      lineNumbersMinChars: 3,
-      scrollBeyondLastLine: false,
-      renderLineHighlight: "line",
-      tabSize: 2,
-      wordBasedSuggestions: "off",
-      quickSuggestions: { other: true, comments: false, strings: true },
-      suggest: { showWords: false, snippetsPreventQuickSuggestions: false, preview: true, showStatusBar: true },
-      suggestSelection: "first",
-      fixedOverflowWidgets: true,
-    });
+    const { editor, model, dispose } = createSqlEditor(host.current!, tab.sql ?? "", dialect);
     editorRef.current = editor;
     decorations.current = editor.createDecorationsCollection();
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => runCurrentRef.current());
@@ -81,7 +63,6 @@ export function QueryEditor({ tab }: { tab: Tab }) {
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, () => beautifyRef.current());
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveQueryTab(tab.id));
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyS, () => saveQueryTab(tab.id, true));
-    const trig = autoTrigger(editor);
     const unregister = registerQueryEditor(tab.id, () => model.getValue());
     const save = editor.onDidChangeModelContent(() => {
       decorations.current?.clear();
@@ -92,11 +73,8 @@ export function QueryEditor({ tab }: { tab: Tab }) {
       // Keep the text when the tab re-mounts.
       useApp.getState().updateTab(tab.id, { sql: model.getValue() });
       unregister();
-      trig.dispose();
       save.dispose();
-      clearEditorContext(model);
-      editor.dispose();
-      model.dispose();
+      dispose();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

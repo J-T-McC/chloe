@@ -4,9 +4,8 @@
 import { ArrowUpDown, Calculator, Columns3, Combine, Database, Filter, Play, Plus, RefreshCw, Save, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { B, BI, BIPreview, DBType, Explorer, ObjectKind, Query, SavedQuery, arr, errorText } from "../../api";
-import { connDialect, editorLanguage } from "../../dialect";
-import { autoTrigger, clearEditorContext, preloadCatalog, registerSqlCompletion, setEditorContext } from "../../editor/completion";
-import { Monaco, editorTheme, monaco } from "../../editor/monaco";
+import { connDialect } from "../../dialect";
+import { Monaco, monaco } from "../../editor/monaco";
 import { Tab, connById, useApp } from "../../store";
 import { Split } from "../Split";
 import { biChanged, openObject } from "./actions";
@@ -17,6 +16,7 @@ import { useWorkspace } from "./WorkspaceView";
 import { Toolbar } from "../Toolbar";
 import { useSavableTab } from "../useSavableTab";
 import { Field } from "../form";
+import { createSqlEditor } from "../../editor/sqlEditor";
 
 const SQL_ENGINES = [DBType.MySQL, DBType.MariaDB, DBType.PostgreSQL, DBType.SQLite];
 
@@ -499,36 +499,14 @@ function SqlBox({ connId, database, schema, value, onChange, onSave, onRun }: { 
   change.current = onChange;
   useEffect(() => {
     if (!host.current) return;
-    registerSqlCompletion();
-    const model = monaco.editor.createModel(value, editorLanguage(connDialect(connId)));
-    const editor = monaco.editor.create(host.current, {
-      model,
-      theme: editorTheme(),
-      automaticLayout: true,
-      minimap: { enabled: false },
-      fontSize: 13,
-      fontFamily: "SF Mono, Menlo, Consolas, monospace",
-      lineNumbersMinChars: 3,
-      scrollBeyondLastLine: false,
-      tabSize: 2,
-      wordBasedSuggestions: "off",
-      quickSuggestions: { other: true, comments: false, strings: true },
-      fixedOverflowWidgets: true,
-    });
+    const { editor, model, dispose } = createSqlEditor(host.current, value, connDialect(connId), { connId, database, schema });
     ed.current = editor;
-    const ctx = { connId, database, schema };
-    setEditorContext(model, ctx);
-    preloadCatalog(ctx);
-    const trig = autoTrigger(editor);
     const sub = editor.onDidChangeModelContent(() => change.current(model.getValue()));
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, onSave);
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyR, onRun);
     return () => {
-      trig.dispose();
       sub.dispose();
-      clearEditorContext(model);
-      editor.dispose();
-      model.dispose();
+      dispose();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // An imported saved query replaces the text.

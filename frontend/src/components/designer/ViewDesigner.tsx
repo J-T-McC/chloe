@@ -4,12 +4,12 @@
 import { Eye, Play, Save, SaveAll, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { D, DBType, Design, ObjectKind, Query, arr, errorText } from "../../api";
-import { autoTrigger, clearEditorContext, invalidateCatalog, preloadCatalog, registerSqlCompletion, setEditorContext } from "../../editor/completion";
-import { beautifyEditor, registerFormatter } from "../../editor/format";
-import { Monaco, editorTheme, monaco } from "../../editor/monaco";
+import { invalidateCatalog } from "../../editor/completion";
+import { beautifyEditor } from "../../editor/format";
+import { Monaco, monaco } from "../../editor/monaco";
 import { Tab, connById, useApp } from "../../store";
 import { folderKey, useTree } from "../../tree";
-import { connDialect, editorLanguage } from "../../dialect";
+import { connDialect } from "../../dialect";
 import { confirm, prompt } from "../Dialogs";
 import { CodeBlock } from "../ObjectsPane";
 import { Messages, ResultGrid, RunState } from "../QueryEditor";
@@ -18,6 +18,7 @@ import { Toolbar } from "../Toolbar";
 import { useAsync } from "../useAsync";
 import { useSavableTab } from "../useSavableTab";
 import { Field } from "../form";
+import { createSqlEditor } from "../../editor/sqlEditor";
 
 type Section = "definition" | "advanced" | "comment" | "sql";
 
@@ -60,30 +61,9 @@ export function ViewDesigner({ tab }: { tab: Tab }) {
   const loaded = !!draft;
   useEffect(() => {
     if (!loaded || !host.current) return;
-    registerSqlCompletion();
-    registerFormatter();
-    const model = monaco.editor.createModel(draft!.definition, editorLanguage(connDialect(connId)));
-    const editor = monaco.editor.create(host.current, {
-      model,
-      theme: editorTheme(),
-      automaticLayout: true,
-      minimap: { enabled: false },
-      fontSize: 13,
-      fontFamily: "SF Mono, Menlo, Consolas, monospace",
-      lineNumbersMinChars: 3,
-      scrollBeyondLastLine: false,
-      tabSize: 2,
-      wordBasedSuggestions: "off",
-      quickSuggestions: { other: true, comments: false, strings: true },
-      suggest: { showWords: false, preview: true, showStatusBar: true },
-      suggestSelection: "first",
-      fixedOverflowWidgets: true,
-    });
-    editorRef.current = editor;
     const ctx = { connId, database: tab.database, schema: pg ? (draft!.schema ?? "public") : undefined };
-    setEditorContext(model, ctx);
-    preloadCatalog(ctx);
-    const trig = autoTrigger(editor);
+    const { editor, model, dispose } = createSqlEditor(host.current, draft!.definition, connDialect(connId), ctx);
+    editorRef.current = editor;
     const sub = editor.onDidChangeModelContent(() => setDraft((d) => (d ? { ...d, definition: model.getValue() } : d)));
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveRef.current());
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyR, () => previewRef.current());
@@ -93,11 +73,8 @@ export function ViewDesigner({ tab }: { tab: Tab }) {
       editor.focus();
     }
     return () => {
-      trig.dispose();
       sub.dispose();
-      clearEditorContext(model);
-      editor.dispose();
-      model.dispose();
+      dispose();
       editorRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
