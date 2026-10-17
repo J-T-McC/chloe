@@ -14,6 +14,7 @@ import (
 
 	"chloe/internal/mdb"
 	"chloe/internal/model"
+	"chloe/internal/safefile"
 	"chloe/internal/store"
 )
 
@@ -318,7 +319,7 @@ func (m *Manager) MongoExport(connID, db, coll string, o mdb.ExportOptions, path
 			p.set(0, n)
 		}
 		p.setPath(path)
-		f, err := os.Create(path)
+		f, err := safefile.Create(path)
 		if err != nil {
 			return "", err
 		}
@@ -327,7 +328,7 @@ func (m *Manager) MongoExport(connID, db, coll string, o mdb.ExportOptions, path
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Exported %d documents to %s", n, path), f.Sync()
+		return fmt.Sprintf("Exported %d documents to %s", n, path), f.Commit()
 	}), nil
 }
 

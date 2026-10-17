@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"chloe/internal/model"
+	"chloe/internal/safefile"
 )
 
 // Secrets abstracts the OS keychain so tests can substitute an in-memory map.
@@ -399,15 +400,7 @@ func (s *Store) flushLocked() error {
 			return err
 		}
 	}
-	return writeAtomic(s.path, data)
-}
-
-func writeAtomic(path string, data []byte) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return safefile.Write(s.path, data)
 }
 
 func stripSecrets(c model.Connection) model.Connection {

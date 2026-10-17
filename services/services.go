@@ -14,6 +14,7 @@ import (
 	"chloe/internal/design"
 	"chloe/internal/driver"
 	"chloe/internal/model"
+	"chloe/internal/safefile"
 	"chloe/internal/store"
 	"chloe/internal/transfer"
 )
@@ -186,7 +187,7 @@ func (s *ConnectionService) Export(ids []string, path, passphrase string) error 
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	return safefile.Write(path, data)
 }
 
 // InspectExport reads an export file's header: how many connections, and
@@ -532,5 +533,5 @@ func (s *TransferService) WriteFile(path, content string, isBase64 bool) error {
 		}
 		data = b
 	}
-	return os.WriteFile(path, data, 0o644)
+	return safefile.Write(path, data)
 }

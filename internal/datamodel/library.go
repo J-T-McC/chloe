@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"chloe/internal/design"
+	"chloe/internal/safefile"
 )
 
 // Ext is the model file extension.
@@ -179,8 +180,5 @@ func Write(p string, m Model) error {
 	}
 	// Table designs and connection ids stay private to the user (files
 	// written by earlier releases were 0644).
-	if err := os.WriteFile(p, data, 0o600); err != nil {
-		return err
-	}
-	return os.Chmod(p, 0o600)
+	return safefile.Write(p, data)
 }

@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"chloe/internal/safefile"
 )
 
 // SavedQuery is a named query kept under a connection's database (and schema),
@@ -122,7 +124,7 @@ func (s *Store) writeDoc(name string, v any) error {
 			return err
 		}
 	}
-	return writeAtomic(s.docPath(name), data)
+	return safefile.Write(s.docPath(name), data)
 }
 
 func (w *Workspace) writeLocked(name string, v any) error {
