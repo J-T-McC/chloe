@@ -20,6 +20,7 @@ const run = async (sql) => {
   await page.keyboard.press("Meta+r");
   await page.waitForTimeout(600);
   await page.locator(".tab.active .tab-close").click();
+  await page.locator(".modal").getByRole("button", { name: "Don't Save" }).click();
 };
 await run("DROP USER IF EXISTS 'sp_u'@'%'; CREATE USER 'sp_u'@'%' IDENTIFIED BY 'Pw!12345'");
 await page.locator(".tree-row", { hasText: /^\s*Tables\s*$/ }).first().dblclick();
