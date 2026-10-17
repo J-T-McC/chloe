@@ -57,12 +57,8 @@ func (c *call) redisDB(ctx context.Context, connection string, db int, need stor
 	if db < 0 {
 		return redisTarget{}, errors.New("db is a database number (0, 1…)")
 	}
-	have := a.db(strconv.Itoa(db))
-	if have == store.MCPOff {
-		return redisTarget{}, fmt.Errorf("database %d of %s isn't shared with this endpoint (see redis_databases)", db, conn.Name)
-	}
-	if !atLeast(have, need) {
-		return redisTarget{}, fmt.Errorf("this endpoint can only read %s/db%d; ask the user to allow writes in Chloe's MCP Server settings", conn.Name, db)
+	if err := a.require(conn.Name, strconv.Itoa(db), "db"+strconv.Itoa(db), "redis_databases", need); err != nil {
+		return redisTarget{}, err
 	}
 	kv, err := c.redisClient(ctx, conn)
 	if err != nil {

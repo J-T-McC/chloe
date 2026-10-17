@@ -155,10 +155,9 @@ type RefreshOut struct {
 
 func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 	f := false
-	t := true
-	add(s, srv, ep, &mcp.Tool{Name: "create_dashboard", Description: "Creates a dashboard: pages of the workspace's charts and Markdown text, for the user to open as a report. " +
-		"Describe each page as rows of tiles across 12 columns (e.g. a text row with a title and summary, then a row of three charts); Chloe lays them out.",
-		Annotations: &mcp.ToolAnnotations{Title: "Create dashboard", DestructiveHint: &f, OpenWorldHint: &f}},
+	add(s, srv, ep, writeTool("create_dashboard", "Create dashboard",
+		"Creates a dashboard: pages of the workspace's charts and Markdown text, for the user to open as a report. "+
+			"Describe each page as rows of tiles across 12 columns (e.g. a text row with a title and summary, then a row of three charts); Chloe lays them out.", false),
 		func(ctx context.Context, c *call, in CreateDashboardArgs) (DashboardOut, error) {
 			p, w, err := c.workspace(in.Workspace)
 			if err != nil {
@@ -173,10 +172,10 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 			return DashboardOut{Dashboard: saved, Editable: true}, err
 		})
 
-	add(s, srv, ep, &mcp.Tool{Name: "edit_dashboard", Description: "Changes a dashboard created over MCP: replaces its pages, renames it, or sets its refresh. " +
-		"Notes written with set_notes stay on their page (matched by name, else by number), at its top or bottom. " +
-		"The user's dashboards can't be changed, but set_notes can add your notes to them.",
-		Annotations: &mcp.ToolAnnotations{Title: "Edit dashboard", DestructiveHint: &t, OpenWorldHint: &f}},
+	add(s, srv, ep, writeTool("edit_dashboard", "Edit dashboard",
+		"Changes a dashboard created over MCP: replaces its pages, renames it, or sets its refresh. "+
+			"Notes written with set_notes stay on their page (matched by name, else by number), at its top or bottom. "+
+			"The user's dashboards can't be changed, but set_notes can add your notes to them.", true),
 		func(ctx context.Context, c *call, in EditDashboardArgs) (DashboardOut, error) {
 			p, w, err := c.workspace(in.Workspace)
 			if err != nil {
@@ -411,9 +410,9 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 			return out, nil
 		})
 
-	addRich(s, srv, ep, &mcp.Tool{Name: "export_dashboard", Description: "Draws a dashboard's pages as Chloe shows them and saves them in the user's Chloe Reports folder: PNG images " +
-		"(returned to you too, so you can check how a page looks: text that's cut off, crowded charts, empty space), a PDF, or an interactive HTML report to share. Needs Chloe's window open.",
-		Annotations: &mcp.ToolAnnotations{Title: "Export dashboard", DestructiveHint: &f, OpenWorldHint: &f}},
+	addRich(s, srv, ep, writeTool("export_dashboard", "Export dashboard",
+		"Draws a dashboard's pages as Chloe shows them and saves them in the user's Chloe Reports folder: PNG images "+
+			"(returned to you too, so you can check how a page looks: text that's cut off, crowded charts, empty space), a PDF, or an interactive HTML report to share. Needs Chloe's window open.", false),
 		func(ctx context.Context, c *call, in ExportArgs) (ExportOut, []mcp.Content, error) {
 			p, w, err := c.workspace(in.Workspace)
 			if err != nil {
@@ -518,8 +517,8 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 			return out, content, nil
 		})
 
-	add(s, srv, ep, &mcp.Tool{Name: "open_dashboard", Description: "Opens a dashboard in Chloe for the user.",
-		Annotations: &mcp.ToolAnnotations{Title: "Open dashboard", DestructiveHint: &f, OpenWorldHint: &f}},
+	add(s, srv, ep, writeTool("open_dashboard", "Open dashboard",
+		"Opens a dashboard in Chloe for the user.", false),
 		func(ctx context.Context, c *call, in DashboardArgs) (DashboardOpened, error) {
 			p, w, err := c.workspace(in.Workspace)
 			if err != nil {
@@ -536,8 +535,8 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 			return DashboardOpened{Dashboard: d.Name, ID: d.ID, Pages: len(d.Pages)}, nil
 		})
 
-	add(s, srv, ep, &mcp.Tool{Name: "delete_dashboard", Description: "Deletes a dashboard created over MCP (not its charts). The user's dashboards can't be deleted.",
-		Annotations: &mcp.ToolAnnotations{Title: "Delete dashboard", DestructiveHint: &t, OpenWorldHint: &f}},
+	add(s, srv, ep, writeTool("delete_dashboard", "Delete dashboard",
+		"Deletes a dashboard created over MCP (not its charts). The user's dashboards can't be deleted.", true),
 		func(ctx context.Context, c *call, in DashboardArgs) (DeletedOut, error) {
 			p, w, err := c.workspace(in.Workspace)
 			if err != nil {

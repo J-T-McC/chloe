@@ -178,6 +178,20 @@ func (a access) db(database string) store.MCPLevel {
 	return a.level
 }
 
+// require checks that the endpoint has need on one database (key in the
+// access list, name as the agent knows it) of the connection conn; see says
+// where the agent can list the shared ones.
+func (a access) require(conn, key, name, see string, need store.MCPLevel) error {
+	have := a.db(key)
+	if have == store.MCPOff {
+		return fmt.Errorf("database %q of %s isn't shared with this endpoint (see %s)", name, conn, see)
+	}
+	if !atLeast(have, need) {
+		return fmt.Errorf("this endpoint can only read %s/%s; ask the user to allow writes in Chloe's MCP Server settings", conn, name)
+	}
+	return nil
+}
+
 // visible reports whether the endpoint can see the connection at all.
 func (a access) visible() bool {
 	if a.level != store.MCPOff {
@@ -302,14 +316,7 @@ func (c *call) lookup(connection, database, schema string, need store.MCPLevel) 
 	if conn.Type != model.PostgreSQL {
 		t.schema = ""
 	}
-	have := a.db(t.database)
-	if have == store.MCPOff {
-		return t, fmt.Errorf("database %q isn't shared with this endpoint", t.database)
-	}
-	if !atLeast(have, need) {
-		return t, fmt.Errorf("this endpoint can only read %s/%s; ask the user to allow writes in Chloe's MCP Server settings", conn.Name, t.database)
-	}
-	return t, nil
+	return t, a.require(conn.Name, t.database, t.database, "list_databases", need)
 }
 
 // --- results ------------------------------------------------------------------

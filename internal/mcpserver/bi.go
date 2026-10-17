@@ -225,8 +225,6 @@ func chartTypesText() string {
 }
 
 func (s *Server) addBITools(srv *mcp.Server, ep string) {
-	f := false
-	t := true
 	add(s, srv, ep, readOnlyTool("list_workspaces", "List BI workspaces",
 		"Lists the BI workspaces in Chloe's library: data sources, the charts built on them, and dashboards (reports) of charts and notes. You can read all of them, and edit what was created over MCP."),
 		func(ctx context.Context, c *call, _ NoArgs) (WorkspacesOut, error) {
@@ -270,8 +268,8 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			return out, nil
 		})
 
-	add(s, srv, ep, &mcp.Tool{Name: "create_workspace", Description: "Creates an empty BI workspace in Chloe's library, for data sources and charts.",
-		Annotations: &mcp.ToolAnnotations{Title: "Create BI workspace", DestructiveHint: &f, OpenWorldHint: &f}},
+	add(s, srv, ep, writeTool("create_workspace", "Create BI workspace",
+		"Creates an empty BI workspace in Chloe's library, for data sources and charts.", false),
 		func(ctx context.Context, c *call, in CreateWorkspaceArgs) (WorkspaceInfo, error) {
 			name := strings.TrimSpace(in.Name)
 			if name == "" {
@@ -288,12 +286,12 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			return workspaceInfo(p, w), nil
 		})
 
-	add(s, srv, ep, &mcp.Tool{Name: "create_data_source", Description: "Adds a data source to a workspace: a table or view, or one read-only query, on a connection shared with you. " +
-		"Charts aggregate its rows. It always runs read-only; archive mode reads the rows once into a snapshot kept (encrypted) with the workspace. " +
-		"A live source's SQL runs whenever its charts are drawn (charts with filters of their own read it again), so check its plan with EXPLAIN first: " +
-		"filter on indexed columns inside the SQL (a [$parameter] for the time window) rather than on columns it computes, and group to the grain the charts need. " +
-		"See guide topic reports.",
-		Annotations: &mcp.ToolAnnotations{Title: "Create data source", DestructiveHint: &f, OpenWorldHint: &f}},
+	add(s, srv, ep, writeTool("create_data_source", "Create data source",
+		"Adds a data source to a workspace: a table or view, or one read-only query, on a connection shared with you. "+
+			"Charts aggregate its rows. It always runs read-only; archive mode reads the rows once into a snapshot kept (encrypted) with the workspace. "+
+			"A live source's SQL runs whenever its charts are drawn (charts with filters of their own read it again), so check its plan with EXPLAIN first: "+
+			"filter on indexed columns inside the SQL (a [$parameter] for the time window) rather than on columns it computes, and group to the grain the charts need. "+
+			"See guide topic reports.", false),
 		func(ctx context.Context, c *call, in CreateSourceArgs) (SourceOut, error) {
 			p, _, err := c.workspace(in.Workspace)
 			if err != nil {
@@ -323,9 +321,9 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			return SourceOut{DataSource: saved, Connection: tg.conn, Editable: true}, nil
 		})
 
-	add(s, srv, ep, &mcp.Tool{Name: "edit_data_source", Description: "Changes a data source created over MCP: its table or query, mode, time zone, filters (each replaced when given), or its name. " +
-		"Charts built on it keep working while the fields they use remain. The user's own data sources can't be changed.",
-		Annotations: &mcp.ToolAnnotations{Title: "Edit data source", DestructiveHint: &t, OpenWorldHint: &f}},
+	add(s, srv, ep, writeTool("edit_data_source", "Edit data source",
+		"Changes a data source created over MCP: its table or query, mode, time zone, filters (each replaced when given), or its name. "+
+			"Charts built on it keep working while the fields they use remain. The user's own data sources can't be changed.", true),
 		func(ctx context.Context, c *call, in EditSourceArgs) (SourceOut, error) {
 			p, w, err := c.workspace(in.Workspace)
 			if err != nil {
@@ -398,11 +396,11 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			return SourceOut{DataSource: saved, Connection: tg.conn, Editable: true}, nil
 		})
 
-	add(s, srv, ep, &mcp.Tool{Name: "create_chart", Description: "Adds a chart on one of the workspace's data sources. Chloe builds its query from the fields you place: " +
-		"dimension (categories or X axis; date fields are grouped by bucket), series (splits into colours or stacks), value (aggregated measures), secondary (bar and line charts' lines; scatter point size), target (kpi target, gauge maximum, scatter Y). " +
-		"waterfall shows each dimension value's change with a running total; tornado mirrors exactly two series values; trend shows the latest period against the one before (properties.sameDays: against the same days of it while the latest is still going); pivot crosses rows (dimension) with columns (series). " +
-		"Types and their shelves: " + chartTypesText() + ". The chart is saved in the workspace for the user to open; get_chart_data returns what it shows.",
-		Annotations: &mcp.ToolAnnotations{Title: "Create chart", DestructiveHint: &f, OpenWorldHint: &f}},
+	add(s, srv, ep, writeTool("create_chart", "Create chart",
+		"Adds a chart on one of the workspace's data sources. Chloe builds its query from the fields you place: "+
+			"dimension (categories or X axis; date fields are grouped by bucket), series (splits into colours or stacks), value (aggregated measures), secondary (bar and line charts' lines; scatter point size), target (kpi target, gauge maximum, scatter Y). "+
+			"waterfall shows each dimension value's change with a running total; tornado mirrors exactly two series values; trend shows the latest period against the one before (properties.sameDays: against the same days of it while the latest is still going); pivot crosses rows (dimension) with columns (series). "+
+			"Types and their shelves: "+chartTypesText()+". The chart is saved in the workspace for the user to open; get_chart_data returns what it shows.", false),
 		func(ctx context.Context, c *call, in CreateChartArgs) (ChartOut, error) {
 			p, w, err := c.workspace(in.Workspace)
 			if err != nil {
@@ -423,9 +421,9 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			return ChartOut{Chart: saved, Editable: true}, err
 		})
 
-	add(s, srv, ep, &mcp.Tool{Name: "edit_chart", Description: "Changes a chart created over MCP: its type, shelves, filters, sort, top and properties (each replaced when given), or its name. " +
-		"The user's own charts can't be changed; create a chart of your own instead.",
-		Annotations: &mcp.ToolAnnotations{Title: "Edit chart", DestructiveHint: &t, OpenWorldHint: &f}},
+	add(s, srv, ep, writeTool("edit_chart", "Edit chart",
+		"Changes a chart created over MCP: its type, shelves, filters, sort, top and properties (each replaced when given), or its name. "+
+			"The user's own charts can't be changed; create a chart of your own instead.", true),
 		func(ctx context.Context, c *call, in EditChartArgs) (ChartOut, error) {
 			p, w, err := c.workspace(in.Workspace)
 			if err != nil {
@@ -489,9 +487,9 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			return out, nil
 		})
 
-	add(s, srv, ep, &mcp.Tool{Name: "create_parameter", Description: "Adds a parameter to a workspace: a named value that data source queries ([$name] where a value goes; it is bound, never pasted into the SQL), " +
-		"filter values (a whole value of [$name]), chart titles and dashboard text refer to. The user can change it on dashboards; get_chart_data and refresh_dashboard take parameters to read with other values.",
-		Annotations: &mcp.ToolAnnotations{Title: "Create parameter", DestructiveHint: &f, OpenWorldHint: &f}},
+	add(s, srv, ep, writeTool("create_parameter", "Create parameter",
+		"Adds a parameter to a workspace: a named value that data source queries ([$name] where a value goes; it is bound, never pasted into the SQL), "+
+			"filter values (a whole value of [$name]), chart titles and dashboard text refer to. The user can change it on dashboards; get_chart_data and refresh_dashboard take parameters to read with other values.", false),
 		func(ctx context.Context, c *call, in CreateParameterArgs) (ParamOut, error) {
 			p, _, err := c.workspace(in.Workspace)
 			if err != nil {
@@ -503,8 +501,8 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			return ParamOut{Parameter: saved, Editable: true}, err
 		})
 
-	add(s, srv, ep, &mcp.Tool{Name: "edit_parameter", Description: "Changes a parameter created over MCP: its type, allowed values or current value (each replaced when given).",
-		Annotations: &mcp.ToolAnnotations{Title: "Edit parameter", DestructiveHint: &f, OpenWorldHint: &f}},
+	add(s, srv, ep, writeTool("edit_parameter", "Edit parameter",
+		"Changes a parameter created over MCP: its type, allowed values or current value (each replaced when given).", false),
 		func(ctx context.Context, c *call, in EditParameterArgs) (ParamOut, error) {
 			p, w, err := c.workspace(in.Workspace)
 			if err != nil {
@@ -523,8 +521,8 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			return ParamOut{Parameter: saved, Editable: true}, err
 		})
 
-	add(s, srv, ep, &mcp.Tool{Name: "delete_parameter", Description: "Deletes a parameter created over MCP. Refused while a data source, chart or dashboard text still refers to it.",
-		Annotations: &mcp.ToolAnnotations{Title: "Delete parameter", DestructiveHint: &t, OpenWorldHint: &f}},
+	add(s, srv, ep, writeTool("delete_parameter", "Delete parameter",
+		"Deletes a parameter created over MCP. Refused while a data source, chart or dashboard text still refers to it.", true),
 		func(ctx context.Context, c *call, in EditParameterArgs) (DeletedOut, error) {
 			p, w, err := c.workspace(in.Workspace)
 			if err != nil {
@@ -548,8 +546,8 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			return DeletedOut{Deleted: prm.Name}, nil
 		})
 
-	add(s, srv, ep, &mcp.Tool{Name: "delete_chart", Description: "Deletes a chart created over MCP (scratch work, a chart you replaced). The user's own charts can't be deleted.",
-		Annotations: &mcp.ToolAnnotations{Title: "Delete chart", DestructiveHint: &t, OpenWorldHint: &f}},
+	add(s, srv, ep, writeTool("delete_chart", "Delete chart",
+		"Deletes a chart created over MCP (scratch work, a chart you replaced). The user's own charts can't be deleted.", true),
 		func(ctx context.Context, c *call, in ChartArgs) (DeletedOut, error) {
 			p, w, err := c.workspace(in.Workspace)
 			if err != nil {
@@ -571,9 +569,9 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			return DeletedOut{Deleted: name}, nil
 		})
 
-	add(s, srv, ep, &mcp.Tool{Name: "delete_data_source", Description: "Deletes a data source created over MCP, with its archive snapshot. Delete the charts built on it first; " +
-		"the user's own data sources can't be deleted.",
-		Annotations: &mcp.ToolAnnotations{Title: "Delete data source", DestructiveHint: &t, OpenWorldHint: &f}},
+	add(s, srv, ep, writeTool("delete_data_source", "Delete data source",
+		"Deletes a data source created over MCP, with its archive snapshot. Delete the charts built on it first; "+
+			"the user's own data sources can't be deleted.", true),
 		func(ctx context.Context, c *call, in SourceArgs) (DeletedOut, error) {
 			p, w, err := c.workspace(in.Workspace)
 			if err != nil {
@@ -604,8 +602,8 @@ func (s *Server) addBITools(srv *mcp.Server, ep string) {
 			return DeletedOut{Deleted: name}, nil
 		})
 
-	add(s, srv, ep, &mcp.Tool{Name: "open_chart", Description: "Opens a chart in Chloe for the user.",
-		Annotations: &mcp.ToolAnnotations{Title: "Open chart", DestructiveHint: &f, OpenWorldHint: &f}},
+	add(s, srv, ep, writeTool("open_chart", "Open chart",
+		"Opens a chart in Chloe for the user.", false),
 		func(ctx context.Context, c *call, in ChartArgs) (ChartOut, error) {
 			p, w, err := c.workspace(in.Workspace)
 			if err != nil {
