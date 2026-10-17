@@ -18,11 +18,14 @@ rm -rf "$out" && mkdir -p "$out/config" "$out/shots" "$out/lite"
 sqlite3 "$out/lite/big.db" "CREATE TABLE n(id INTEGER PRIMARY KEY, v TEXT);
   WITH RECURSIVE c(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM c WHERE i < 250) INSERT INTO n SELECT i, 'row ' || i FROM c;"
 
-pkill -f Chloe-server || true
+# CHLOE_E2E_PORT moves the server off 8080 when something else holds it. Only a Chloe
+# server left on this port is stopped: another checkout may be running on its own port.
+port="${CHLOE_E2E_PORT:-8080}"
+lsof -a -ti "tcp:$port" -sTCP:LISTEN -c Chloe | xargs kill 2>/dev/null || true
 sleep 0.5
-# CHLOE_E2E_PORT moves the server off 8080 when something else holds it.
-export WAILS_SERVER_PORT="${CHLOE_E2E_PORT:-8080}" BASE="http://localhost:${CHLOE_E2E_PORT:-8080}/"
+export WAILS_SERVER_PORT="$port" BASE="http://localhost:$port/"
 CHLOE_CONFIG_DIR="$out/config" CHLOE_SECRETS=memory CHLOE_REPORTS_DIR="$out/reports" CHLOE_EXPORT_DIR="$out/exports" ./bin/Chloe-server > "$out/server.log" 2>&1 &
-trap 'pkill -f Chloe-server || true' EXIT
+server=$!
+trap 'kill $server 2>/dev/null || true' EXIT
 sleep 1.5
 cd e2e && LITE="$out/lite" node "${1:-smoke}.mjs" "$out/shots"

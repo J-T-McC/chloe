@@ -6,13 +6,14 @@
 # TESTER_MONGO=1 does the same for the Docker MongoDB (reseeded) as "docs".
 # TESTER_WRITE=1 shares games read-write, with Saved queries on.
 # Writes are approved automatically and each approval dialog's text goes to e2e/.tester/approvals.log.
-# Stop it with: pkill -f Chloe-server; pkill -f tester-setup
+# Stop it with: kill $(lsof -a -ti tcp:${CHLOE_E2E_PORT:-8080} -sTCP:LISTEN -c Chloe); pkill -f tester-setup
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
 out="$root/e2e/.tester"
 cd "$root"
 [ -d e2e/node_modules ] || (cd e2e && npm install --silent && npx playwright install chromium)
-pkill -f Chloe-server || true
+port="${CHLOE_E2E_PORT:-8080}"
+lsof -a -ti "tcp:$port" -sTCP:LISTEN -c Chloe | xargs kill 2>/dev/null || true
 pkill -f tester-setup || true
 rm -rf "$out" && mkdir -p "$out/config" "$out/reports" "$out/images"
 sqlite3 "$out/games.db" <<'SQL'
@@ -42,7 +43,7 @@ if [ -n "$TESTER_MONGO" ]; then
   docker exec -i chloe-mongo mongosh -u root -p chloe --quiet < testdata/seed_mongo.js >/dev/null
 fi
 # CHLOE_E2E_PORT moves the server off 8080 when something else holds it.
-export WAILS_SERVER_PORT="${CHLOE_E2E_PORT:-8080}" BASE="http://localhost:${CHLOE_E2E_PORT:-8080}/"
+export WAILS_SERVER_PORT="$port" BASE="http://localhost:$port/"
 CHLOE_CONFIG_DIR="$out/config" CHLOE_SECRETS=memory CHLOE_REPORTS_DIR="$out/reports" ./bin/Chloe-server > "$out/server.log" 2>&1 &
 sleep 1.5
 cd e2e && TESTER_REDIS="$TESTER_REDIS" TESTER_MONGO="$TESTER_MONGO" TESTER_WRITE="$TESTER_WRITE" nohup node tester-setup.mjs "$out" > "$out/setup.log" 2>&1 &
