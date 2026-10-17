@@ -9,6 +9,7 @@ import (
 	"chloe/internal/core"
 	"chloe/internal/design"
 	"chloe/internal/model"
+	"chloe/internal/sqlq"
 )
 
 func sp(s string) *string { return &s }
@@ -32,7 +33,9 @@ func designFixture(e engine) design.Table {
 			{Name: "dt_items_title_price", Columns: []design.IndexColumn{{Name: "title"}, {Name: "price", Desc: true}}},
 		},
 		ForeignKeys: []design.ForeignKey{{Name: "dt_items_customer", Columns: []string{"customer_id"}, RefTable: "customers", RefColumns: []string{"id"}, OnDelete: "SET NULL"}},
-		Checks:      []design.Check{{Name: "dt_items_price_ck", Expr: "price >= 0"}},
+		Checks: []design.Check{{Name: "dt_items_price_ck", Expr: "price >= 0"},
+			// Parentheses inside the literals mustn't decide which ones are the CHECK's own.
+			{Name: "dt_items_title_ck", Expr: "(title <> '(') OR (title <> ')')"}},
 	}
 	if pg {
 		t.Columns[0].Identity = "by default"
@@ -113,8 +116,11 @@ func TestIntegrationDesigner(t *testing.T) {
 			if loaded.PrimaryKey == nil || !slices.Equal(loaded.PrimaryKey.Columns, []string{"id"}) {
 				t.Fatalf("pk %+v", loaded.PrimaryKey)
 			}
-			if len(loaded.ForeignKeys) != 1 || loaded.ForeignKeys[0].OnDelete != "SET NULL" || len(loaded.Checks) != 1 || len(loaded.Triggers) != 1 {
+			if len(loaded.ForeignKeys) != 1 || loaded.ForeignKeys[0].OnDelete != "SET NULL" || len(loaded.Checks) != 2 || len(loaded.Triggers) != 1 {
 				t.Fatalf("fk/check/trigger %+v %+v %+v", loaded.ForeignKeys, loaded.Checks, loaded.Triggers)
+			}
+			if e := loaded.Checks[1].Expr; !sqlq.Balanced(e, !pg) || !strings.Contains(strings.ToUpper(e), " OR ") {
+				t.Fatalf("check with quoted parentheses read as %q", e)
 			}
 			// PG has the expression index; MySQL adds an index backing the foreign key.
 			wantIdx := 3

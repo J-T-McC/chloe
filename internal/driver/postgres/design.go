@@ -195,7 +195,7 @@ func (c *Conn) LoadDesign(ctx context.Context, ref model.ObjectRef) (design.Tabl
 func checkExpr(def string) string {
 	s := strings.TrimSpace(strings.TrimPrefix(def, "CHECK "))
 	s = strings.TrimSuffix(s, " NOT VALID")
-	for strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")") && sqlq.Balanced(s[1:len(s)-1]) {
+	for strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")") && sqlq.Balanced(s[1:len(s)-1], false) {
 		s = s[1 : len(s)-1]
 	}
 	return s

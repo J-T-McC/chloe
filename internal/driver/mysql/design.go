@@ -129,7 +129,11 @@ func (c *Conn) LoadDesign(ctx context.Context, ref model.ObjectRef) (design.Tabl
 	// CHECK constraints exist from MySQL 8.0.16 / MariaDB 10.2; older servers have none.
 	if checks, err := sqlcommon.QueryStrings(ctx, c.db, c.checksQuery(), ref.Database, ref.Name); err == nil {
 		for _, r := range checks {
-			t.Checks = append(t.Checks, design.Check{Name: r[0].String, OrigName: r[0].String, Expr: stripParens(r[1].String), NotEnforced: r[2].String == "NO"})
+			expr := r[1].String
+			if !c.mariadb {
+				expr = unescapeClause(expr)
+			}
+			t.Checks = append(t.Checks, design.Check{Name: r[0].String, OrigName: r[0].String, Expr: stripParens(expr), NotEnforced: r[2].String == "NO"})
 		}
 	}
 
@@ -242,9 +246,26 @@ func isNumericType(t string) bool {
 	return false
 }
 
+// unescapeClause turns MySQL's CHECK_CLAUSE back into SQL: it is the
+// expression as SHOW CREATE TABLE writes it with every \ and ' escaped once
+// more by a backslash, so (`x` <> _utf8mb4\')\').
+func unescapeClause(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			i++
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
 func stripParens(s string) string {
 	s = strings.TrimSpace(s)
-	for strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")") && sqlq.Balanced(s[1:len(s)-1]) {
+	for strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")") && sqlq.Balanced(s[1:len(s)-1], true) {
 		s = strings.TrimSpace(s[1 : len(s)-1])
 	}
 	return s

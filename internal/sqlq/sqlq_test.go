@@ -17,20 +17,25 @@ func TestPGString(t *testing.T) {
 }
 
 func TestBalanced(t *testing.T) {
-	for s, want := range map[string]bool{
-		"a = 1":             true,
-		"(a) OR (b)":        true,
-		"x = ')'":           true,
-		`x = "("`:           true,
-		"`a)` > 0":          true,
-		`x <> _latin1\')\'`: true,
-		"x = 'it''s)'":      true,
-		"a) OR (b":          false,
-		"x = '(":            false,
-		"(a":                false,
+	for _, c := range []struct {
+		s         string
+		backslash bool
+		want      bool
+	}{
+		{"a = 1", false, true},
+		{"(a) OR (b)", false, true},
+		{"x = ')'", false, true},
+		{`x = "("`, false, true},
+		{"`a)` > 0", false, true},
+		{"x = 'it''s)'", false, true},
+		{`x = 'a\') OR (b'`, true, true},
+		{`x = 'a\') OR (b'`, false, false},
+		{"a) OR (b", false, false},
+		{"x = '(", false, false},
+		{"(a", false, false},
 	} {
-		if got := Balanced(s); got != want {
-			t.Errorf("Balanced(%q) = %v", s, got)
+		if got := Balanced(c.s, c.backslash); got != c.want {
+			t.Errorf("Balanced(%q, %v) = %v", c.s, c.backslash, got)
 		}
 	}
 }

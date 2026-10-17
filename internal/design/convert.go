@@ -536,7 +536,7 @@ func (c *converter) defaultValue(src Column, k kind, dst Column) *string {
 			d = strings.TrimSpace(m[1] + m[2])
 		}
 	}
-	for strings.HasPrefix(d, "(") && strings.HasSuffix(d, ")") && sqlq.Balanced(d[1:len(d)-1]) {
+	for strings.HasPrefix(d, "(") && strings.HasSuffix(d, ")") && sqlq.Balanced(d[1:len(d)-1], c.from == "mysql") {
 		d = strings.TrimSpace(d[1 : len(d)-1])
 	}
 	set := func(s string) *string { return &s }
