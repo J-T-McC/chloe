@@ -3,8 +3,10 @@ package core
 import (
 	"context"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -103,20 +105,40 @@ func (m *Manager) closeConsoles(connID string) {
 // ---- server monitor ----------------------------------------------------------------
 
 func redisProcesses(ctx context.Context, kv *rdb.Client) ([]model.Process, error) {
-	cls, err := kv.Clients(ctx)
+	cs, err := kv.Clients(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]model.Process, 0, len(cls))
-	for _, c := range cls {
-		age, _ := strconv.ParseInt(c["idle"], 10, 64)
-		out = append(out, model.Process{
-			ID: c["id"], User: c["user"], Host: c["addr"], Database: "db" + c["db"], Application: c["name"],
-			Command: c["cmd"], State: c["flags"], TimeSec: age, Query: c["cmd"], Self: c["name"] == "Chloe",
-		})
+	out := make([]model.Process, 0, len(cs))
+	for _, ci := range cs {
+		idle, _ := strconv.ParseInt(ci["idle"], 10, 64)
+		p := model.Process{ID: ci["id"], User: ci["user"], Host: ci["addr"], Application: ci["name"], Command: ci["cmd"], State: clientFlags(ci["flags"]), TimeSec: idle,
+			Query: ci["cmd"], Self: ci["name"] == "Chloe"}
+		if ci["db"] != "" {
+			p.Database = "db" + ci["db"]
+		}
+		out = append(out, p)
 	}
 	return out, nil
 }
+
+// redisFlags names CLIENT LIST flags.
+var redisFlags = map[rune]string{'b': "blocked", 'M': "primary", 'S': "replica", 'P': "pub/sub", 'x': "in MULTI", 'O': "monitor",
+	'd': "watched keys changed", 'c': "closing", 'A': "closing", 't': "tracking", 'r': "read-only", 'U': "unix socket"}
+
+func clientFlags(f string) string {
+	var out []string
+	for _, ch := range f {
+		if name, ok := redisFlags[ch]; ok && !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	return strings.Join(out, ", ")
+}
+
+// redactedConfig are CONFIG values that hold secrets; neither the monitor nor
+// an MCP agent is shown them.
+var redactedConfig = []string{"requirepass", "masterauth", "tls-key-file-pass", "tls-client-key-file-pass"}
 
 func redisConfig(ctx context.Context, kv *rdb.Client) ([]model.ServerVar, error) {
 	cfg, err := kv.Config(ctx)
@@ -124,10 +146,13 @@ func redisConfig(ctx context.Context, kv *rdb.Client) ([]model.ServerVar, error)
 		return nil, err
 	}
 	out := make([]model.ServerVar, 0, len(cfg))
-	for k, v := range cfg {
-		out = append(out, model.ServerVar{Name: k, Value: v})
+	for _, name := range slices.Sorted(maps.Keys(cfg)) {
+		v := cfg[name]
+		if slices.Contains(redactedConfig, name) && v != "" {
+			v = "(hidden)"
+		}
+		out = append(out, model.ServerVar{Name: name, Value: v})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }
 

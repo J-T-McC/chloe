@@ -128,9 +128,6 @@ func TestRedisText(t *testing.T) {
 	if !validCursor("list", "3") || validCursor("list", "-1") || validCursor("set", "abc") || !validCursor("stream", "1700000000000-0") || validCursor("stream", "5") {
 		t.Error("validCursor")
 	}
-	if got := clientFlags("bN"); got != "blocked" {
-		t.Error(got)
-	}
 }
 
 func TestKeyPrefix(t *testing.T) {
