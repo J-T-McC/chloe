@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"chloe/internal/core"
 	"chloe/internal/design"
@@ -397,5 +398,32 @@ func TestSQLiteSampleSeed(t *testing.T) {
 	orders, _ := m.LoadDesign(ctx, saved.ID, model.ObjectRef{Database: "main", Name: "orders", Kind: model.KindTable})
 	if len(orders.Triggers) != 1 || orders.Triggers[0].Events[0] != "UPDATE OF status" || orders.Indexes[0].Where != "status <> 'shipped'" {
 		t.Fatalf("orders %+v %+v", orders.Triggers, orders.Indexes)
+	}
+}
+
+// Execute SQL File decodes the file and reports
+// failures by line while it streams.
+func TestSQLiteExecuteFile(t *testing.T) {
+	m, id, dir := sqliteSetup(t)
+	ctx := context.Background()
+	path := filepath.Join(dir, "script.sql")
+	// windows-1252: é is 0xE9.
+	script := "INSERT INTO audit VALUES ('caf\xe9');\n\nINSERT INTO nowhere VALUES (1);\n" +
+		strings.Repeat("INSERT INTO audit VALUES ('x;y');\n", 3000)
+	if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	j, err := m.ExecuteFile(id, core.ExecuteFileRequest{Path: path, Database: "main", Encoding: "windows-1252", ContinueOnError: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	done, err := m.WaitJob(wctx, j.ID)
+	if err != nil || done.Message != "Executed 3002 statements, 1 failed" || !strings.Contains(strings.Join(done.Log, "\n"), "line 3:") {
+		t.Fatalf("%v %s\n%s", err, done.Message, strings.Join(done.Log, "\n"))
+	}
+	if n := queryAll(t, m, id, "main", "", "SELECT count(*) FROM audit WHERE msg = 'café'"); *n[0][0] != "1" {
+		t.Fatalf("decoded %v", deref(n[0][0]))
 	}
 }

@@ -463,19 +463,20 @@ func (m *Manager) ExecuteFile(connID string, req ExecuteFileRequest) (Job, error
 		return Job{}, err
 	}
 	return m.startJob("execute", "Execute "+baseName(req.Path), "statements", func(ctx context.Context, p *progress) (string, error) {
-		script, err := readText(req.Path, req.Encoding)
+		f, r, err := openText(req.Path, req.Encoding)
 		if err != nil {
 			return "", err
 		}
-		stmts := sqlsplit.Split(script, c.Dialect().Split)
-		p.set(0, int64(len(stmts)))
+		defer f.Close()
 		ds, err := c.NewSession(ctx, req.Database, req.Schema)
 		if err != nil {
 			return "", err
 		}
 		defer ds.Close()
-		failed := 0
-		for i, st := range stmts {
+		// Statements are read as they run, so the file is never held whole.
+		sc := sqlsplit.NewScanner(r, c.Dialect().Split)
+		done, failed := 0, 0
+		for st, ok := sc.Next(); ok; st, ok = sc.Next() {
 			if ctx.Err() != nil {
 				return "", ctx.Err()
 			}
@@ -495,9 +496,13 @@ func (m *Manager) ExecuteFile(connID string, req ExecuteFileRequest) (Job, error
 					return "", fmt.Errorf("statement at line %d failed: %w", st.StartLine, err)
 				}
 			}
-			p.setDone(int64(i + 1))
+			done++
+			p.setDone(int64(done))
 		}
-		msg := fmt.Sprintf("Executed %d statements", len(stmts))
+		if err := sc.Err(); err != nil {
+			return "", err
+		}
+		msg := fmt.Sprintf("Executed %d statements", done)
 		if failed > 0 {
 			msg += fmt.Sprintf(", %d failed", failed)
 		}
@@ -505,23 +510,20 @@ func (m *Manager) ExecuteFile(connID string, req ExecuteFileRequest) (Job, error
 	}), nil
 }
 
-func readText(path, encoding string) (string, error) {
+// openText opens a text file for reading, decoded from encoding to UTF-8.
+func openText(path, encoding string) (*os.File, io.Reader, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return "", err
+		return nil, nil, err
 	}
-	defer f.Close()
-	var r io.Reader = bufio.NewReader(f)
+	var r io.Reader = f
 	if encoding != "" && !strings.EqualFold(encoding, "utf-8") {
 		enc, err := htmlindex.Get(encoding)
 		if err != nil {
-			return "", fmt.Errorf("unknown encoding %q", encoding)
+			f.Close()
+			return nil, nil, fmt.Errorf("unknown encoding %q", encoding)
 		}
 		r = transform.NewReader(r, enc.NewDecoder())
 	}
-	b, err := io.ReadAll(r)
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimPrefix(string(b), "\ufeff"), nil
+	return f, r, nil
 }

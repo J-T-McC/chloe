@@ -2,6 +2,7 @@ package sqlsplit
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -43,11 +44,47 @@ func TestSplit(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := sqls(Split(c.in, c.d))
-			if !reflect.DeepEqual(got, c.want) {
+			all := Split(c.in, c.d)
+			if got := sqls(all); !reflect.DeepEqual(got, c.want) {
 				t.Fatalf("\n got %q\nwant %q", got, c.want)
 			}
+			scanEqualsSplit(t, c.in, c.d, all)
 		})
+	}
+}
+
+// scanEqualsSplit checks that a Scanner reading in chunks of every small size
+// finds the statements Split finds, at the same offsets and lines.
+func scanEqualsSplit(t *testing.T, in string, d Dialect, want []Statement) {
+	t.Helper()
+	for chunk := 1; chunk <= 9; chunk++ {
+		s := NewScanner(strings.NewReader(in), d)
+		s.chunk = chunk
+		var got []Statement
+		for st, ok := s.Next(); ok; st, ok = s.Next() {
+			got = append(got, st)
+		}
+		if s.Err() != nil || !reflect.DeepEqual(got, want) {
+			t.Fatalf("chunk %d: %v\n got %+v\nwant %+v", chunk, s.Err(), got, want)
+		}
+	}
+}
+
+func TestScannerContext(t *testing.T) {
+	for _, c := range []struct {
+		in string
+		d  Dialect
+	}{
+		{"select 1;DELIMITER $$\nselect 2;", MySQL}, // not at a line start: no DELIMITER
+		{"select 1;  \n  DELIMITER $$\nselect 2$$\nDELIMITER ;\nselect 3", MySQL},
+		{"select 1;\nDELIMITER //", MySQL},
+		{"select a$b; select $x$;$x$; select 2", Postgres},
+		{"x;CREATE TRIGGER t BEGIN SELECT 1; END; y;\n\n\nz", SQLite},
+		{"\ufeffselect 1;\nselect 2", MySQL},
+		{strings.Repeat("insert into t values (1, 'a;b');\n", 200) + "select 'long " + strings.Repeat("x", 500) + "';", MySQL},
+	} {
+		want := Split(strings.TrimPrefix(c.in, "\ufeff"), c.d)
+		scanEqualsSplit(t, c.in, c.d, want)
 	}
 }
 
