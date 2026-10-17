@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -153,6 +154,30 @@ func TestBIArchive(t *testing.T) {
 	prev, err := m.BIPreview(ctx, w, src, 2)
 	if err != nil || len(prev.Rows) != 2 || !strings.Contains(prev.SQL, `"data"`) {
 		t.Errorf("archive preview: %+v %v", prev, err)
+	}
+
+	// Refreshing while charts read the snapshot never closes it under them.
+	var wg sync.WaitGroup
+	errs := make(chan error, 64)
+	for range 8 {
+		wg.Go(func() {
+			for range 20 {
+				if _, err := m.BIChartData(ctx, w, chart, nil, core.BIRead{Uncached: true}); err != nil {
+					errs <- err
+					return
+				}
+			}
+		})
+	}
+	for range 5 {
+		if _, err := m.BIArchive(ctx, w, src); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Errorf("read during refresh: %v", err)
 	}
 }
 
