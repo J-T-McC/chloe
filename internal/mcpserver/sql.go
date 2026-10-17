@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -300,7 +301,111 @@ func (b *builder) insert(row map[string]any) (stmt, error) {
 	return stmt{sql, args}, nil
 }
 
-func (b *builder) update(set map[string]any, conds []Condition) (stmt, error) {
+// maxPinned is how many rows an update or delete pins by primary key. Above it,
+// or without a primary key, the approved count is checked again instead.
+const maxPinned = 1000
+
+// keySet holds the primary keys of the rows a change was approved for.
+type keySet struct {
+	cols []string
+	rows [][]string
+}
+
+// keys reads the primary keys of the rows matching conds. It returns nil when
+// the table has no primary key, a key is NULL, or more than maxPinned rows match.
+func (b *builder) keys(ctx context.Context, ds driver.Session, conds []Condition) (*keySet, error) {
+	pk := b.primaryKey()
+	if len(pk) == 0 {
+		return nil, nil
+	}
+	var args []any
+	w, err := b.where(conds, &args)
+	if err != nil {
+		return nil, err
+	}
+	cols := make([]string, len(pk))
+	for i, c := range pk {
+		cols[i] = b.d.QuoteIdent(c)
+	}
+	q := fmt.Sprintf("SELECT %s FROM %s WHERE %s LIMIT %d", strings.Join(cols, ", "), b.d.Qualified(b.ref), w, maxPinned+1)
+	rows, err := ds.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	k := &keySet{cols: pk}
+	for {
+		cells := make([]*string, len(pk))
+		if !rows.Next(cells) {
+			break
+		}
+		row := make([]string, len(pk))
+		for i, c := range cells {
+			if c == nil {
+				return nil, rows.Err()
+			}
+			row[i] = *c
+		}
+		if k.rows = append(k.rows, row); len(k.rows) > maxPinned {
+			return nil, rows.Err()
+		}
+	}
+	return k, rows.Err()
+}
+
+// only limits a WHERE clause to the rows in k.
+func (b *builder) only(w string, k *keySet, args *[]any) string {
+	if k == nil {
+		return w
+	}
+	if len(k.rows) == 0 {
+		return w + " AND 1 = 0"
+	}
+	ph := func(v string) string {
+		*args = append(*args, v)
+		return b.d.Placeholder(len(*args))
+	}
+	if len(k.cols) == 1 {
+		col := b.d.QuoteIdent(k.cols[0])
+		list := make([]string, len(k.rows))
+		for i, r := range k.rows {
+			list[i] = ph(r[0])
+		}
+		return w + " AND " + col + " IN (" + strings.Join(list, ", ") + ")"
+	}
+	ors := make([]string, len(k.rows))
+	for i, r := range k.rows {
+		ands := make([]string, len(k.cols))
+		for j, c := range k.cols {
+			ands[j] = b.d.QuoteIdent(c) + " = " + ph(r[j])
+		}
+		ors[i] = "(" + strings.Join(ands, " AND ") + ")"
+	}
+	return w + " AND (" + strings.Join(ors, " OR ") + ")"
+}
+
+// list shows the pinned keys under the statement in the approval dialog.
+func (k *keySet) list() string {
+	if k == nil || len(k.rows) == 0 {
+		return ""
+	}
+	shown := make([]string, 0, 5)
+	for _, r := range k.rows[:min(5, len(k.rows))] {
+		if len(r) == 1 {
+			shown = append(shown, r[0])
+		} else {
+			shown = append(shown, "("+strings.Join(r, ", ")+")")
+		}
+	}
+	s := "\n-- " + strings.Join(k.cols, ", ") + ": " + strings.Join(shown, ", ")
+	if len(k.rows) > 5 {
+		s += fmt.Sprintf(" and %d more", len(k.rows)-5)
+	}
+	return s
+}
+
+// update changes the rows matching conds, limited to only when it's set.
+func (b *builder) update(set map[string]any, conds []Condition, only *keySet) (stmt, error) {
 	if len(set) == 0 {
 		return stmt{}, errors.New("set needs at least one column")
 	}
@@ -325,10 +430,12 @@ func (b *builder) update(set map[string]any, conds []Condition) (stmt, error) {
 	if err != nil {
 		return stmt{}, err
 	}
+	w = b.only(w, only, &args)
 	return stmt{fmt.Sprintf("UPDATE %s SET %s WHERE %s", b.d.Qualified(b.ref), strings.Join(sets, ", "), w), args}, nil
 }
 
-func (b *builder) delete(conds []Condition) (stmt, error) {
+// delete removes the rows matching conds, limited to only when it's set.
+func (b *builder) delete(conds []Condition, only *keySet) (stmt, error) {
 	if len(conds) == 0 {
 		return stmt{}, errors.New("where needs at least one condition")
 	}
@@ -337,6 +444,7 @@ func (b *builder) delete(conds []Condition) (stmt, error) {
 	if err != nil {
 		return stmt{}, err
 	}
+	w = b.only(w, only, &args)
 	return stmt{"DELETE FROM " + b.d.Qualified(b.ref) + " WHERE " + w, args}, nil
 }
 

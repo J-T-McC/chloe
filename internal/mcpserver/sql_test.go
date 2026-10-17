@@ -45,7 +45,7 @@ func TestBuildStatements(t *testing.T) {
 	}
 
 	m := newBuilder(mysqlD, table())
-	up, err := m.update(map[string]any{"status": "it's done"}, []Condition{{Column: "id", Op: "=", Value: 7.0}})
+	up, err := m.update(map[string]any{"status": "it's done"}, []Condition{{Column: "id", Op: "=", Value: 7.0}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,11 +71,11 @@ func TestBuildStatements(t *testing.T) {
 		{[]Condition{{Column: "status", Op: "between", Value: []any{1}}}, "two values"},
 		{[]Condition{{Column: `status" OR 1=1 --`, Op: "=", Value: 1}}, "no column"},
 	} {
-		if _, err := b.delete(bad.conds); err == nil || !strings.Contains(err.Error(), bad.want) {
+		if _, err := b.delete(bad.conds, nil); err == nil || !strings.Contains(err.Error(), bad.want) {
 			t.Errorf("%v: got %v, want %q", bad.conds, err, bad.want)
 		}
 	}
-	if _, err := b.delete(nil); err == nil {
+	if _, err := b.delete(nil, nil); err == nil {
 		t.Error("delete without where")
 	}
 }
@@ -94,7 +94,7 @@ func TestBindArrays(t *testing.T) {
 	if ins.Args[0] != `["a",1]` || ins.Args[1] != `{{"1","2"},{"3","4"}}` || ins.Args[2] != `{"usb","say \"hi\"","back\\slash",NULL}` {
 		t.Fatalf("args: %q", ins.Args)
 	}
-	up, err := b.update(map[string]any{"tags": []any{}}, []Condition{{Column: "tags", Op: "=", Value: []any{"usb"}}})
+	up, err := b.update(map[string]any{"tags": []any{}}, []Condition{{Column: "tags", Op: "=", Value: []any{"usb"}}}, nil)
 	if err != nil || up.Args[0] != "{}" || up.Args[1] != `{"usb"}` {
 		t.Fatalf("update: %v %q", err, up.Args)
 	}

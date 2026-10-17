@@ -3,6 +3,7 @@ package mcpserver_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -562,5 +563,65 @@ func TestCreateConnection(t *testing.T) {
 	// A second one with the same file gets a new name.
 	if out := f.call(t, "create_connection", map[string]any{"engine": "sqlite", "path": other}, ""); out["name"] != "notes 2" {
 		t.Fatalf("second: %v", out)
+	}
+}
+
+// A row that starts matching while the user decides isn't changed: the change
+// is pinned to the approved rows' primary keys. Without a primary key the
+// matching rows are counted again and a moved count rolls the change back.
+func TestApprovedRowsArePinned(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "shop.db")
+	f := setupConn(t, model.Connection{Name: "shop", Type: model.SQLite, SQLite: model.SQLiteConfig{Path: path, Create: true}}, "main", "",
+		seed+"CREATE TABLE notes (body TEXT, tag TEXT); INSERT INTO notes VALUES ('a', 'x'), ('b', 'x');"+
+			"CREATE TABLE pairs (a INT, b TEXT, v INT, PRIMARY KEY (a, b)); INSERT INTO pairs VALUES (1, 'x', 0), (1, 'y', 0), (2, 'x', 1);", store.MCPConnAccess{Level: store.MCPWrite})
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	exec := func(q string) {
+		if _, err := db.Exec(q); err != nil {
+			t.Error(err)
+		}
+	}
+	vip := []any{map[string]any{"column": "vip", "op": "=", "value": 0}}
+
+	// Ada stops matching and Bob starts: the count stays 1, but only Ada was approved.
+	exec("UPDATE customers SET vip = 1 WHERE id <> 1")
+	f.appr.during = func() { exec("UPDATE customers SET vip = CASE id WHEN 2 THEN 0 ELSE 1 END") }
+	out := f.call(t, "update_rows", map[string]any{"connection": "shop", "table": "customers", "where": vip, "set": map[string]any{"name": "Changed"}}, "")
+	f.appr.during = nil
+	if out["rows"] != 0.0 || !strings.Contains(f.appr.asked[0].SQL, "-- id: 1") {
+		t.Fatalf("update: %v, approval %q", out, f.appr.asked[0].SQL)
+	}
+	out = f.call(t, "run_query", map[string]any{"connection": "shop", "sql": "SELECT count(*) FROM customers WHERE name = 'Changed'"}, "")
+	if rows(out)[0][0] != "0" {
+		t.Fatalf("a row approved by nobody changed: %v", out)
+	}
+
+	f.appr.during = func() { exec("INSERT INTO customers (email, vip) VALUES ('late@example.com', 0)") }
+	out = f.call(t, "delete_rows", map[string]any{"connection": "shop", "table": "customers", "where": vip}, "")
+	f.appr.during = nil
+	out2 := f.call(t, "run_query", map[string]any{"connection": "shop", "sql": "SELECT email FROM customers WHERE vip = 0"}, "")
+	if out["rows"] != 1.0 || len(rows(out2)) != 1 || rows(out2)[0][0] != "late@example.com" {
+		t.Fatalf("delete: %v, left %v", out, out2)
+	}
+
+	// No primary key: a moved count rolls back.
+	tag := []any{map[string]any{"column": "tag", "op": "=", "value": "x"}}
+	f.appr.during = func() { exec("UPDATE notes SET tag = 'y' WHERE body = 'a'") }
+	f.call(t, "delete_rows", map[string]any{"connection": "shop", "table": "notes", "where": tag}, "now match 1 row but 2 were approved; rolled back")
+	f.appr.during = nil
+	out = f.call(t, "run_query", map[string]any{"connection": "shop", "sql": "SELECT count(*) FROM notes"}, "")
+	if rows(out)[0][0] != "2" {
+		t.Fatalf("rolled-back delete ran: %v", out)
+	}
+	f.call(t, "delete_rows", map[string]any{"connection": "shop", "table": "notes", "where": tag}, "")
+
+	// A composite key pins each row by all its columns.
+	out = f.call(t, "update_rows", map[string]any{"connection": "shop", "table": "pairs",
+		"where": []any{map[string]any{"column": "v", "op": "=", "value": 0}}, "set": map[string]any{"v": 5}}, "")
+	if sql := f.appr.asked[len(f.appr.asked)-1].SQL; out["rows"] != 2.0 || !strings.Contains(sql, "-- a, b: (1, x), (1, y)") {
+		t.Fatalf("composite: %v, approval %q", out, sql)
 	}
 }
