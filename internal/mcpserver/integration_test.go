@@ -89,6 +89,14 @@ func TestIntegrationEngines(t *testing.T) {
 					t.Fatalf("%s: %v", plan, out)
 				}
 			}
+			// Reads share a warm session instead of logging in each time.
+			q["sql"] = "SELECT CONNECTION_ID()"
+			if e.conn.Type == model.PostgreSQL {
+				q["sql"] = "SELECT pg_backend_pid()"
+			}
+			if a, b := rows(f.call(t, "run_query", q, ""))[0][0], rows(f.call(t, "run_query", q, ""))[0][0]; a != b {
+				t.Errorf("two reads, two sessions: %v %v", a, b)
+			}
 			// The server stops at the limit: ORDER BY and duplicate column names survive.
 			q["limit"] = 5
 			q["sql"] = "SELECT TABLE_NAME, TABLE_NAME FROM information_schema.COLUMNS ORDER BY TABLE_NAME DESC"

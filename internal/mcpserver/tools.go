@@ -658,16 +658,18 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 			}
 			limit := clampLimit(in.Limit)
 			var out RowsOut
-			err = c.s.m.WithSession(ctx, t.connID, t.database, t.schema, func(ds driver.Session, d driver.Dialect) error {
-				q, err := newBuilder(d, detail).selectRows(in.Columns, in.Where, in.OrderBy, limit+1, max(in.Offset, 0))
-				if err != nil {
-					return err
-				}
-				c.act.SQL = display(d, q)
-				return driver.ReadOnly(ctx, ds, d, func() error {
-					out, err = readRows(ctx, ds, q, limit)
-					return err
-				})
+			d, err := c.s.m.Dialect(t.connID)
+			if err != nil {
+				return RowsOut{}, err
+			}
+			q, err := newBuilder(d, detail).selectRows(in.Columns, in.Where, in.OrderBy, limit+1, max(in.Offset, 0))
+			if err != nil {
+				return RowsOut{}, err
+			}
+			c.act.SQL = display(d, q)
+			err = c.s.m.WithReadSession(ctx, t.connID, t.database, t.schema, func(ds driver.Session, _ driver.Dialect) error {
+				out, err = readRows(ctx, ds, q, limit)
+				return err
 			})
 			c.act.Rows = int64(out.RowCount)
 			return out, err
@@ -694,17 +696,19 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 			defer cancel()
 			limit := clampLimit(in.Limit)
 			var out RowsOut
-			err = c.s.m.WithSession(ctx, t.connID, t.database, t.schema, func(ds driver.Session, d driver.Dialect) error {
-				sql, err := checkReadOnly(d, in.SQL)
-				c.act.SQL = strings.TrimSpace(in.SQL)
-				if err != nil {
-					return err
-				}
-				return driver.ReadOnly(ctx, ds, d, func() error {
-					// One row past the limit tells readRows the result was truncated.
-					out, err = readRows(ctx, ds, stmt{SQL: limitRead(d, sql, limit+1)}, limit)
-					return err
-				})
+			d, err := c.s.m.Dialect(t.connID)
+			if err != nil {
+				return RowsOut{}, err
+			}
+			sql, err := checkReadOnly(d, in.SQL)
+			c.act.SQL = strings.TrimSpace(in.SQL)
+			if err != nil {
+				return RowsOut{}, err
+			}
+			err = c.s.m.WithReadSession(ctx, t.connID, t.database, t.schema, func(ds driver.Session, _ driver.Dialect) error {
+				// One row past the limit tells readRows the result was truncated.
+				out, err = readRows(ctx, ds, stmt{SQL: limitRead(d, sql, limit+1)}, limit)
+				return err
 			})
 			c.act.Rows = int64(out.RowCount)
 			return out, err
