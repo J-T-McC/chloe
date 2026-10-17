@@ -208,7 +208,7 @@ func commentValue(s string) string {
 }
 
 func (g Postgres) Create(t Table) ([]string, error) {
-	return checked(t, sqlsplit.Postgres, func() ([]string, error) { return g.create(t) })
+	return checked(t, nil, sqlsplit.Postgres, func() ([]string, error) { return g.create(t) })
 }
 
 func (g Postgres) create(t Table) ([]string, error) {
@@ -262,7 +262,7 @@ func pkDef(pk *PrimaryKey) string {
 }
 
 func (g Postgres) Alter(old, nw Table) ([]string, error) {
-	return checked(nw, sqlsplit.Postgres, func() ([]string, error) { return g.alter(old, nw) })
+	return checked(nw, &old, sqlsplit.Postgres, func() ([]string, error) { return g.alter(old, nw) })
 }
 
 func (g Postgres) alter(old, nw Table) ([]string, error) {

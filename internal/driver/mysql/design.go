@@ -62,6 +62,9 @@ func (c *Conn) LoadDesign(ctx context.Context, ref model.ObjectRef) (design.Tabl
 		col.OnUpdateNow = strings.Contains(extra, "on update current_timestamp")
 		if strings.Contains(extra, "generated") && r[9].String != "" {
 			col.GeneratedExpr = r[9].String
+			if !c.mariadb {
+				col.GeneratedExpr = unescapeClause(col.GeneratedExpr)
+			}
 			col.GeneratedStored = strings.Contains(extra, "stored")
 		} else {
 			col.Default = c.defaultExpr(r[4], col, extra)
@@ -227,7 +230,7 @@ func (c *Conn) defaultExpr(v sql.NullString, col design.Column, extra string) *s
 		if strings.HasPrefix(upper, "CURRENT_TIMESTAMP") || strings.HasPrefix(upper, "NOW(") {
 			return &s
 		}
-		e := "(" + s + ")"
+		e := "(" + unescapeClause(s) + ")"
 		return &e
 	case isNumericType(col.Type) || strings.HasPrefix(s, "b'"):
 		return &s
@@ -246,7 +249,8 @@ func isNumericType(t string) bool {
 	return false
 }
 
-// unescapeClause turns MySQL's CHECK_CLAUSE back into SQL: it is the
+// unescapeClause turns MySQL's CHECK_CLAUSE, GENERATION_EXPRESSION and
+// expression COLUMN_DEFAULT back into SQL: each is the
 // expression as SHOW CREATE TABLE writes it with every \ and ' escaped once
 // more by a backslash, so (`x` <> _utf8mb4\')\').
 func unescapeClause(s string) string {

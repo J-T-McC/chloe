@@ -21,7 +21,7 @@ func designFixture(e engine) design.Table {
 		Database: e.database, Schema: e.schema, Name: "dt_items", Comment: "designer test",
 		Columns: []design.Column{
 			{Name: "id", Type: "int", AutoIncrement: !pg},
-			{Name: "sku", Type: "varchar", Length: "32"},
+			{Name: "sku", Type: "varchar", Length: "32", Default: sp(`'it''s \\'`)},
 			{Name: "title", Type: "varchar", Length: "200", Nullable: true, Comment: "display title"},
 			{Name: "price", Type: "decimal", Length: "10", Scale: "2", Default: sp("0.00")},
 			{Name: "customer_id", Type: "int", Nullable: true},
@@ -35,7 +35,8 @@ func designFixture(e engine) design.Table {
 		ForeignKeys: []design.ForeignKey{{Name: "dt_items_customer", Columns: []string{"customer_id"}, RefTable: "customers", RefColumns: []string{"id"}, OnDelete: "SET NULL"}},
 		Checks: []design.Check{{Name: "dt_items_price_ck", Expr: "price >= 0"},
 			// Parentheses inside the literals mustn't decide which ones are the CHECK's own.
-			{Name: "dt_items_title_ck", Expr: "(title <> '(') OR (title <> ')')"}},
+			// The server hands literals back escaped (MySQL: _utf8mb4'it\'s').
+			{Name: "dt_items_title_ck", Expr: "(title <> '(') OR (title <> ')') OR (title <> 'it''s')"}},
 	}
 	if pg {
 		t.Columns[0].Identity = "by default"
@@ -43,7 +44,9 @@ func designFixture(e engine) design.Table {
 		t.Columns = append(t.Columns, design.Column{Name: "tags", Type: "text[]", Nullable: true})
 		t.Indexes = append(t.Indexes, design.Index{Name: "dt_items_lower_sku", Columns: []design.IndexColumn{{Expr: "lower((sku)::text)"}}, Where: "(price > (0)::numeric)"})
 		t.PrimaryKey.Name = "dt_items_pkey"
+		t.Columns = append(t.Columns, design.Column{Name: "label", Type: "text", Nullable: true, GeneratedExpr: "(title || 'it''s')", GeneratedStored: true})
 	} else {
+		t.Columns = append(t.Columns, design.Column{Name: "label", Type: "varchar", Length: "250", Nullable: true, GeneratedExpr: "concat(title, 'it''s \\\\')"})
 		t.Columns[2].Collation = "utf8mb4_bin"
 		t.Columns[5].OnUpdateNow = true
 		t.Options = design.Options{Engine: "InnoDB"}
@@ -98,6 +101,7 @@ func TestIntegrationDesigner(t *testing.T) {
 			if pg {
 				wantCols = append(wantCols, "tags")
 			}
+			wantCols = append(wantCols, "label")
 			if !slices.Equal(names(loaded.Columns), wantCols) {
 				t.Fatalf("columns %v", names(loaded.Columns))
 			}
@@ -128,8 +132,12 @@ func TestIntegrationDesigner(t *testing.T) {
 				t.Fatalf("indexes %+v", loaded.Indexes)
 			}
 
-			// 3. Loading and saving without edits changes nothing.
+			// 3. Loading and saving without edits changes nothing, and the loaded
+			// table can be created again (a model built from this database).
 			assertNoop(t, m, id, loaded)
+			if _, err := m.PreviewDesign(id, nil, cloneTable(loaded)); err != nil {
+				t.Fatalf("create from the loaded table: %v", err)
+			}
 
 			// Some data, to prove alters keep it.
 			ins := m.ExecuteDDL(ctx, id, e.database, e.schema, []string{"INSERT INTO dt_items (sku, title, price) VALUES ('ab-1', 'Widget', 9.5)"}, false)
@@ -179,11 +187,10 @@ func TestIntegrationDesigner(t *testing.T) {
 			if after.Name != "dt_items2" || after.Comment != "renamed" {
 				t.Fatalf("table rename/comment %q %q", after.Name, after.Comment)
 			}
-			wantCols = []string{"id", "code", "title", "price", "created_at", "qty"}
 			if pg {
-				wantCols = []string{"id", "code", "title", "price", "created_at", "tags", "qty"}
+				wantCols = []string{"id", "code", "title", "price", "created_at", "tags", "label", "qty"}
 			} else {
-				wantCols = []string{"title", "id", "code", "price", "created_at", "qty"}
+				wantCols = []string{"title", "id", "code", "price", "created_at", "label", "qty"}
 			}
 			if !slices.Equal(names(after.Columns), wantCols) {
 				t.Fatalf("columns after alter %v", names(after.Columns))

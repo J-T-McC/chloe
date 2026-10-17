@@ -185,7 +185,7 @@ func (SQLite) validate(t Table) error {
 }
 
 func (g SQLite) Create(t Table) ([]string, error) {
-	return checked(t, sqlsplit.SQLite, func() ([]string, error) { return g.create(t) })
+	return checked(t, nil, sqlsplit.SQLite, func() ([]string, error) { return g.create(t) })
 }
 
 func (g SQLite) create(t Table) ([]string, error) {
@@ -277,7 +277,7 @@ func addable(c Column) bool {
 }
 
 func (g SQLite) Alter(old, nw Table) ([]string, error) {
-	return checked(nw, sqlsplit.SQLite, func() ([]string, error) { return g.alter(old, nw) })
+	return checked(nw, &old, sqlsplit.SQLite, func() ([]string, error) { return g.alter(old, nw) })
 }
 
 func (g SQLite) alter(old, nw Table) ([]string, error) {
