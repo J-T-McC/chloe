@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -43,7 +45,7 @@ func (l Library) List() []Entry {
 	out := []Entry{}
 	for _, f := range l.lib().Files() {
 		e := Entry{Path: f.Path, Name: f.Base, Modified: f.Modified}
-		if w, err := Read(f.Path); err != nil {
+		if w, err := ReadCached(f.Path); err != nil {
 			e.Error = err.Error()
 		} else {
 			e.Name, e.DataSources, e.Charts, e.Dashboards, e.CreatedBy = w.Name, len(w.DataSources), len(w.Charts), len(w.Dashboards), w.CreatedBy
@@ -162,6 +164,48 @@ func Read(p string) (Workspace, error) {
 		return Workspace{}, err
 	}
 	return Parse(data)
+}
+
+// parsed holds workspaces as last read, by path, while their files are unchanged.
+var parsed = struct {
+	sync.Mutex
+	m map[string]parsedFile
+}{m: map[string]parsedFile{}}
+
+type parsedFile struct {
+	mod  time.Time
+	size int64
+	w    Workspace
+}
+
+const parsedMax = 128
+
+// ReadCached is Read for callers that only look: listing the library, finding
+// a workspace by name, drawing a chart. It parses a file again only when its
+// size or modification time changed. The workspace shares its slices with
+// other callers, so it must not be changed.
+func ReadCached(p string) (Workspace, error) {
+	fi, err := os.Stat(p)
+	if err != nil {
+		return Workspace{}, err
+	}
+	parsed.Lock()
+	c, ok := parsed.m[p]
+	parsed.Unlock()
+	if ok && c.mod.Equal(fi.ModTime()) && c.size == fi.Size() {
+		return c.w, nil
+	}
+	w, err := Read(p)
+	if err != nil {
+		return w, err
+	}
+	parsed.Lock()
+	if len(parsed.m) >= parsedMax {
+		clear(parsed.m)
+	}
+	parsed.m[p] = parsedFile{fi.ModTime(), fi.Size(), w}
+	parsed.Unlock()
+	return w, nil
 }
 
 // Write saves a workspace file.

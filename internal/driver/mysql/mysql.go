@@ -4,6 +4,7 @@ package mysql
 import (
 	"context"
 	"database/sql"
+	sqldriver "database/sql/driver"
 	"errors"
 	"fmt"
 	"net"
@@ -104,7 +105,7 @@ func (Driver) Open(ctx context.Context, c model.Connection, d tunnel.Dialer) (dr
 	}
 	var version string
 	_ = db.QueryRowContext(ctx, "SELECT VERSION()").Scan(&version)
-	return &Conn{db: db, stopKeepalive: stop, initial: a.InitialQueries, version: version,
+	return &Conn{db: db, connector: connector, stopKeepalive: stop, initial: a.InitialQueries, version: version,
 		mariadb: c.Type == model.MariaDB || strings.Contains(strings.ToLower(version), "mariadb")}, nil
 }
 
@@ -117,6 +118,7 @@ func seconds(n, def int) time.Duration {
 
 type Conn struct {
 	db            *sql.DB
+	connector     sqldriver.Connector // for KILL when the pool is at its session limit
 	stopKeepalive func()
 	initial       string
 	version       string
@@ -376,10 +378,35 @@ func (s *Session) Query(ctx context.Context, stmt string, args ...any) (driver.R
 	return sqlcommon.Run(ctx, s.conn, stmt, sqlcommon.FormatValue, args...)
 }
 
-// Cancel kills the running statement from a separate pool connection, which is how
+// Cancel kills the running statement from another connection, which is how
 // MySQL clients abort queries without dropping the session.
 func (s *Session) Cancel(ctx context.Context) error {
-	_, err := s.c.db.ExecContext(ctx, "KILL QUERY "+strconv.FormatInt(s.id, 10))
+	return s.c.kill(ctx, "KILL QUERY "+strconv.FormatInt(s.id, 10))
+}
+
+// killTimeout bounds a KILL, which callers often send without a deadline.
+const killTimeout = 10 * time.Second
+
+// kill runs a KILL statement. When every pooled connection is taken (the
+// session limit), waiting for one could wait on the very statement being
+// killed, so it connects outside the pool instead.
+func (c *Conn) kill(ctx context.Context, stmt string) error {
+	ctx, cancel := context.WithTimeout(ctx, killTimeout)
+	defer cancel()
+	if st := c.db.Stats(); st.MaxOpenConnections == 0 || st.InUse < st.MaxOpenConnections {
+		_, err := c.db.ExecContext(ctx, stmt)
+		return err
+	}
+	dc, err := c.connector.Connect(ctx)
+	if err != nil {
+		return err
+	}
+	defer dc.Close()
+	ex, ok := dc.(sqldriver.ExecerContext)
+	if !ok {
+		return errors.New("the MySQL driver can't run KILL directly")
+	}
+	_, err = ex.ExecContext(ctx, stmt, nil)
 	return err
 }
 
