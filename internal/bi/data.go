@@ -200,23 +200,7 @@ func nameParts(cols []Column, rows [][]any) {
 
 func shape(c Chart, cols []Column, raw [][]*string, win *Window) [][]any {
 	c.NormalizeSort()
-	rows := make([][]any, len(raw))
-	for i, r := range raw {
-		row := make([]any, len(cols))
-		for j, v := range r {
-			if v == nil {
-				continue
-			}
-			if cols[j].Type == TypeNumber && cols[j].Role != "dimension" && cols[j].Role != "series" {
-				if x, err := strconv.ParseFloat(*v, 64); err == nil {
-					row[j] = x
-					continue
-				}
-			}
-			row[j] = *v
-		}
-		rows[i] = row
-	}
+	rows := typedRows(cols, raw)
 	t := ChartTypes[c.Type]
 	switch {
 	case t.Single():
@@ -240,7 +224,42 @@ func shape(c Chart, cols []Column, raw [][]*string, win *Window) [][]any {
 	if !t.NoFill {
 		rows = fillSeries(c, cols, rows, dim)
 	}
-	// Totals per dimension value (over series) decide value order and Top N.
+	order := dimensionOrder(c, cols, rows, dim, val)
+	if c.Top > 0 && len(order) > c.Top {
+		rows, order = topN(c, cols, rows, order, dim)
+	}
+	sortByOrder(cols, rows, order, dim)
+	applyOps(c, cols, rows)
+	return rows
+}
+
+// typedRows turns the query's cells into numbers for measures and strings
+// for the rest.
+func typedRows(cols []Column, raw [][]*string) [][]any {
+	rows := make([][]any, len(raw))
+	for i, r := range raw {
+		row := make([]any, len(cols))
+		for j, v := range r {
+			if v == nil {
+				continue
+			}
+			if cols[j].Type == TypeNumber && cols[j].Role != "dimension" && cols[j].Role != "series" {
+				if x, err := strconv.ParseFloat(*v, 64); err == nil {
+					row[j] = x
+					continue
+				}
+			}
+			row[j] = *v
+		}
+		rows[i] = row
+	}
+	return rows
+}
+
+// dimensionOrder orders the dimension's values: by the chart's sort, or by
+// default dates and numbers in order and categories by their totals over
+// series. Top N keeps the largest, whatever the dimension.
+func dimensionOrder(c Chart, cols []Column, rows [][]any, dim, val int) []string {
 	totals := map[string]float64{}
 	var order []string
 	for _, r := range rows {
@@ -254,7 +273,6 @@ func shape(c Chart, cols []Column, raw [][]*string, win *Window) [][]any {
 	sortBy := c.Sort
 	if sortBy == nil {
 		sortBy = defaultSort(c, cols[dim])
-		// Top N keeps the largest, whatever the dimension.
 		if c.Top > 0 {
 			sortBy = &ChartSort{By: "value", Desc: true}
 		}
@@ -277,62 +295,71 @@ func shape(c Chart, cols []Column, raw [][]*string, win *Window) [][]any {
 			slices.Reverse(order)
 		}
 	}
-	// A scatter's points don't add up into an Others point.
+	return order
+}
+
+// topN keeps the rows of the first c.Top dimension values and, when the chart
+// asks for it, adds the rest up into an Others row per series. A scatter's
+// points don't add up into an Others point.
+func topN(c Chart, cols []Column, rows [][]any, order []string, dim int) ([][]any, []string) {
 	withOthers := c.Others && c.Type != "scatter"
-	if c.Top > 0 && len(order) > c.Top {
-		kept := order[:c.Top]
-		keep := map[string]bool{}
-		for _, k := range kept {
-			keep[k] = true
+	kept := order[:c.Top]
+	keep := map[string]bool{}
+	for _, k := range kept {
+		keep[k] = true
+	}
+	ser := slices.IndexFunc(cols, func(c Column) bool { return c.Role == "series" })
+	var out [][]any
+	others := map[string][]any{} // by series value
+	var otherKeys []string
+	for _, r := range rows {
+		if keep[key(r[dim])] {
+			out = append(out, r)
+			continue
 		}
-		var out [][]any
-		others := map[string][]any{} // by series value
-		var otherKeys []string
-		for _, r := range rows {
-			if keep[key(r[dim])] {
-				out = append(out, r)
-				continue
-			}
-			if !withOthers {
-				continue
-			}
-			sk := ""
-			if s := slices.IndexFunc(cols, func(c Column) bool { return c.Role == "series" }); s >= 0 {
-				sk = key(r[s])
-			}
-			o, ok := others[sk]
-			if !ok {
-				o = slices.Clone(r)
-				o[dim] = "Others"
-				for j, col := range cols {
-					if isMeasure(col.Role) {
-						o[j] = 0.0
-					}
-				}
-				others[sk] = o
-				otherKeys = append(otherKeys, sk)
-			}
+		if !withOthers {
+			continue
+		}
+		sk := ""
+		if ser >= 0 {
+			sk = key(r[ser])
+		}
+		o, ok := others[sk]
+		if !ok {
+			o = slices.Clone(r)
+			o[dim] = "Others"
 			for j, col := range cols {
 				if isMeasure(col.Role) {
-					x, _ := r[j].(float64)
-					o[j] = o[j].(float64) + x
+					o[j] = 0.0
 				}
 			}
+			others[sk] = o
+			otherKeys = append(otherKeys, sk)
 		}
-		for _, sk := range otherKeys {
-			out = append(out, others[sk])
-		}
-		rows = out
-		order = slices.Clone(kept)
-		if withOthers {
-			order = append(order, "Others")
+		for j, col := range cols {
+			if isMeasure(col.Role) {
+				x, _ := r[j].(float64)
+				o[j] = o[j].(float64) + x
+			}
 		}
 	}
+	for _, sk := range otherKeys {
+		out = append(out, others[sk])
+	}
+	order = slices.Clone(kept)
+	if withOthers {
+		order = append(order, "Others")
+	}
+	return out, order
+}
+
+// sortByOrder puts rows in the dimension's order; within a dimension value,
+// series always come in the same order (by name).
+func sortByOrder(cols []Column, rows [][]any, order []string, dim int) {
 	pos := map[string]int{}
 	for i, k := range order {
 		pos[k] = i
 	}
-	// Within a dimension value, series always come in the same order (by name).
 	ser := slices.IndexFunc(cols, func(c Column) bool { return c.Role == "series" })
 	slices.SortStableFunc(rows, func(a, b []any) int {
 		if r := cmp.Compare(pos[key(a[dim])], pos[key(b[dim])]); r != 0 || ser < 0 {
@@ -340,8 +367,6 @@ func shape(c Chart, cols []Column, raw [][]*string, win *Window) [][]any {
 		}
 		return compareCells(a[ser], b[ser])
 	})
-	applyOps(c, cols, rows)
-	return rows
 }
 
 // defaultSort keeps dates and numbers in order, and puts the biggest bars first

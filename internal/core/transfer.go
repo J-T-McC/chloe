@@ -281,112 +281,25 @@ type importer struct {
 	keys []string
 	p    *progress
 
-	srcIdx []int    // index into the source row for each mapped column
-	cols   []string // target columns
+	srcIdx    []int    // index into the source row for each mapped column
+	cols      []string // target columns
+	committed bool
 }
 
 func (im *importer) run(ctx context.Context, src transfer.Source) (string, error) {
-	req := im.req
-	exec := func(q string, args ...any) error {
-		_, err := im.ds.Exec(ctx, q, args...)
-		return err
+	pending, err := im.mapColumns(src)
+	if errors.Is(err, errEmptyFile) {
+		return "File is empty", nil
 	}
-	// Resolve the mapping against the file's columns. JSON/Excel columns are known
-	// up front; delimited files without a header learn them from the first row.
-	var pending []*string
-	srcCols := src.Columns()
-	if len(srcCols) == 0 {
-		r, err := src.Next()
-		if errors.Is(err, io.EOF) {
-			return "File is empty", nil
-		}
-		if err != nil {
-			return "", err
-		}
-		pending, srcCols = r, src.Columns()
+	if err != nil {
+		return "", err
 	}
-	pos := map[string]int{}
-	for i, c := range srcCols {
-		pos[c] = i
+	undo, err := im.begin(ctx)
+	defer undo()
+	if err != nil {
+		return "", err
 	}
-	for _, f := range req.Mapping {
-		i, ok := pos[f.Source]
-		if !ok {
-			return "", fmt.Errorf("source field %q not found in file", f.Source)
-		}
-		im.srcIdx = append(im.srcIdx, i)
-		im.cols = append(im.cols, f.Target)
-	}
-	if im.req.Mode == ImportUpdate || im.req.Mode == ImportDelete || im.req.Mode == ImportUpsert || im.req.Mode == ImportSkipExisting {
-		for _, k := range im.keys {
-			if !slices.Contains(im.cols, k) {
-				return "", fmt.Errorf("key column %q must be mapped for %s mode", k, req.Mode)
-			}
-		}
-	}
-
-	// Before BEGIN: SQLite only takes it outside a transaction.
-	if off := im.d.ForeignKeyChecks(false); req.DisableFKChecks && off != "" {
-		if err := exec(off); err != nil {
-			return "", err
-		}
-		defer exec(im.d.ForeignKeyChecks(true))
-	}
-	if req.Transaction {
-		if err := exec("BEGIN"); err != nil {
-			return "", err
-		}
-	}
-	committed := false
-	defer func() {
-		if req.Transaction && !committed {
-			_, _ = im.ds.Exec(context.Background(), "ROLLBACK")
-		}
-	}()
-	if req.Mode == ImportCopy {
-		if err := exec("DELETE FROM " + im.d.Qualified(req.Target)); err != nil {
-			return "", err
-		}
-		im.p.logf("Deleted existing rows")
-	}
-
-	batch := req.BatchSize
-	if batch <= 0 {
-		batch = 500
-	}
-	if max := im.d.MaxParams() / max(1, len(im.cols)); batch > max {
-		batch = max
-	}
-	if req.Mode == ImportUpdate || req.Mode == ImportDelete {
-		batch = 1
-	}
-	var buf [][]*string
-	var done, affected int64
-	flush := func() error {
-		if len(buf) == 0 {
-			return nil
-		}
-		n, err := im.writeBatch(ctx, buf)
-		if err != nil {
-			if !req.ContinueOnError || req.Transaction {
-				return fmt.Errorf("row %d: %w", done+1, err)
-			}
-			// Retry row by row to isolate the bad rows.
-			for i, r := range buf {
-				if n1, err1 := im.writeBatch(ctx, [][]*string{r}); err1 != nil {
-					im.p.error("row %d: %v", done+int64(i)+1, err1)
-				} else {
-					affected += n1
-				}
-			}
-		} else {
-			affected += n
-		}
-		done += int64(len(buf))
-		im.p.setDone(done)
-		buf = buf[:0]
-		return nil
-	}
+	b := &importBatch{im: im, size: im.batchSize()}
 	next := func() ([]*string, error) {
 		if pending != nil {
 			r := pending
@@ -404,35 +317,180 @@ func (im *importer) run(ctx context.Context, src transfer.Source) (string, error
 			break
 		}
 		if err != nil {
-			return "", fmt.Errorf("reading row %d: %w", done+int64(len(buf))+1, err)
+			return "", fmt.Errorf("reading row %d: %w", b.done+int64(len(b.buf))+1, err)
 		}
-		out := make([]*string, len(im.srcIdx))
-		for i, si := range im.srcIdx {
-			if si < len(r) {
-				out[i] = r[si]
-			}
-		}
-		buf = append(buf, out)
-		if len(buf) >= batch {
-			if err := flush(); err != nil {
-				return "", err
-			}
-		}
-	}
-	if err := flush(); err != nil {
-		return "", err
-	}
-	if req.Transaction {
-		if err := exec("COMMIT"); err != nil {
+		if err := b.add(ctx, im.mapped(r)); err != nil {
 			return "", err
 		}
-		committed = true
 	}
-	msg := fmt.Sprintf("Processed %d rows, %d affected", done, affected)
+	if err := b.flush(ctx); err != nil {
+		return "", err
+	}
+	if im.req.Transaction {
+		if _, err := im.ds.Exec(ctx, "COMMIT"); err != nil {
+			return "", err
+		}
+		im.committed = true
+	}
+	msg := fmt.Sprintf("Processed %d rows, %d affected", b.done, b.affected)
 	if n := im.p.errorCount(); n > 0 {
 		msg += fmt.Sprintf(", %d failed", n)
 	}
 	return msg, nil
+}
+
+var errEmptyFile = errors.New("the file is empty")
+
+// mapColumns resolves the mapping against the file's columns. JSON/Excel
+// columns are known up front; delimited files without a header learn them
+// from the first row, which it returns to be imported first.
+func (im *importer) mapColumns(src transfer.Source) ([]*string, error) {
+	var pending []*string
+	srcCols := src.Columns()
+	if len(srcCols) == 0 {
+		r, err := src.Next()
+		if errors.Is(err, io.EOF) {
+			return nil, errEmptyFile
+		}
+		if err != nil {
+			return nil, err
+		}
+		pending, srcCols = r, src.Columns()
+	}
+	pos := map[string]int{}
+	for i, c := range srcCols {
+		pos[c] = i
+	}
+	for _, f := range im.req.Mapping {
+		i, ok := pos[f.Source]
+		if !ok {
+			return nil, fmt.Errorf("source field %q not found in file", f.Source)
+		}
+		im.srcIdx = append(im.srcIdx, i)
+		im.cols = append(im.cols, f.Target)
+	}
+	switch im.req.Mode {
+	case ImportUpdate, ImportDelete, ImportUpsert, ImportSkipExisting:
+		for _, k := range im.keys {
+			if !slices.Contains(im.cols, k) {
+				return nil, fmt.Errorf("key column %q must be mapped for %s mode", k, im.req.Mode)
+			}
+		}
+	}
+	return pending, nil
+}
+
+// mapped picks a source row's mapped columns, in target column order.
+func (im *importer) mapped(r []*string) []*string {
+	out := make([]*string, len(im.srcIdx))
+	for i, si := range im.srcIdx {
+		if si < len(r) {
+			out[i] = r[si]
+		}
+	}
+	return out
+}
+
+// begin turns foreign key checks off, starts the transaction and, in Copy
+// mode, empties the table. undo puts back what wasn't committed (rolls back,
+// then turns the checks on); call it even when begin fails.
+func (im *importer) begin(ctx context.Context) (undo func(), err error) {
+	var undos []func()
+	undo = func() {
+		for i := len(undos) - 1; i >= 0; i-- {
+			undos[i]()
+		}
+	}
+	exec := func(q string) error {
+		_, err := im.ds.Exec(ctx, q)
+		return err
+	}
+	// Before BEGIN: SQLite only takes it outside a transaction.
+	if off := im.d.ForeignKeyChecks(false); im.req.DisableFKChecks && off != "" {
+		if err := exec(off); err != nil {
+			return undo, err
+		}
+		undos = append(undos, func() { _ = exec(im.d.ForeignKeyChecks(true)) })
+	}
+	if im.req.Transaction {
+		if err := exec("BEGIN"); err != nil {
+			return undo, err
+		}
+		undos = append(undos, func() {
+			if !im.committed {
+				_, _ = im.ds.Exec(context.Background(), "ROLLBACK")
+			}
+		})
+	}
+	if im.req.Mode == ImportCopy {
+		if err := exec("DELETE FROM " + im.d.Qualified(im.req.Target)); err != nil {
+			return undo, err
+		}
+		im.p.logf("Deleted existing rows")
+	}
+	return undo, nil
+}
+
+// batchSize is how many rows go in one statement: the request's (500 by
+// default), as many as the server takes parameters for, one row to update or
+// delete.
+func (im *importer) batchSize() int {
+	batch := im.req.BatchSize
+	if batch <= 0 {
+		batch = 500
+	}
+	if m := im.d.MaxParams() / max(1, len(im.cols)); batch > m {
+		batch = m
+	}
+	if im.req.Mode == ImportUpdate || im.req.Mode == ImportDelete {
+		batch = 1
+	}
+	return batch
+}
+
+// importBatch writes rows a batch at a time.
+type importBatch struct {
+	im             *importer
+	size           int
+	buf            [][]*string
+	done, affected int64
+}
+
+func (b *importBatch) add(ctx context.Context, row []*string) error {
+	b.buf = append(b.buf, row)
+	if len(b.buf) >= b.size {
+		return b.flush(ctx)
+	}
+	return nil
+}
+
+// flush writes the buffered rows. When the import continues on errors outside
+// a transaction, a failed batch is written again row by row to isolate the bad
+// rows.
+func (b *importBatch) flush(ctx context.Context) error {
+	if len(b.buf) == 0 {
+		return nil
+	}
+	im := b.im
+	n, err := im.writeBatch(ctx, b.buf)
+	if err != nil {
+		if !im.req.ContinueOnError || im.req.Transaction {
+			return fmt.Errorf("row %d: %w", b.done+1, err)
+		}
+		for i, r := range b.buf {
+			if n1, err1 := im.writeBatch(ctx, [][]*string{r}); err1 != nil {
+				im.p.error("row %d: %v", b.done+int64(i)+1, err1)
+			} else {
+				b.affected += n1
+			}
+		}
+	} else {
+		b.affected += n
+	}
+	b.done += int64(len(b.buf))
+	im.p.setDone(b.done)
+	b.buf = b.buf[:0]
+	return nil
 }
 
 // writeBatch writes rows according to the import mode and returns rows affected.
