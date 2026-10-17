@@ -261,8 +261,6 @@ func (s *MongoService) Fetch(ctx context.Context, shellID, cursorID string, skip
 	return FetchResult{Page: p, HasMore: more}, err
 }
 
-func (s *MongoService) ShellDB(shellID string) string { return s.M.MongoShellDB(shellID) }
-
 func (s *MongoService) CloseShell(shellID string) { s.M.CloseMongoShell(shellID) }
 
 // Format renders a value in shell syntax (JSON-style keys when json is set).

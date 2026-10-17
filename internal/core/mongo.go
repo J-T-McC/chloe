@@ -142,15 +142,6 @@ func (m *Manager) FetchMongo(ctx context.Context, id, cursorID string, skip, lim
 	return s.sh.Fetch(ctx, cursorID, skip, limit)
 }
 
-// MongoShellDB is the shell's current database.
-func (m *Manager) MongoShellDB(id string) string {
-	s, err := m.mongoShell(id)
-	if err != nil {
-		return ""
-	}
-	return s.sh.CurrentDB()
-}
-
 // CloseMongoShell forgets a shell, stopping a script it is running.
 func (m *Manager) CloseMongoShell(id string) {
 	m.consolesMu.Lock()

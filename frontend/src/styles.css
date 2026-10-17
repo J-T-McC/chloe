@@ -1756,12 +1756,6 @@ textarea.remarks {
   opacity: 0.8;
 }
 
-.fields-tab {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
 .fields-grid {
   flex: 1;
   overflow: auto;
@@ -1938,11 +1932,6 @@ td.wide {
   padding: 0 4px;
   font-size: 12px;
   border-style: dashed;
-}
-
-.triggers-tab {
-  display: flex;
-  height: 100%;
 }
 
 .trigger-list {

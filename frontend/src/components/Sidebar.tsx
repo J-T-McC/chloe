@@ -406,7 +406,6 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
         },
         {
           label: "Delete Group",
-          danger: true,
           onClick: async () => {
             if (await confirm(`Delete group “${n.group}”?`, { message: "Its connections move to the top level; nothing else is deleted.", okLabel: "Delete Group" })) {
               await Connections.DeleteGroup(n.group!);
@@ -428,7 +427,7 @@ function menuFor(n: TreeNode, connected: boolean, dbOpen: boolean): MenuItem[] {
           : { label: "Open Connection", onClick: () => tree.expand(n) },
         { label: "Edit Connection…", onClick: () => app.editConnection(c) },
         { label: "New Connection…", onClick: () => app.editConnection("new") },
-        { label: "Delete Connection…", danger: true, onClick: () => deleteConnection(c) },
+        { label: "Delete Connection…", onClick: () => deleteConnection(c) },
         { label: "Duplicate Connection", onClick: async () => { await Connections.Duplicate(c.id); await reload(); } },
         { separator: true },
         { label: lite ? "Attach Database…" : "New Database…", disabled: !connected, onClick: () => openDatabaseDialog(n.connId) },

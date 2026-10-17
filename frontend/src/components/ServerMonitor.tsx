@@ -207,7 +207,7 @@ export function ServerMonitor({ tab, active }: { tab: Tab; active: boolean }) {
                       onContextMenu={(e) => {
                         if (!picked.has(k)) setPicked(new Set([k]));
                         openMenu(e, [
-                          { label: "End Process…", danger: true, onClick: () => kill(false) },
+                          { label: "End Process…", onClick: () => kill(false) },
                           { label: "Cancel Query…", onClick: () => kill(true) },
                           { separator: true },
                           { label: pinned.has(k) ? "Unpin" : "Always On Top", onClick: () => setPinned((s) => toggle(s, k)) },

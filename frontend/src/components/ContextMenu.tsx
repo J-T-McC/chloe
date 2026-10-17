@@ -6,7 +6,6 @@ export interface MenuItem {
   label?: string;
   shortcut?: string;
   disabled?: boolean;
-  danger?: boolean;
   separator?: boolean;
   checked?: boolean;
   /** Small colour dot before the label (connection colours). */
@@ -68,7 +67,7 @@ function MenuPanel({ items, x, y, alignRightOf }: { items: MenuItem[]; x: number
         ) : (
           <button
             key={i}
-            className={"menu-item" + (it.danger ? " danger" : "") + (sub?.index === i ? " open" : "")}
+            className={"menu-item" + (sub?.index === i ? " open" : "")}
             disabled={it.disabled}
             onMouseEnter={(e) => {
               if (it.submenu) {

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { Connection, Connections, DBType, Explorer, ObjectKind, ObjectRef, arr, errorText } from "./api";
+import { Connection, Connections, Explorer, ObjectKind, ObjectRef, arr, errorText } from "./api";
 import { alert, prompt } from "./components/Dialogs";
 
 export type TabKind = "objects" | "query" | "table" | "ddl" | "monitor" | "design" | "erd" | "model" | "viewdesign" | "redisconsole" | "users" | "user" | "collection" | "mongoquery" | "mongoshell" | "mongodesign" | "mongousers" | "history" | "mcp" | "bi" | "bisource" | "bichart" | "bidash";
@@ -270,7 +270,6 @@ function sameRef(a?: ObjectRef, b?: ObjectRef) {
   return a.database === b.database && (a.schema ?? "") === (b.schema ?? "") && a.name === b.name && a.kind === b.kind && (a.signature ?? "") === (b.signature ?? "");
 }
 
-export const isSchemaEngine = (t?: DBType) => t === DBType.PostgreSQL;
 
 export function connById(id?: string) {
   return useApp.getState().connections.find((c) => c.id === id);
