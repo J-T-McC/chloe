@@ -46,9 +46,10 @@ An endpoint is a named access profile (e.g. "Claude Code – dev"):
 
 ## Approval
 Without danger mode, every write shows a dialog in Chloe: endpoint, connection/database, the exact SQL (with values),
-and the number of rows it affects, with **Deny** and **Approve**. For update/delete Chloe counts the matching rows
-first; on Approve it runs the statement in a transaction and rolls back if the affected count differs from what was
-approved. Deny gives the agent "declined by the user in Chloe". With no answer within 2 minutes the dialog closes,
+and the number of rows it affects, with **Deny** and **Approve**. For update/delete Chloe reads the primary keys of the
+matching rows first (listed under the SQL) and on Approve changes only those rows, in a transaction, like the MongoDB
+writes pin `_id`s: a row that starts matching while the dialog is open is left alone. Without a primary key, or with more
+than 1000 matching rows, it counts them instead and rolls back if the count has moved by the time it runs. Deny gives the agent "declined by the user in Chloe". With no answer within 2 minutes the dialog closes,
 nothing runs, and the agent is told nobody answered (so it doesn't take silence for a refusal).
 Creating a connection always asks, even in danger mode, and the password can be typed into the dialog instead of
 coming from the agent.

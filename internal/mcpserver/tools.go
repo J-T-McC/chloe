@@ -769,11 +769,9 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 		func(ctx context.Context, c *call, in UpdateArgs) (ChangedOut, error) {
 			var out ChangedOut
 			err := c.write(ctx, in.TableArgs, func(ctx context.Context, ds driver.Session, d driver.Dialect, b *builder) (int64, error) {
-				q, err := b.update(in.Set, in.Where)
-				if err != nil {
-					return 0, err
-				}
-				n, err := c.matchingThenRun(ctx, ds, d, b, q, in.Where, in.Table, "Update")
+				n, err := c.matchingThenRun(ctx, ds, d, b, in.Where, in.Table, "Update", func(k *keySet) (stmt, error) {
+					return b.update(in.Set, in.Where, k)
+				})
 				out.Rows = n
 				return n, err
 			})
@@ -784,11 +782,9 @@ func (s *Server) addTools(srv *mcp.Server, ep string, writes bool) {
 		func(ctx context.Context, c *call, in DeleteArgs) (ChangedOut, error) {
 			var out ChangedOut
 			err := c.write(ctx, in.TableArgs, func(ctx context.Context, ds driver.Session, d driver.Dialect, b *builder) (int64, error) {
-				q, err := b.delete(in.Where)
-				if err != nil {
-					return 0, err
-				}
-				n, err := c.matchingThenRun(ctx, ds, d, b, q, in.Where, in.Table, "Delete")
+				n, err := c.matchingThenRun(ctx, ds, d, b, in.Where, in.Table, "Delete", func(k *keySet) (stmt, error) {
+					return b.delete(in.Where, k)
+				})
 				out.Rows = n
 				return n, err
 			})
@@ -818,29 +814,57 @@ func (c *call) write(ctx context.Context, in TableArgs, fn func(context.Context,
 	})
 }
 
-// matchingThenRun counts the rows a change would touch, asks the user, then
-// runs it. A change touching more rows than were approved is rolled back.
-func (c *call) matchingThenRun(ctx context.Context, ds driver.Session, d driver.Dialect, b *builder, q stmt, where []Condition, table, verb string) (int64, error) {
+// matchingThenRun finds the rows a change would touch, asks the user, then runs
+// it on those rows only: pinned by primary key, so a row that starts matching
+// while the user decides is left alone. Without a primary key, or with more than
+// maxPinned rows, the matching rows are counted again in the transaction and the
+// change is rolled back if the count moved.
+func (c *call) matchingThenRun(ctx context.Context, ds driver.Session, d driver.Dialect, b *builder, where []Condition, table, verb string, build func(*keySet) (stmt, error)) (int64, error) {
+	q, err := build(nil)
+	if err != nil {
+		return 0, err
+	}
 	cq, err := b.count(where)
 	if err != nil {
 		return 0, err
 	}
 	cctx, cancel := context.WithTimeout(ctx, statementTimeout)
-	v, err := scalar(cctx, ds, cq)
+	keys, err := b.keys(cctx, ds, where)
+	var matching int64
+	if err == nil && keys != nil {
+		matching = int64(len(keys.rows))
+	} else if err == nil {
+		var v string
+		v, err = scalar(cctx, ds, cq)
+		matching, _ = strconv.ParseInt(v, 10, 64)
+	}
 	cancel()
 	if err != nil {
 		return 0, err
 	}
-	matching, _ := strconv.ParseInt(v, 10, 64)
-	c.act.SQL = display(d, q)
+	c.act.SQL = display(d, q) + keys.list()
 	if err := c.approve(ctx, ApprovalRequest{Connection: c.act.Connection, Database: c.act.Database, Table: table,
 		Summary: fmt.Sprintf("%s %s in %s", verb, plural(matching, "row"), table), SQL: c.act.SQL, Rows: matching}); err != nil {
 		return 0, err
+	}
+	if keys != nil {
+		if q, err = build(keys); err != nil {
+			return 0, err
+		}
 	}
 	ctx, cancel = context.WithTimeout(ctx, statementTimeout)
 	defer cancel()
 	var n int64
 	err = tx(ctx, ds, func() error {
+		if keys == nil && c.asked {
+			v, err := scalar(ctx, ds, cq)
+			if err != nil {
+				return err
+			}
+			if now, _ := strconv.ParseInt(v, 10, 64); now != matching {
+				return fmt.Errorf("the conditions now match %s but %d were approved; rolled back (rows changed in the meantime)", plural(now, "row"), matching)
+			}
+		}
 		var err error
 		if n, err = ds.Exec(ctx, q.SQL, q.Args...); err != nil {
 			return err
