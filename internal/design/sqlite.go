@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"chloe/internal/sqlq"
 	"chloe/internal/sqlsplit"
 )
 
@@ -13,9 +14,9 @@ import (
 // it under a temporary name, copy the rows, drop the old table and rename.
 type SQLite struct{}
 
-func sq(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
+func sq(s string) string { return sqlq.Quoted(s) }
 
-func sqStr(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+func sqStr(s string) string { return sqlq.String(s) }
 
 // RebuildPrefix names the temporary table of a rebuild.
 const RebuildPrefix = "_chloe_new_"

@@ -26,6 +26,7 @@ import (
 	"chloe/internal/driver"
 	"chloe/internal/driver/sqlcommon"
 	"chloe/internal/model"
+	"chloe/internal/sqlq"
 	"chloe/internal/sqlsplit"
 	"chloe/internal/tunnel"
 )
@@ -200,7 +201,7 @@ func (c *Conn) flushIdle() {
 	c.db.SetMaxIdleConns(4)
 }
 
-func literal(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+func literal(s string) string { return sqlq.String(s) }
 
 // syncAttachments brings one physical connection's attachments up to date.
 func (c *Conn) syncAttachments(ctx context.Context, q interface {

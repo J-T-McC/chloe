@@ -3,6 +3,22 @@ package sqlq
 
 import "strings"
 
+// String quotes s as a standard SQL string literal (SQLite, or Postgres with an
+// E” fallback in PGString): embedded quotes are doubled.
+func String(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+
+// MySQLString quotes s as a MySQL string literal that reads the same whether or not
+// NO_BACKSLASH_ESCAPES is set: quotes are doubled and backslashes escaped.
+func MySQLString(s string) string { return "'" + mysqlString.Replace(s) + "'" }
+
+var mysqlString = strings.NewReplacer(`\`, `\\`, `'`, `''`)
+
+// Backtick quotes a MySQL identifier.
+func Backtick(s string) string { return "`" + strings.ReplaceAll(s, "`", "``") + "`" }
+
+// Quoted quotes a standard SQL identifier (Postgres, SQLite).
+func Quoted(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
+
 // PGString quotes s as a Postgres string literal that reads the same whatever
 // standard_conforming_strings is set to: text with a backslash becomes E'…' with the
 // backslashes doubled, so a backslash can never escape the closing quote.

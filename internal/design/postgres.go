@@ -13,7 +13,7 @@ import (
 // not atomic per statement.
 type Postgres struct{}
 
-func pgq(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
+func pgq(s string) string { return sqlq.Quoted(s) }
 
 // pgIdent quotes only when needed, keeping generated SQL readable.
 func pgIdent(s string) string {

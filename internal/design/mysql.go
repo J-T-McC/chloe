@@ -5,17 +5,16 @@ import (
 	"slices"
 	"strings"
 
+	"chloe/internal/sqlq"
 	"chloe/internal/sqlsplit"
 )
 
 // MySQL generates MySQL/MariaDB DDL.
 type MySQL struct{}
 
-func myq(s string) string { return "`" + strings.ReplaceAll(s, "`", "``") + "`" }
+func myq(s string) string { return sqlq.Backtick(s) }
 
-func myStr(s string) string {
-	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `''`).Replace(s) + "'"
-}
+func myStr(s string) string { return sqlq.MySQLString(s) }
 
 func (MySQL) table(t Table) string {
 	if t.Database != "" {

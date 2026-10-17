@@ -7,7 +7,7 @@ import (
 	"chloe/internal/sqlq"
 )
 
-func pgq(s string) string   { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
+func pgq(s string) string   { return sqlq.Quoted(s) }
 func pgStr(s string) string { return sqlq.PGString(s) }
 
 // PostgresPrivileges lists the privileges offered at each level.

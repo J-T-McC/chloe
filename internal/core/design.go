@@ -12,6 +12,7 @@ import (
 	"chloe/internal/design"
 	"chloe/internal/driver"
 	"chloe/internal/model"
+	"chloe/internal/sqlq"
 )
 
 // LoadDesign reads a table definition for the designer.
@@ -184,7 +185,7 @@ func sqliteIdent(s string) string {
 	if s == "" {
 		s = "main"
 	}
-	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+	return sqlq.Quoted(s)
 }
 
 // TableAction is a one-click table operation from the tree or object list.

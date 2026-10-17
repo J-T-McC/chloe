@@ -338,7 +338,7 @@ func Literal(v *string, typ string, dialect string) string {
 		if strings.Contains(t, "BLOB") && blobHexRe.MatchString(*v) {
 			return "X'" + (*v)[2:] + "'"
 		}
-		return "'" + strings.ReplaceAll(*v, "'", "''") + "'"
+		return sqlq.String(*v)
 	}
 	if dialect == "postgres" {
 		if t == "BYTEA" && byteaHexRe.MatchString(*v) {

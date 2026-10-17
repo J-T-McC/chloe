@@ -10,6 +10,7 @@ import (
 
 	"chloe/internal/driver/sqlcommon"
 	"chloe/internal/privs"
+	"chloe/internal/sqlq"
 )
 
 func (c *Conn) ListUsers(ctx context.Context) ([]privs.UserInfo, error) {
@@ -27,7 +28,7 @@ func (c *Conn) ListUsers(ctx context.Context) ([]privs.UserInfo, error) {
 }
 
 func grantee(name, host string) string {
-	return "'" + strings.ReplaceAll(name, "'", "''") + "'@'" + strings.ReplaceAll(host, "'", "''") + "'"
+	return sqlq.MySQLString(name) + "@" + sqlq.MySQLString(host)
 }
 
 func (c *Conn) LoadUser(ctx context.Context, name, host, _ string) (privs.User, error) {
