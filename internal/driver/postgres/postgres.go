@@ -245,12 +245,12 @@ func column0(ctx context.Context, db *sql.DB, q string, args ...any) ([]string, 
 
 // objectQueries return: schema, name, comment, rows, size, owner, signature, return type.
 var objectQueries = map[model.ObjectKind]string{
-	model.KindTable:     relQuery("'r','p'"),
-	model.KindView:      relQuery("'v'"),
-	model.KindMatView:   relQuery("'m'"),
-	model.KindSequence:  relQuery("'S'"),
-	model.KindFunction:  procQuery("'f','a','w'"),
-	model.KindProcedure: procQuery("'p'"),
+	model.KindTable:     relQuery("'r','p'", true),
+	model.KindView:      relQuery("'v'", true),
+	model.KindMatView:   relQuery("'m'", true),
+	model.KindSequence:  relQuery("'S'", true),
+	model.KindFunction:  procQuery("'f','a','w'", false),
+	model.KindProcedure: procQuery("'p'", false),
 	model.KindTrigger: `SELECT n.nspname, t.tgname, COALESCE(obj_description(t.oid,'pg_trigger'),''), 0, 0, '', c.relname, ''
 		FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
 		WHERE NOT t.tgisinternal AND ($1 = '' OR n.nspname = $1) ORDER BY 2`,
@@ -264,20 +264,41 @@ var objectQueries = map[model.ObjectKind]string{
 
 // relQuery estimates rows from reltuples, which is -1 until a table is first
 // vacuumed or analyzed; the statistics' live tuple count covers that gap.
-func relQuery(kinds string) string {
+// With size, it also sums each relation's files (pg_total_relation_size stats
+// them on disk), which the object list shows and the completion catalog doesn't need.
+func relQuery(kinds string, size bool) string {
+	sz := "0"
+	if size {
+		sz = "CASE WHEN c.relkind IN ('r','p','m') THEN pg_total_relation_size(c.oid) ELSE 0 END"
+	}
 	return `SELECT n.nspname, c.relname, COALESCE(obj_description(c.oid,'pg_class'),''),
 		CASE WHEN c.reltuples >= 0 THEN c.reltuples::bigint ELSE COALESCE(pg_stat_get_live_tuples(c.oid), 0) END,
-		CASE WHEN c.relkind IN ('r','p','m') THEN pg_total_relation_size(c.oid) ELSE 0 END,
+		` + sz + `,
 		pg_get_userbyid(c.relowner), '', ''
 		FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 		WHERE c.relkind IN (` + kinds + `) AND ($1 = '' OR n.nspname = $1) AND NOT c.relispartition ORDER BY c.relname`
 }
 
-func procQuery(kinds string) string {
+// With userOnly, the thousands of system catalog functions are left out.
+func procQuery(kinds string, userOnly bool) string {
+	user := ""
+	if userOnly {
+		user = " AND n.nspname NOT IN ('pg_catalog', 'information_schema')"
+	}
 	return `SELECT n.nspname, p.proname, COALESCE(obj_description(p.oid,'pg_proc'),''), 0, 0, pg_get_userbyid(p.proowner),
 		pg_get_function_identity_arguments(p.oid), COALESCE(pg_get_function_result(p.oid),'')
 		FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-		WHERE p.prokind IN (` + kinds + `) AND ($1 = '' OR n.nspname = $1) ORDER BY p.proname, 7`
+		WHERE p.prokind IN (` + kinds + `) AND ($1 = '' OR n.nspname = $1)` + user + ` ORDER BY p.proname, 7`
+}
+
+// catalogQueries list what the completion catalog needs, without object sizes
+// or system functions (builtins covers those).
+var catalogQueries = map[model.ObjectKind]string{
+	model.KindTable:     relQuery("'r','p'", false),
+	model.KindView:      relQuery("'v'", false),
+	model.KindMatView:   relQuery("'m'", false),
+	model.KindFunction:  procQuery("'f','a','w'", true),
+	model.KindProcedure: procQuery("'p'", true),
 }
 
 func (c *Conn) ListObjects(ctx context.Context, database, schema string, kind model.ObjectKind) ([]model.ObjectInfo, error) {
@@ -285,6 +306,10 @@ func (c *Conn) ListObjects(ctx context.Context, database, schema string, kind mo
 	if !ok {
 		return nil, nil
 	}
+	return c.listObjects(ctx, database, schema, kind, q)
+}
+
+func (c *Conn) listObjects(ctx context.Context, database, schema string, kind model.ObjectKind, q string) ([]model.ObjectInfo, error) {
 	db, err := c.pool(ctx, database)
 	if err != nil {
 		return nil, err
@@ -406,19 +431,9 @@ func (c *Conn) Catalog(ctx context.Context, database string) (model.Catalog, err
 		return cat, err
 	}
 	for _, k := range []model.ObjectKind{model.KindTable, model.KindView, model.KindMatView, model.KindFunction, model.KindProcedure} {
-		objs, err := c.ListObjects(ctx, database, "", k)
+		objs, err := c.listObjects(ctx, database, "", k, catalogQueries[k])
 		if err != nil {
 			return cat, err
-		}
-		// Skip system catalog functions: there are thousands and they're covered by builtins.
-		if k == model.KindFunction || k == model.KindProcedure {
-			kept := objs[:0]
-			for _, o := range objs {
-				if o.Schema != "pg_catalog" && o.Schema != "information_schema" {
-					kept = append(kept, o)
-				}
-			}
-			objs = kept
 		}
 		cat.Objects = append(cat.Objects, objs...)
 	}
