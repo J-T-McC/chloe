@@ -3,7 +3,7 @@
 import { Design, ObjectKind, ObjectRef, TableAction, arr, errorText } from "./api";
 import { alert, confirm, prompt } from "./components/Dialogs";
 import { invalidateCatalog } from "./editor/completion";
-import { connById, useApp } from "./store";
+import { useApp } from "./store";
 import { folderKey, useTree } from "./tree";
 
 export function designTable(connId: string, ref: ObjectRef) {
@@ -68,4 +68,3 @@ export function refreshFolder(connId: string, database: string, schema: string |
   if (tree.children[key]) tree.refresh({ key, type: "folder", label: "", connId, database, schema, kind, depth: 0, expandable: true });
 }
 
-export const isPG = (connId: string) => connById(connId)?.type === "postgres";

@@ -414,7 +414,6 @@ export function DataGrid(p: DataGridProps) {
         { label: "Add Row", onClick: () => p.onInsertRow?.() },
         {
           label: "Delete Selected Rows",
-          danger: true,
           shortcut: "⌘⌫",
           onClick: () => {
             const n = sel && inSel(r, c) ? norm(sel) : { r0: r, r1: r };

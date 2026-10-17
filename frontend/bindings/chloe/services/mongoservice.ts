@@ -224,10 +224,6 @@ export function SetViewPipeline(connID: string, db: string, name: string, viewOn
     return $Call.ByID(2261474313, connID, db, name, viewOn, pipeline);
 }
 
-export function ShellDB(shellID: string): $CancellablePromise<string> {
-    return $Call.ByID(804121522, shellID);
-}
-
 export function Stop(shellID: string): $CancellablePromise<void> {
     return $Call.ByID(3831273630, shellID);
 }
