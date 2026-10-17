@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -201,15 +200,9 @@ func (s *BIService) SaveDashboard(path string, d bi.Dashboard) (bi.Dashboard, er
 
 // DeleteObject removes a data source, chart or dashboard from a workspace.
 func (s *BIService) DeleteObject(path, id string) error {
-	var archived string
-	w, err := s.update(path, func(w *bi.Workspace) error {
-		if src := w.Source(id); src != nil && src.Mode == bi.ModeArchive {
-			archived = id
-		}
-		return w.Delete(id)
-	})
-	if err == nil && archived != "" {
-		_ = os.Remove(s.lib().ArchivePath(w.ID, archived))
+	_, err := s.lib().DeleteObject(path, id)
+	if err == nil {
+		biChanged(path)
 	}
 	return err
 }

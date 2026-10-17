@@ -593,17 +593,7 @@ func fileSafe(s string) string {
 	return s
 }
 
-func findDashboard(w *bi.Workspace, ref string) *bi.Dashboard {
-	if d := w.Dashboard(ref); d != nil {
-		return d
-	}
-	for i := range w.Dashboards {
-		if strings.EqualFold(w.Dashboards[i].Name, ref) {
-			return &w.Dashboards[i]
-		}
-	}
-	return nil
-}
+func findDashboard(w *bi.Workspace, ref string) *bi.Dashboard { return bi.Lookup(w.Dashboards, ref) }
 
 // findPage finds a page by number (1 = first) or name; "" is the first page.
 func findPage(d bi.Dashboard, ref string) (int, error) {

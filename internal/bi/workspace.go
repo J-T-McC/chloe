@@ -257,19 +257,68 @@ func Parse(data []byte) (Workspace, error) {
 
 func (w Workspace) Marshal() ([]byte, error) { return json.MarshalIndent(w, "", "  ") }
 
-func (w *Workspace) Source(id string) *DataSource {
-	if i := slices.IndexFunc(w.DataSources, func(d DataSource) bool { return d.ID == id }); i >= 0 {
-		return &w.DataSources[i]
+func (m *Meta) meta() *Meta { return m }
+
+// object is a pointer to a workspace object: data source, chart, dashboard or parameter.
+type object[T any] interface {
+	*T
+	meta() *Meta
+}
+
+// find returns the object with this id, or nil.
+func find[T any, P object[T]](list []T, id string) *T {
+	if i := slices.IndexFunc(list, func(v T) bool { return P(&v).meta().ID == id }); i >= 0 {
+		return &list[i]
 	}
 	return nil
 }
 
-func (w *Workspace) Chart(id string) *Chart {
-	if i := slices.IndexFunc(w.Charts, func(c Chart) bool { return c.ID == id }); i >= 0 {
-		return &w.Charts[i]
+// uniqueName refuses a name another object of the same kind already has, so
+// agents and users can refer to objects by kind and name. A chart may share
+// its data source's name.
+func uniqueName[T any, P object[T]](list []T, v P, kind string) error {
+	m := v.meta()
+	for i := range list {
+		if o := P(&list[i]).meta(); o.ID != m.ID && strings.EqualFold(o.Name, m.Name) {
+			return fmt.Errorf("the workspace already has a %s named %q", kind, m.Name)
+		}
 	}
 	return nil
 }
+
+// put adds v (no ID yet) or replaces the object with its ID, keeping when and by
+// whom the object was created, and returns it as stored.
+func put[T any, P object[T]](list *[]T, v T) T {
+	m := P(&v).meta()
+	m.Modified = stamp()
+	if old := find[T, P](*list, m.ID); m.ID != "" && old != nil {
+		om := P(old).meta()
+		m.Created, m.CreatedBy = om.Created, om.CreatedBy
+		*old = v
+		return v
+	}
+	if m.ID == "" {
+		m.ID = uuid.NewString()
+	}
+	m.Created = m.Modified
+	*list = append(*list, v)
+	return v
+}
+
+// Lookup finds an object by id, else by name (case-insensitive).
+func Lookup[T any, P object[T]](list []T, ref string) *T {
+	if v := find[T, P](list, ref); v != nil {
+		return v
+	}
+	if i := slices.IndexFunc(list, func(v T) bool { return strings.EqualFold(P(&v).meta().Name, ref) }); i >= 0 {
+		return &list[i]
+	}
+	return nil
+}
+
+func (w *Workspace) Source(id string) *DataSource { return find(w.DataSources, id) }
+
+func (w *Workspace) Chart(id string) *Chart { return find(w.Charts, id) }
 
 // ChartsUsing lists the charts built on a data source.
 func (w *Workspace) ChartsUsing(sourceID string) []Chart {
@@ -294,21 +343,10 @@ func (w *Workspace) PutSource(d DataSource) (DataSource, error) {
 	if err := d.Validate(); err != nil {
 		return d, err
 	}
-	if err := w.uniqueSourceName(d.ID, d.Name); err != nil {
+	if err := uniqueName(w.DataSources, &d, "data source"); err != nil {
 		return d, err
 	}
-	d.Modified = stamp()
-	if old := w.Source(d.ID); d.ID != "" && old != nil {
-		d.Created, d.CreatedBy = old.Created, old.CreatedBy
-		*old = d
-		return d, nil
-	}
-	if d.ID == "" {
-		d.ID = uuid.NewString()
-	}
-	d.Created = d.Modified
-	w.DataSources = append(w.DataSources, d)
-	return d, nil
+	return put(&w.DataSources, d), nil
 }
 
 // PutChart adds a chart (no ID yet) or replaces the one with its ID.
@@ -324,21 +362,10 @@ func (w *Workspace) PutChart(c Chart) (Chart, error) {
 	if _, ok := ChartTypes[c.Type]; !ok {
 		return c, fmt.Errorf("unknown chart type %q (types: %s)", c.Type, strings.Join(TypeNames(), ", "))
 	}
-	if err := w.uniqueChartName(c.ID, c.Name); err != nil {
+	if err := uniqueName(w.Charts, &c, "chart"); err != nil {
 		return c, err
 	}
-	c.Modified = stamp()
-	if old := w.Chart(c.ID); c.ID != "" && old != nil {
-		c.Created, c.CreatedBy = old.Created, old.CreatedBy
-		*old = c
-		return c, nil
-	}
-	if c.ID == "" {
-		c.ID = uuid.NewString()
-	}
-	c.Created = c.Modified
-	w.Charts = append(w.Charts, c)
-	return c, nil
+	return put(&w.Charts, c), nil
 }
 
 // Delete removes an object. Charts built on a deleted data source stay and show
@@ -356,27 +383,6 @@ func (w *Workspace) Delete(id string) error {
 		for j := range w.Dashboards[i].Pages {
 			p := &w.Dashboards[i].Pages[j]
 			p.Items = slices.DeleteFunc(p.Items, func(it Item) bool { return it.Kind == ItemChart && it.Chart == id })
-		}
-	}
-	return nil
-}
-
-// uniqueSourceName and uniqueChartName refuse a name another object of the same
-// kind already has, so agents and users can refer to objects by kind and name.
-// A chart may share its data source's name.
-func (w *Workspace) uniqueSourceName(id, name string) error {
-	for _, d := range w.DataSources {
-		if d.ID != id && strings.EqualFold(d.Name, name) {
-			return fmt.Errorf("the workspace already has a data source named %q", name)
-		}
-	}
-	return nil
-}
-
-func (w *Workspace) uniqueChartName(id, name string) error {
-	for _, c := range w.Charts {
-		if c.ID != id && strings.EqualFold(c.Name, name) {
-			return fmt.Errorf("the workspace already has a chart named %q", name)
 		}
 	}
 	return nil
