@@ -1,6 +1,7 @@
 // ER diagram model: tables and relationships built from a database catalog, node
 // sizing, automatic layout (ELK layered) and SVG export. No React here.
-import ELK from "elkjs/lib/elk.bundled.js";
+import ELK, { type ELK as ElkApi } from "elkjs/lib/elk-api.js";
+import elkWorkerUrl from "elkjs/lib/elk-worker.min.js?url";
 
 export interface ErdColumn {
   name: string;
@@ -108,7 +109,14 @@ export function tableSize(t: ErdTable, mode: ColumnMode): { width: number; heigh
 
 export type Positions = Record<string, { x: number; y: number }>;
 
-const elk = new ELK();
+// ELK runs in a worker: laying out a few hundred tables takes seconds, which
+// would freeze the window. Without workers (unit tests) it runs in place.
+let elk: Promise<ElkApi> | null = null;
+const layoutEngine = () =>
+  (elk ??=
+    typeof Worker === "undefined"
+      ? import("elkjs/lib/elk.bundled.js").then((m) => new m.default())
+      : Promise.resolve(new ELK({ workerUrl: elkWorkerUrl })));
 
 /** Layered left-to-right layout: referenced (parent) tables end up to the right. */
 export async function autoLayout(model: ErdModel, mode: ColumnMode): Promise<Positions> {
@@ -129,7 +137,7 @@ export async function autoLayout(model: ErdModel, mode: ColumnMode): Promise<Pos
     children: model.tables.map((t) => ({ id: t.id, ...tableSize(t, mode) })),
     edges: model.relations.filter((r) => r.from !== r.to).map((r) => ({ id: r.id, sources: [r.from], targets: [r.to] })),
   };
-  const res = await elk.layout(graph);
+  const res = await (await layoutEngine()).layout(graph);
   const pos: Positions = {};
   for (const c of res.children ?? []) pos[c.id] = { x: c.x ?? 0, y: c.y ?? 0 };
   return pos;

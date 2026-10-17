@@ -17,7 +17,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { Eye, KeyRound, Link2 } from "lucide-react";
-import { MutableRefObject, createContext, memo, useContext, useEffect, useId, useMemo } from "react";
+import { MutableRefObject, createContext, memo, useContext, useEffect, useId, useMemo, useRef } from "react";
 import { ColumnMode, ErdModel, ErdTable, HEADER_H, Positions, ROW_H, tableSize, visibleColumns } from "../../erd/model";
 
 interface TableNodeData extends Record<string, unknown> {
@@ -137,26 +137,47 @@ export function DiagramCanvas(p: DiagramCanvasProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model, mode, setNodes, p.layoutVersion]);
 
+  // What edges need of each table, worked out once per model and mode rather
+  // than on every drag frame: its half width and the columns shown.
+  const geometry = useMemo(() => {
+    const m = new Map<string, { half: number; cols: Set<string> }>();
+    for (const t of model?.tables ?? []) m.set(t.id, { half: tableSize(t, mode).width / 2, cols: new Set(visibleColumns(t, mode).map((c) => c.name)) });
+    return m;
+  }, [model, mode]);
+
+  // Nodes change on every drag frame; an edge keeps its object (and React Flow
+  // skips it) unless its handles or highlight change.
+  const lastEdges = useRef(new Map<string, Edge<RelEdgeData>>());
   const edges = useMemo<Edge<RelEdgeData>[]>(() => {
     if (!model) return [];
-    const byId = new Map(nodes.map((n) => [n.id, n]));
-    return model.relations.map((r) => {
-      const a = byId.get(r.from);
-      const b = byId.get(r.to);
-      const childLeft = !a || !b ? true : a.position.x + tableSize(a.data.table, mode).width / 2 <= b.position.x + tableSize(b.data.table, mode).width / 2;
-      const fromCol = a && visibleColumns(a.data.table, mode).some((c) => c.name === r.fromColumns[0]) ? r.fromColumns[0] : "t";
-      const toCol = b && visibleColumns(b.data.table, mode).some((c) => c.name === r.toColumns[0]) ? r.toColumns[0] : "t";
-      return {
-        id: r.id,
-        source: r.from,
-        target: r.to,
-        sourceHandle: `${fromCol}-${childLeft ? "r" : "ls"}`,
-        targetHandle: `${toCol}-${childLeft ? "l" : "rt"}`,
-        type: "relation",
-        data: { optional: r.optional, oneToOne: r.oneToOne, highlight: related.has(r.from) && related.has(r.to) && selected !== null },
-      };
+    const at = new Map(nodes.map((n) => [n.id, n.position.x]));
+    const prev = lastEdges.current;
+    const next = new Map<string, Edge<RelEdgeData>>();
+    const out = model.relations.map((r) => {
+      const a = geometry.get(r.from);
+      const b = geometry.get(r.to);
+      const ax = at.get(r.from);
+      const bx = at.get(r.to);
+      const childLeft = !a || !b || ax === undefined || bx === undefined ? true : ax + a.half <= bx + b.half;
+      const fromCol = a?.cols.has(r.fromColumns[0]) ? r.fromColumns[0] : "t";
+      const toCol = b?.cols.has(r.toColumns[0]) ? r.toColumns[0] : "t";
+      const sourceHandle = `${fromCol}-${childLeft ? "r" : "ls"}`;
+      const targetHandle = `${toCol}-${childLeft ? "l" : "rt"}`;
+      const highlight = related.has(r.from) && related.has(r.to) && selected !== null;
+      const old = prev.get(r.id);
+      const e =
+        old && old.sourceHandle === sourceHandle && old.targetHandle === targetHandle && old.data!.highlight === highlight && old.data!.optional === r.optional && old.data!.oneToOne === r.oneToOne
+          ? old
+          : { id: r.id, source: r.from, target: r.to, sourceHandle, targetHandle, type: "relation", data: { optional: r.optional, oneToOne: r.oneToOne, highlight } };
+      next.set(r.id, e);
+      return e;
     });
-  }, [model, nodes, mode, related, selected]);
+    lastEdges.current = next;
+    return out;
+  }, [model, nodes, geometry, related, selected]);
+
+  // A new value would re-render every table node, on every drag frame.
+  const highlight = useMemo(() => ({ selected, related }), [selected, related]);
 
   return (
     <div className="erd-canvas">
@@ -173,7 +194,7 @@ export function DiagramCanvas(p: DiagramCanvasProps) {
         </defs>
       </svg>
       <MarkerIds.Provider value={markerIds}>
-        <Highlight.Provider value={{ selected, related }}>
+        <Highlight.Provider value={highlight}>
           <ReactFlow
             nodes={nodes}
             edges={edges}
