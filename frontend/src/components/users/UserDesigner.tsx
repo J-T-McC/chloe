@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Explorer, P, Users, arr, errorText } from "../../api";
 import { Tab, connById, useApp } from "../../store";
 import { Combobox } from "../Combobox";
-import { CodeBlock } from "../ObjectsPane";
+import { CodeBlock } from "../CodeBlock";
 import { accountLabel } from "./actions";
 import { PrivilegesTab } from "./PrivilegesTab";
 import { Toolbar } from "../Toolbar";

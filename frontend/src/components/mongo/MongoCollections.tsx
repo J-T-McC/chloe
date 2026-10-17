@@ -8,8 +8,8 @@ import { useTree } from "../../tree";
 import { openMenu } from "../ContextMenu";
 import { KindIcon } from "../icons";
 import { Split } from "../Split";
-import { CodeBlock } from "../ObjectsPane";
-import { exportCollection, importCollection } from "./TransferDialog";
+import { CodeBlock } from "../CodeBlock";
+import { exportCollection, importCollection } from "./transferState";
 import { collectionMenu, collectionsChanged, designCollection, dropCollections, newMongoQuery, openCollection, openMongoShell } from "./actions";
 import { Toolbar } from "../Toolbar";
 

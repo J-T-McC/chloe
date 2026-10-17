@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Mongo, arr, errorText, type MG } from "../../api";
 import type { Tab } from "../../store";
 import { confirm } from "../Dialogs";
-import { CodeBlock } from "../ObjectsPane";
+import { CodeBlock } from "../CodeBlock";
 import { Split } from "../Split";
 import { Toolbar } from "../Toolbar";
 import { Field, Check } from "../form";

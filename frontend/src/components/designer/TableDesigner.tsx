@@ -7,7 +7,7 @@ import { Tab, connById, useApp } from "../../store";
 import { folderKey, useTree } from "../../tree";
 import { connDialect } from "../../dialect";
 import { confirm } from "../Dialogs";
-import { CodeBlock } from "../ObjectsPane";
+import { CodeBlock } from "../CodeBlock";
 import { ChecksTab, FieldToolbar, FieldsTab, ForeignKeysTab, connectionRefs, IndexesTab, OptionsTab, TriggersTab, UniquesTab } from "./DesignerTabs";
 import { Toolbar } from "../Toolbar";
 import { useAsync } from "../useAsync";

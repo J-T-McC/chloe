@@ -11,7 +11,7 @@ import { Tab, connById, useApp } from "../../store";
 import { folderKey, useTree } from "../../tree";
 import { connDialect, isPG } from "../../dialect";
 import { confirm, prompt } from "../Dialogs";
-import { CodeBlock } from "../ObjectsPane";
+import { CodeBlock } from "../CodeBlock";
 import { Messages, ResultGrid, RunState } from "../QueryEditor";
 import { Split } from "../Split";
 import { Toolbar } from "../Toolbar";

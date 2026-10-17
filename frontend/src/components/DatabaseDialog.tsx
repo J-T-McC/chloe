@@ -6,7 +6,7 @@ import { invalidateCatalog } from "../editor/completion";
 import { connById, useApp } from "../store";
 import { useTree } from "../tree";
 import { alert, confirm } from "./Dialogs";
-import { CodeBlock } from "./ObjectsPane";
+import { CodeBlock } from "./CodeBlock";
 import { Combobox } from "./Combobox";
 import { pickSQLiteFile } from "./ConnectionDialog";
 import { Modal, ModalFooter } from "./Modal";

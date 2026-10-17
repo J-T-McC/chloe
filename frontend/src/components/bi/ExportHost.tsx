@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 import { B, BI, arr, errorText } from "../../api";
 import type { RenderRequest } from "../../../bindings/chloe/services/models";
-import { useExportStage } from "./ExportGate";
+import { useExportStage } from "./exportStage";
 import { PAGE_WIDTH, PageCanvas } from "./Canvas";
 import { buildReport } from "./reportExport";
 import { ParamValues, paramValues } from "./Parameters";

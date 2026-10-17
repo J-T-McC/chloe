@@ -6,7 +6,7 @@ import { openSetPrivileges } from "./components/users/SetPrivilegesDialog";
 import { folderKey, useTree } from "./tree";
 import { MenuItem } from "./components/ContextMenu";
 import { alert, confirm } from "./components/Dialogs";
-import { newQuery, openObject, selectAllSQL } from "./components/Sidebar";
+import { newQuery, openObject, selectAllSQL } from "./actions/tabs";
 import { openExecuteFile, openExport, openImport, track } from "./components/transfer/state";
 import { connById, useApp } from "./store";
 import { designTable, newTable, runTableAction } from "./tableActions";

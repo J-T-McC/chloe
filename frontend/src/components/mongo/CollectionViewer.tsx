@@ -9,7 +9,7 @@ import { confirm } from "../Dialogs";
 import { editDocument } from "./DocEditor";
 import { DocsMode, DocsView } from "./DocsView";
 import { designCollection } from "./actions";
-import { exportCollection, importCollection } from "./TransferDialog";
+import { exportCollection, importCollection } from "./transferState";
 import { Toolbar } from "../Toolbar";
 import { safeStorage } from "../../prefs";
 
