@@ -10,6 +10,7 @@ import (
 	"chloe/internal/design"
 	"chloe/internal/driver/sqlcommon"
 	"chloe/internal/model"
+	"chloe/internal/sqlq"
 )
 
 func (c *Conn) DesignGenerator() design.Generator { return design.MySQL{} }
@@ -243,25 +244,10 @@ func isNumericType(t string) bool {
 
 func stripParens(s string) string {
 	s = strings.TrimSpace(s)
-	for strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")") && balanced(s[1:len(s)-1]) {
+	for strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")") && sqlq.Balanced(s[1:len(s)-1]) {
 		s = strings.TrimSpace(s[1 : len(s)-1])
 	}
 	return s
-}
-
-func balanced(s string) bool {
-	d := 0
-	for _, r := range s {
-		if r == '(' {
-			d++
-		} else if r == ')' {
-			d--
-			if d < 0 {
-				return false
-			}
-		}
-	}
-	return d == 0
 }
 
 // atLeast compares the server version (ignoring MariaDB, which versions separately).

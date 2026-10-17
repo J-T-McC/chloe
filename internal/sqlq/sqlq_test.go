@@ -15,3 +15,22 @@ func TestPGString(t *testing.T) {
 		}
 	}
 }
+
+func TestBalanced(t *testing.T) {
+	for s, want := range map[string]bool{
+		"a = 1":             true,
+		"(a) OR (b)":        true,
+		"x = ')'":           true,
+		`x = "("`:           true,
+		"`a)` > 0":          true,
+		`x <> _latin1\')\'`: true,
+		"x = 'it''s)'":      true,
+		"a) OR (b":          false,
+		"x = '(":            false,
+		"(a":                false,
+	} {
+		if got := Balanced(s); got != want {
+			t.Errorf("Balanced(%q) = %v", s, got)
+		}
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"chloe/internal/design"
 	"chloe/internal/driver/sqlcommon"
 	"chloe/internal/model"
+	"chloe/internal/sqlq"
 )
 
 func (c *Conn) DesignGenerator() design.Generator { return design.Postgres{} }
@@ -194,26 +195,10 @@ func (c *Conn) LoadDesign(ctx context.Context, ref model.ObjectRef) (design.Tabl
 func checkExpr(def string) string {
 	s := strings.TrimSpace(strings.TrimPrefix(def, "CHECK "))
 	s = strings.TrimSuffix(s, " NOT VALID")
-	for strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")") && balanced(s[1:len(s)-1]) {
+	for strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")") && sqlq.Balanced(s[1:len(s)-1]) {
 		s = s[1 : len(s)-1]
 	}
 	return s
-}
-
-func balanced(s string) bool {
-	d := 0
-	for _, r := range s {
-		switch r {
-		case '(':
-			d++
-		case ')':
-			d--
-			if d < 0 {
-				return false
-			}
-		}
-	}
-	return d == 0
 }
 
 var (
