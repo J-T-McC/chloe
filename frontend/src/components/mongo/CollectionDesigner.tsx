@@ -8,6 +8,7 @@ import { prompt } from "../Dialogs";
 import { CodeBlock } from "../ObjectsPane";
 import { collectionsChanged } from "./actions";
 import { Toolbar } from "../Toolbar";
+import { Field } from "../form";
 
 interface IndexRow {
   /** name on the server; empty for a new index */
@@ -320,27 +321,21 @@ export function CollectionDesigner({ tab }: { tab: Tab }) {
         )}
         {section === "validation" && (
           <div className="form mongo-validation">
-            <div className="field">
-              <label>Validation Level</label>
-              <div className="field-input">
-                <select value={val.level} onChange={(e) => setVal({ ...val, level: e.target.value })}>
-                  <option value="">(default: strict)</option>
-                  <option value="off">off</option>
-                  <option value="strict">strict</option>
-                  <option value="moderate">moderate</option>
-                </select>
-              </div>
-            </div>
-            <div className="field">
-              <label>Validation Action</label>
-              <div className="field-input">
-                <select value={val.action} onChange={(e) => setVal({ ...val, action: e.target.value })}>
-                  <option value="">(default: error)</option>
-                  <option value="error">error</option>
-                  <option value="warn">warn</option>
-                </select>
-              </div>
-            </div>
+            <Field label="Validation Level">
+              <select value={val.level} onChange={(e) => setVal({ ...val, level: e.target.value })}>
+                <option value="">(default: strict)</option>
+                <option value="off">off</option>
+                <option value="strict">strict</option>
+                <option value="moderate">moderate</option>
+              </select>
+            </Field>
+            <Field label="Validation Action">
+              <select value={val.action} onChange={(e) => setVal({ ...val, action: e.target.value })}>
+                <option value="">(default: error)</option>
+                <option value="error">error</option>
+                <option value="warn">warn</option>
+              </select>
+            </Field>
             <div className="field top">
               <label>Validator</label>
               <div className="field-input">
@@ -365,86 +360,59 @@ export function CollectionDesigner({ tab }: { tab: Tab }) {
               </>
             ) : (
               <>
-                <div className="field">
-                  <label>Capped</label>
-                  <div className="field-input">
-                    <input type="checkbox" checked={opts.capped} onChange={(e) => setOpts({ ...opts, capped: e.target.checked, size: opts.size || 1048576 })} />
-                  </div>
-                </div>
+                <Field label="Capped">
+                  <input type="checkbox" checked={opts.capped} onChange={(e) => setOpts({ ...opts, capped: e.target.checked, size: opts.size || 1048576 })} />
+                </Field>
                 {opts.capped && (
                   <>
-                    <div className="field">
-                      <label>Size (bytes)</label>
-                      <div className="field-input">
-                        <input value={opts.size || ""} onChange={(e) => setOpts({ ...opts, size: Number(e.target.value.replace(/\D/g, "")) })} />
-                      </div>
-                    </div>
-                    <div className="field">
-                      <label>Max Documents</label>
-                      <div className="field-input">
-                        <input value={opts.max || ""} placeholder="(no limit)" onChange={(e) => setOpts({ ...opts, max: Number(e.target.value.replace(/\D/g, "")) })} />
-                      </div>
-                    </div>
+                    <Field label="Size (bytes)">
+                      <input value={opts.size || ""} onChange={(e) => setOpts({ ...opts, size: Number(e.target.value.replace(/\D/g, "")) })} />
+                    </Field>
+                    <Field label="Max Documents">
+                      <input value={opts.max || ""} placeholder="(no limit)" onChange={(e) => setOpts({ ...opts, max: Number(e.target.value.replace(/\D/g, "")) })} />
+                    </Field>
                   </>
                 )}
-                <div className="field">
-                  <label>Time Field</label>
-                  <div className="field-input">
-                    <input value={opts.timeField} placeholder="(not a time series)" onChange={(e) => setOpts({ ...opts, timeField: e.target.value })} />
-                  </div>
-                </div>
+                <Field label="Time Field">
+                  <input value={opts.timeField} placeholder="(not a time series)" onChange={(e) => setOpts({ ...opts, timeField: e.target.value })} />
+                </Field>
                 {opts.timeField && (
                   <>
-                    <div className="field">
-                      <label>Meta Field</label>
-                      <div className="field-input">
-                        <input value={opts.metaField} onChange={(e) => setOpts({ ...opts, metaField: e.target.value })} />
-                      </div>
-                    </div>
-                    <div className="field">
-                      <label>Granularity</label>
-                      <div className="field-input">
-                        <select value={opts.granularity} onChange={(e) => setOpts({ ...opts, granularity: e.target.value })}>
-                          <option value="">(default: seconds)</option>
-                          <option value="seconds">seconds</option>
-                          <option value="minutes">minutes</option>
-                          <option value="hours">hours</option>
-                        </select>
-                      </div>
-                    </div>
-                    <div className="field">
-                      <label>Expire After (s)</label>
-                      <div className="field-input">
-                        <input value={opts.expireAfterSeconds || ""} onChange={(e) => setOpts({ ...opts, expireAfterSeconds: Number(e.target.value.replace(/\D/g, "")) })} />
-                      </div>
-                    </div>
+                    <Field label="Meta Field">
+                      <input value={opts.metaField} onChange={(e) => setOpts({ ...opts, metaField: e.target.value })} />
+                    </Field>
+                    <Field label="Granularity">
+                      <select value={opts.granularity} onChange={(e) => setOpts({ ...opts, granularity: e.target.value })}>
+                        <option value="">(default: seconds)</option>
+                        <option value="seconds">seconds</option>
+                        <option value="minutes">minutes</option>
+                        <option value="hours">hours</option>
+                      </select>
+                    </Field>
+                    <Field label="Expire After (s)">
+                      <input value={opts.expireAfterSeconds || ""} onChange={(e) => setOpts({ ...opts, expireAfterSeconds: Number(e.target.value.replace(/\D/g, "")) })} />
+                    </Field>
                   </>
                 )}
-                <div className="field">
-                  <label>Collation</label>
-                  <div className="field-input">
-                    <input value={opts.collation} spellCheck={false} placeholder="{ locale: 'en', strength: 2 }" onChange={(e) => setOpts({ ...opts, collation: e.target.value })} />
-                  </div>
-                </div>
+                <Field label="Collation">
+                  <input value={opts.collation} spellCheck={false} placeholder="{ locale: 'en', strength: 2 }" onChange={(e) => setOpts({ ...opts, collation: e.target.value })} />
+                </Field>
               </>
             )}
           </div>
         )}
         {section === "definition" && (
           <div className="form mongo-validation">
-            <div className="field">
-              <label>View On</label>
-              <div className="field-input">
-                <select value={view.viewOn} onChange={(e) => setView({ ...view, viewOn: e.target.value })}>
-                  <option value="">(choose a collection)</option>
-                  {[...new Set([view.viewOn, ...sources].filter(Boolean))].map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
+            <Field label="View On">
+              <select value={view.viewOn} onChange={(e) => setView({ ...view, viewOn: e.target.value })}>
+                <option value="">(choose a collection)</option>
+                {[...new Set([view.viewOn, ...sources].filter(Boolean))].map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </Field>
             <div className="field top">
               <label>Pipeline</label>
               <div className="field-input">

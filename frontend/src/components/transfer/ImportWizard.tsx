@@ -5,6 +5,7 @@ import { connById, useApp } from "../../store";
 import { refreshFolder } from "../../tableActions";
 import { track, useTransfer } from "./state";
 import { Modal } from "../Modal";
+import { Field, Check } from "../form";
 
 type Step = "source" | "target" | "mapping" | "mode";
 
@@ -249,9 +250,7 @@ export function ImportWizard() {
                     </label>
                   </>
                 )}
-                <label className="check">
-                  <input type="checkbox" checked={opts.emptyAsNull} onChange={(e) => set({ emptyAsNull: e.target.checked })} /> Empty string as NULL
-                </label>
+                <Check label="Empty string as NULL" checked={opts.emptyAsNull} onChange={(v) => set({ emptyAsNull: v })} />
               </div>
             )}
             {preview && <PreviewTable preview={preview} />}
@@ -260,32 +259,26 @@ export function ImportWizard() {
 
         {step === "target" && (
           <div className="form">
-            <div className="field">
-              <label />
-              <div className="field-input">
-                <label className="check">
-                  <input type="radio" checked={!isNew} onChange={() => (setIsNew(false), setTable(tables.includes(table) ? table : ""))} /> Existing table
-                </label>
-                <label className="check">
-                  <input type="radio" checked={isNew} onChange={() => setIsNew(true)} /> New table
-                </label>
-              </div>
-            </div>
-            <div className="field">
-              <label>Target Table</label>
-              <div className="field-input">
-                {isNew ? (
-                  <input value={table} onChange={(e) => setTable(e.target.value)} />
-                ) : (
-                  <select value={table} onChange={(e) => setTable(e.target.value)}>
-                    <option value="">Choose a table…</option>
-                    {tables.map((t) => (
-                      <option key={t}>{t}</option>
-                    ))}
-                  </select>
-                )}
-              </div>
-            </div>
+            <Field>
+              <label className="check">
+                <input type="radio" checked={!isNew} onChange={() => (setIsNew(false), setTable(tables.includes(table) ? table : ""))} /> Existing table
+              </label>
+              <label className="check">
+                <input type="radio" checked={isNew} onChange={() => setIsNew(true)} /> New table
+              </label>
+            </Field>
+            <Field label="Target Table">
+              {isNew ? (
+                <input value={table} onChange={(e) => setTable(e.target.value)} />
+              ) : (
+                <select value={table} onChange={(e) => setTable(e.target.value)}>
+                  <option value="">Choose a table…</option>
+                  {tables.map((t) => (
+                    <option key={t}>{t}</option>
+                  ))}
+                </select>
+              )}
+            </Field>
           </div>
         )}
 
@@ -364,16 +357,10 @@ export function ImportWizard() {
               </div>
             )}
             <hr />
-            <label className="check">
-              <input type="checkbox" checked={transaction} onChange={(e) => setTransaction(e.target.checked)} /> Run in a single transaction (all or nothing)
-            </label>
-            <label className="check">
-              <input type="checkbox" checked={continueOnError} disabled={transaction} onChange={(e) => setContinueOnError(e.target.checked)} /> Continue on error (skip bad records)
-            </label>
+            <Check label="Run in a single transaction (all or nothing)" checked={transaction} onChange={(v) => setTransaction(v)} />
+            <Check label="Continue on error (skip bad records)" checked={continueOnError} disabled={transaction} onChange={(v) => setContinueOnError(v)} />
             {!pg && (
-              <label className="check">
-                <input type="checkbox" checked={noFK} onChange={(e) => setNoFK(e.target.checked)} /> Ignore foreign key constraints
-              </label>
+              <Check label="Ignore foreign key constraints" checked={noFK} onChange={(v) => setNoFK(v)} />
             )}
             <label className="row">
               Records per statement

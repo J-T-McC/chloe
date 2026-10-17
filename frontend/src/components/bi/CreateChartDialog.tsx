@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { B, BI, arr, errorText } from "../../api";
 import { Modal, ModalFooter } from "../Modal";
 import { biChanged, openObject, useCreateChart } from "./actions";
+import { Field } from "../form";
 
 const NEW = "\u0000new";
 
@@ -44,26 +45,20 @@ export function CreateChartDialog() {
     <Modal title="Create Chart" className="small" onClose={close} onKeyDown={(e) => e.key === "Enter" && !busy && ok()}>
       <div className="modal-body form">
         <p className="dialog-message">A data source for {src.table ? `“${src.table}”` : "this query"} and a new chart on it will be added to a BI workspace.</p>
-        <div className="field">
-          <label>Workspace</label>
-          <div className="field-input">
-            <select aria-label="Workspace" value={target} onChange={(e) => setTarget(e.target.value)} autoFocus>
-              {items.map((w) => (
-                <option key={w.path} value={w.path}>
-                  {w.name}
-                </option>
-              ))}
-              <option value={NEW}>New workspace…</option>
-            </select>
-          </div>
-        </div>
+        <Field label="Workspace">
+          <select aria-label="Workspace" value={target} onChange={(e) => setTarget(e.target.value)} autoFocus>
+            {items.map((w) => (
+              <option key={w.path} value={w.path}>
+                {w.name}
+              </option>
+            ))}
+            <option value={NEW}>New workspace…</option>
+          </select>
+        </Field>
         {target === NEW && (
-          <div className="field">
-            <label>Name</label>
-            <div className="field-input">
-              <input aria-label="New workspace name" value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-          </div>
+          <Field label="Name">
+            <input aria-label="New workspace name" value={name} onChange={(e) => setName(e.target.value)} />
+          </Field>
         )}
         {error && <div className="error-banner">{error}</div>}
       </div>

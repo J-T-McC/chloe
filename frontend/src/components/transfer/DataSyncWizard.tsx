@@ -14,6 +14,7 @@ import { EndpointPicker, JobProgress } from "./shared";
 import { track, useTransfer } from "./state";
 import { Toolbar } from "../Toolbar";
 import { Modal } from "../Modal";
+import { Check } from "../form";
 
 const useDS = create<{ open: boolean; source?: Endpoint }>(() => ({ open: false }));
 
@@ -274,12 +275,8 @@ export function DataSyncWizard() {
                 <FilePlus2 size={14} /> Open in Query Editor
               </button>
               <span className="spacer" />
-              <label className="check">
-                <input type="checkbox" checked={useTx} onChange={(e) => setUseTx(e.target.checked)} /> Use transaction
-              </label>
-              <label className="check">
-                <input type="checkbox" checked={continueOnError} onChange={(e) => setContinueOnError(e.target.checked)} /> Continue on error
-              </label>
+              <Check label="Use transaction" checked={useTx} onChange={(v) => setUseTx(v)} />
+              <Check label="Continue on error" checked={continueOnError} onChange={(v) => setContinueOnError(v)} />
               <span className="muted">{script.length.toLocaleString()} statement(s)</span>
             </Toolbar>
             <div className="ss-script">
@@ -354,9 +351,7 @@ function Results(p: {
           <RefreshCw size={14} className={p.busy ? "spin" : ""} /> Recompare
         </button>
         <span className="spacer" />
-        <label className="check">
-          <input type="checkbox" checked={p.showSame} onChange={(e) => p.setShowSame(e.target.checked)} /> Show identical tables and others
-        </label>
+        <Check label="Show identical tables and others" checked={p.showSame} onChange={(v) => p.setShowSame(v)} />
       </Toolbar>
       <Split
         id="data-sync"

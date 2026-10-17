@@ -10,6 +10,7 @@ import { openMenu } from "./ContextMenu";
 import { newQuery } from "./Sidebar";
 import { Split } from "./Split";
 import { Toolbar } from "./Toolbar";
+import { Check } from "./form";
 
 // The connection the log is filtered to ("" for all), set by whoever opens it.
 const useFilter = create<{ conn: string }>(() => ({ conn: "" }));
@@ -89,9 +90,7 @@ export function HistoryLog({ active }: { active: boolean }) {
             </option>
           ))}
         </select>
-        <label className="check">
-          <input type="checkbox" checked={errorsOnly} onChange={(e) => setErrorsOnly(e.target.checked)} /> Errors only
-        </label>
+        <Check label="Errors only" checked={errorsOnly} onChange={(v) => setErrorsOnly(v)} />
         <span className="spacer" />
         <span className="muted">{shown.length.toLocaleString()} statement{shown.length === 1 ? "" : "s"}</span>
         <input className="search" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} />

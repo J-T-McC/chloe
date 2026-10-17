@@ -6,6 +6,7 @@ import { invalidateCatalog } from "../../editor/completion";
 import { useApp } from "../../store";
 import { CodeBlock } from "../ObjectsPane";
 import { Modal } from "../Modal";
+import { Field, Check } from "../form";
 
 const KIND_LABEL: Record<string, string> = { create: "Create", alter: "Modify", drop: "Delete" };
 
@@ -98,19 +99,16 @@ export function SyncDialog({ model, onClose, onSynced }: { model: DM.Model; onCl
   return (
     <Modal title="Synchronize to Database" className="wizard wide sync-dialog" onClose={onClose}>
       <div className="modal-body form">
-        <div className="field">
-          <label>Connection</label>
-          <div className="field-input">
-            <select value={connId} onChange={(e) => setConnId(e.target.value)}>
-              {!connections.length && <option value="">No {pg ? "PostgreSQL" : "MySQL"} connections</option>}
-              {connections.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
+        <Field label="Connection">
+          <select value={connId} onChange={(e) => setConnId(e.target.value)}>
+            {!connections.length && <option value="">No {pg ? "PostgreSQL" : "MySQL"} connections</option>}
+            {connections.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </Field>
         <div className="field">
           <label>Database</label>
           <div className="field-input row">
@@ -129,14 +127,9 @@ export function SyncDialog({ model, onClose, onSynced }: { model: DM.Model; onCl
             )}
           </div>
         </div>
-        <div className="field">
-          <label />
-          <div className="field-input">
-            <label className="check">
-              <input type="checkbox" checked={dropMissing} onChange={(e) => (setDropMissing(e.target.checked), setPlan(null))} /> Delete tables that aren't in the model
-            </label>
-          </div>
-        </div>
+        <Field>
+          <Check label="Delete tables that aren't in the model" checked={dropMissing} onChange={(v) => (setDropMissing(v), setPlan(null))} />
+        </Field>
         {plan && (
           <div className="sync-plan">
             <div className="sync-actions">

@@ -4,6 +4,7 @@ import { Transfer, arr, errorText } from "../../api";
 import { connById, useApp } from "../../store";
 import { Modal, ModalFooter } from "../Modal";
 import { track, useTransfer } from "./state";
+import { Field, Check } from "../form";
 
 /** Execute SQL File: runs every statement of a script on a database. */
 export function ExecuteFileDialog() {
@@ -36,14 +37,8 @@ export function ExecuteFileDialog() {
   return (
     <Modal title="Execute SQL File" onClose={close}>
       <div className="modal-body form">
-        <div className="field">
-          <label>Server</label>
-          <div className="field-input">{connById(t.connId)?.name}</div>
-        </div>
-        <div className="field">
-          <label>Database</label>
-          <div className="field-input">{[t.database, t.schema].filter(Boolean).join(" › ") || <span className="muted">None (the file chooses with CREATE DATABASE / USE)</span>}</div>
-        </div>
+        <Field label="Server">{connById(t.connId)?.name}</Field>
+        <Field label="Database">{[t.database, t.schema].filter(Boolean).join(" › ") || <span className="muted">None (the file chooses with CREATE DATABASE / USE)</span>}</Field>
         <div className="field">
           <label>File</label>
           <div className="field-input row">
@@ -58,24 +53,16 @@ export function ExecuteFileDialog() {
             </button>
           </div>
         </div>
-        <div className="field">
-          <label>Encoding</label>
-          <div className="field-input">
-            <select value={encoding} onChange={(e) => setEncoding(e.target.value)}>
-              {encodings.map((x) => (
-                <option key={x}>{x}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <div className="field">
-          <label />
-          <div className="field-input">
-            <label className="check">
-              <input type="checkbox" checked={continueOnError} onChange={(e) => setContinueOnError(e.target.checked)} /> Continue on error
-            </label>
-          </div>
-        </div>
+        <Field label="Encoding">
+          <select value={encoding} onChange={(e) => setEncoding(e.target.value)}>
+            {encodings.map((x) => (
+              <option key={x}>{x}</option>
+            ))}
+          </select>
+        </Field>
+        <Field>
+          <Check label="Continue on error" checked={continueOnError} onChange={(v) => setContinueOnError(v)} />
+        </Field>
       </div>
       {error && <div className="status-line err">{error}</div>}
       <ModalFooter onCancel={close} onOk={start} okLabel="Start" okDisabled={!path} />

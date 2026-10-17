@@ -4,6 +4,7 @@ import { DBType, Explorer, arr, type Endpoint } from "../../api";
 import { connById, useApp } from "../../store";
 import type { useTransfer } from "./state";
 import { Combobox } from "../Combobox";
+import { Field } from "../form";
 
 // ---- source / target picker ---------------------------------------------------------------------
 
@@ -54,55 +55,46 @@ export function EndpointPicker({ title, value, onChange, conns, allowNew, create
   return (
     <div className="dt-side form">
       <div className="dt-side-title">{title}</div>
-      <div className="field">
-        <label>Connection</label>
-        <div className="field-input">
-          <select aria-label={`${title} Connection`} value={value.connId} onChange={(e) => onChange({ connId: e.target.value, database: "", schema: "" })}>
+      <Field label="Connection">
+        <select aria-label={`${title} Connection`} value={value.connId} onChange={(e) => onChange({ connId: e.target.value, database: "", schema: "" })}>
+          <option value="">Choose…</option>
+          {conns.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Database">
+        {allowNew && conn?.type !== DBType.SQLite ? (
+          <Combobox
+            ariaLabel={`${title} Database`}
+            value={value.database}
+            options={dbs}
+            placeholder={dbs.length ? "Choose or type a name" : ""}
+            onChange={(d) => onChange({ ...latest.current, database: d, schema: pg ? "" : latest.current.schema })}
+          />
+        ) : (
+          <select aria-label={`${title} Database`} value={value.database} onChange={(e) => onChange({ ...value, database: e.target.value, schema: "" })}>
             <option value="">Choose…</option>
-            {conns.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
+            {dbs.map((d) => (
+              <option key={d}>{d}</option>
             ))}
           </select>
-        </div>
-      </div>
-      <div className="field">
-        <label>Database</label>
-        <div className="field-input">
-          {allowNew && conn?.type !== DBType.SQLite ? (
-            <Combobox
-              ariaLabel={`${title} Database`}
-              value={value.database}
-              options={dbs}
-              placeholder={dbs.length ? "Choose or type a name" : ""}
-              onChange={(d) => onChange({ ...latest.current, database: d, schema: pg ? "" : latest.current.schema })}
-            />
+        )}
+      </Field>
+      {pg && (
+        <Field label="Schema">
+          {allowNew ? (
+            <Combobox ariaLabel={`${title} Schema`} value={value.schema ?? ""} options={schemas} onChange={(sc) => onChange({ ...latest.current, schema: sc })} />
           ) : (
-            <select aria-label={`${title} Database`} value={value.database} onChange={(e) => onChange({ ...value, database: e.target.value, schema: "" })}>
-              <option value="">Choose…</option>
-              {dbs.map((d) => (
+            <select aria-label={`${title} Schema`} value={value.schema ?? ""} onChange={(e) => onChange({ ...value, schema: e.target.value })}>
+              {schemas.map((d) => (
                 <option key={d}>{d}</option>
               ))}
             </select>
           )}
-        </div>
-      </div>
-      {pg && (
-        <div className="field">
-          <label>Schema</label>
-          <div className="field-input">
-            {allowNew ? (
-              <Combobox ariaLabel={`${title} Schema`} value={value.schema ?? ""} options={schemas} onChange={(sc) => onChange({ ...latest.current, schema: sc })} />
-            ) : (
-              <select aria-label={`${title} Schema`} value={value.schema ?? ""} onChange={(e) => onChange({ ...value, schema: e.target.value })}>
-                {schemas.map((d) => (
-                  <option key={d}>{d}</option>
-                ))}
-              </select>
-            )}
-          </div>
-        </div>
+        </Field>
       )}
       {allowNew && value.database && dbs.length > 0 && !dbs.includes(value.database) && (
         <p className={create ? "hint" : "hint err"}>{create ? `“${value.database}” will be created.` : `“${value.database}” doesn't exist. Turn on “Create target database/schema if not exist” in Options.`}</p>

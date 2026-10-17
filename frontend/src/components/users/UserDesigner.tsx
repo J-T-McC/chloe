@@ -12,6 +12,7 @@ import { PrivilegesTab } from "./PrivilegesTab";
 import { Toolbar } from "../Toolbar";
 import { useAsync } from "../useAsync";
 import { useSavableTab } from "../useSavableTab";
+import { Field } from "../form";
 
 type Section = "general" | "advanced" | "members" | "server" | "privileges" | "sql";
 
@@ -151,20 +152,14 @@ export function UserDesigner({ tab }: { tab: Tab }) {
     });
 
   const field = (label: string, el: React.ReactNode) => (
-    <div className="field">
-      <label>{label}</label>
-      <div className="field-input">{el}</div>
-    </div>
+    <Field label={label}>{el}</Field>
   );
   const check = (label: string, value: boolean | undefined, on: (v: boolean) => void, hint?: string) => (
-    <div className="field">
-      <label />
-      <div className="field-input">
-        <label className="check" title={hint}>
-          <input type="checkbox" checked={!!value} onChange={(e) => on(e.target.checked)} /> {label}
-        </label>
-      </div>
-    </div>
+    <Field>
+      <label className="check" title={hint}>
+        <input type="checkbox" checked={!!value} onChange={(e) => on(e.target.checked)} /> {label}
+      </label>
+    </Field>
   );
   const num = (label: string, value: number | undefined, on: (v: number) => void, placeholder = "0 (unlimited)") =>
     field(label, <input type="number" min={0} placeholder={placeholder} value={value || ""} onChange={(e) => on(Number(e.target.value) || 0)} />);

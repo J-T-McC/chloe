@@ -3,6 +3,7 @@ import { useState } from "react";
 import { R, Redis, errorText } from "../../api";
 import { Modal, ModalFooter } from "../Modal";
 import { TYPES, TYPE_LABEL, text } from "../../redis/keys";
+import { Field } from "../form";
 
 export function NewKeyDialog({ connId, db, prefix, onClose }: { connId: string; db: number; prefix: string; onClose(created?: R.Key): void }) {
   const [name, setName] = useState(prefix);
@@ -30,52 +31,34 @@ export function NewKeyDialog({ connId, db, prefix, onClose }: { connId: string; 
   return (
     <Modal title={`New Key — db${db}`} onClose={() => onClose()}>
       <div className="modal-body form">
-        <div className="field">
-          <label>Key Name</label>
-          <div className="field-input">
-            <input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ok()} />
-          </div>
-        </div>
-        <div className="field">
-          <label>Type</label>
-          <div className="field-input">
-            <select value={type} onChange={(e) => setType(e.target.value)}>
-              {TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {TYPE_LABEL[t]}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <div className="field">
-          <label>TTL (seconds)</label>
-          <div className="field-input">
-            <input type="number" min={1} placeholder="No limit" value={ttl} onChange={(e) => setTtl(e.target.value)} />
-          </div>
-        </div>
+        <Field label="Key Name">
+          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ok()} />
+        </Field>
+        <Field label="Type">
+          <select value={type} onChange={(e) => setType(e.target.value)}>
+            {TYPES.map((t) => (
+              <option key={t} value={t}>
+                {TYPE_LABEL[t]}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="TTL (seconds)">
+          <input type="number" min={1} placeholder="No limit" value={ttl} onChange={(e) => setTtl(e.target.value)} />
+        </Field>
         {(type === "hash" || type === "stream") && (
-          <div className="field">
-            <label>Field</label>
-            <div className="field-input">
-              <input value={field} onChange={(e) => setField(e.target.value)} />
-            </div>
-          </div>
+          <Field label="Field">
+            <input value={field} onChange={(e) => setField(e.target.value)} />
+          </Field>
         )}
         {type === "zset" && (
-          <div className="field">
-            <label>Score</label>
-            <div className="field-input">
-              <input value={score} onChange={(e) => setScore(e.target.value)} />
-            </div>
-          </div>
+          <Field label="Score">
+            <input value={score} onChange={(e) => setScore(e.target.value)} />
+          </Field>
         )}
-        <div className="field">
-          <label>{valueLabel}</label>
-          <div className="field-input">
-            <textarea rows={type === "string" ? 6 : 3} value={value} onChange={(e) => setValue(e.target.value)} />
-          </div>
-        </div>
+        <Field label={valueLabel}>
+          <textarea rows={type === "string" ? 6 : 3} value={value} onChange={(e) => setValue(e.target.value)} />
+        </Field>
       </div>
       {error && <div className="status-line err">{error}</div>}
       <ModalFooter onCancel={() => onClose()} onOk={ok} />

@@ -10,6 +10,7 @@ import { openMenu } from "../ContextMenu";
 import { DiagramCanvas } from "./DiagramCanvas";
 import { exportDiagram } from "./export";
 import { Toolbar } from "../Toolbar";
+import { Check } from "../form";
 
 interface Saved {
   positions: Positions;
@@ -128,9 +129,7 @@ function ERDiagramInner({ tab }: { tab: Tab }) {
             </button>
           ))}
         </div>
-        <label className="check">
-          <input type="checkbox" checked={views} onChange={(e) => (setViews(e.target.checked), setTimeout(save, 0))} /> Views
-        </label>
+        <Check label="Views" checked={views} onChange={(v) => (setViews(v), setTimeout(save, 0))} />
         <span className="tb-sep" />
         <button onClick={() => exportAs("png")}>
           <Download size={14} /> PNG
