@@ -73,12 +73,29 @@ var evalPool = sync.Pool{New: func() any {
 		panic(err)
 	}
 	// Pooled runtimes are shared: an expression must not be able to replace ObjectId
-	// or the like for whoever evaluates next.
-	if _, err := s.vm.RunString("Object.freeze(this)"); err != nil {
+	// or the like, or add a getter to Object.prototype, for whoever evaluates next.
+	if _, err := s.vm.RunProgram(lockdownProgram); err != nil {
 		panic(err)
 	}
 	return s
 }}
+
+// lockdownProgram freezes everything reachable from the global object: the
+// helpers, the built-in constructors and their prototypes.
+var lockdownProgram = goja.MustCompile("lockdown.js", `(function (root) {
+	const seen = new Set();
+	const freeze = (o) => {
+		if (o === null || (typeof o !== "object" && typeof o !== "function") || seen.has(o)) return;
+		seen.add(o);
+		Object.freeze(o);
+		freeze(Object.getPrototypeOf(o));
+		for (const k of Reflect.ownKeys(o)) {
+			const d = Object.getOwnPropertyDescriptor(o, k);
+			if (d) { freeze(d.value); freeze(d.get); freeze(d.set); }
+		}
+	};
+	freeze(root);
+})(this)`, false)
 
 // evalTimeout bounds literal evaluation (a filter can't loop forever).
 var evalTimeout = 5 * time.Second

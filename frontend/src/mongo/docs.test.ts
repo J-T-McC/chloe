@@ -25,6 +25,11 @@ describe("mongo docs", () => {
     expect(cellText({ t: "object", f: [{ k: "a", v: { t: "int", v: "1" } }] })).toBe("{ a: 1 }");
     expect(cellText({ t: "regex", v: "^a", s: "i" })).toBe("/^a/i");
     expect(cellText({ t: "regex", v: "a b", s: "x" })).toBe("BSONRegExp('a b', 'x')");
+    // A pattern that would end the literal somewhere else is spelled out.
+    expect(cellText({ t: "regex", v: "x\\", s: "" })).toBe("BSONRegExp('x\\\\', '')");
+    expect(cellText({ t: "regex", v: "a[", s: "" })).toBe("BSONRegExp('a[', '')");
+    expect(cellText({ t: "regex", v: "[\\]", s: "" })).toBe("BSONRegExp('[\\\\]', '')");
+    expect(cellText({ t: "regex", v: "[a\\]]\\d", s: "i" })).toBe("/[a\\]]\\d/i");
     expect(formatVal({ t: "double", v: "5" })).toBe("Double(5)");
     expect(formatCompact({ t: "double", v: "5" })).toBe("5");
   });

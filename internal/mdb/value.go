@@ -432,14 +432,33 @@ func (f formatter) scalar(v Val) string {
 	return q(v.V)
 }
 
-// regexLiteral reports whether /pattern/options reads back as the same regex.
+// regexLiteral reports whether /pattern/options reads back as the same regex:
+// the JavaScript lexer must end the literal at the closing slash, so the
+// pattern can't hold a slash or line break, end in a backslash, or leave a
+// character class open.
 func regexLiteral(pattern, opts string) bool {
 	for _, r := range opts {
 		if !strings.ContainsRune("imsu", r) {
 			return false
 		}
 	}
-	return pattern != "" && !strings.ContainsAny(pattern, "/\n\r")
+	if pattern == "" || strings.ContainsAny(pattern, "/\n\r\u2028\u2029") {
+		return false
+	}
+	escaped, class := false, false
+	for _, r := range pattern {
+		switch {
+		case escaped:
+			escaped = false
+		case r == '\\':
+			escaped = true
+		case r == '[':
+			class = true
+		case r == ']':
+			class = false
+		}
+	}
+	return !escaped && !class
 }
 
 // Cell is the short text shown for a value in a grid cell.
