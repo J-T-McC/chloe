@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"chloe/internal/driver"
+	"chloe/internal/sqlsplit"
 	"chloe/internal/tz"
 )
 
@@ -38,7 +39,6 @@ type ParamOption struct {
 
 var (
 	paramName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-	dollarTag = regexp.MustCompile(`^\$([A-Za-z_][A-Za-z0-9_]*)?\$`)
 	paramRef  = regexp.MustCompile(`\[\$([A-Za-z_][A-Za-z0-9_]*)\]`)
 	wholeRef  = regexp.MustCompile(`^\[\$([A-Za-z_][A-Za-z0-9_]*)\]$`)
 )
@@ -324,89 +324,48 @@ func (w *Workspace) ResolveSource(src DataSource, overrides map[string]string) (
 }
 
 // bindParams turns the [$name] references of a source query into placeholders,
-// numbered from 1, and returns their values. A reference inside a quoted string
-// or comment is refused: it can only be a bound value.
+// numbered from 1, and returns their values. The query is read with the
+// statement splitter's rules (sqlsplit.Pieces: dollar quotes, E” strings,
+// nested comments), so a reference is only replaced in code; one inside a
+// quoted string is refused, as it can only be a bound value.
 func bindParams(d driver.Dialect, sql string, v Values, fields func(string) string) (string, []any, error) {
 	var out strings.Builder
 	var args []any
-	n := len(sql)
-	for i := 0; i < n; {
-		c := sql[i]
-		switch {
-		case c == '\'' || c == '"' || c == '`':
-			j := i + 1
-			for j < n {
-				if sql[j] == c {
-					if j+1 < n && sql[j+1] == c { // doubled quote
-						j += 2
-						continue
-					}
-					break
-				}
-				// MySQL strings and PostgreSQL E'…' strings take backslash escapes.
-				if sql[j] == '\\' && c == '\'' && (d.Name == "mysql" || d.Name == "postgres" && i > 0 && (sql[i-1] == 'E' || sql[i-1] == 'e')) {
-					j++
-				}
-				j++
+	for _, p := range sqlsplit.Pieces(sql, d.Split) {
+		text := sql[p.Start:p.End]
+		switch p.Kind {
+		case sqlsplit.String, sqlsplit.DollarString:
+			if paramRef.MatchString(text) {
+				return "", nil, fmt.Errorf("write %s without quotes: a parameter is a bound value, so it goes where a value would", paramRef.FindString(text))
 			}
-			lit := sql[i:min(j+1, n)]
-			if c == '\'' && paramRef.MatchString(lit) {
-				return "", nil, fmt.Errorf("write %s without quotes: a parameter is a bound value, so it goes where a value would", paramRef.FindString(lit))
-			}
-			out.WriteString(lit)
-			i = j + 1
-		case c == '$' && d.Name == "postgres" && dollarTag.MatchString(sql[i:]):
-			// A dollar-quoted string runs to the same tag again.
-			tag := dollarTag.FindString(sql[i:])
-			end := n
-			if j := strings.Index(sql[i+len(tag):], tag); j >= 0 {
-				end = i + len(tag) + j + len(tag)
-			}
-			lit := sql[i:end]
-			if paramRef.MatchString(lit) {
-				return "", nil, fmt.Errorf("write %s without quotes: a parameter is a bound value, so it goes where a value would", paramRef.FindString(lit))
-			}
-			out.WriteString(lit)
-			i = end
-		case c == '-' && i+1 < n && sql[i+1] == '-', c == '#' && d.Name == "mysql":
-			j := strings.IndexByte(sql[i:], '\n')
-			if j < 0 {
-				j = n - i
-			}
-			out.WriteString(sql[i : i+j])
-			i += j
-		case c == '/' && i+1 < n && sql[i+1] == '*':
-			j := strings.Index(sql[i+2:], "*/")
-			end := n
-			if j >= 0 {
-				end = i + 2 + j + 2
-			}
-			out.WriteString(sql[i:end])
-			i = end
-		case c == '[' && i+1 < n && sql[i+1] == '$':
-			m := paramRef.FindStringSubmatchIndex(sql[i:])
-			if m == nil || m[0] != 0 {
-				out.WriteByte(c)
-				i++
+			out.WriteString(text)
+		case sqlsplit.Code, sqlsplit.QuotedIdent:
+			// SQLite reads [$name] as a [quoted] identifier; a parameter it is.
+			if p.Kind == sqlsplit.QuotedIdent && !wholeRef.MatchString(text) {
+				out.WriteString(text)
 				continue
 			}
-			name := sql[i+m[2] : i+m[3]]
-			val, err := v.get(name)
-			if err != nil {
-				return "", nil, err
-			}
-			var a any = val
-			if d.Name == "sqlite" && fields(name) == TypeNumber {
-				if x, err := strconv.ParseFloat(val, 64); err == nil {
-					a = x
+			last := 0
+			for _, m := range paramRef.FindAllStringSubmatchIndex(text, -1) {
+				name := text[m[2]:m[3]]
+				val, err := v.get(name)
+				if err != nil {
+					return "", nil, err
 				}
+				var a any = val
+				if d.Name == "sqlite" && fields(name) == TypeNumber {
+					if x, err := strconv.ParseFloat(val, 64); err == nil {
+						a = x
+					}
+				}
+				args = append(args, a)
+				out.WriteString(text[last:m[0]])
+				out.WriteString(d.Placeholder(len(args)))
+				last = m[1]
 			}
-			args = append(args, a)
-			out.WriteString(d.Placeholder(len(args)))
-			i += m[1]
-		default:
-			out.WriteByte(c)
-			i++
+			out.WriteString(text[last:])
+		default: // comments stay as written
+			out.WriteString(text)
 		}
 	}
 	return out.String(), args, nil

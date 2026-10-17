@@ -109,30 +109,14 @@ func (sp *splitter) scan(script string, base, from int, eof bool, out func(State
 			continue
 		}
 
-		switch {
-		case c == '\'' || c == '"' || (c == '`' && d == MySQL):
-			i = skipQuoted(script, i, c, d)
+		if _, end, ok := quoted(script, i, d); ok {
+			i = end
 			continue
-		case c == '-' && i+1 < n && script[i+1] == '-':
-			i = skipLine(script, i)
-			continue
-		case c == '#' && d == MySQL:
-			i = skipLine(script, i)
-			continue
-		case c == '/' && i+1 < n && script[i+1] == '*':
-			i = skipBlockComment(script, i, d == Postgres)
-			continue
-		case c == '$' && d == Postgres:
-			if tag, ok := dollarTag(script, i); ok {
-				end := strings.Index(script[i+len(tag):], tag)
-				if end < 0 {
-					i = n
-				} else {
-					i += len(tag) + end + len(tag)
-				}
-				continue
-			}
-		case d == SQLite && isWordStart(c) && (i == 0 || !isWordChar(script[i-1])):
+		}
+		if c == '[' && (d == Generic || d == SQLite) && !eof {
+			return stmtStart // the ] may be still to come
+		}
+		if d == SQLite && isWordStart(c) && (i == 0 || !isWordChar(script[i-1])) {
 			j := i + 1
 			for j < n && isWordChar(script[j]) {
 				j++
@@ -151,17 +135,6 @@ func (sp *splitter) scan(script string, base, from int, eof bool, out func(State
 			}
 			i = j
 			continue
-		case c == '`' && d == SQLite:
-			i = skipQuoted(script, i, c, d)
-			continue
-		case c == '[' && (d == Generic || d == SQLite):
-			if j := strings.IndexByte(script[i:], ']'); j >= 0 {
-				i += j + 1
-				continue
-			}
-			if !eof {
-				return stmtStart // the ] may be still to come
-			}
 		}
 
 		if strings.HasPrefix(script[i:], sp.delim) && depth == 0 {

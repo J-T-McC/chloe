@@ -8,6 +8,7 @@ import (
 	"unicode"
 
 	"chloe/internal/model"
+	"chloe/internal/sqlsplit"
 )
 
 // ResultEdit says whether a query result can be edited in place and, if so, how its
@@ -46,7 +47,7 @@ func (m *Manager) ResultEditTarget(ctx context.Context, resultID string) (Result
 	}
 	d := c.Dialect()
 
-	sel, why := parseSimpleSelect(rs.origin.sql, d.IdentQuote)
+	sel, why := parseSimpleSelect(rs.origin.sql, d.Split)
 	if why != "" {
 		return readOnly("%s", why), nil
 	}
@@ -272,70 +273,49 @@ type tok struct {
 
 func (t tok) is(kw string) bool { return t.kind == 'i' && strings.EqualFold(t.text, kw) }
 
-// lexSQL tokenises enough SQL to recognise a simple SELECT. Comments are dropped.
-func lexSQL(s, identQuote string) []tok {
+// lexSQL tokenises enough SQL to recognise a simple SELECT. Quoting and
+// comments are read by the statement splitter's rules (sqlsplit.Pieces);
+// comments are dropped.
+func lexSQL(s string, d sqlsplit.Dialect) []tok {
 	var out []tok
+	for _, p := range sqlsplit.Pieces(s, d) {
+		text := s[p.Start:p.End]
+		switch p.Kind {
+		case sqlsplit.Comment:
+		case sqlsplit.String, sqlsplit.DollarString:
+			// MySQL reads "..." as a string unless ANSI_QUOTES; either way it isn't a column.
+			out = append(out, tok{kind: 's', text: text, quoted: text[0] == '"'})
+		case sqlsplit.QuotedIdent:
+			out = append(out, tok{kind: 'q', text: unquoteIdent(text), quoted: true})
+		default:
+			out = lexCode(out, text)
+		}
+	}
+	return out
+}
+
+// unquoteIdent strips an identifier's quotes and undoes doubled quote characters.
+func unquoteIdent(q string) string {
+	open, inner := q[0], q[1:]
+	end := open
+	if open == '[' {
+		end = ']'
+	}
+	inner = strings.TrimSuffix(inner, string(end)) // an unclosed one runs to the end
+	if end == ']' {
+		return inner
+	}
+	return strings.ReplaceAll(inner, string(end)+string(end), string(end))
+}
+
+// lexCode splits code (no quoting or comments) into words, numbers and punctuation.
+func lexCode(out []tok, s string) []tok {
 	i, n := 0, len(s)
 	for i < n {
 		c := s[i]
 		switch {
 		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
 			i++
-		case c == '-' && i+1 < n && s[i+1] == '-', c == '#' && identQuote == "`":
-			for i < n && s[i] != '\n' {
-				i++
-			}
-		case c == '/' && i+1 < n && s[i+1] == '*':
-			e := strings.Index(s[i+2:], "*/")
-			if e < 0 {
-				i = n
-			} else {
-				i += e + 4
-			}
-		case c == '\'':
-			j := i + 1
-			for j < n {
-				if s[j] == '\\' && identQuote == "`" {
-					j += 2
-					continue
-				}
-				if s[j] == '\'' {
-					if j+1 < n && s[j+1] == '\'' {
-						j += 2
-						continue
-					}
-					break
-				}
-				j++
-			}
-			out = append(out, tok{kind: 's', text: s[i:min(j+1, n)]})
-			i = j + 1
-		case c == '"' || c == '`' || c == '[':
-			end := c
-			if c == '[' {
-				end = ']'
-			}
-			var b strings.Builder
-			j := i + 1
-			for j < n {
-				if s[j] == end {
-					if j+1 < n && s[j+1] == end && end != ']' {
-						b.WriteByte(end)
-						j += 2
-						continue
-					}
-					break
-				}
-				b.WriteByte(s[j])
-				j++
-			}
-			// MySQL treats "..." as a string unless ANSI_QUOTES; either way it isn't a column.
-			kind := byte('q')
-			if c == '"' && identQuote == "`" {
-				kind = 's'
-			}
-			out = append(out, tok{kind: kind, text: b.String(), quoted: true})
-			i = j + 1
 		case c == '_' || unicode.IsLetter(rune(c)) || c >= 0x80:
 			j := i
 			for j < n && (s[j] == '_' || s[j] == '$' || s[j] >= 0x80 || unicode.IsLetter(rune(s[j])) || unicode.IsDigit(rune(s[j]))) {
@@ -369,9 +349,9 @@ var clauseWords = map[string]bool{
 
 // parseSimpleSelect recognises SELECT <items> FROM <table> [alias] [WHERE …] [ORDER BY …]
 // [LIMIT …]. It returns a reason when the statement is anything more complex.
-func parseSimpleSelect(sql, identQuote string) (simpleSelect, string) {
+func parseSimpleSelect(sql string, dialect sqlsplit.Dialect) (simpleSelect, string) {
 	const complex = "the query isn't a simple single-table SELECT"
-	ts := lexSQL(sql, identQuote)
+	ts := lexSQL(sql, dialect)
 	for len(ts) > 0 && ts[len(ts)-1].kind == 'p' && ts[len(ts)-1].text == ";" {
 		ts = ts[:len(ts)-1]
 	}
