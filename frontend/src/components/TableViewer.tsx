@@ -6,6 +6,7 @@ import type { Tab } from "../store";
 import { Cell, DataGrid, GridEdits, GridPage, MAX_CELL_CHARS, emptyEdits } from "./DataGrid";
 import { confirm } from "./Dialogs";
 import { Split } from "./Split";
+import { useStable } from "./useStable";
 import { ValuePanel } from "./ValuePanel";
 import { readFlag, writeFlag } from "../prefs";
 import { designTable } from "../tableActions";
@@ -122,7 +123,7 @@ export function TableViewer({ tab }: { tab: Tab }) {
 
   const guardDirty = async () => !dirty || (await confirm("Discard unsaved changes?", { danger: true, okLabel: "Discard" }));
 
-  const onEditCell = (row: number, col: number, value: Cell) => {
+  const onEditCell = useStable((row: number, col: number, value: Cell) => {
     setEdits((e) => {
       const updated = new Map(e.updated);
       const m = new Map(updated.get(row) ?? []);
@@ -130,17 +131,23 @@ export function TableViewer({ tab }: { tab: Tab }) {
       updated.set(row, m);
       return { ...e, updated };
     });
-  };
+  });
 
-  const onInsertRow = () => {
+  const onSort = useStable(async (column: string, desc: boolean | null) => {
+    if (!(await guardDirty())) return;
+    setSort(desc === null ? [] : [{ column, desc }]);
+  });
+  const onActiveCell = useCallback((r: number, c: number, value?: Cell) => setActive({ r, c, value }), []);
+
+  const onInsertRow = useStable(() => {
     setEdits((e) => {
       const inserted = new Set(e.inserted);
       inserted.add(rowCount + inserted.size);
       return { ...e, inserted };
     });
-  };
+  });
 
-  const onDeleteRows = (rows: number[]) => {
+  const onDeleteRows = useStable((rows: number[]) => {
     setEdits((e) => {
       const deleted = new Set(e.deleted);
       const inserted = new Set(e.inserted);
@@ -150,7 +157,7 @@ export function TableViewer({ tab }: { tab: Tab }) {
       }
       return { ...e, deleted, inserted };
     });
-  };
+  });
 
   const apply = async () => {
     if (!result?.resultId) return;
@@ -279,11 +286,8 @@ export function TableViewer({ tab }: { tab: Tab }) {
             onDeleteRows={onDeleteRows}
             sort={sort}
             rowNumberOffset={page * pageSize}
-            onSort={async (column, desc) => {
-              if (!(await guardDirty())) return;
-              setSort(desc === null ? [] : [{ column, desc }]);
-            }}
-            onActiveCell={(r, c, value) => setActive({ r, c, value })}
+            onSort={onSort}
+            onActiveCell={onActiveCell}
           />
             }
             second={

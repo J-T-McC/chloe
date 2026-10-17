@@ -1,6 +1,6 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ArrowUp } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { copyText, type ResultColumn } from "../api";
 import { openMenu, type MenuItem } from "./ContextMenu";
 
@@ -58,6 +58,8 @@ const ROW_H = 22;
 const PAGE = 500;
 const HEADER_H = 38; // two lines: name, then type
 const ROWHDR_W = 48;
+// Columns drawn beyond each side of the visible ones.
+const COL_OVERSCAN = 4;
 // Pages kept in memory; the least recently shown go first.
 const MAX_PAGES = 20;
 
@@ -74,7 +76,10 @@ interface Sel {
   c1: number;
 }
 
-export function DataGrid(p: DataGridProps) {
+/** Rows and columns are virtualised: only the cells on screen (and a margin) are
+ *  drawn. Each row is memoised and gets its own slice of the selection, so moving
+ *  it redraws the rows it leaves and enters, not the grid. */
+export const DataGrid = memo(function DataGrid(p: DataGridProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const cache = useRef(new Map<number, CachedPage>());
   const pending = useRef(new Set<number>());
@@ -83,8 +88,11 @@ export function DataGrid(p: DataGridProps) {
   const [, bump] = useState(0);
   const [widths, setWidths] = useState<number[]>([]);
   const [sel, setSel] = useState<Sel | null>(null);
-  // orig is the whole value being edited, so an unchanged commit is no change.
-  const [editing, setEditing] = useState<{ r: number; c: number; value: string; isNull: boolean; orig: Cell } | null>(null);
+  // The editor keeps its own text; orig is the whole value being edited, so an
+  // unchanged commit is no change.
+  const [editing, setEditing] = useState<Editing | null>(null);
+  // The columns drawn: those in view plus COL_OVERSCAN on each side.
+  const [colRange, setColRange] = useState<[number, number]>([0, 0]);
   const dragging = useRef(false);
 
   const inserted = p.edits ? [...p.edits.inserted].sort((a, b) => a - b) : [];
@@ -193,6 +201,37 @@ export function DataGrid(p: DataGridProps) {
   }, [widths]);
   const totalWidth = colLeft[colLeft.length - 1] ?? ROWHDR_W;
 
+  // Recompute the drawn columns on scroll and resize, rendering only when they change.
+  const updateCols = useCallback(() => {
+    const el = scroller.current;
+    const n = colLeft.length - 1;
+    if (!el || n <= 0) return setColRange((r) => (r[0] === 0 && r[1] === -1 ? r : [0, -1]));
+    const left = el.scrollLeft + ROWHDR_W, right = el.scrollLeft + (el.clientWidth || 1600);
+    let a = 0;
+    while (a < n - 1 && colLeft[a + 1] <= left) a++;
+    let b = a;
+    while (b < n - 1 && colLeft[b + 1] < right) b++;
+    const next: [number, number] = [Math.max(0, a - COL_OVERSCAN), Math.min(n - 1, b + COL_OVERSCAN)];
+    setColRange((r) => (r[0] === next[0] && r[1] === next[1] ? r : next));
+  }, [colLeft]);
+  useLayoutEffect(() => {
+    updateCols();
+    const el = scroller.current;
+    if (!el) return;
+    const ro = new ResizeObserver(updateCols);
+    ro.observe(el);
+    el.addEventListener("scroll", updateCols, { passive: true });
+    return () => {
+      ro.disconnect();
+      el.removeEventListener("scroll", updateCols);
+    };
+  }, [updateCols]);
+  // The range is set after layout, so clamp it to columns that exist now (a
+  // projection can drop some before the range catches up).
+  const lastCol = Math.min(p.columns.length, widths.length) - 1;
+  const cTo = Math.min(colRange[1], lastCol);
+  const cFrom = Math.min(colRange[0], Math.max(0, cTo));
+
   // ---- selection & keyboard ----------------------------------------------------
 
   const norm = (s: Sel) => ({ r0: Math.min(s.r0, s.r1), r1: Math.max(s.r0, s.r1), c0: Math.min(s.c0, s.c1), c1: Math.max(s.c0, s.c1) });
@@ -224,7 +263,7 @@ export function DataGrid(p: DataGridProps) {
 
   const startEdit = (r: number, c: number, initial?: string) => {
     if (!canEdit(c) || p.edits?.deleted.has(r)) return;
-    const open = (cur: Cell) => setEditing({ r, c, value: initial ?? cur ?? "", isNull: initial === undefined && cur === null, orig: cur });
+    const open = (cur: Cell) => setEditing({ r, c, initial: initial ?? cur ?? "", isNull: initial === undefined && cur === null, orig: cur });
     // Synchronous unless the value has to be fetched whole, so typed keys reach the editor.
     if (isCut(r, c)) fullValue(r, c).then((v) => open(v ?? null));
     else open(cellValue(r, c) ?? null);
@@ -426,13 +465,68 @@ export function DataGrid(p: DataGridProps) {
     return items;
   };
 
+  // ---- delegated mouse handling --------------------------------------------------
+
+  const cellAt = (t: EventTarget): [number, number] | null => {
+    const el = (t as HTMLElement).closest?.<HTMLElement>(".grid-cell[data-r]");
+    return el ? [Number(el.dataset.r), Number(el.dataset.c)] : null;
+  };
+  const onMouseDown = (e: React.MouseEvent) => {
+    const hdr = (e.target as HTMLElement).closest?.<HTMLElement>(".grid-rowhdr[data-r]");
+    if (hdr) {
+      const r = Number(hdr.dataset.r);
+      setSel((s) => (e.shiftKey && s ? { ...s, r1: r, c0: 0, c1: p.columns.length - 1 } : { r0: r, r1: r, c0: 0, c1: p.columns.length - 1 }));
+      scroller.current?.focus();
+      return;
+    }
+    const at = cellAt(e.target);
+    if (!at || e.button !== 0) return;
+    const [r, c] = at;
+    dragging.current = true;
+    setSel((s) => (e.shiftKey && s ? { ...s, r1: r, c1: c } : { r0: r, c0: c, r1: r, c1: c }));
+    p.onActiveCell?.(r, c, isCut(r, c) ? undefined : cellValue(r, c));
+  };
+  const onMouseOver = (e: React.MouseEvent) => {
+    if (!dragging.current) return;
+    const at = cellAt(e.target);
+    if (at) setSel((s) => (s && (s.r1 !== at[0] || s.c1 !== at[1]) ? { ...s, r1: at[0], c1: at[1] } : s));
+  };
+  const onDoubleClick = (e: React.MouseEvent) => {
+    const at = cellAt(e.target);
+    if (at) startEdit(at[0], at[1]);
+  };
+  const onContextMenu = (e: React.MouseEvent) => {
+    const at = cellAt(e.target);
+    if (!at) return;
+    if (!inSel(at[0], at[1])) setSel({ r0: at[0], c0: at[1], r1: at[0], c1: at[1] });
+    openMenu(e, menuForCell(at[0], at[1]));
+  };
+
+  // The editor's callbacks change with every render; rows reach them through a ref,
+  // so a memoised row isn't redrawn for them.
+  const editorActions = useRef<EditorActions>(null!);
+  editorActions.current = {
+    commit: commitEdit,
+    cancel: () => {
+      setEditing(null);
+      scroller.current?.focus();
+    },
+    tab: (value, back) => {
+      if (!editing) return;
+      commitEdit(value);
+      moveTo(editing.r, editing.c + (back ? -1 : 1), false);
+    },
+  };
+
+  const n = sel ? norm(sel) : null;
   return (
-    <div className="grid" ref={scroller} tabIndex={0} onKeyDown={onKeyDown}>
+    <div className="grid" ref={scroller} tabIndex={0} onKeyDown={onKeyDown} onMouseDown={onMouseDown} onMouseOver={onMouseOver} onDoubleClick={onDoubleClick} onContextMenu={onContextMenu}>
       <div style={{ width: totalWidth, height: v.getTotalSize() + HEADER_H, position: "relative" }}>
         {/* header */}
         <div className="grid-header" style={{ width: totalWidth, height: HEADER_H }}>
           <div className="grid-corner" style={{ width: ROWHDR_W }} onClick={() => total && setSel({ r0: 0, c0: 0, r1: total - 1, c1: p.columns.length - 1 })} />
-          {p.columns.map((col, c) => {
+          {range(cFrom, cTo).map((c) => {
+            const col = p.columns[c];
             const s = sortOf(col.name);
             return (
               <div
@@ -479,104 +573,151 @@ export function DataGrid(p: DataGridProps) {
         {/* rows */}
         {items.map((it) => {
           const r = it.index;
-          const loaded = r >= p.rowCount || !!baseRow(r);
-          const deleted = p.edits?.deleted.has(r);
           const isNew = r >= p.rowCount;
-          const upd = p.edits?.updated.get(r);
+          const inRows = !!n && r >= n.r0 && r <= n.r1;
+          const pg = isNew ? undefined : cache.current.get(Math.floor(r / PAGE));
           return (
-            <div key={r} className={"grid-row" + (r % 2 ? " odd" : "") + (deleted ? " deleted" : "") + (isNew ? " new" : "")} style={{ top: it.start + HEADER_H, height: ROW_H, width: totalWidth }}>
-              <div
-                className={"grid-rowhdr" + (upd || isNew || deleted ? " dirty" : "")}
-                style={{ width: ROWHDR_W }}
-                onMouseDown={(e) => {
-                  setSel((s) => (e.shiftKey && s ? { ...s, r1: r, c0: 0, c1: p.columns.length - 1 } : { r0: r, r1: r, c0: 0, c1: p.columns.length - 1 }));
-                  scroller.current?.focus();
-                }}
-              >
-                {isNew ? "*" : r + 1 + (p.rowNumberOffset ?? 0)}
-              </div>
-              {p.columns.map((_, c) => {
-                const val = loaded ? cellValue(r, c) : undefined;
-                const isEditing = editing?.r === r && editing.c === c;
-                const changed = upd?.has(c);
-                return (
-                  <div
-                    key={c}
-                    className={"grid-cell" + (inSel(r, c) ? " sel" : "") + (sel && sel.r1 === r && sel.c1 === c ? " active" : "") + (changed ? " changed" : "")}
-                    style={{ left: colLeft[c], width: widths[c] }}
-                    onMouseDown={(e) => {
-                      if (e.button !== 0) return;
-                      dragging.current = true;
-                      setSel((s) => (e.shiftKey && s ? { ...s, r1: r, c1: c } : { r0: r, c0: c, r1: r, c1: c }));
-                      p.onActiveCell?.(r, c, isCut(r, c) ? undefined : cellValue(r, c));
-                    }}
-                    onMouseEnter={() => dragging.current && setSel((s) => (s ? { ...s, r1: r, c1: c } : s))}
-                    onDoubleClick={() => startEdit(r, c)}
-                    onContextMenu={(e) => {
-                      if (!inSel(r, c)) setSel({ r0: r, c0: c, r1: r, c1: c });
-                      openMenu(e, menuForCell(r, c));
-                    }}
-                  >
-                    {isEditing ? (
-                      <CellEditor
-                        value={editing.value}
-                        isNull={editing.isNull}
-                        onCommit={commitEdit}
-                        onCancel={() => {
-                          setEditing(null);
-                          scroller.current?.focus();
-                        }}
-                        onTab={(back) => {
-                          commitEdit(editing.value);
-                          moveTo(r, c + (back ? -1 : 1), false);
-                        }}
-                        onChange={(value) => setEditing({ ...editing, value, isNull: false })}
-                      />
-                    ) : val === undefined ? (
-                      <span className="loading-cell" />
-                    ) : isNew && !changed ? (
-                      // Untouched cells of a new row are left out of the INSERT.
-                      <span className="null">(default)</span>
-                    ) : val === null ? (
-                      <span className="null">{p.nullText ?? "NULL"}</span>
-                    ) : (
-                      displayValue(val, isCut(r, c))
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+            <GridRow
+              key={r}
+              r={r}
+              top={it.start + HEADER_H}
+              width={totalWidth}
+              label={isNew ? "*" : String(r + 1 + (p.rowNumberOffset ?? 0))}
+              row={isNew ? undefined : pg?.rows[r % PAGE]}
+              loaded={isNew || !!pg?.rows[r % PAGE]}
+              cut={pg?.cut}
+              cutBase={(r % PAGE) * p.columns.length}
+              isNew={isNew}
+              deleted={!!p.edits?.deleted.has(r)}
+              upd={p.edits?.updated.get(r)}
+              cFrom={cFrom}
+              cTo={cTo}
+              colLeft={colLeft}
+              widths={widths}
+              selC0={inRows ? n!.c0 : -1}
+              selC1={inRows ? n!.c1 : -1}
+              activeC={sel && sel.r1 === r ? sel.c1 : -1}
+              editing={editing?.r === r ? editing : null}
+              actions={editorActions}
+              nullText={p.nullText}
+            />
           );
         })}
       </div>
     </div>
   );
+});
+
+interface Editing {
+  r: number;
+  c: number;
+  initial: string;
+  isNull: boolean;
+  orig: Cell;
 }
 
-function CellEditor(props: { value: string; isNull: boolean; onChange(v: string): void; onCommit(v: Cell): void; onCancel(): void; onTab(back: boolean): void }) {
+interface EditorActions {
+  commit(v: Cell): void;
+  cancel(): void;
+  tab(value: Cell, back: boolean): void;
+}
+
+interface GridRowProps {
+  r: number;
+  top: number;
+  width: number;
+  label: string;
+  row: Cell[] | undefined;
+  loaded: boolean;
+  cut: Set<number> | undefined;
+  cutBase: number;
+  isNew: boolean;
+  deleted: boolean;
+  upd: Map<number, Cell> | undefined;
+  cFrom: number;
+  cTo: number;
+  colLeft: number[];
+  widths: number[];
+  /** The selected columns in this row, or -1 when the row isn't selected. */
+  selC0: number;
+  selC1: number;
+  activeC: number;
+  editing: Editing | null;
+  actions: React.RefObject<EditorActions>;
+  nullText?: string;
+}
+
+const GridRow = memo(function GridRow(p: GridRowProps) {
+  return (
+    <div className={"grid-row" + (p.r % 2 ? " odd" : "") + (p.deleted ? " deleted" : "") + (p.isNew ? " new" : "")} style={{ top: p.top, height: ROW_H, width: p.width }}>
+      <div className={"grid-rowhdr" + (p.upd || p.isNew || p.deleted ? " dirty" : "")} style={{ width: ROWHDR_W }} data-r={p.r}>
+        {p.label}
+      </div>
+      {range(p.cFrom, p.cTo).map((c) => {
+        const changed = p.upd?.has(c);
+        const val: Cell | undefined = changed ? p.upd!.get(c)! : p.isNew ? null : p.loaded ? p.row?.[c] : undefined;
+        const isEditing = p.editing?.c === c;
+        return (
+          <div
+            key={c}
+            className={"grid-cell" + (c >= p.selC0 && c <= p.selC1 ? " sel" : "") + (p.activeC === c ? " active" : "") + (changed ? " changed" : "")}
+            style={{ left: p.colLeft[c], width: p.widths[c] }}
+            data-r={p.r}
+            data-c={c}
+          >
+            {isEditing ? (
+              <CellEditor
+                initial={p.editing!.initial}
+                isNull={p.editing!.isNull}
+                onCommit={(v) => p.actions.current.commit(v)}
+                onCancel={() => p.actions.current.cancel()}
+                onTab={(v, back) => p.actions.current.tab(v, back)}
+              />
+            ) : val === undefined ? (
+              <span className="loading-cell" />
+            ) : p.isNew && !changed ? (
+              // Untouched cells of a new row are left out of the INSERT.
+              <span className="null">(default)</span>
+            ) : val === null ? (
+              <span className="null">{p.nullText ?? "NULL"}</span>
+            ) : (
+              displayValue(val, !changed && !!p.cut?.has(p.cutBase + c))
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+});
+
+function CellEditor(props: { initial: string; isNull: boolean; onCommit(v: Cell): void; onCancel(): void; onTab(v: Cell, back: boolean): void }) {
   const ref = useRef<HTMLInputElement>(null);
+  const [value, setValue] = useState(props.initial);
+  const [isNull, setIsNull] = useState(props.isNull);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     el.focus();
     el.setSelectionRange(el.value.length, el.value.length);
   }, []);
+  const result = (): Cell => (isNull && value === "" ? null : value);
   return (
     <input
       ref={ref}
       className="cell-editor"
-      value={props.value}
-      placeholder={props.isNull ? "NULL" : ""}
-      onChange={(e) => props.onChange(e.target.value)}
-      onBlur={() => props.onCommit(props.isNull && props.value === "" ? null : props.value)}
+      value={value}
+      placeholder={isNull ? "NULL" : ""}
+      onChange={(e) => (setValue(e.target.value), setIsNull(false))}
+      onBlur={() => props.onCommit(result())}
       onMouseDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
         e.stopPropagation();
-        if (e.key === "Enter") props.onCommit(props.isNull && props.value === "" ? null : props.value);
+        if (e.key === "Enter") props.onCommit(result());
         else if (e.key === "Escape") props.onCancel();
         else if (e.key === "Tab") {
           e.preventDefault();
-          props.onTab(e.shiftKey);
+          props.onTab(result(), e.shiftKey);
         }
       }}
     />
