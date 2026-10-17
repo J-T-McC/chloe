@@ -4,7 +4,7 @@ import { DBType, Events, Explorer, Query, ResultEdit, StatementResult, arr, erro
 import { invalidateCatalog, preloadCatalog, setEditorContext } from "../editor/completion";
 import { beautifyEditor } from "../editor/format";
 import { Monaco, monaco } from "../editor/monaco";
-import { Tab, connById, useApp } from "../store";
+import { TabOf, connById, useApp } from "../store";
 import { Cell, DataGrid, GridEdits, MAX_CELL_CHARS, emptyEdits } from "./DataGrid";
 import { confirm } from "./Dialogs";
 import { buildRowChanges } from "../gridChanges";
@@ -30,8 +30,8 @@ export interface RunState {
   error?: string;
 }
 
-export function QueryEditor({ tab }: { tab: Tab }) {
-  const connId = tab.connId!;
+export function QueryEditor({ tab }: { tab: TabOf<"query"> }) {
+  const connId = tab.connId;
   const conn = connById(connId);
   const isPG = conn?.type === DBType.PostgreSQL;
   const dialect = connDialect(connId);

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Explorer, Layouts, ObjectKind, errorText } from "../../api";
 import { ColumnMode, ErdModel, Positions, autoLayout, buildModel, tableSize } from "../../erd/model";
 import { tableMenu } from "../../menus";
-import { Tab } from "../../store";
+import { type TabOf } from "../../store";
 import { designTable } from "../../tableActions";
 import { openMenu } from "../ContextMenu";
 import { DiagramCanvas } from "./DiagramCanvas";
@@ -19,7 +19,7 @@ interface Saved {
   views: boolean;
 }
 
-export function ERDiagram({ tab }: { tab: Tab }) {
+export function ERDiagram({ tab }: { tab: TabOf<"erd"> }) {
   return (
     <ReactFlowProvider>
       <ERDiagramInner tab={tab} />
@@ -27,9 +27,9 @@ export function ERDiagram({ tab }: { tab: Tab }) {
   );
 }
 
-function ERDiagramInner({ tab }: { tab: Tab }) {
-  const connId = tab.connId!;
-  const database = tab.database!;
+function ERDiagramInner({ tab }: { tab: TabOf<"erd"> }) {
+  const connId = tab.connId;
+  const database = tab.database;
   const schema = tab.schema;
   const pg = isPG(connId);
   const layoutKey = `erd:${connId}:${database}:${schema ?? ""}`;

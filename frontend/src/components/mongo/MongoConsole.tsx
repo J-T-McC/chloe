@@ -5,7 +5,7 @@ import { Mongo, arr, errorText, type MG } from "../../api";
 import { invalidateMongoCatalog } from "../../editor/mongo";
 import { formatCompact } from "../../mongo/docs";
 import { isSensitiveMongo } from "../../shellHistory";
-import { Tab } from "../../store";
+import { type TabOf } from "../../store";
 import { ShellView, useShell } from "../ShellConsole";
 
 const BATCH = 20;
@@ -38,7 +38,7 @@ export function consoleText(o: MG.RunOutput): { text: string; cursor?: { id: str
   return { text: parts.filter((p) => p !== "").join("\n"), cursor };
 }
 
-export function MongoConsole({ tab }: { tab: Tab }) {
+export function MongoConsole({ tab }: { tab: TabOf<"mongoshell"> }) {
   const [db, setDb] = useState(tab.database ?? "test");
   const [pending, setPending] = useState(""); // an unfinished statement spanning lines
   const cursor = useRef<{ id: string; next: number } | null>(null);

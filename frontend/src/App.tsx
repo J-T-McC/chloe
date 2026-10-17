@@ -38,7 +38,7 @@ import { openRedisConsole } from "./components/redis/actions";
 import { newTable } from "./tableActions";
 import { RevealTarget, useTree } from "./tree";
 import { Toolbar } from "./components/Toolbar";
-import { TAB_KINDS, tabIcon } from "./tabKinds";
+import { TAB_KINDS, tabIcon, tabView } from "./tabKinds";
 
 registerMongoLanguage();
 
@@ -214,7 +214,7 @@ export default function App() {
 // Memoised: App re-renders on every tree click and tab switch, and a tab only
 // needs to when its own tab object (kept by updateTab) or active flag changes.
 const TabContent = memo(function TabContent({ tab, active }: { tab: Tab; active: boolean }) {
-  return TAB_KINDS[tab.kind].view(tab, active);
+  return tabView(tab, active);
 });
 
 // The open tabs. When they don't fit, the bar scrolls (its scrollbar is hidden,

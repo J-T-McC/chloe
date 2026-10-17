@@ -4,10 +4,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Redis, arr, errorText } from "../../api";
 import { tabComplete } from "../../redis/complete";
 import { isSensitiveRedis } from "../../shellHistory";
-import { Tab } from "../../store";
+import { type TabOf } from "../../store";
 import { ShellView, useShell } from "../ShellConsole";
 
-export function RedisConsole({ tab }: { tab: Tab }) {
+export function RedisConsole({ tab }: { tab: TabOf<"redisconsole"> }) {
   const [db, setDb] = useState(Number(tab.database) || 0);
   const [commands, setCommands] = useState<string[]>([]);
   const shell = useShell(tab, {

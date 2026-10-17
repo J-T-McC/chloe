@@ -9,7 +9,7 @@ export const accountLabel = (u: { name: string; host?: string }) => (u.host ? `$
 /** Open the user list of a connection. */
 export function openUsers(connId: string) {
   const pg = isPG(connId);
-  useApp.getState().openTab({ kind: "users", title: `${pg ? "Roles" : "Users"} — ${connById(connId)?.name ?? ""}`, connId, ref: { database: "", name: "users", kind: ObjectKind.$zero } });
+  useApp.getState().openTab({ kind: "users", title: `${pg ? "Roles" : "Users"} — ${connById(connId)?.name ?? ""}`, connId });
 }
 
 /** Open the user editor for an account, or a new one. */

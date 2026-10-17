@@ -30,16 +30,16 @@ export function designCollection(connId: string, db: string, name: string | unde
 export function newMongoQuery(connId: string, db?: string, text = "") {
   const c = connById(connId);
   const database = db ?? c?.initialDatabase ?? "test";
-  useApp.getState().openTab({ kind: "mongoquery", title: `Query — ${database}`, connId, database, sql: text, ref: { database, name: "query", kind: ObjectKind.$zero, signature: String(Date.now()) } });
+  useApp.getState().openTab({ kind: "mongoquery", title: `Query — ${database}`, connId, database, sql: text });
 }
 
 export function openMongoUsers(connId: string, db?: string) {
-  useApp.getState().openTab({ kind: "mongousers", title: `Users — ${connById(connId)?.name ?? ""}`, connId, database: db, ref: { database: db ?? "", name: "users", kind: ObjectKind.$zero } });
+  useApp.getState().openTab({ kind: "mongousers", title: `Users — ${connById(connId)?.name ?? ""}`, connId, database: db });
 }
 
 export function openMongoShell(connId: string, db?: string) {
   const database = db ?? connById(connId)?.initialDatabase ?? "test";
-  useApp.getState().openTab({ kind: "mongoshell", title: `MongoShell — ${connById(connId)?.name ?? ""}`, connId, database, ref: { database, name: "shell", kind: ObjectKind.$zero, signature: String(Date.now()) } });
+  useApp.getState().openTab({ kind: "mongoshell", title: `MongoShell — ${connById(connId)?.name ?? ""}`, connId, database });
 }
 
 /** Reload the tree folders and object lists of a database after its collections changed. */

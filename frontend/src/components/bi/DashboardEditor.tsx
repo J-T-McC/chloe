@@ -5,7 +5,7 @@
 import { Copy, Download, FileText, Plus, Presentation, RefreshCw, Save, Shapes, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { B, BI, arr, errorText } from "../../api";
-import { Tab, useApp } from "../../store";
+import { useApp, type TabOf } from "../../store";
 import { openMenu } from "../ContextMenu";
 import { alert, confirm, prompt } from "../Dialogs";
 import { createdByLabel } from "../../createdBy";
@@ -29,8 +29,8 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toStr
 const comparable = (d: B.Dashboard | null) => (d ? JSON.stringify({ ...d, modified: undefined }) : "");
 const bottom = (p: B.Page) => arr(p.items).reduce((b, it) => Math.max(b, it.y + it.h), 0);
 
-export function DashboardEditor({ tab }: { tab: Tab }) {
-  const path = tab.biPath!;
+export function DashboardEditor({ tab }: { tab: TabOf<"bidash"> }) {
+  const path = tab.biPath;
   const { w } = useWorkspace(path);
   const [saved, setSaved] = useState<B.Dashboard | null>(null);
   const [draft, setDraft] = useState<B.Dashboard | null>(null);

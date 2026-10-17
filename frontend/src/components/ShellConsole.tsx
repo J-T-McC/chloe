@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { errorText } from "../api";
 import { ShellHistory } from "../shellHistory";
-import { Tab, connById, useApp } from "../store";
+import { connById, useApp, type TabOf } from "../store";
 
 export interface ShellLine {
   kind: "cmd" | "out" | "err" | "info";
@@ -13,7 +13,7 @@ export interface ShellLine {
 }
 
 export function useShell(
-  tab: Tab,
+  tab: TabOf<"redisconsole" | "mongoshell">,
   o: {
     /** opens the session; the tab's connection and database */
     open(connId: string, database: string | undefined): Promise<string>;
@@ -25,7 +25,7 @@ export function useShell(
     help: string;
   },
 ) {
-  const connId = tab.connId!;
+  const connId = tab.connId;
   const [session, setSession] = useState<string | null>(null);
   const [lines, setLines] = useState<ShellLine[]>([{ kind: "info", text: `Connected to ${connById(connId)?.name ?? ""}. ${o.help}` }]);
   const [input, setInput] = useState("");
