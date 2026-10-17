@@ -22,25 +22,17 @@ export function linkLabel(link?: DM.Link | null) {
 /** "mcp:Claude Code" → "AI (Claude Code)". */
 import { createdByLabel } from "../../createdBy";
 import { Toolbar } from "../Toolbar";
+import { useAsync } from "../useAsync";
 
 export { createdByLabel };
 
 export function ModelsList() {
   const version = useModelLibrary((s) => s.version);
-  const [models, setModels] = useState<DM.Entry[]>([]);
+  const { data: models, error, loading } = useAsync(async () => arr(await Models.List()), [version], [] as DM.Entry[], { keep: true });
   const [picked, setPicked] = useState("");
   const [filter, setFilter] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => listenModelLibrary(), []);
-  useEffect(() => {
-    setLoading(true);
-    Models.List()
-      .then((ms) => (setModels(arr(ms)), setError("")))
-      .catch((e) => setError(errorText(e)))
-      .finally(() => setLoading(false));
-  }, [version]);
 
   const shown = useMemo(() => {
     const f = filter.toLowerCase();

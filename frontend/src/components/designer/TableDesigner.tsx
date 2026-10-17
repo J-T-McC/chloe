@@ -10,6 +10,7 @@ import { confirm } from "../Dialogs";
 import { CodeBlock } from "../ObjectsPane";
 import { ChecksTab, FieldToolbar, FieldsTab, ForeignKeysTab, connectionRefs, IndexesTab, OptionsTab, TriggersTab, UniquesTab } from "./DesignerTabs";
 import { Toolbar } from "../Toolbar";
+import { useAsync } from "../useAsync";
 import { useSavableTab } from "../useSavableTab";
 
 type Section = "fields" | "indexes" | "foreignKeys" | "uniques" | "checks" | "triggers" | "options" | "comment" | "sql";
@@ -25,13 +26,14 @@ export function TableDesigner({ tab }: { tab: Tab }) {
   const [section, setSection] = useState<Section>("fields");
   const [selected, setSelected] = useState(0);
   const [error, setError] = useState<{ text: string; sql?: string } | null>(null);
-  const [preview, setPreview] = useState<{ statements: string[]; warnings: string[] } | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    let live = true;
     (async () => {
       try {
         const m = await Design.Meta(connId, tab.database!);
+        if (!live) return;
         setMeta(m);
         if (isNew) {
           setOriginal(null);
@@ -39,26 +41,33 @@ export function TableDesigner({ tab }: { tab: Tab }) {
           setDraft(blank.current);
         } else {
           const t = normalize(await Design.Load(connId, tab.ref!));
+          if (!live) return;
           setOriginal(t);
           setDraft(t);
         }
       } catch (e) {
-        setError({ text: errorText(e) });
+        if (live) setError({ text: errorText(e) });
       }
     })();
+    return () => {
+      live = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connId]);
 
   // Live SQL preview of pending changes.
-  useEffect(() => {
-    if (!draft) return;
-    const t = setTimeout(() => {
-      Design.Preview(connId, original, toWire(draft))
-        .then((p) => setPreview({ statements: arr(p.statements), warnings: arr(p.warnings) }))
-        .catch((e) => setPreview({ statements: [], warnings: [errorText(e)] }));
-    }, 150);
-    return () => clearTimeout(t);
-  }, [draft, original, connId]);
+  // An answer for an older draft is dropped.
+  const { data: preview } = useAsync(
+    draft &&
+      (() =>
+        Design.Preview(connId, original, toWire(draft)).then(
+          (p) => ({ statements: arr(p.statements), warnings: arr(p.warnings) }),
+          (e) => ({ statements: [] as string[], warnings: [errorText(e)] }),
+        )),
+    [draft, original, connId],
+    null as { statements: string[]; warnings: string[] } | null,
+    { delay: 150, keep: true },
+  );
 
   const dirty = useMemo(() => (preview?.statements.length ?? 0) > 0 || (isNew && !!draft), [preview, isNew, draft]);
   // A new table only needs saving once it's been touched.

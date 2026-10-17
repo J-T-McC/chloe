@@ -1,6 +1,6 @@
 import { Copy, Download, FilePlus2, Network, PencilRuler, Plus, RefreshCw, Table2, Trash2, Upload } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { DBType, Explorer, ObjectInfo, ObjectKind, ObjectRef, TableAction, arr, errorText, copyText } from "../api";
+import { DBType, Explorer, ObjectInfo, ObjectKind, ObjectRef, TableAction, arr, copyText } from "../api";
 import { RedisBrowser } from "./redis/RedisBrowser";
 import { RedisDatabases } from "./redis/RedisDatabases";
 import { MongoCollections } from "./mongo/MongoCollections";
@@ -19,6 +19,7 @@ import { KIND_LABEL, KindIcon } from "./icons";
 import { newQuery, openObject, savedQueryMenu, selectAllSQL } from "./Sidebar";
 import { deleteSavedQueries } from "../queries";
 import { Toolbar } from "./Toolbar";
+import { useAsync } from "./useAsync";
 
 export function ObjectsPane() {
   const sel = useApp((s) => s.selection);
@@ -43,9 +44,6 @@ export function ObjectsPane() {
 function SqlObjectsPane() {
   const sel = useApp((s) => s.selection);
   const open = useApp((s) => s.open);
-  const [objects, setObjects] = useState<ObjectInfo[]>([]);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
   // The picked object remembers which listing it came from, so a stale pick is never
   // shown (or queried) against a different connection or database.
   const [pick, setPick] = useState<{ key: string; names: string[]; anchor: string } | null>(null);
@@ -61,23 +59,19 @@ function SqlObjectsPane() {
   const listKey = [sel?.connId, sel?.database, sel?.schema, kind].join("/");
   // Multi-selection by name (⌘-click toggles, ⇧-click extends); "picked" is the last one.
   const pickedNames = pick?.key === listKey ? pick.names : [];
-  const pickedList = objects.filter((o) => pickedNames.includes(o.name));
-  const picked = pickedList.find((o) => o.name === pickedNames[pickedNames.length - 1]) ?? null;
   const setPicked = (o: ObjectInfo | null) => setPick(o ? { key: listKey, names: [o.name], anchor: o.name } : null);
 
-  useEffect(() => {
-    setPicked(null);
-    if (!sel || !sel.database || !kind || !connected || !dbOpen || needsSchema) {
-      setObjects([]);
-      return;
-    }
-    setLoading(true);
-    setError("");
-    Explorer.ListObjects(sel.connId, sel.database, sel.schema ?? "", kind)
-      .then((o) => setObjects(arr(o)))
-      .catch((e) => setError(errorText(e)))
-      .finally(() => setLoading(false));
-  }, [sel?.connId, sel?.database, sel?.schema, kind, connected, dbOpen, needsSchema, reload, objectsVersion]);
+  const listable = !!(sel?.database && kind && connected && dbOpen && !needsSchema);
+  // A refresh keeps the rows on screen; another listing starts empty.
+  const { data: objects, error, loading } = useAsync(
+    listable ? async () => arr(await Explorer.ListObjects(sel!.connId, sel!.database!, sel!.schema ?? "", kind!)) : null,
+    [listKey, listable, reload, objectsVersion],
+    [] as ObjectInfo[],
+    { keep: listKey },
+  );
+  const pickedList = objects.filter((o) => pickedNames.includes(o.name));
+  const picked = pickedList.find((o) => o.name === pickedNames[pickedNames.length - 1]) ?? null;
+  useEffect(() => setPicked(null), [listKey, listable, reload, objectsVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Selecting an object in the tree selects it here too.
   useEffect(() => {
@@ -324,16 +318,7 @@ function SqlObjectsPane() {
 }
 
 function InfoPanel({ connId, object, database, schema }: { connId: string; object: ObjectInfo | null; database: string; schema?: string }) {
-  const [ddl, setDdl] = useState("");
-  const [err, setErr] = useState("");
-  useEffect(() => {
-    setDdl("");
-    setErr("");
-    if (!object) return;
-    Explorer.DDL(connId, { ...object, database, schema: object.schema || schema })
-      .then(setDdl)
-      .catch((e) => setErr(errorText(e)));
-  }, [connId, object, database, schema]);
+  const { data: ddl, error: err } = useAsync(object && (() => Explorer.DDL(connId, { ...object, database, schema: object.schema || schema })), [connId, object, database, schema], "");
 
   if (!object) return <div className="info-panel empty">Select an object to see its details.</div>;
   return (
@@ -412,11 +397,7 @@ export function CodeBlock({ code, language = "sql" }: { code: string; language?:
 }
 
 export function DDLView({ connId, objRef: r }: { connId: string; objRef: ObjectRef }) {
-  const [ddl, setDdl] = useState("");
-  const [err, setErr] = useState("");
-  useEffect(() => {
-    Explorer.DDL(connId, r).then(setDdl).catch((e) => setErr(errorText(e)));
-  }, [connId, r]);
+  const { data: ddl, error: err } = useAsync(() => Explorer.DDL(connId, r), [connId, r], "");
   return (
     <div className="ddl-view">
       <Toolbar>

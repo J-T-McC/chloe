@@ -10,23 +10,15 @@ import { createdByLabel } from "../model/ModelsList";
 import { Split } from "../Split";
 import { biChanged, listenBI, moveWorkspaceTabs, newWorkspace, openWorkspace, useBIVersion } from "./actions";
 import { Toolbar } from "../Toolbar";
+import { useAsync } from "../useAsync";
 
 export function BIList() {
   const version = useBIVersion((s) => s.lib);
-  const [items, setItems] = useState<B.Entry[]>([]);
+  const { data: items, error, loading } = useAsync(async () => arr(await BI.List()), [version], [] as B.Entry[], { keep: true });
   const [picked, setPicked] = useState("");
   const [filter, setFilter] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => listenBI(), []);
-  useEffect(() => {
-    setLoading(true);
-    BI.List()
-      .then((xs) => (setItems(arr(xs)), setError("")))
-      .catch((e) => setError(errorText(e)))
-      .finally(() => setLoading(false));
-  }, [version]);
 
   const shown = useMemo(() => {
     const f = filter.toLowerCase();

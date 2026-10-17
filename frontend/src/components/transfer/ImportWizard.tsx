@@ -64,18 +64,24 @@ export function ImportWizard() {
   // Re-read the preview whenever the file or reading options change.
   useEffect(() => {
     if (!target || !path) return;
+    let live = true;
     const t = setTimeout(() => {
       Transfer.PreviewImport(target.connId, path, opts)
         .then((p) => {
+          if (!live) return;
           setPreview({ ...p, columns: arr(p.columns), rows: arr(p.rows).map((r) => arr(r)), types: arr(p.types), sheets: arr(p.sheets) });
           setError("");
         })
         .catch((e) => {
+          if (!live) return;
           setPreview(null);
           setError(errorText(e));
         });
     }, 150);
-    return () => clearTimeout(t);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
   }, [target, path, opts]);
 
   // Target table columns for mapping.
