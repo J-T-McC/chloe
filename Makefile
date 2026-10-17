@@ -30,8 +30,8 @@ test:           ## Go unit tests (SQLite included, no Docker)
 test-it:        ## start and seed the Docker databases, run integration tests
 	$(WAILS) task test:it
 
-test-frontend:  ## type check and frontend unit tests
-	cd frontend && npx tsc --noEmit && npx vitest run
+test-frontend:  ## type check, React hooks lint and frontend unit tests
+	cd frontend && npx tsc --noEmit && npx eslint src && npx vitest run
 
 e2e: server     ## Playwright against the browser build: make e2e [SCRIPT=smoke]
 	e2e/run.sh $(or $(SCRIPT),smoke)

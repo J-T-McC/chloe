@@ -460,7 +460,7 @@ function AccessRows({ connId, ep, update, groupLevel }: { connId: string; ep: MC
   const access = ep.access?.[connId] ?? { level: MCPLevel.MCPInherit };
   const inherits = access.level === MCPLevel.MCPInherit;
   const effective = inherits ? (groupLevel ?? MCPLevel.MCPOff) : access.level;
-  const overrides = access.databases ?? {};
+  const overrides = useMemo(() => access.databases ?? {}, [access.databases]);
 
   const setAccess = (a: typeof access) => update({ ...ep, access: { ...ep.access, [connId]: a } });
   const expand = async () => {

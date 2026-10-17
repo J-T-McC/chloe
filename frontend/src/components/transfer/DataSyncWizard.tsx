@@ -61,7 +61,7 @@ export function DataSyncWizard() {
     reset();
     setSource(preset ?? emptyEnd());
     setTarget(emptyEnd());
-  }, [open, preset]);
+  }, [open, preset, reset]);
   useEffect(() => setError(""), [source, target]);
   // Free the comparison on the server when it's replaced or the wizard closes.
   useEffect(() => () => void (cmp && Transfer.DiscardDataSync(cmp.id)), [cmp]);

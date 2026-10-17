@@ -99,6 +99,7 @@ function ModelEditorInner({ tab }: { tab: Tab }) {
 
   // Positions live in a ref (dragging shouldn't re-render); bump this to recheck dirtiness.
   const [moved, setMoved] = useState(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- moved stands for positions.current
   const dirty = useMemo(() => !!state && JSON.stringify(toModel(state, positions.current)) !== saved, [state, saved, moved]);
 
   // An agent edited this model's file over MCP: reload it, unless that would lose changes made here.
@@ -117,7 +118,6 @@ function ModelEditorInner({ tab }: { tab: Tab }) {
         setNotice(errorText(e));
       }
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path]);
 
   useEffect(() => {

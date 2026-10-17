@@ -5,7 +5,6 @@ import { buildOption, niceMax } from "./options";
 const col = (key: string, role: string, type = "number", label = key): B.Column => ({ key, label, role, field: key, type }) as B.Column;
 const data = (columns: B.Column[], rows: unknown[][]): B.Data => ({ columns, rows, complete: true, mode: "live", ranAt: "" }) as B.Data;
 const chart = (type: string, props: Partial<B.Props> = {}): B.Chart => ({ id: "c", name: "C", dataSource: "s", type, props }) as B.Chart;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const opt = (c: B.Chart, d: B.Data) => buildOption(c, d, "light") as any;
 
 describe("phase 3 chart options", () => {

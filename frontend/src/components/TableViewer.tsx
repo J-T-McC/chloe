@@ -40,6 +40,7 @@ export function TableViewer({ tab }: { tab: Tab }) {
 
   useEffect(() => {
     Explorer.TableDetail(connId, ref).then(setDetail).catch((e) => setError(errorText(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the same object under a new ref needn't reload
   }, [connId, ref.database, ref.schema, ref.name]);
 
   const load = useCallback(async () => {

@@ -1,11 +1,8 @@
 // Shared state for transfer wizards and background jobs.
 import { create } from "zustand";
-import { Events, Job, ObjectRef, Transfer, arr } from "../../api";
+import { type Endpoint, Events, Job, ObjectRef, Transfer, arr } from "../../api";
 
-export interface ExportTarget {
-  connId: string;
-  database: string;
-  schema?: string;
+export interface ExportTarget extends Endpoint {
   /** Tables to export; empty with sql set = query result export. */
   tables: ObjectRef[];
   sql?: string;
@@ -13,10 +10,7 @@ export interface ExportTarget {
   name?: string;
 }
 
-export interface ImportTarget {
-  connId: string;
-  database: string;
-  schema?: string;
+export interface ImportTarget extends Endpoint {
   table?: ObjectRef;
 }
 
@@ -25,7 +19,7 @@ interface TransferState {
   jobsOpen: boolean;
   exporting?: ExportTarget;
   importing?: ImportTarget;
-  executing?: { connId: string; database: string; schema?: string };
+  executing?: Endpoint;
   setJobsOpen(v: boolean): void;
 }
 
