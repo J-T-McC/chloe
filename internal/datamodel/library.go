@@ -2,15 +2,12 @@ package datamodel
 
 import (
 	"errors"
-	"fmt"
 	"os"
-	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
-	"time"
 
 	"chloe/internal/design"
+	"chloe/internal/filelib"
 	"chloe/internal/safefile"
 )
 
@@ -40,20 +37,17 @@ type Entry struct {
 	Error     string `json:"error,omitempty"` // the file couldn't be read
 }
 
+func (l Library) lib() filelib.Lib[Model] {
+	return filelib.Lib[Model]{Dir: l.Dir, Ext: Ext, Kind: "model", Read: Read, Write: Write,
+		Name: func(m *Model) string { return m.Name }, SetName: func(m *Model, n string) { m.Name = n }}
+}
+
 // List reads every model in the library, by name.
 func (l Library) List() []Entry {
 	out := []Entry{}
-	files, _ := os.ReadDir(l.Dir)
-	for _, f := range files {
-		if f.IsDir() || filepath.Ext(f.Name()) != Ext {
-			continue
-		}
-		p := filepath.Join(l.Dir, f.Name())
-		e := Entry{Path: p, Name: strings.TrimSuffix(f.Name(), Ext)}
-		if info, err := f.Info(); err == nil {
-			e.Modified = info.ModTime().UTC().Format(time.RFC3339)
-		}
-		if m, err := Read(p); err != nil {
+	for _, f := range l.lib().Files() {
+		e := Entry{Path: f.Path, Name: f.Base, Modified: f.Modified}
+		if m, err := Read(f.Path); err != nil {
 			e.Error = err.Error()
 		} else {
 			e.Name, e.Dialect, e.Tables, e.CreatedBy, e.Link = m.Name, m.Dialect, len(m.Tables), m.CreatedBy, m.Link
@@ -65,96 +59,36 @@ func (l Library) List() []Entry {
 }
 
 // Contains reports whether p is a model file in the library.
-func (l Library) Contains(p string) bool {
-	p = filepath.Clean(p)
-	return filepath.Dir(p) == filepath.Clean(l.Dir) && filepath.Ext(p) == Ext
-}
+func (l Library) Contains(p string) bool { return l.lib().Contains(p) }
 
 // Create saves m under a new file named after it and returns the path.
-func (l Library) Create(m Model) (string, error) {
-	if strings.TrimSpace(m.Name) == "" {
-		return "", errors.New("a model needs a name")
-	}
-	if err := os.MkdirAll(l.Dir, 0o755); err != nil {
-		return "", err
-	}
-	p := l.freePath(m.Name)
-	return p, Write(p, m)
-}
+func (l Library) Create(m Model) (string, error) { return l.lib().Create(m) }
+
+// Update reads a library model, lets fn change it, and writes it back, holding
+// the model's lock throughout.
+func (l Library) Update(p string, fn func(*Model) error) (Model, error) { return l.lib().Update(p, fn) }
 
 // Rename renames a library model, file included, and returns its new path.
-func (l Library) Rename(p, name string) (string, error) {
-	name = strings.TrimSpace(name)
+func (l Library) Rename(p, name string) (string, error) { return l.lib().Rename(p, name) }
+
+// Duplicate copies a library model under a new name and returns the copy's path.
+func (l Library) Duplicate(p string) (string, error) {
 	if !l.Contains(p) {
 		return "", errors.New("not a model in Chloe's library")
-	}
-	if name == "" {
-		return "", errors.New("a model needs a name")
 	}
 	m, err := Read(p)
 	if err != nil {
 		return "", err
 	}
-	m.Name = name
-	np := p
-	if fileName(name) != fileName(strings.TrimSuffix(filepath.Base(p), Ext)) {
-		np = l.freePath(name)
-	}
-	if err := Write(np, m); err != nil {
-		return "", err
-	}
-	if np != p {
-		if err := os.Remove(p); err != nil {
-			return np, err
-		}
-	}
-	return np, nil
-}
-
-// Delete removes a library model.
-func (l Library) Delete(p string) error {
-	if !l.Contains(p) {
-		return errors.New("not a model in Chloe's library")
-	}
-	return os.Remove(p)
-}
-
-// Import copies a model file into the library.
-func (l Library) Import(src string) (string, error) {
-	m, err := Read(src)
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(m.Name) == "" {
-		m.Name = strings.TrimSuffix(filepath.Base(src), filepath.Ext(src))
-	}
+	m.Name, m.CreatedBy = m.Name+" copy", ""
 	return l.Create(m)
 }
 
-func (l Library) freePath(name string) string {
-	base := fileName(name)
-	p := filepath.Join(l.Dir, base+Ext)
-	for i := 2; ; i++ {
-		if _, err := os.Stat(p); errors.Is(err, os.ErrNotExist) {
-			return p
-		}
-		p = filepath.Join(l.Dir, fmt.Sprintf("%s %d%s", base, i, Ext))
-	}
-}
+// Delete removes a library model.
+func (l Library) Delete(p string) error { return l.lib().Delete(p) }
 
-var unsafeName = regexp.MustCompile(`[^\pL\pN\p{Pd} ._()]+`)
-
-// fileName makes a model name safe as a file name.
-func fileName(name string) string {
-	base := strings.Trim(unsafeName.ReplaceAllString(name, "-"), " .-")
-	if base == "" {
-		base = "model"
-	}
-	if len(base) > 80 {
-		base = base[:80]
-	}
-	return base
-}
+// Import copies a model file into the library.
+func (l Library) Import(src string) (string, error) { return l.lib().Import(src, nil) }
 
 // Read loads a model file.
 func Read(p string) (Model, error) {
