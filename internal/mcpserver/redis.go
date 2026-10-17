@@ -512,117 +512,22 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 	add(s, srv, ep, readOnlyTool("redis_overview", "Summarise Redis keys",
 		"Summarises a database's keys: how many there are of each prefix and type (e.g. user:* — 120 hashes), with an example key and how many expire. "+
 			"Start here to see what a database holds; then list keys of one prefix with redis_scan."),
-		func(ctx context.Context, c *call, in RedisOverviewArgs) (RedisOverviewOut, error) {
-			t, err := c.redisDB(ctx, in.Connection, in.DB, store.MCPRead)
-			if err != nil {
-				return RedisOverviewOut{}, err
-			}
-			c.act.SQL = quoteArgs("SCAN", "0", "MATCH", cmp.Or(in.Pattern, "*"))
-			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
-			defer cancel()
-			out, err := overview(ctx, t.cl, cmp.Or(in.Pattern, "*"))
-			c.act.Rows = out.Scanned
-			return out, err
-		})
+		toolRedisDatabases)
 
 	add(s, srv, ep, readOnlyTool("redis_scan", "Scan Redis keys",
 		"Lists keys matching a pattern (SCAN), with their type and expiry, a page at a time: pass back the cursor until it's absent. "+
 			"To see what a database holds, use redis_overview first."),
-		func(ctx context.Context, c *call, in RedisScanArgs) (RedisScanOut, error) {
-			t, err := c.redisDB(ctx, in.Connection, in.DB, store.MCPRead)
-			if err != nil {
-				return RedisScanOut{}, err
-			}
-			if in.Type != "" && !slices.Contains([]string{"string", "hash", "list", "set", "zset", "stream"}, in.Type) {
-				return RedisScanOut{}, fmt.Errorf("unknown type %q", in.Type)
-			}
-			if _, err := strconv.ParseUint(cmp.Or(in.Cursor, "0"), 10, 64); err != nil {
-				return RedisScanOut{}, fmt.Errorf("cursor %q isn't one redis_scan returned; leave it out to start over", in.Cursor)
-			}
-			c.act.SQL = quoteArgs("SCAN", cmp.Or(in.Cursor, "0"), "MATCH", cmp.Or(in.Pattern, "*"))
-			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
-			defer cancel()
-			count := 50
-			if in.Count > 0 {
-				count = clampLimit(in.Count)
-			}
-			res, err := t.kv.ScanKeys(ctx, t.db, in.Cursor, in.Pattern, in.Type, count)
-			if err != nil {
-				return RedisScanOut{}, err
-			}
-			out := RedisScanOut{Keys: []RedisKeyOut{}}
-			if res.Cursor != "0" {
-				out.Cursor = res.Cursor
-			}
-			for _, k := range res.Keys {
-				out.Keys = append(out.Keys, RedisKeyOut{Key: k.Name.Text, Base64: k.Name.Base64, Type: k.Type, TTL: k.TTL})
-			}
-			c.act.Rows = int64(len(out.Keys))
-			return out, nil
-		})
+		toolRedisScan)
 
 	add(s, srv, ep, readOnlyTool("redis_get", "Read Redis key",
 		"Reads a key's value with its type and expiry. Hashes, lists, sets, sorted sets (lowest score first) and streams come a page at a time: pass back the cursor for more. "+
 			"Strings over 64 KB and elements over 4 KB are cut and the result marked truncated. For the highest scores use redis_command ZRANGE key 0 9 REV WITHSCORES."),
-		func(ctx context.Context, c *call, in RedisGetArgs) (RedisValueOut, error) {
-			t, err := c.redisDB(ctx, in.Connection, in.DB, store.MCPRead)
-			if err != nil {
-				return RedisValueOut{}, err
-			}
-			k, err := in.bytes()
-			if err != nil {
-				return RedisValueOut{}, err
-			}
-			c.act.SQL = quoteArgs("GET", k)
-			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
-			defer cancel()
-			if in.Cursor != "" {
-				typ, err := t.cl.Type(ctx, k).Result()
-				if err != nil {
-					return RedisValueOut{}, err
-				}
-				if !validCursor(typ, in.Cursor) {
-					return RedisValueOut{}, fmt.Errorf("cursor %q isn't one redis_get returned for this %s; leave it out to start from the beginning", in.Cursor, typ)
-				}
-			}
-			kv, err := t.kv.GetValue(ctx, t.db, rdb.Enc(k), in.Cursor, clampLimit(in.Count))
-			if errors.Is(err, rdb.ErrNoKey) {
-				return RedisValueOut{}, fmt.Errorf("no key %q in db%d", redisText(k, 200), t.db)
-			}
-			if err != nil {
-				return RedisValueOut{}, err
-			}
-			return valueOut(kv)
-		})
+		toolRedisGet)
 
 	add(s, srv, ep, readOnlyTool("redis_command", "Run read-only Redis command",
 		"Runs one read command (GET, HGETALL, ZRANGEBYSCORE, XRANGE, PFCOUNT, GEOSEARCH, OBJECT ENCODING…) in the database and returns the reply as redis-cli prints it. "+
 			"Commands that write, block, switch databases or run scripts are refused."),
-		func(ctx context.Context, c *call, in RedisCommandArgs) (RedisCommandOut, error) {
-			if err := checkRedisRead(in.Args); err != nil {
-				return RedisCommandOut{}, err
-			}
-			c.act.SQL = quoteArgs(in.Args...)
-			t, err := c.redisDB(ctx, in.Connection, in.DB, store.MCPRead)
-			if err != nil {
-				return RedisCommandOut{}, err
-			}
-			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
-			defer cancel()
-			if err := checkRedisSize(ctx, t.cl, in.Args); err != nil {
-				return RedisCommandOut{}, err
-			}
-			v, err := t.cl.Do(ctx, toAny(in.Args)...).Result()
-			if err != nil && !errors.Is(err, redis.Nil) {
-				return RedisCommandOut{}, err
-			}
-			reply := rdb.Format(v, "")
-			out := RedisCommandOut{Reply: reply}
-			if len(reply) > maxResultBytes {
-				out.Reply, out.Truncated = reply[:maxResultBytes]+"\n…", true
-			}
-			return out, nil
-		})
+		toolRedisCommand)
 
 	if !writes {
 		return
@@ -631,195 +536,306 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 	add(s, srv, ep, writeTool("redis_set", "Set Redis key",
 		"Creates a key, or replaces its whole value, as a string, hash, list, set or sorted set. "+
 			"The user approves it in Chloe unless they've turned on danger mode. To change some elements of a collection, use redis_edit.", true),
-		func(ctx context.Context, c *call, in RedisSetArgs) (RedisChangedOut, error) {
-			t, err := c.redisDB(ctx, in.Connection, in.DB, store.MCPWrite)
-			if err != nil {
-				return RedisChangedOut{}, err
-			}
-			k, err := in.bytes()
-			if err != nil {
-				return RedisChangedOut{}, err
-			}
-			if in.TTL != nil && *in.TTL < 0 {
-				return RedisChangedOut{}, errors.New("ttl can't be negative; 0 means no expiry")
-			}
-			write, n, err := setCommands(k, in.Type, in.Value)
-			if err != nil {
-				return RedisChangedOut{}, err
-			}
-			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
-			defer cancel()
-			old, err := t.cl.Type(ctx, k).Result()
-			if err != nil {
-				return RedisChangedOut{}, err
-			}
-			exists := old != "none"
-			if exists && in.OnlyIfNew {
-				return RedisChangedOut{}, fmt.Errorf("key %q already exists (a %s)", redisText(k, 200), old)
-			}
-			// A replaced key keeps its expiry unless ttl is given: a string replaced
-			// by a string with KEEPTTL, anything else by the same deadline.
-			sameString := old == "string" && in.Type == "string"
-			var expireAt int64
-			if exists && in.TTL == nil {
-				if d, err := t.cl.PTTL(ctx, k).Result(); err == nil && d > 0 {
-					if sameString {
-						write[0] = append(write[0], "KEEPTTL")
-					} else {
-						expireAt = time.Now().Add(d).UnixMilli()
-					}
-				}
-			}
-			var cmds [][]string
-			summary := fmt.Sprintf("Create %s %s in %s", in.Type, showKey(k), t.dbName())
-			if exists {
-				if !sameString {
-					cmds = append(cmds, []string{"DEL", k})
-				}
-				length := redisLength(ctx, t.cl, k, old)
-				summary = fmt.Sprintf("Replace %s %s (%s) with a %s in %s", old, showKey(k), plural(length, "element"), in.Type, t.dbName())
-				if old == "string" {
-					summary = fmt.Sprintf("Replace string %s with a %s in %s", showKey(k), in.Type, t.dbName())
-				}
-			}
-			cmds = append(cmds, write...)
-			switch {
-			case in.TTL != nil && *in.TTL > 0:
-				cmds = append(cmds, []string{"EXPIRE", k, strconv.FormatInt(*in.TTL, 10)})
-			case expireAt > 0:
-				cmds = append(cmds, []string{"PEXPIREAT", k, strconv.FormatInt(expireAt, 10)})
-			}
-			c.act.SQL = shownCommands(cmds)
-			if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.dbName(), Table: k, Summary: summary, SQL: c.act.SQL, Rows: n}); err != nil {
-				return RedisChangedOut{}, err
-			}
-			if _, _, err := runTx(ctx, t.cl, k, old, cmds); err != nil {
-				return RedisChangedOut{}, err
-			}
-			c.act.Rows = n
-			return RedisChangedOut{Changed: n}, nil
-		})
+		toolRedisSet)
 
 	add(s, srv, ep, writeTool("redis_edit", "Edit Redis collection",
 		"Changes part of a value: increment a counter, set, delete or increment hash fields, push or remove list values, add, remove or rescore members, append a stream entry. "+
 			"A missing key is created. The user approves it in Chloe unless they've turned on danger mode.", true),
-		func(ctx context.Context, c *call, in RedisEditArgs) (RedisChangedOut, error) {
-			t, err := c.redisDB(ctx, in.Connection, in.DB, store.MCPWrite)
-			if err != nil {
-				return RedisChangedOut{}, err
-			}
-			k, err := in.bytes()
-			if err != nil {
-				return RedisChangedOut{}, err
-			}
-			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
-			defer cancel()
-			old, err := t.cl.Type(ctx, k).Result()
-			if err != nil {
-				return RedisChangedOut{}, err
-			}
-			typ, cmds, n, err := editCommands(k, old, in)
-			if err != nil {
-				return RedisChangedOut{}, err
-			}
-			verb := "Change"
-			if old == "none" {
-				verb = "Create"
-			}
-			c.act.SQL = shownCommands(cmds)
-			if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.dbName(), Table: k,
-				Summary: fmt.Sprintf("%s %s %s in %s (%s)", verb, typ, showKey(k), t.dbName(), plural(n, "element")), SQL: c.act.SQL, Rows: n}); err != nil {
-				return RedisChangedOut{}, err
-			}
-			changed, values, err := runTx(ctx, t.cl, k, old, cmds)
-			if err != nil {
-				return RedisChangedOut{}, err
-			}
-			c.act.Rows = changed
-			return RedisChangedOut{Changed: changed, NewValues: values}, nil
-		})
+		toolRedisEdit)
 
 	add(s, srv, ep, writeTool("redis_delete", "Delete Redis keys",
 		"Deletes keys (UNLINK). The user approves it in Chloe unless they've turned on danger mode. To delete by pattern, find the keys with redis_scan first.", true),
-		func(ctx context.Context, c *call, in RedisDeleteArgs) (RedisChangedOut, error) {
-			t, err := c.redisDB(ctx, in.Connection, in.DB, store.MCPWrite)
-			if err != nil {
-				return RedisChangedOut{}, err
-			}
-			switch {
-			case len(in.Keys) == 0:
-				return RedisChangedOut{}, errors.New("keys is empty")
-			case len(in.Keys) > maxRedisKeys:
-				return RedisChangedOut{}, fmt.Errorf("delete at most %d keys per call", maxRedisKeys)
-			}
-			var keys []string
-			for _, k := range in.Keys {
-				b, err := keyBytes(k, in.KeysBase64)
-				if err != nil {
-					return RedisChangedOut{}, err
-				}
-				if !slices.Contains(keys, b) {
-					keys = append(keys, b)
-				}
-			}
-			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
-			defer cancel()
-			n, err := t.cl.Exists(ctx, keys...).Result()
-			if err != nil {
-				return RedisChangedOut{}, err
-			}
-			if n == 0 {
-				return RedisChangedOut{}, errors.New("none of the keys exist (keys are exact names; find keys by pattern with redis_scan)")
-			}
-			c.act.SQL = shownCommands([][]string{append([]string{"UNLINK"}, keys...)})
-			if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.dbName(),
-				Summary: fmt.Sprintf("Delete %s from %s", plural(n, "key"), t.dbName()), SQL: c.act.SQL, Rows: n}); err != nil {
-				return RedisChangedOut{}, err
-			}
-			deleted, err := t.cl.Unlink(ctx, keys...).Result()
-			c.act.Rows = deleted
-			return RedisChangedOut{Changed: deleted}, err
-		})
+		toolRedisDelete)
 
 	add(s, srv, ep, writeTool("redis_expire", "Set Redis expiry",
 		"Sets how many seconds until a key expires, or with ttl 0 removes its expiry. The user approves it in Chloe unless they've turned on danger mode.", true),
-		func(ctx context.Context, c *call, in RedisExpireArgs) (RedisChangedOut, error) {
-			t, err := c.redisDB(ctx, in.Connection, in.DB, store.MCPWrite)
-			if err != nil {
-				return RedisChangedOut{}, err
+		toolRedisExpire)
+}
+
+func toolRedisDatabases(ctx context.Context, c *call, in RedisOverviewArgs) (RedisOverviewOut, error) {
+	t, err := c.redisDB(ctx, in.Connection, in.DB, store.MCPRead)
+	if err != nil {
+		return RedisOverviewOut{}, err
+	}
+	c.act.SQL = quoteArgs("SCAN", "0", "MATCH", cmp.Or(in.Pattern, "*"))
+	ctx, cancel := context.WithTimeout(ctx, statementTimeout)
+	defer cancel()
+	out, err := overview(ctx, t.cl, cmp.Or(in.Pattern, "*"))
+	c.act.Rows = out.Scanned
+	return out, err
+}
+
+func toolRedisScan(ctx context.Context, c *call, in RedisScanArgs) (RedisScanOut, error) {
+	t, err := c.redisDB(ctx, in.Connection, in.DB, store.MCPRead)
+	if err != nil {
+		return RedisScanOut{}, err
+	}
+	if in.Type != "" && !slices.Contains([]string{"string", "hash", "list", "set", "zset", "stream"}, in.Type) {
+		return RedisScanOut{}, fmt.Errorf("unknown type %q", in.Type)
+	}
+	if _, err := strconv.ParseUint(cmp.Or(in.Cursor, "0"), 10, 64); err != nil {
+		return RedisScanOut{}, fmt.Errorf("cursor %q isn't one redis_scan returned; leave it out to start over", in.Cursor)
+	}
+	c.act.SQL = quoteArgs("SCAN", cmp.Or(in.Cursor, "0"), "MATCH", cmp.Or(in.Pattern, "*"))
+	ctx, cancel := context.WithTimeout(ctx, statementTimeout)
+	defer cancel()
+	count := 50
+	if in.Count > 0 {
+		count = clampLimit(in.Count)
+	}
+	res, err := t.kv.ScanKeys(ctx, t.db, in.Cursor, in.Pattern, in.Type, count)
+	if err != nil {
+		return RedisScanOut{}, err
+	}
+	out := RedisScanOut{Keys: []RedisKeyOut{}}
+	if res.Cursor != "0" {
+		out.Cursor = res.Cursor
+	}
+	for _, k := range res.Keys {
+		out.Keys = append(out.Keys, RedisKeyOut{Key: k.Name.Text, Base64: k.Name.Base64, Type: k.Type, TTL: k.TTL})
+	}
+	c.act.Rows = int64(len(out.Keys))
+	return out, nil
+}
+
+func toolRedisGet(ctx context.Context, c *call, in RedisGetArgs) (RedisValueOut, error) {
+	t, err := c.redisDB(ctx, in.Connection, in.DB, store.MCPRead)
+	if err != nil {
+		return RedisValueOut{}, err
+	}
+	k, err := in.bytes()
+	if err != nil {
+		return RedisValueOut{}, err
+	}
+	c.act.SQL = quoteArgs("GET", k)
+	ctx, cancel := context.WithTimeout(ctx, statementTimeout)
+	defer cancel()
+	if in.Cursor != "" {
+		typ, err := t.cl.Type(ctx, k).Result()
+		if err != nil {
+			return RedisValueOut{}, err
+		}
+		if !validCursor(typ, in.Cursor) {
+			return RedisValueOut{}, fmt.Errorf("cursor %q isn't one redis_get returned for this %s; leave it out to start from the beginning", in.Cursor, typ)
+		}
+	}
+	kv, err := t.kv.GetValue(ctx, t.db, rdb.Enc(k), in.Cursor, clampLimit(in.Count))
+	if errors.Is(err, rdb.ErrNoKey) {
+		return RedisValueOut{}, fmt.Errorf("no key %q in db%d", redisText(k, 200), t.db)
+	}
+	if err != nil {
+		return RedisValueOut{}, err
+	}
+	return valueOut(kv)
+}
+
+func toolRedisCommand(ctx context.Context, c *call, in RedisCommandArgs) (RedisCommandOut, error) {
+	if err := checkRedisRead(in.Args); err != nil {
+		return RedisCommandOut{}, err
+	}
+	c.act.SQL = quoteArgs(in.Args...)
+	t, err := c.redisDB(ctx, in.Connection, in.DB, store.MCPRead)
+	if err != nil {
+		return RedisCommandOut{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, statementTimeout)
+	defer cancel()
+	if err := checkRedisSize(ctx, t.cl, in.Args); err != nil {
+		return RedisCommandOut{}, err
+	}
+	v, err := t.cl.Do(ctx, toAny(in.Args)...).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return RedisCommandOut{}, err
+	}
+	reply := rdb.Format(v, "")
+	out := RedisCommandOut{Reply: reply}
+	if len(reply) > maxResultBytes {
+		out.Reply, out.Truncated = reply[:maxResultBytes]+"\n…", true
+	}
+	return out, nil
+}
+
+func toolRedisSet(ctx context.Context, c *call, in RedisSetArgs) (RedisChangedOut, error) {
+	t, err := c.redisDB(ctx, in.Connection, in.DB, store.MCPWrite)
+	if err != nil {
+		return RedisChangedOut{}, err
+	}
+	k, err := in.bytes()
+	if err != nil {
+		return RedisChangedOut{}, err
+	}
+	if in.TTL != nil && *in.TTL < 0 {
+		return RedisChangedOut{}, errors.New("ttl can't be negative; 0 means no expiry")
+	}
+	write, n, err := setCommands(k, in.Type, in.Value)
+	if err != nil {
+		return RedisChangedOut{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, statementTimeout)
+	defer cancel()
+	old, err := t.cl.Type(ctx, k).Result()
+	if err != nil {
+		return RedisChangedOut{}, err
+	}
+	exists := old != "none"
+	if exists && in.OnlyIfNew {
+		return RedisChangedOut{}, fmt.Errorf("key %q already exists (a %s)", redisText(k, 200), old)
+	}
+	// A replaced key keeps its expiry unless ttl is given: a string replaced
+	// by a string with KEEPTTL, anything else by the same deadline.
+	sameString := old == "string" && in.Type == "string"
+	var expireAt int64
+	if exists && in.TTL == nil {
+		if d, err := t.cl.PTTL(ctx, k).Result(); err == nil && d > 0 {
+			if sameString {
+				write[0] = append(write[0], "KEEPTTL")
+			} else {
+				expireAt = time.Now().Add(d).UnixMilli()
 			}
-			k, err := in.bytes()
-			if err != nil {
-				return RedisChangedOut{}, err
-			}
-			if in.TTL < 0 {
-				return RedisChangedOut{}, errors.New("ttl can't be negative; use redis_delete to remove a key")
-			}
-			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
-			defer cancel()
-			old, err := t.cl.Type(ctx, k).Result()
-			if err != nil {
-				return RedisChangedOut{}, err
-			}
-			if old == "none" {
-				return RedisChangedOut{}, fmt.Errorf("no key %q in db%d", redisText(k, 200), t.db)
-			}
-			cmd := []string{"PERSIST", k}
-			summary := fmt.Sprintf("Remove the expiry of %s in %s", showKey(k), t.dbName())
-			if in.TTL > 0 {
-				cmd = []string{"EXPIRE", k, strconv.FormatInt(in.TTL, 10)}
-				summary = fmt.Sprintf("Expire %s in %s in %s", showKey(k), t.dbName(), humanDuration(in.TTL))
-			}
-			c.act.SQL = quoteArgs(cmd...)
-			if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.dbName(), Table: k, Summary: summary, SQL: c.act.SQL, Rows: 1}); err != nil {
-				return RedisChangedOut{}, err
-			}
-			if _, _, err := runTx(ctx, t.cl, k, old, [][]string{cmd}); err != nil {
-				return RedisChangedOut{}, err
-			}
-			c.act.Rows = 1
-			return RedisChangedOut{Changed: 1}, nil
-		})
+		}
+	}
+	var cmds [][]string
+	summary := fmt.Sprintf("Create %s %s in %s", in.Type, showKey(k), t.dbName())
+	if exists {
+		if !sameString {
+			cmds = append(cmds, []string{"DEL", k})
+		}
+		length := redisLength(ctx, t.cl, k, old)
+		summary = fmt.Sprintf("Replace %s %s (%s) with a %s in %s", old, showKey(k), plural(length, "element"), in.Type, t.dbName())
+		if old == "string" {
+			summary = fmt.Sprintf("Replace string %s with a %s in %s", showKey(k), in.Type, t.dbName())
+		}
+	}
+	cmds = append(cmds, write...)
+	switch {
+	case in.TTL != nil && *in.TTL > 0:
+		cmds = append(cmds, []string{"EXPIRE", k, strconv.FormatInt(*in.TTL, 10)})
+	case expireAt > 0:
+		cmds = append(cmds, []string{"PEXPIREAT", k, strconv.FormatInt(expireAt, 10)})
+	}
+	c.act.SQL = shownCommands(cmds)
+	if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.dbName(), Table: k, Summary: summary, SQL: c.act.SQL, Rows: n}); err != nil {
+		return RedisChangedOut{}, err
+	}
+	if _, _, err := runTx(ctx, t.cl, k, old, cmds); err != nil {
+		return RedisChangedOut{}, err
+	}
+	c.act.Rows = n
+	return RedisChangedOut{Changed: n}, nil
+}
+
+func toolRedisEdit(ctx context.Context, c *call, in RedisEditArgs) (RedisChangedOut, error) {
+	t, err := c.redisDB(ctx, in.Connection, in.DB, store.MCPWrite)
+	if err != nil {
+		return RedisChangedOut{}, err
+	}
+	k, err := in.bytes()
+	if err != nil {
+		return RedisChangedOut{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, statementTimeout)
+	defer cancel()
+	old, err := t.cl.Type(ctx, k).Result()
+	if err != nil {
+		return RedisChangedOut{}, err
+	}
+	typ, cmds, n, err := editCommands(k, old, in)
+	if err != nil {
+		return RedisChangedOut{}, err
+	}
+	verb := "Change"
+	if old == "none" {
+		verb = "Create"
+	}
+	c.act.SQL = shownCommands(cmds)
+	if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.dbName(), Table: k,
+		Summary: fmt.Sprintf("%s %s %s in %s (%s)", verb, typ, showKey(k), t.dbName(), plural(n, "element")), SQL: c.act.SQL, Rows: n}); err != nil {
+		return RedisChangedOut{}, err
+	}
+	changed, values, err := runTx(ctx, t.cl, k, old, cmds)
+	if err != nil {
+		return RedisChangedOut{}, err
+	}
+	c.act.Rows = changed
+	return RedisChangedOut{Changed: changed, NewValues: values}, nil
+}
+
+func toolRedisDelete(ctx context.Context, c *call, in RedisDeleteArgs) (RedisChangedOut, error) {
+	t, err := c.redisDB(ctx, in.Connection, in.DB, store.MCPWrite)
+	if err != nil {
+		return RedisChangedOut{}, err
+	}
+	switch {
+	case len(in.Keys) == 0:
+		return RedisChangedOut{}, errors.New("keys is empty")
+	case len(in.Keys) > maxRedisKeys:
+		return RedisChangedOut{}, fmt.Errorf("delete at most %d keys per call", maxRedisKeys)
+	}
+	var keys []string
+	for _, k := range in.Keys {
+		b, err := keyBytes(k, in.KeysBase64)
+		if err != nil {
+			return RedisChangedOut{}, err
+		}
+		if !slices.Contains(keys, b) {
+			keys = append(keys, b)
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, statementTimeout)
+	defer cancel()
+	n, err := t.cl.Exists(ctx, keys...).Result()
+	if err != nil {
+		return RedisChangedOut{}, err
+	}
+	if n == 0 {
+		return RedisChangedOut{}, errors.New("none of the keys exist (keys are exact names; find keys by pattern with redis_scan)")
+	}
+	c.act.SQL = shownCommands([][]string{append([]string{"UNLINK"}, keys...)})
+	if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.dbName(),
+		Summary: fmt.Sprintf("Delete %s from %s", plural(n, "key"), t.dbName()), SQL: c.act.SQL, Rows: n}); err != nil {
+		return RedisChangedOut{}, err
+	}
+	deleted, err := t.cl.Unlink(ctx, keys...).Result()
+	c.act.Rows = deleted
+	return RedisChangedOut{Changed: deleted}, err
+}
+
+func toolRedisExpire(ctx context.Context, c *call, in RedisExpireArgs) (RedisChangedOut, error) {
+	t, err := c.redisDB(ctx, in.Connection, in.DB, store.MCPWrite)
+	if err != nil {
+		return RedisChangedOut{}, err
+	}
+	k, err := in.bytes()
+	if err != nil {
+		return RedisChangedOut{}, err
+	}
+	if in.TTL < 0 {
+		return RedisChangedOut{}, errors.New("ttl can't be negative; use redis_delete to remove a key")
+	}
+	ctx, cancel := context.WithTimeout(ctx, statementTimeout)
+	defer cancel()
+	old, err := t.cl.Type(ctx, k).Result()
+	if err != nil {
+		return RedisChangedOut{}, err
+	}
+	if old == "none" {
+		return RedisChangedOut{}, fmt.Errorf("no key %q in db%d", redisText(k, 200), t.db)
+	}
+	cmd := []string{"PERSIST", k}
+	summary := fmt.Sprintf("Remove the expiry of %s in %s", showKey(k), t.dbName())
+	if in.TTL > 0 {
+		cmd = []string{"EXPIRE", k, strconv.FormatInt(in.TTL, 10)}
+		summary = fmt.Sprintf("Expire %s in %s in %s", showKey(k), t.dbName(), humanDuration(in.TTL))
+	}
+	c.act.SQL = quoteArgs(cmd...)
+	if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.dbName(), Table: k, Summary: summary, SQL: c.act.SQL, Rows: 1}); err != nil {
+		return RedisChangedOut{}, err
+	}
+	if _, _, err := runTx(ctx, t.cl, k, old, [][]string{cmd}); err != nil {
+		return RedisChangedOut{}, err
+	}
+	c.act.Rows = 1
+	return RedisChangedOut{Changed: 1}, nil
 }
 
 var streamID = regexp.MustCompile(`^\d+-\d+$`)

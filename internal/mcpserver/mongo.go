@@ -641,142 +641,21 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 
 	add(s, srv, ep, readOnlyTool("mongo_collections", "List MongoDB collections",
 		"Lists the collections and views of a database with their document counts and sizes."),
-		func(ctx context.Context, c *call, in MongoDBArgs) (MongoCollectionsOut, error) {
-			t, err := c.mongoDB(ctx, in.Connection, in.Database, store.MCPRead)
-			if err != nil {
-				return MongoCollectionsOut{}, err
-			}
-			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
-			defer cancel()
-			cs, err := t.cl.Collections(ctx, t.database, true)
-			if err != nil {
-				return MongoCollectionsOut{}, err
-			}
-			out := MongoCollectionsOut{Collections: []MongoCollectionOut{}}
-			for _, ci := range cs {
-				o := MongoCollectionOut{Name: ci.Name, Type: ci.Type, Size: ci.Size, ViewOn: ci.ViewOn}
-				if ci.Type == "collection" {
-					o.Count = &ci.Count
-				}
-				out.Collections = append(out.Collections, o)
-			}
-			return out, nil
-		})
+		toolMongoDatabases)
 
 	addOrdered(s, srv, ep, readOnlyTool("mongo_describe", "Describe MongoDB collection",
 		"Shows a collection's fields (from a sample of documents) with their types, its indexes and validator, or a view's pipeline."),
-		func(ctx context.Context, c *call, in MongoCollArgs) (MongoDescribeOut, error) {
-			t, err := c.mongoColl(ctx, in, store.MCPRead)
-			if err != nil {
-				return MongoDescribeOut{}, err
-			}
-			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
-			defer cancel()
-			return describeCollection(ctx, t, in.Collection)
-		})
+		toolMongoDescribe)
 
 	addOrdered(s, srv, ep, readOnlyTool("mongo_find", "Find MongoDB documents",
 		"Reads documents of a collection or view matching a filter, with optional projection, sort and paging. "+
 			"Documents come back as relaxed Extended JSON."),
-		func(ctx context.Context, c *call, in MongoFindArgs) (DocsOut, error) {
-			t, err := c.mongoColl(ctx, in.MongoCollArgs, store.MCPRead)
-			if err != nil {
-				return DocsOut{}, err
-			}
-			filter, err := guarded("filter", in.Filter)
-			if err != nil {
-				return DocsOut{}, err
-			}
-			proj, err := guarded("projection", in.Projection)
-			if err != nil {
-				return DocsOut{}, err
-			}
-			if in.Limit < 0 || in.Skip < 0 {
-				return DocsOut{}, errors.New("limit and skip can't be negative (limit 0 means the default of 100)")
-			}
-			if err := t.exists(ctx, in.Collection); err != nil {
-				return DocsOut{}, err
-			}
-			sort := bson.D{}
-			for _, s := range in.Sort {
-				dir := 1
-				if s.Desc {
-					dir = -1
-				}
-				sort = append(sort, bson.E{Key: s.Field, Value: dir})
-			}
-			limit := clampLimit(in.Limit)
-			c.act.SQL = fmt.Sprintf("db.%s.find(%s, %s).sort(%s).skip(%d).limit(%d)", in.Collection, extJSON(filter), extJSON(proj), extJSON(sort), in.Skip, limit)
-			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
-			defer cancel()
-			o := options.Find().SetSkip(in.Skip).SetLimit(int64(limit) + 1)
-			if len(proj) > 0 {
-				o.SetProjection(proj)
-			}
-			if len(sort) > 0 {
-				o.SetSort(sort)
-			}
-			cur, err := t.coll(in.Collection).Find(ctx, filter, o)
-			if err != nil {
-				return DocsOut{}, err
-			}
-			out, err := readDocs(ctx, cur, limit)
-			if err != nil {
-				return out, err
-			}
-			if in.Count {
-				n, err := t.coll(in.Collection).CountDocuments(ctx, filter)
-				if err != nil {
-					return out, err
-				}
-				out.Total = &n
-			}
-			c.act.Rows = int64(out.Count)
-			return out, nil
-		})
+		toolMongoFind)
 
 	addOrdered(s, srv, ep, readOnlyTool("mongo_aggregate", "Run MongoDB aggregation",
 		"Runs a read-only aggregation pipeline on a collection or view and returns its documents. "+
 			"$out and $merge, server-wide stages ($currentOp, $listCatalog…) and lookups into other databases are refused."),
-		func(ctx context.Context, c *call, in MongoAggregateArgs) (DocsOut, error) {
-			t, err := c.mongoColl(ctx, in.MongoCollArgs, store.MCPRead)
-			if err != nil {
-				return DocsOut{}, err
-			}
-			if in.Limit < 0 {
-				return DocsOut{}, errors.New("limit can't be negative (0 means the default of 100)")
-			}
-			if err := t.exists(ctx, in.Collection); err != nil {
-				return DocsOut{}, err
-			}
-			pipeline := bson.A{}
-			for i, st := range in.Pipeline {
-				d, err := st.bson()
-				if err != nil {
-					return DocsOut{}, fmt.Errorf("stage %d: %w", i+1, err)
-				}
-				if len(d) != 1 {
-					return DocsOut{}, fmt.Errorf("stage %d must have exactly one stage name, such as $match", i+1)
-				}
-				pipeline = append(pipeline, d)
-			}
-			if err := checkMongo(pipeline); err != nil {
-				return DocsOut{}, err
-			}
-			limit := clampLimit(in.Limit)
-			c.act.SQL = fmt.Sprintf("db.%s.aggregate(%s)", in.Collection, extJSON(pipeline))
-			// A final $limit stops the server producing more than is returned.
-			pipeline = append(pipeline, bson.D{{Key: "$limit", Value: limit + 1}})
-			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
-			defer cancel()
-			cur, err := t.coll(in.Collection).Aggregate(ctx, pipeline)
-			if err != nil {
-				return DocsOut{}, err
-			}
-			out, err := readDocs(ctx, cur, limit)
-			c.act.Rows = int64(out.Count)
-			return out, err
-		})
+		toolMongoAggregate)
 
 	if !writes {
 		return
@@ -784,184 +663,319 @@ func (s *Server) addMongoTools(srv *mcp.Server, ep string, writes bool) {
 
 	addOrdered(s, srv, ep, writeTool("mongo_insert", "Insert MongoDB documents",
 		"Inserts documents into a collection (created if missing). The user approves it in Chloe unless they've turned on danger mode.", false),
-		func(ctx context.Context, c *call, in MongoInsertArgs) (MongoInsertOut, error) {
-			t, err := c.mongoColl(ctx, in.MongoCollArgs, store.MCPWrite)
-			if err != nil {
-				return MongoInsertOut{}, err
-			}
-			switch {
-			case len(in.Documents) == 0:
-				return MongoInsertOut{}, errors.New("documents is empty")
-			case len(in.Documents) > maxMongoWrite:
-				return MongoInsertOut{}, fmt.Errorf("insert at most %d documents per call", maxMongoWrite)
-			}
-			if err := t.writable(ctx, in.Collection); err != nil {
-				return MongoInsertOut{}, err
-			}
-			docs := make([]any, len(in.Documents))
-			ids := make([]any, len(in.Documents))
-			shown := []string{}
-			for i, d := range in.Documents {
-				doc, err := d.bson()
-				if err != nil {
-					return MongoInsertOut{}, fmt.Errorf("document %d: %w", i+1, err)
-				}
-				if err := checkDataValue(doc, fmt.Sprintf("document %d", i+1)); err != nil {
-					return MongoInsertOut{}, err
-				}
-				// Chloe picks missing _ids itself, so it can say which documents were saved.
-				doc, ids[i] = withID(doc)
-				docs[i] = doc
-				if i < 5 {
-					shown = append(shown, extJSON(doc))
-				}
-			}
-			if len(docs) > 5 {
-				shown = append(shown, fmt.Sprintf("// … and %d more documents", len(docs)-5))
-			}
-			n := int64(len(docs))
-			c.act.SQL = fmt.Sprintf("db.%s.insertMany([\n  %s\n])", in.Collection, strings.Join(shown, ",\n  "))
-			if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.database, Table: in.Collection,
-				Summary: fmt.Sprintf("Insert %s into %s", plural(n, "document"), in.Collection), SQL: c.act.SQL, Rows: n}); err != nil {
-				return MongoInsertOut{}, err
-			}
-			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
-			defer cancel()
-			// Unordered: one bad document doesn't stop the rest, and each failure is reported.
-			_, err = t.coll(in.Collection).InsertMany(ctx, docs, options.InsertMany().SetOrdered(false))
-			failed := map[int]string{}
-			if err != nil {
-				var bwe mongo.BulkWriteException
-				if !errors.As(err, &bwe) || len(bwe.WriteErrors) == 0 {
-					return MongoInsertOut{}, mdb.WriteError(err)
-				}
-				for _, we := range bwe.WriteErrors {
-					failed[we.Index] = mdb.WriteError(mongo.WriteException{WriteErrors: mongo.WriteErrors{we.WriteError}}).Error()
-				}
-			}
-			out := MongoInsertOut{IDs: []json.RawMessage{}}
-			for i, id := range ids {
-				if msg, ok := failed[i]; ok {
-					out.Failed = append(out.Failed, MongoInsertFailure{Index: i, ID: json.RawMessage(extJSON(id)), Error: msg})
-					continue
-				}
-				out.IDs = append(out.IDs, json.RawMessage(extJSON(id)))
-			}
-			out.Inserted = len(out.IDs)
-			c.act.Rows = int64(out.Inserted)
-			if out.Inserted == 0 {
-				return out, fmt.Errorf("nothing was inserted: %s", out.Failed[0].Error)
-			}
-			return out, nil
-		})
+		toolMongoInsert)
 
 	addOrdered(s, srv, ep, writeTool("mongo_update", "Update MongoDB documents",
 		"Applies update operators ($set, $inc, $push…) to the first matching document, or with many to every match (at most 1000). "+
 			"The user approves the number of documents in Chloe unless they've turned on danger mode; only those documents are changed.", true),
-		func(ctx context.Context, c *call, in MongoUpdateArgs) (MongoUpdateOut, error) {
-			t, err := c.mongoColl(ctx, in.MongoCollArgs, store.MCPWrite)
-			if err != nil {
-				return MongoUpdateOut{}, err
-			}
-			filter, err := writeFilter(in.Filter)
-			if err != nil {
-				return MongoUpdateOut{}, err
-			}
-			update, err := in.Update.bson()
-			if err != nil {
-				return MongoUpdateOut{}, fmt.Errorf("update: %w", err)
-			}
-			if err := checkUpdate(update); err != nil {
-				return MongoUpdateOut{}, err
-			}
-			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
-			defer cancel()
-			if err := t.writable(ctx, in.Collection); err != nil {
-				return MongoUpdateOut{}, err
-			}
-			coll := t.coll(in.Collection)
-			ids, err := matchingIDs(ctx, coll, filter, in.Many)
-			if err != nil {
-				return MongoUpdateOut{}, err
-			}
-			verb := "updateOne"
-			if in.Many {
-				verb = "updateMany"
-			}
-			c.act.SQL = fmt.Sprintf("db.%s.%s(%s, %s)", in.Collection, verb, extJSON(filter), extJSON(update))
-			if len(ids) == 0 && !in.Upsert {
-				return MongoUpdateOut{}, nil
-			}
-			n := int64(len(ids))
-			summary := fmt.Sprintf("Update %s in %s", plural(n, "document"), in.Collection)
-			shown := c.act.SQL + idList(ids)
-			if n == 0 {
-				summary = fmt.Sprintf("Insert a document into %s (upsert: nothing matched)", in.Collection)
-				c.act.SQL = fmt.Sprintf("db.%s.updateOne(%s, %s, {\"upsert\": true})", in.Collection, extJSON(filter), extJSON(update))
-				shown = c.act.SQL
-			}
-			if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.database, Table: in.Collection, Summary: summary, SQL: shown, Rows: max(n, 1)}); err != nil {
-				return MongoUpdateOut{}, err
-			}
-			var r *mongo.UpdateResult
-			if n == 0 {
-				r, err = coll.UpdateOne(ctx, filter, update, options.UpdateOne().SetUpsert(true))
-			} else {
-				r, err = coll.UpdateMany(ctx, onlyIDs(filter, ids), update)
-			}
-			if err != nil {
-				return MongoUpdateOut{}, mdb.WriteError(err)
-			}
-			out := MongoUpdateOut{Matched: r.MatchedCount, Modified: r.ModifiedCount}
-			if r.UpsertedID != nil {
-				out.Upserted = json.RawMessage(extJSON(r.UpsertedID))
-			}
-			c.act.Rows = max(r.ModifiedCount, r.UpsertedCount)
-			return out, nil
-		})
+		toolMongoUpdate)
 
 	addOrdered(s, srv, ep, writeTool("mongo_delete", "Delete MongoDB documents",
 		"Deletes the first document matching the filter, or with many every match (at most 1000). "+
 			"The user approves the number of documents in Chloe unless they've turned on danger mode; only those documents are deleted.", true),
-		func(ctx context.Context, c *call, in MongoDeleteArgs) (MongoDeletedOut, error) {
-			t, err := c.mongoColl(ctx, in.MongoCollArgs, store.MCPWrite)
-			if err != nil {
-				return MongoDeletedOut{}, err
-			}
-			filter, err := writeFilter(in.Filter)
-			if err != nil {
-				return MongoDeletedOut{}, err
-			}
-			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
-			defer cancel()
-			if err := t.writable(ctx, in.Collection); err != nil {
-				return MongoDeletedOut{}, err
-			}
-			coll := t.coll(in.Collection)
-			ids, err := matchingIDs(ctx, coll, filter, in.Many)
-			if err != nil {
-				return MongoDeletedOut{}, err
-			}
-			verb := "deleteOne"
-			if in.Many {
-				verb = "deleteMany"
-			}
-			c.act.SQL = fmt.Sprintf("db.%s.%s(%s)", in.Collection, verb, extJSON(filter))
-			if len(ids) == 0 {
-				return MongoDeletedOut{}, nil
-			}
-			n := int64(len(ids))
-			if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.database, Table: in.Collection,
-				Summary: fmt.Sprintf("Delete %s from %s", plural(n, "document"), in.Collection), SQL: c.act.SQL + idList(ids), Rows: n}); err != nil {
-				return MongoDeletedOut{}, err
-			}
-			r, err := coll.DeleteMany(ctx, onlyIDs(filter, ids))
-			if err != nil {
-				return MongoDeletedOut{}, mdb.WriteError(err)
-			}
-			c.act.Rows = r.DeletedCount
-			return MongoDeletedOut{Deleted: r.DeletedCount}, nil
-		})
+		toolMongoDelete)
+}
+
+func toolMongoDatabases(ctx context.Context, c *call, in MongoDBArgs) (MongoCollectionsOut, error) {
+	t, err := c.mongoDB(ctx, in.Connection, in.Database, store.MCPRead)
+	if err != nil {
+		return MongoCollectionsOut{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, statementTimeout)
+	defer cancel()
+	cs, err := t.cl.Collections(ctx, t.database, true)
+	if err != nil {
+		return MongoCollectionsOut{}, err
+	}
+	out := MongoCollectionsOut{Collections: []MongoCollectionOut{}}
+	for _, ci := range cs {
+		o := MongoCollectionOut{Name: ci.Name, Type: ci.Type, Size: ci.Size, ViewOn: ci.ViewOn}
+		if ci.Type == "collection" {
+			o.Count = &ci.Count
+		}
+		out.Collections = append(out.Collections, o)
+	}
+	return out, nil
+}
+
+func toolMongoDescribe(ctx context.Context, c *call, in MongoCollArgs) (MongoDescribeOut, error) {
+	t, err := c.mongoColl(ctx, in, store.MCPRead)
+	if err != nil {
+		return MongoDescribeOut{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, statementTimeout)
+	defer cancel()
+	return describeCollection(ctx, t, in.Collection)
+}
+
+func toolMongoFind(ctx context.Context, c *call, in MongoFindArgs) (DocsOut, error) {
+	t, err := c.mongoColl(ctx, in.MongoCollArgs, store.MCPRead)
+	if err != nil {
+		return DocsOut{}, err
+	}
+	filter, err := guarded("filter", in.Filter)
+	if err != nil {
+		return DocsOut{}, err
+	}
+	proj, err := guarded("projection", in.Projection)
+	if err != nil {
+		return DocsOut{}, err
+	}
+	if in.Limit < 0 || in.Skip < 0 {
+		return DocsOut{}, errors.New("limit and skip can't be negative (limit 0 means the default of 100)")
+	}
+	if err := t.exists(ctx, in.Collection); err != nil {
+		return DocsOut{}, err
+	}
+	sort := bson.D{}
+	for _, s := range in.Sort {
+		dir := 1
+		if s.Desc {
+			dir = -1
+		}
+		sort = append(sort, bson.E{Key: s.Field, Value: dir})
+	}
+	limit := clampLimit(in.Limit)
+	c.act.SQL = fmt.Sprintf("db.%s.find(%s, %s).sort(%s).skip(%d).limit(%d)", in.Collection, extJSON(filter), extJSON(proj), extJSON(sort), in.Skip, limit)
+	ctx, cancel := context.WithTimeout(ctx, statementTimeout)
+	defer cancel()
+	o := options.Find().SetSkip(in.Skip).SetLimit(int64(limit) + 1)
+	if len(proj) > 0 {
+		o.SetProjection(proj)
+	}
+	if len(sort) > 0 {
+		o.SetSort(sort)
+	}
+	cur, err := t.coll(in.Collection).Find(ctx, filter, o)
+	if err != nil {
+		return DocsOut{}, err
+	}
+	out, err := readDocs(ctx, cur, limit)
+	if err != nil {
+		return out, err
+	}
+	if in.Count {
+		n, err := t.coll(in.Collection).CountDocuments(ctx, filter)
+		if err != nil {
+			return out, err
+		}
+		out.Total = &n
+	}
+	c.act.Rows = int64(out.Count)
+	return out, nil
+}
+
+func toolMongoAggregate(ctx context.Context, c *call, in MongoAggregateArgs) (DocsOut, error) {
+	t, err := c.mongoColl(ctx, in.MongoCollArgs, store.MCPRead)
+	if err != nil {
+		return DocsOut{}, err
+	}
+	if in.Limit < 0 {
+		return DocsOut{}, errors.New("limit can't be negative (0 means the default of 100)")
+	}
+	if err := t.exists(ctx, in.Collection); err != nil {
+		return DocsOut{}, err
+	}
+	pipeline := bson.A{}
+	for i, st := range in.Pipeline {
+		d, err := st.bson()
+		if err != nil {
+			return DocsOut{}, fmt.Errorf("stage %d: %w", i+1, err)
+		}
+		if len(d) != 1 {
+			return DocsOut{}, fmt.Errorf("stage %d must have exactly one stage name, such as $match", i+1)
+		}
+		pipeline = append(pipeline, d)
+	}
+	if err := checkMongo(pipeline); err != nil {
+		return DocsOut{}, err
+	}
+	limit := clampLimit(in.Limit)
+	c.act.SQL = fmt.Sprintf("db.%s.aggregate(%s)", in.Collection, extJSON(pipeline))
+	// A final $limit stops the server producing more than is returned.
+	pipeline = append(pipeline, bson.D{{Key: "$limit", Value: limit + 1}})
+	ctx, cancel := context.WithTimeout(ctx, statementTimeout)
+	defer cancel()
+	cur, err := t.coll(in.Collection).Aggregate(ctx, pipeline)
+	if err != nil {
+		return DocsOut{}, err
+	}
+	out, err := readDocs(ctx, cur, limit)
+	c.act.Rows = int64(out.Count)
+	return out, err
+}
+
+func toolMongoInsert(ctx context.Context, c *call, in MongoInsertArgs) (MongoInsertOut, error) {
+	t, err := c.mongoColl(ctx, in.MongoCollArgs, store.MCPWrite)
+	if err != nil {
+		return MongoInsertOut{}, err
+	}
+	switch {
+	case len(in.Documents) == 0:
+		return MongoInsertOut{}, errors.New("documents is empty")
+	case len(in.Documents) > maxMongoWrite:
+		return MongoInsertOut{}, fmt.Errorf("insert at most %d documents per call", maxMongoWrite)
+	}
+	if err := t.writable(ctx, in.Collection); err != nil {
+		return MongoInsertOut{}, err
+	}
+	docs := make([]any, len(in.Documents))
+	ids := make([]any, len(in.Documents))
+	shown := []string{}
+	for i, d := range in.Documents {
+		doc, err := d.bson()
+		if err != nil {
+			return MongoInsertOut{}, fmt.Errorf("document %d: %w", i+1, err)
+		}
+		if err := checkDataValue(doc, fmt.Sprintf("document %d", i+1)); err != nil {
+			return MongoInsertOut{}, err
+		}
+		// Chloe picks missing _ids itself, so it can say which documents were saved.
+		doc, ids[i] = withID(doc)
+		docs[i] = doc
+		if i < 5 {
+			shown = append(shown, extJSON(doc))
+		}
+	}
+	if len(docs) > 5 {
+		shown = append(shown, fmt.Sprintf("// … and %d more documents", len(docs)-5))
+	}
+	n := int64(len(docs))
+	c.act.SQL = fmt.Sprintf("db.%s.insertMany([\n  %s\n])", in.Collection, strings.Join(shown, ",\n  "))
+	if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.database, Table: in.Collection,
+		Summary: fmt.Sprintf("Insert %s into %s", plural(n, "document"), in.Collection), SQL: c.act.SQL, Rows: n}); err != nil {
+		return MongoInsertOut{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, statementTimeout)
+	defer cancel()
+	// Unordered: one bad document doesn't stop the rest, and each failure is reported.
+	_, err = t.coll(in.Collection).InsertMany(ctx, docs, options.InsertMany().SetOrdered(false))
+	failed := map[int]string{}
+	if err != nil {
+		var bwe mongo.BulkWriteException
+		if !errors.As(err, &bwe) || len(bwe.WriteErrors) == 0 {
+			return MongoInsertOut{}, mdb.WriteError(err)
+		}
+		for _, we := range bwe.WriteErrors {
+			failed[we.Index] = mdb.WriteError(mongo.WriteException{WriteErrors: mongo.WriteErrors{we.WriteError}}).Error()
+		}
+	}
+	out := MongoInsertOut{IDs: []json.RawMessage{}}
+	for i, id := range ids {
+		if msg, ok := failed[i]; ok {
+			out.Failed = append(out.Failed, MongoInsertFailure{Index: i, ID: json.RawMessage(extJSON(id)), Error: msg})
+			continue
+		}
+		out.IDs = append(out.IDs, json.RawMessage(extJSON(id)))
+	}
+	out.Inserted = len(out.IDs)
+	c.act.Rows = int64(out.Inserted)
+	if out.Inserted == 0 {
+		return out, fmt.Errorf("nothing was inserted: %s", out.Failed[0].Error)
+	}
+	return out, nil
+}
+
+func toolMongoUpdate(ctx context.Context, c *call, in MongoUpdateArgs) (MongoUpdateOut, error) {
+	t, err := c.mongoColl(ctx, in.MongoCollArgs, store.MCPWrite)
+	if err != nil {
+		return MongoUpdateOut{}, err
+	}
+	filter, err := writeFilter(in.Filter)
+	if err != nil {
+		return MongoUpdateOut{}, err
+	}
+	update, err := in.Update.bson()
+	if err != nil {
+		return MongoUpdateOut{}, fmt.Errorf("update: %w", err)
+	}
+	if err := checkUpdate(update); err != nil {
+		return MongoUpdateOut{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, statementTimeout)
+	defer cancel()
+	if err := t.writable(ctx, in.Collection); err != nil {
+		return MongoUpdateOut{}, err
+	}
+	coll := t.coll(in.Collection)
+	ids, err := matchingIDs(ctx, coll, filter, in.Many)
+	if err != nil {
+		return MongoUpdateOut{}, err
+	}
+	verb := "updateOne"
+	if in.Many {
+		verb = "updateMany"
+	}
+	c.act.SQL = fmt.Sprintf("db.%s.%s(%s, %s)", in.Collection, verb, extJSON(filter), extJSON(update))
+	if len(ids) == 0 && !in.Upsert {
+		return MongoUpdateOut{}, nil
+	}
+	n := int64(len(ids))
+	summary := fmt.Sprintf("Update %s in %s", plural(n, "document"), in.Collection)
+	shown := c.act.SQL + idList(ids)
+	if n == 0 {
+		summary = fmt.Sprintf("Insert a document into %s (upsert: nothing matched)", in.Collection)
+		c.act.SQL = fmt.Sprintf("db.%s.updateOne(%s, %s, {\"upsert\": true})", in.Collection, extJSON(filter), extJSON(update))
+		shown = c.act.SQL
+	}
+	if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.database, Table: in.Collection, Summary: summary, SQL: shown, Rows: max(n, 1)}); err != nil {
+		return MongoUpdateOut{}, err
+	}
+	var r *mongo.UpdateResult
+	if n == 0 {
+		r, err = coll.UpdateOne(ctx, filter, update, options.UpdateOne().SetUpsert(true))
+	} else {
+		r, err = coll.UpdateMany(ctx, onlyIDs(filter, ids), update)
+	}
+	if err != nil {
+		return MongoUpdateOut{}, mdb.WriteError(err)
+	}
+	out := MongoUpdateOut{Matched: r.MatchedCount, Modified: r.ModifiedCount}
+	if r.UpsertedID != nil {
+		out.Upserted = json.RawMessage(extJSON(r.UpsertedID))
+	}
+	c.act.Rows = max(r.ModifiedCount, r.UpsertedCount)
+	return out, nil
+}
+
+func toolMongoDelete(ctx context.Context, c *call, in MongoDeleteArgs) (MongoDeletedOut, error) {
+	t, err := c.mongoColl(ctx, in.MongoCollArgs, store.MCPWrite)
+	if err != nil {
+		return MongoDeletedOut{}, err
+	}
+	filter, err := writeFilter(in.Filter)
+	if err != nil {
+		return MongoDeletedOut{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, statementTimeout)
+	defer cancel()
+	if err := t.writable(ctx, in.Collection); err != nil {
+		return MongoDeletedOut{}, err
+	}
+	coll := t.coll(in.Collection)
+	ids, err := matchingIDs(ctx, coll, filter, in.Many)
+	if err != nil {
+		return MongoDeletedOut{}, err
+	}
+	verb := "deleteOne"
+	if in.Many {
+		verb = "deleteMany"
+	}
+	c.act.SQL = fmt.Sprintf("db.%s.%s(%s)", in.Collection, verb, extJSON(filter))
+	if len(ids) == 0 {
+		return MongoDeletedOut{}, nil
+	}
+	n := int64(len(ids))
+	if err := c.approve(ctx, ApprovalRequest{Connection: t.conn.Name, Database: t.database, Table: in.Collection,
+		Summary: fmt.Sprintf("Delete %s from %s", plural(n, "document"), in.Collection), SQL: c.act.SQL + idList(ids), Rows: n}); err != nil {
+		return MongoDeletedOut{}, err
+	}
+	r, err := coll.DeleteMany(ctx, onlyIDs(filter, ids))
+	if err != nil {
+		return MongoDeletedOut{}, mdb.WriteError(err)
+	}
+	c.act.Rows = r.DeletedCount
+	return MongoDeletedOut{Deleted: r.DeletedCount}, nil
 }
 
 func guarded(what string, d Doc) (bson.D, error) {

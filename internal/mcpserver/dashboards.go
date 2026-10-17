@@ -158,405 +158,419 @@ func (s *Server) addDashboardTools(srv *mcp.Server, ep string) {
 	add(s, srv, ep, writeTool("create_dashboard", "Create dashboard",
 		"Creates a dashboard: pages of the workspace's charts and Markdown text, for the user to open as a report. "+
 			"Describe each page as rows of tiles across 12 columns (e.g. a text row with a title and summary, then a row of three charts); Chloe lays them out.", false),
-		func(ctx context.Context, c *call, in CreateDashboardArgs) (DashboardOut, error) {
-			p, w, err := c.workspace(in.Workspace)
-			if err != nil {
-				return DashboardOut{}, err
-			}
-			pages, err := c.layoutPages(&w, in.Pages)
-			if err != nil {
-				return DashboardOut{}, err
-			}
-			d := bi.Dashboard{Meta: bi.Meta{Name: in.Name, CreatedBy: "mcp:" + c.ep.Name}, Pages: pages, Refresh: in.Refresh, Interaction: in.Interaction}
-			saved, err := c.putDashboard(p, d)
-			return DashboardOut{Dashboard: saved, Editable: true}, err
-		})
+		toolCreateDashboard)
 
 	add(s, srv, ep, writeTool("edit_dashboard", "Edit dashboard",
 		"Changes a dashboard created over MCP: replaces its pages, renames it, or sets its refresh. "+
 			"Notes written with set_notes stay on their page (matched by name, else by number), at its top or bottom. "+
 			"The user's dashboards can't be changed, but set_notes can add your notes to them.", true),
-		func(ctx context.Context, c *call, in EditDashboardArgs) (DashboardOut, error) {
-			p, w, err := c.workspace(in.Workspace)
-			if err != nil {
-				return DashboardOut{}, err
-			}
-			d := findDashboard(&w, in.Dashboard)
-			if d == nil {
-				return DashboardOut{}, fmt.Errorf("no dashboard %q in the workspace (see get_workspace)", in.Dashboard)
-			}
-			if !agentMade(d.CreatedBy) {
-				return DashboardOut{}, errors.New("this is one of the user's dashboards; agents can't change its layout (set_notes adds notes to it), so create a dashboard of your own")
-			}
-			edited := *d
-			if r := strings.TrimSpace(in.Rename); r != "" {
-				edited.Name = r
-			}
-			if in.Interaction != nil {
-				edited.Interaction = *in.Interaction
-			}
-			if in.Refresh != nil {
-				edited.Refresh = *in.Refresh
-			}
-			if in.Pages != nil {
-				if edited.Pages, err = c.layoutPages(&w, in.Pages); err != nil {
-					return DashboardOut{}, err
-				}
-				// Notes written with set_notes stay on their page (the one with the
-				// same name, else the same number), at its top or bottom as they were.
-				for i := range edited.Pages {
-					old := -1
-					for j, op := range d.Pages {
-						if op.Name != "" && strings.EqualFold(op.Name, edited.Pages[i].Name) {
-							old = j
-						}
-					}
-					if old < 0 && i < len(d.Pages) && !slices.ContainsFunc(edited.Pages, func(p bi.Page) bool {
-						return d.Pages[i].Name != "" && strings.EqualFold(p.Name, d.Pages[i].Name)
-					}) {
-						old = i
-					}
-					if old < 0 {
-						continue
-					}
-					for _, it := range d.Pages[old].Items {
-						if it.Kind == bi.ItemText && it.CreatedBy != "" {
-							place := "top"
-							if it.Y > 0 && it.Y+it.H >= d.Pages[old].Bottom() {
-								place = "bottom"
-							}
-							if err := setNotes(&edited.Pages[i], it.CreatedBy, it.Text, place); err != nil {
-								var nr noRoom
-								if errors.As(err, &nr) {
-									err = fmt.Errorf("its notes by %s need %d grid rows at the %s and the slide would have %d free; leave room for them (smaller rows), or make the page a report", strings.TrimPrefix(it.CreatedBy, "mcp:"), nr.need, place, max(0, nr.free))
-								}
-								return DashboardOut{}, fmt.Errorf("page %d: %w", i+1, err)
-							}
-							for j := range edited.Pages[i].Items {
-								if edited.Pages[i].Items[j].CreatedBy == it.CreatedBy {
-									edited.Pages[i].Items[j].Updated = it.Updated
-								}
-							}
-						}
-					}
-				}
-			}
-			// Text rows fit their text, also on pages laid out before.
-			for i := range edited.Pages {
-				edited.Pages[i].FitText()
-			}
-			saved, err := c.putDashboard(p, edited)
-			return DashboardOut{Dashboard: saved, Editable: true}, err
-		})
+		toolEditDashboard)
 
 	add(s, srv, ep, &mcp.Tool{Name: "set_notes", Description: "Writes your Markdown notes on a dashboard page, shown in Chloe as \"Notes from " + "<endpoint>\" with the time. " +
 		"Calling it again replaces your notes on that page. Works on the user's dashboards too; it never changes their charts or text.",
 		Annotations: &mcp.ToolAnnotations{Title: "Set dashboard notes", DestructiveHint: &f, IdempotentHint: true, OpenWorldHint: &f}},
-		func(ctx context.Context, c *call, in NotesArgs) (NotesOut, error) {
-			p, w, err := c.workspace(in.Workspace)
-			if err != nil {
-				return NotesOut{}, err
-			}
-			d := findDashboard(&w, in.Dashboard)
-			if d == nil {
-				return NotesOut{}, fmt.Errorf("no dashboard %q in the workspace (see get_workspace)", in.Dashboard)
-			}
-			if strings.TrimSpace(in.Markdown) == "" {
-				return NotesOut{}, errors.New("markdown is empty")
-			}
-			if in.Place != "" && in.Place != "top" && in.Place != "bottom" {
-				return NotesOut{}, fmt.Errorf("place is top or bottom, not %q", in.Place)
-			}
-			pi, err := findPage(*d, in.Page)
-			if err != nil {
-				return NotesOut{}, err
-			}
-			id := d.ID
-			var saved bi.Dashboard
-			_, err = c.s.m.Store.BI().Update(p, func(w *bi.Workspace) error {
-				d := w.Dashboard(id)
-				if d == nil {
-					return errors.New("the dashboard was deleted")
-				}
-				if err := setNotes(&d.Pages[pi], "mcp:"+c.ep.Name, in.Markdown, in.Place); err != nil {
-					var nr noRoom
-					if agentMade(d.CreatedBy) && errors.As(err, &nr) {
-						return nr.mine()
-					}
-					return err
-				}
-				if agentMade(d.CreatedBy) {
-					d.Pages[pi].FitText()
-				}
-				var err error
-				saved, err = w.PutDashboard(*d)
-				return err
-			})
-			if err != nil {
-				return NotesOut{}, err
-			}
-			c.act.SQL = p + " › " + saved.Name
-			c.biChanged(p)
-			out := NotesOut{Dashboard: saved.Name, Page: pi + 1}
-			for _, it := range saved.Pages[pi].Items {
-				if it.Kind == bi.ItemText && it.CreatedBy == "mcp:"+c.ep.Name {
-					out.Y, out.H, out.Updated = it.Y, it.H, it.Updated
-				}
-			}
-			return out, nil
-		})
+		toolSetNotes)
 
 	add(s, srv, ep, readOnlyTool("refresh_dashboard", "Refresh dashboard",
 		"Reads every chart on a dashboard (or one page) as the user sees it now, with the page's own text and, separately, the notes agents wrote. Values are unformatted numbers."),
-		func(ctx context.Context, c *call, in RefreshArgs) (RefreshOut, error) {
-			_, w, err := c.workspace(in.Workspace)
-			if err != nil {
-				return RefreshOut{}, err
-			}
-			d := findDashboard(&w, in.Dashboard)
-			if d == nil {
-				return RefreshOut{}, fmt.Errorf("no dashboard %q in the workspace (see get_workspace)", in.Dashboard)
-			}
-			// Parameter values are checked once, not per chart.
-			values, err := w.Values(in.Parameters)
-			if err != nil {
-				return RefreshOut{}, err
-			}
-			out := RefreshOut{Dashboard: d.Name, AsOf: time.Now().UTC().Format(time.RFC3339), Pages: []PageResult{}}
-			only := -1
-			if in.Page != "" {
-				if only, err = findPage(*d, in.Page); err != nil {
-					return RefreshOut{}, err
-				}
-			}
-			rows := 0
-			started := time.Now()
-			// A chart on several pages is read once, so every copy shows the same rows.
-			read := map[string]ChartResult{}
-			// The charts are read together, so charts on one source can share a read of it.
-			var charts []*bi.Chart
-			for i, pg := range d.Pages {
-				for _, it := range pg.Items {
-					if ch := w.Chart(it.Chart); ch != nil && it.Kind != bi.ItemText && (only < 0 || i == only) && !slices.ContainsFunc(charts, func(c *bi.Chart) bool { return c.ID == ch.ID }) {
-						charts = append(charts, ch)
-					}
-				}
-			}
-			results := make([]ChartResult, len(charts))
-			var wg sync.WaitGroup
-			for i, ch := range charts {
-				title := ch.Props.Title
-				if title == "" {
-					title = ch.Name
-				}
-				r := &results[i]
-				*r = ChartResult{Chart: ch.Name, ID: ch.ID, Type: ch.Type, Title: values.Expand(title)}
-				src := w.Source(ch.DataSource)
-				if src == nil {
-					r.Error = "the chart's data source is no longer in the workspace"
-					continue
-				}
-				if err := c.canRead(ctx, *src); err != nil {
-					r.Error = err.Error()
-					continue
-				}
-				wg.Go(func() {
-					// Read as of now: results from before the call aren't used.
-					data, err := c.s.m.BIChartData(ctx, w, *ch, in.Parameters, core.BIRead{Since: started})
-					if err != nil {
-						r.Error = err.Error()
-						return
-					}
-					r.Columns, r.Rows, r.Complete, r.Truncated, r.Mode, r.AsOf, r.Previous = data.Columns, data.Rows, data.Complete, data.Truncated, data.Mode, data.RanAt, data.Previous
-				})
-			}
-			wg.Wait()
-			for i, ch := range charts {
-				read[ch.ID] = results[i]
-				rows += len(results[i].Rows)
-			}
-			for i, pg := range d.Pages {
-				if only >= 0 && i != only {
-					continue
-				}
-				pr := PageResult{Page: i + 1, Name: pg.Name, Charts: []ChartResult{}}
-				for _, it := range pg.Items {
-					if it.Kind == bi.ItemText {
-						if it.CreatedBy != "" {
-							place := "top"
-							if it.Y > 0 && it.Y+it.H >= pg.Bottom() {
-								place = "bottom"
-							}
-							need := bi.TextRowsAt(it.Text, it.W, true)
-							pr.Notes = append(pr.Notes, NoteOut{By: strings.TrimPrefix(it.CreatedBy, "mcp:"), Updated: it.Updated, Markdown: it.Text,
-								Y: it.Y, H: it.H, Place: place, Needed: need, Fits: need <= it.H})
-						} else {
-							need := bi.TextRowsAt(it.Text, it.W, false)
-							pr.Text = append(pr.Text, values.Expand(it.Text))
-							pr.TextFit = append(pr.TextFit, TextFit{Y: it.Y, H: it.H, Needed: need, Fits: need <= it.H})
-						}
-						continue
-					}
-					ch := w.Chart(it.Chart)
-					if ch == nil {
-						continue
-					}
-					pr.Charts = append(pr.Charts, read[ch.ID])
-				}
-				out.Pages = append(out.Pages, pr)
-			}
-			c.act.SQL = d.Name
-			c.act.Rows = int64(rows)
-			return out, nil
-		})
+		toolRefreshDashboard)
 
 	addRich(s, srv, ep, writeTool("export_dashboard", "Export dashboard",
 		"Draws a dashboard's pages as Chloe shows them and saves them in the user's Chloe Reports folder: PNG images "+
 			"(returned to you too, so you can check how a page looks: text that's cut off, crowded charts, empty space), a PDF, or an interactive HTML report to share. Needs Chloe's window open.", false),
-		func(ctx context.Context, c *call, in ExportArgs) (ExportOut, []mcp.Content, error) {
-			p, w, err := c.workspace(in.Workspace)
-			if err != nil {
-				return ExportOut{}, nil, err
-			}
-			d := findDashboard(&w, in.Dashboard)
-			if d == nil {
-				return ExportOut{}, nil, fmt.Errorf("no dashboard %q in the workspace (see get_workspace)", in.Dashboard)
-			}
-			format := strings.ToLower(in.Format)
-			if format == "" {
-				format = "png"
-			}
-			if format != "png" && format != "pdf" && format != "html" {
-				return ExportOut{}, nil, fmt.Errorf("format is png, pdf or html, not %q", in.Format)
-			}
-			var pages []int
-			if in.Page != "" {
-				pi, err := findPage(*d, in.Page)
-				if err != nil {
-					return ExportOut{}, nil, err
+		toolExportDashboard)
+
+	add(s, srv, ep, writeTool("open_dashboard", "Open dashboard",
+		"Opens a dashboard in Chloe for the user.", false),
+		toolOpenDashboard)
+
+	add(s, srv, ep, writeTool("delete_dashboard", "Delete dashboard",
+		"Deletes a dashboard created over MCP (not its charts). The user's dashboards can't be deleted.", true),
+		toolDeleteDashboard)
+}
+
+func toolCreateDashboard(ctx context.Context, c *call, in CreateDashboardArgs) (DashboardOut, error) {
+	p, w, err := c.workspace(in.Workspace)
+	if err != nil {
+		return DashboardOut{}, err
+	}
+	pages, err := c.layoutPages(&w, in.Pages)
+	if err != nil {
+		return DashboardOut{}, err
+	}
+	d := bi.Dashboard{Meta: bi.Meta{Name: in.Name, CreatedBy: "mcp:" + c.ep.Name}, Pages: pages, Refresh: in.Refresh, Interaction: in.Interaction}
+	saved, err := c.putDashboard(p, d)
+	return DashboardOut{Dashboard: saved, Editable: true}, err
+}
+
+func toolEditDashboard(ctx context.Context, c *call, in EditDashboardArgs) (DashboardOut, error) {
+	p, w, err := c.workspace(in.Workspace)
+	if err != nil {
+		return DashboardOut{}, err
+	}
+	d := findDashboard(&w, in.Dashboard)
+	if d == nil {
+		return DashboardOut{}, fmt.Errorf("no dashboard %q in the workspace (see get_workspace)", in.Dashboard)
+	}
+	if !agentMade(d.CreatedBy) {
+		return DashboardOut{}, errors.New("this is one of the user's dashboards; agents can't change its layout (set_notes adds notes to it), so create a dashboard of your own")
+	}
+	edited := *d
+	if r := strings.TrimSpace(in.Rename); r != "" {
+		edited.Name = r
+	}
+	if in.Interaction != nil {
+		edited.Interaction = *in.Interaction
+	}
+	if in.Refresh != nil {
+		edited.Refresh = *in.Refresh
+	}
+	if in.Pages != nil {
+		if edited.Pages, err = c.layoutPages(&w, in.Pages); err != nil {
+			return DashboardOut{}, err
+		}
+		// Notes written with set_notes stay on their page (the one with the
+		// same name, else the same number), at its top or bottom as they were.
+		for i := range edited.Pages {
+			old := -1
+			for j, op := range d.Pages {
+				if op.Name != "" && strings.EqualFold(op.Name, edited.Pages[i].Name) {
+					old = j
 				}
-				pages = []int{pi}
-			} else {
-				for i := range d.Pages {
-					pages = append(pages, i)
-				}
 			}
-			// Drawing shows the data, so every chart's source must be readable.
-			for _, pi := range pages {
-				for _, it := range d.Pages[pi].Items {
-					if ch := w.Chart(it.Chart); it.Kind == bi.ItemChart && ch != nil {
-						if src := w.Source(ch.DataSource); src != nil {
-							if err := c.canRead(ctx, *src); err != nil {
-								return ExportOut{}, nil, fmt.Errorf("chart %q: %w", ch.Name, err)
-							}
+			if old < 0 && i < len(d.Pages) && !slices.ContainsFunc(edited.Pages, func(p bi.Page) bool {
+				return d.Pages[i].Name != "" && strings.EqualFold(p.Name, d.Pages[i].Name)
+			}) {
+				old = i
+			}
+			if old < 0 {
+				continue
+			}
+			for _, it := range d.Pages[old].Items {
+				if it.Kind == bi.ItemText && it.CreatedBy != "" {
+					place := "top"
+					if it.Y > 0 && it.Y+it.H >= d.Pages[old].Bottom() {
+						place = "bottom"
+					}
+					if err := setNotes(&edited.Pages[i], it.CreatedBy, it.Text, place); err != nil {
+						var nr noRoom
+						if errors.As(err, &nr) {
+							err = fmt.Errorf("its notes by %s need %d grid rows at the %s and the slide would have %d free; leave room for them (smaller rows), or make the page a report", strings.TrimPrefix(it.CreatedBy, "mcp:"), nr.need, place, max(0, nr.free))
+						}
+						return DashboardOut{}, fmt.Errorf("page %d: %w", i+1, err)
+					}
+					for j := range edited.Pages[i].Items {
+						if edited.Pages[i].Items[j].CreatedBy == it.CreatedBy {
+							edited.Pages[i].Items[j].Updated = it.Updated
 						}
 					}
 				}
 			}
-			if c.s.events == nil {
-				return ExportOut{}, nil, errors.New("Chloe's window isn't available")
+		}
+	}
+	// Text rows fit their text, also on pages laid out before.
+	for i := range edited.Pages {
+		edited.Pages[i].FitText()
+	}
+	saved, err := c.putDashboard(p, edited)
+	return DashboardOut{Dashboard: saved, Editable: true}, err
+}
+
+func toolSetNotes(ctx context.Context, c *call, in NotesArgs) (NotesOut, error) {
+	p, w, err := c.workspace(in.Workspace)
+	if err != nil {
+		return NotesOut{}, err
+	}
+	d := findDashboard(&w, in.Dashboard)
+	if d == nil {
+		return NotesOut{}, fmt.Errorf("no dashboard %q in the workspace (see get_workspace)", in.Dashboard)
+	}
+	if strings.TrimSpace(in.Markdown) == "" {
+		return NotesOut{}, errors.New("markdown is empty")
+	}
+	if in.Place != "" && in.Place != "top" && in.Place != "bottom" {
+		return NotesOut{}, fmt.Errorf("place is top or bottom, not %q", in.Place)
+	}
+	pi, err := findPage(*d, in.Page)
+	if err != nil {
+		return NotesOut{}, err
+	}
+	id := d.ID
+	var saved bi.Dashboard
+	_, err = c.s.m.Store.BI().Update(p, func(w *bi.Workspace) error {
+		d := w.Dashboard(id)
+		if d == nil {
+			return errors.New("the dashboard was deleted")
+		}
+		if err := setNotes(&d.Pages[pi], "mcp:"+c.ep.Name, in.Markdown, in.Place); err != nil {
+			var nr noRoom
+			if agentMade(d.CreatedBy) && errors.As(err, &nr) {
+				return nr.mine()
 			}
-			// Agents get pages at their layout size; PDFs are drawn at twice that.
-			scale := 1.0
-			if format == "pdf" {
-				scale = 2
+			return err
+		}
+		if agentMade(d.CreatedBy) {
+			d.Pages[pi].FitText()
+		}
+		var err error
+		saved, err = w.PutDashboard(*d)
+		return err
+	})
+	if err != nil {
+		return NotesOut{}, err
+	}
+	c.act.SQL = p + " › " + saved.Name
+	c.biChanged(p)
+	out := NotesOut{Dashboard: saved.Name, Page: pi + 1}
+	for _, it := range saved.Pages[pi].Items {
+		if it.Kind == bi.ItemText && it.CreatedBy == "mcp:"+c.ep.Name {
+			out.Y, out.H, out.Updated = it.Y, it.H, it.Updated
+		}
+	}
+	return out, nil
+}
+
+func toolRefreshDashboard(ctx context.Context, c *call, in RefreshArgs) (RefreshOut, error) {
+	_, w, err := c.workspace(in.Workspace)
+	if err != nil {
+		return RefreshOut{}, err
+	}
+	d := findDashboard(&w, in.Dashboard)
+	if d == nil {
+		return RefreshOut{}, fmt.Errorf("no dashboard %q in the workspace (see get_workspace)", in.Dashboard)
+	}
+	// Parameter values are checked once, not per chart.
+	values, err := w.Values(in.Parameters)
+	if err != nil {
+		return RefreshOut{}, err
+	}
+	out := RefreshOut{Dashboard: d.Name, AsOf: time.Now().UTC().Format(time.RFC3339), Pages: []PageResult{}}
+	only := -1
+	if in.Page != "" {
+		if only, err = findPage(*d, in.Page); err != nil {
+			return RefreshOut{}, err
+		}
+	}
+	rows := 0
+	started := time.Now()
+	// A chart on several pages is read once, so every copy shows the same rows.
+	read := map[string]ChartResult{}
+	// The charts are read together, so charts on one source can share a read of it.
+	var charts []*bi.Chart
+	for i, pg := range d.Pages {
+		for _, it := range pg.Items {
+			if ch := w.Chart(it.Chart); ch != nil && it.Kind != bi.ItemText && (only < 0 || i == only) && !slices.ContainsFunc(charts, func(c *bi.Chart) bool { return c.ID == ch.ID }) {
+				charts = append(charts, ch)
 			}
-			if _, err := w.Values(in.Parameters); err != nil {
-				return ExportOut{}, nil, err
-			}
-			dir := filepath.Join(bi.ReportsDir(), fileSafe(w.Name))
-			if err := os.MkdirAll(dir, 0o755); err != nil {
-				return ExportOut{}, nil, err
-			}
-			stamp := time.Now().Format("2006-01-02 150405")
-			out := ExportOut{Files: []string{}, Format: format}
-			if format == "html" {
-				html, err := c.s.events.RenderHTML(ctx, p, d.ID, pages, in.Parameters)
-				if err != nil {
-					return ExportOut{}, nil, err
-				}
-				f := filepath.Join(dir, fmt.Sprintf("%s %s.html", fileSafe(d.Name), stamp))
-				if err := safefile.Write(f, html); err != nil {
-					return ExportOut{}, nil, err
-				}
-				for _, pi := range pages {
-					out.Pages = append(out.Pages, pi+1)
-				}
-				out.Files = append(out.Files, f)
-				c.act.SQL = f
-				return out, nil, nil
-			}
-			pngs, err := c.s.events.Render(ctx, p, d.ID, pages, scale, in.Parameters)
+		}
+	}
+	results := make([]ChartResult, len(charts))
+	var wg sync.WaitGroup
+	for i, ch := range charts {
+		title := ch.Props.Title
+		if title == "" {
+			title = ch.Name
+		}
+		r := &results[i]
+		*r = ChartResult{Chart: ch.Name, ID: ch.ID, Type: ch.Type, Title: values.Expand(title)}
+		src := w.Source(ch.DataSource)
+		if src == nil {
+			r.Error = "the chart's data source is no longer in the workspace"
+			continue
+		}
+		if err := c.canRead(ctx, *src); err != nil {
+			r.Error = err.Error()
+			continue
+		}
+		wg.Go(func() {
+			// Read as of now: results from before the call aren't used.
+			data, err := c.s.m.BIChartData(ctx, w, *ch, in.Parameters, core.BIRead{Since: started})
 			if err != nil {
-				return ExportOut{}, nil, err
+				r.Error = err.Error()
+				return
 			}
-			var content []mcp.Content
-			for i, pi := range pages {
-				out.Pages = append(out.Pages, pi+1)
-				if format == "png" {
-					f := filepath.Join(dir, fmt.Sprintf("%s p%d %s.png", fileSafe(d.Name), pi+1, stamp))
-					if err := safefile.Write(f, pngs[i]); err != nil {
-						return ExportOut{}, nil, err
+			r.Columns, r.Rows, r.Complete, r.Truncated, r.Mode, r.AsOf, r.Previous = data.Columns, data.Rows, data.Complete, data.Truncated, data.Mode, data.RanAt, data.Previous
+		})
+	}
+	wg.Wait()
+	for i, ch := range charts {
+		read[ch.ID] = results[i]
+		rows += len(results[i].Rows)
+	}
+	for i, pg := range d.Pages {
+		if only >= 0 && i != only {
+			continue
+		}
+		pr := PageResult{Page: i + 1, Name: pg.Name, Charts: []ChartResult{}}
+		for _, it := range pg.Items {
+			if it.Kind == bi.ItemText {
+				if it.CreatedBy != "" {
+					place := "top"
+					if it.Y > 0 && it.Y+it.H >= pg.Bottom() {
+						place = "bottom"
 					}
-					out.Files = append(out.Files, f)
-					content = append(content, &mcp.ImageContent{Data: pngs[i], MIMEType: "image/png"})
+					need := bi.TextRowsAt(it.Text, it.W, true)
+					pr.Notes = append(pr.Notes, NoteOut{By: strings.TrimPrefix(it.CreatedBy, "mcp:"), Updated: it.Updated, Markdown: it.Text,
+						Y: it.Y, H: it.H, Place: place, Needed: need, Fits: need <= it.H})
+				} else {
+					need := bi.TextRowsAt(it.Text, it.W, false)
+					pr.Text = append(pr.Text, values.Expand(it.Text))
+					pr.TextFit = append(pr.TextFit, TextFit{Y: it.Y, H: it.H, Needed: need, Fits: need <= it.H})
 				}
+				continue
 			}
-			if format == "pdf" {
-				data, err := bi.PDF(pngs, bi.PageWidth)
-				if err != nil {
-					return ExportOut{}, nil, err
-				}
-				f := filepath.Join(dir, fmt.Sprintf("%s %s.pdf", fileSafe(d.Name), stamp))
-				if err := safefile.Write(f, data); err != nil {
-					return ExportOut{}, nil, err
-				}
-				out.Files = append(out.Files, f)
+			ch := w.Chart(it.Chart)
+			if ch == nil {
+				continue
 			}
-			c.act.SQL = strings.Join(out.Files, ", ")
-			return out, content, nil
-		})
+			pr.Charts = append(pr.Charts, read[ch.ID])
+		}
+		out.Pages = append(out.Pages, pr)
+	}
+	c.act.SQL = d.Name
+	c.act.Rows = int64(rows)
+	return out, nil
+}
 
-	add(s, srv, ep, writeTool("open_dashboard", "Open dashboard",
-		"Opens a dashboard in Chloe for the user.", false),
-		func(ctx context.Context, c *call, in DashboardArgs) (DashboardOpened, error) {
-			p, w, err := c.workspace(in.Workspace)
-			if err != nil {
-				return DashboardOpened{}, err
+func toolExportDashboard(ctx context.Context, c *call, in ExportArgs) (ExportOut, []mcp.Content, error) {
+	p, w, err := c.workspace(in.Workspace)
+	if err != nil {
+		return ExportOut{}, nil, err
+	}
+	d := findDashboard(&w, in.Dashboard)
+	if d == nil {
+		return ExportOut{}, nil, fmt.Errorf("no dashboard %q in the workspace (see get_workspace)", in.Dashboard)
+	}
+	format := strings.ToLower(in.Format)
+	if format == "" {
+		format = "png"
+	}
+	if format != "png" && format != "pdf" && format != "html" {
+		return ExportOut{}, nil, fmt.Errorf("format is png, pdf or html, not %q", in.Format)
+	}
+	var pages []int
+	if in.Page != "" {
+		pi, err := findPage(*d, in.Page)
+		if err != nil {
+			return ExportOut{}, nil, err
+		}
+		pages = []int{pi}
+	} else {
+		for i := range d.Pages {
+			pages = append(pages, i)
+		}
+	}
+	// Drawing shows the data, so every chart's source must be readable.
+	for _, pi := range pages {
+		for _, it := range d.Pages[pi].Items {
+			if ch := w.Chart(it.Chart); it.Kind == bi.ItemChart && ch != nil {
+				if src := w.Source(ch.DataSource); src != nil {
+					if err := c.canRead(ctx, *src); err != nil {
+						return ExportOut{}, nil, fmt.Errorf("chart %q: %w", ch.Name, err)
+					}
+				}
 			}
-			d := findDashboard(&w, in.Dashboard)
-			if d == nil {
-				return DashboardOpened{}, fmt.Errorf("no dashboard %q in the workspace (see get_workspace)", in.Dashboard)
+		}
+	}
+	if c.s.events == nil {
+		return ExportOut{}, nil, errors.New("Chloe's window isn't available")
+	}
+	// Agents get pages at their layout size; PDFs are drawn at twice that.
+	scale := 1.0
+	if format == "pdf" {
+		scale = 2
+	}
+	if _, err := w.Values(in.Parameters); err != nil {
+		return ExportOut{}, nil, err
+	}
+	dir := filepath.Join(bi.ReportsDir(), fileSafe(w.Name))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return ExportOut{}, nil, err
+	}
+	stamp := time.Now().Format("2006-01-02 150405")
+	out := ExportOut{Files: []string{}, Format: format}
+	if format == "html" {
+		html, err := c.s.events.RenderHTML(ctx, p, d.ID, pages, in.Parameters)
+		if err != nil {
+			return ExportOut{}, nil, err
+		}
+		f := filepath.Join(dir, fmt.Sprintf("%s %s.html", fileSafe(d.Name), stamp))
+		if err := safefile.Write(f, html); err != nil {
+			return ExportOut{}, nil, err
+		}
+		for _, pi := range pages {
+			out.Pages = append(out.Pages, pi+1)
+		}
+		out.Files = append(out.Files, f)
+		c.act.SQL = f
+		return out, nil, nil
+	}
+	pngs, err := c.s.events.Render(ctx, p, d.ID, pages, scale, in.Parameters)
+	if err != nil {
+		return ExportOut{}, nil, err
+	}
+	var content []mcp.Content
+	for i, pi := range pages {
+		out.Pages = append(out.Pages, pi+1)
+		if format == "png" {
+			f := filepath.Join(dir, fmt.Sprintf("%s p%d %s.png", fileSafe(d.Name), pi+1, stamp))
+			if err := safefile.Write(f, pngs[i]); err != nil {
+				return ExportOut{}, nil, err
 			}
-			if c.s.events == nil {
-				return DashboardOpened{}, errors.New("Chloe's window isn't available")
-			}
-			c.s.events.OpenBI(p, d.ID)
-			return DashboardOpened{Dashboard: d.Name, ID: d.ID, Pages: len(d.Pages)}, nil
-		})
+			out.Files = append(out.Files, f)
+			content = append(content, &mcp.ImageContent{Data: pngs[i], MIMEType: "image/png"})
+		}
+	}
+	if format == "pdf" {
+		data, err := bi.PDF(pngs, bi.PageWidth)
+		if err != nil {
+			return ExportOut{}, nil, err
+		}
+		f := filepath.Join(dir, fmt.Sprintf("%s %s.pdf", fileSafe(d.Name), stamp))
+		if err := safefile.Write(f, data); err != nil {
+			return ExportOut{}, nil, err
+		}
+		out.Files = append(out.Files, f)
+	}
+	c.act.SQL = strings.Join(out.Files, ", ")
+	return out, content, nil
+}
 
-	add(s, srv, ep, writeTool("delete_dashboard", "Delete dashboard",
-		"Deletes a dashboard created over MCP (not its charts). The user's dashboards can't be deleted.", true),
-		func(ctx context.Context, c *call, in DashboardArgs) (DeletedOut, error) {
-			p, w, err := c.workspace(in.Workspace)
-			if err != nil {
-				return DeletedOut{}, err
-			}
-			d := findDashboard(&w, in.Dashboard)
-			if d == nil {
-				return DeletedOut{}, fmt.Errorf("no dashboard %q in the workspace (see get_workspace)", in.Dashboard)
-			}
-			if !agentMade(d.CreatedBy) {
-				return DeletedOut{}, errors.New("this is one of the user's dashboards; agents can only delete dashboards they created")
-			}
-			id, name := d.ID, d.Name
-			if _, err := c.s.m.Store.BI().Update(p, func(w *bi.Workspace) error { return w.Delete(id) }); err != nil {
-				return DeletedOut{}, err
-			}
-			c.act.SQL = p + " › " + name
-			c.biChanged(p)
-			return DeletedOut{Deleted: name}, nil
-		})
+func toolOpenDashboard(ctx context.Context, c *call, in DashboardArgs) (DashboardOpened, error) {
+	p, w, err := c.workspace(in.Workspace)
+	if err != nil {
+		return DashboardOpened{}, err
+	}
+	d := findDashboard(&w, in.Dashboard)
+	if d == nil {
+		return DashboardOpened{}, fmt.Errorf("no dashboard %q in the workspace (see get_workspace)", in.Dashboard)
+	}
+	if c.s.events == nil {
+		return DashboardOpened{}, errors.New("Chloe's window isn't available")
+	}
+	c.s.events.OpenBI(p, d.ID)
+	return DashboardOpened{Dashboard: d.Name, ID: d.ID, Pages: len(d.Pages)}, nil
+}
+
+func toolDeleteDashboard(ctx context.Context, c *call, in DashboardArgs) (DeletedOut, error) {
+	p, w, err := c.workspace(in.Workspace)
+	if err != nil {
+		return DeletedOut{}, err
+	}
+	d := findDashboard(&w, in.Dashboard)
+	if d == nil {
+		return DeletedOut{}, fmt.Errorf("no dashboard %q in the workspace (see get_workspace)", in.Dashboard)
+	}
+	if !agentMade(d.CreatedBy) {
+		return DeletedOut{}, errors.New("this is one of the user's dashboards; agents can only delete dashboards they created")
+	}
+	id, name := d.ID, d.Name
+	if _, err := c.s.m.Store.BI().Update(p, func(w *bi.Workspace) error { return w.Delete(id) }); err != nil {
+		return DeletedOut{}, err
+	}
+	c.act.SQL = p + " › " + name
+	c.biChanged(p)
+	return DeletedOut{Deleted: name}, nil
 }
 
 // rowHeights lists the heights of rows laid out by LayoutRows, top to bottom.
