@@ -281,13 +281,12 @@ func (c *Client) Collections(ctx context.Context, db string, stats bool) ([]Coll
 			if out[i].Type == "view" {
 				continue
 			}
-			wg.Add(1)
-			go func(ci *CollInfo) {
-				defer wg.Done()
+			ci := &out[i]
+			wg.Go(func() {
 				sem <- struct{}{}
 				defer func() { <-sem }()
 				c.collStats(ctx, db, ci)
-			}(&out[i])
+			})
 		}
 		wg.Wait()
 	}

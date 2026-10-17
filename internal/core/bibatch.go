@@ -116,12 +116,10 @@ func (m *Manager) runBatch(b *biBatch) {
 	alone := func(ps []*biBatchPart) {
 		var wg sync.WaitGroup
 		for _, p := range ps {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				cols, rows, more, err := m.biRead(ctx, b.src, p.q, p.limit)
 				finish(p, cols, rows, more, err)
-			}()
+			})
 		}
 		wg.Wait()
 	}

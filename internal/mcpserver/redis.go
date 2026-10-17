@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/hex"
@@ -520,10 +521,10 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 			if err != nil {
 				return RedisOverviewOut{}, err
 			}
-			c.act.SQL = quoteArgs("SCAN", "0", "MATCH", cmp(in.Pattern, "*"))
+			c.act.SQL = quoteArgs("SCAN", "0", "MATCH", cmp.Or(in.Pattern, "*"))
 			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
 			defer cancel()
-			out, err := overview(ctx, t.cl, cmp(in.Pattern, "*"))
+			out, err := overview(ctx, t.cl, cmp.Or(in.Pattern, "*"))
 			c.act.Rows = out.Scanned
 			return out, err
 		})
@@ -539,10 +540,10 @@ func (s *Server) addRedisTools(srv *mcp.Server, ep string, writes bool) {
 			if in.Type != "" && !slices.Contains([]string{"string", "hash", "list", "set", "zset", "stream"}, in.Type) {
 				return RedisScanOut{}, fmt.Errorf("unknown type %q", in.Type)
 			}
-			if _, err := strconv.ParseUint(cmp(in.Cursor, "0"), 10, 64); err != nil {
+			if _, err := strconv.ParseUint(cmp.Or(in.Cursor, "0"), 10, 64); err != nil {
 				return RedisScanOut{}, fmt.Errorf("cursor %q isn't one redis_scan returned; leave it out to start over", in.Cursor)
 			}
-			c.act.SQL = quoteArgs("SCAN", cmp(in.Cursor, "0"), "MATCH", cmp(in.Pattern, "*"))
+			c.act.SQL = quoteArgs("SCAN", cmp.Or(in.Cursor, "0"), "MATCH", cmp.Or(in.Pattern, "*"))
 			ctx, cancel := context.WithTimeout(ctx, statementTimeout)
 			defer cancel()
 			count := 50
@@ -935,13 +936,6 @@ func overview(ctx context.Context, cl *redis.Client, pattern string) (RedisOverv
 		out.Groups = append(out.Groups, g.RedisGroupOut)
 	}
 	return out, nil
-}
-
-func cmp(s, def string) string {
-	if s == "" {
-		return def
-	}
-	return s
 }
 
 func valueOut(kv rdb.KeyValue) (RedisValueOut, error) {

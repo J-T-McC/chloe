@@ -5,9 +5,10 @@ package connurl
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/url"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -95,7 +96,7 @@ func Parse(raw string) (model.Connection, error) {
 		c.SSL.KeyFile = q.Get("sslkey")
 		// Everything else becomes extra connection parameters.
 		var extra []string
-		for _, k := range sortedKeys(q) {
+		for _, k := range slices.Sorted(maps.Keys(q)) {
 			switch k {
 			case "sslmode", "sslrootcert", "sslcert", "sslkey", "user", "password":
 				continue
@@ -313,15 +314,6 @@ func firstOf(q url.Values, keys ...string) string {
 		}
 	}
 	return ""
-}
-
-func sortedKeys(q url.Values) []string {
-	keys := make([]string, 0, len(q))
-	for k := range q {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func defaultName(c model.Connection) string {

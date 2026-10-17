@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"chloe/internal/design"
@@ -318,7 +319,7 @@ func (im *importer) run(ctx context.Context, src transfer.Source) (string, error
 	}
 	if im.req.Mode == ImportUpdate || im.req.Mode == ImportDelete || im.req.Mode == ImportUpsert || im.req.Mode == ImportSkipExisting {
 		for _, k := range im.keys {
-			if !containsStr(im.cols, k) {
+			if !slices.Contains(im.cols, k) {
 				return "", fmt.Errorf("key column %q must be mapped for %s mode", k, req.Mode)
 			}
 		}
@@ -445,15 +446,6 @@ func (im *importer) run(ctx context.Context, src transfer.Source) (string, error
 	return msg, nil
 }
 
-func containsStr(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
-}
-
 // writeBatch writes rows according to the import mode and returns rows affected.
 func (im *importer) writeBatch(ctx context.Context, rows [][]*string) (int64, error) {
 	d := im.d
@@ -477,7 +469,7 @@ func (im *importer) writeBatch(ctx context.Context, rows [][]*string) (int64, er
 		var sets, where []string
 		if im.req.Mode == ImportUpdate {
 			for i, c := range im.cols {
-				if !containsStr(im.keys, c) {
+				if !slices.Contains(im.keys, c) {
 					sets = append(sets, qcols[i]+" = "+ph(r[i]))
 				}
 			}
@@ -486,7 +478,7 @@ func (im *importer) writeBatch(ctx context.Context, rows [][]*string) (int64, er
 			}
 		}
 		for i, c := range im.cols {
-			if containsStr(im.keys, c) {
+			if slices.Contains(im.keys, c) {
 				where = append(where, qcols[i]+" = "+ph(r[i]))
 			}
 		}
@@ -507,7 +499,7 @@ func (im *importer) writeBatch(ctx context.Context, rows [][]*string) (int64, er
 	q := "INSERT INTO " + table + " (" + strings.Join(qcols, ", ") + ") VALUES " + strings.Join(values, ", ")
 	var nonKey []string
 	for i, c := range im.cols {
-		if !containsStr(im.keys, c) {
+		if !slices.Contains(im.keys, c) {
 			nonKey = append(nonKey, qcols[i])
 		}
 	}
