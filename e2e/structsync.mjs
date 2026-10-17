@@ -1,6 +1,7 @@
 // Structure Synchronization: PostgreSQL shop → a drifted schema; compare results,
 // DDL comparison, unticking a drop, deployment script, message log, recompare.
 import { chromium } from "playwright";
+import { PG } from "./lib/db.mjs";
 
 const out = process.argv[2];
 const browser = await chromium.launch();
@@ -43,7 +44,7 @@ await step("connection and a drifted schema", async () => {
   await page.locator(".type-card").filter({ has: page.locator('span:text-is("PostgreSQL")') }).click();
   await field("Connection Name").fill("Local Postgres");
   await field("Host").fill("127.0.0.1");
-  await field("Port").fill("55432");
+  await field("Port").fill(PG);
   await field("User Name").fill("postgres");
   await field("Password").fill("chloe");
   await page.getByRole("button", { name: "Save" }).click();

@@ -6,12 +6,13 @@ set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
 out="$root/e2e/.out"
 cd "$root"
+. testdata/slot.sh
 [ -d e2e/node_modules ] || (cd e2e && npm install --silent && npx playwright install chromium)
 
-docker exec -i chloe-mysql mysql -uroot -pchloe < testdata/seed_mysql.sql 2>/dev/null
-docker exec -i chloe-pg psql -q -U postgres -v ON_ERROR_STOP=1 -f - < testdata/seed_postgres.sql >/dev/null 2>&1
-docker exec -i chloe-mongo mongosh -u root -p chloe --quiet < testdata/seed_mongo.js >/dev/null 2>&1 || true
-docker exec -i chloe-redis redis-cli -a chloe --no-auth-warning < testdata/seed_redis.txt >/dev/null 2>&1 || true
+docker exec -i "$MYSQL_C" mysql -uroot -pchloe < testdata/seed_mysql.sql 2>/dev/null
+docker exec -i "$PG_C" psql -q -U postgres -v ON_ERROR_STOP=1 -f - < testdata/seed_postgres.sql >/dev/null 2>&1
+docker exec -i "$MONGO_C" mongosh -u root -p chloe --quiet < testdata/seed_mongo.js >/dev/null 2>&1 || true
+docker exec -i "$REDIS_C" redis-cli -a chloe --no-auth-warning < testdata/seed_redis.txt >/dev/null 2>&1 || true
 
 rm -rf "$out" && mkdir -p "$out/config" "$out/shots" "$out/lite"
 # SQLite scripts read and create files under $LITE; pagesize wants a 250-row table.

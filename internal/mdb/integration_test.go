@@ -10,6 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"chloe/internal/model"
+	"chloe/internal/testdb"
 	"chloe/internal/tunnel"
 )
 
@@ -24,7 +25,7 @@ func open(t *testing.T) *Client {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	c, err := Open(ctx, model.Connection{Type: model.MongoDB, Host: "127.0.0.1", Port: 37017, User: "root", Password: "chloe"}, tunnel.NewDirect())
+	c, err := Open(ctx, model.Connection{Type: model.MongoDB, Host: "127.0.0.1", Port: testdb.Mongo, User: "root", Password: "chloe"}, tunnel.NewDirect())
 	if err != nil {
 		t.Fatal(err)
 	}

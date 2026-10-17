@@ -2,6 +2,7 @@
 // (exports are drawn by the page).
 import { chromium } from "playwright";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { MONGO, REDIS } from "./lib/db.mjs";
 const out = process.argv[2];
 const PORT = 47198;
 const browser = await chromium.launch();
@@ -22,7 +23,7 @@ if (mongo) {
   await page.locator(".type-card").filter({ has: page.locator(`span:text-is("MongoDB")`) }).click();
   await field("Connection Name").fill("docs");
   await field("Host").fill("127.0.0.1");
-  await field("Port").fill("37017");
+  await field("Port").fill(MONGO);
   await field("User Name").fill("root");
   await field("Password").fill("chloe");
   await page.getByRole("button", { name: "Save" }).click();
@@ -33,7 +34,7 @@ if (redis) {
   await page.locator(".type-card").filter({ has: page.locator(`span:text-is("Redis")`) }).click();
   await field("Connection Name").fill("cache");
   await field("Host").fill("127.0.0.1");
-  await field("Port").fill("63790");
+  await field("Port").fill(REDIS);
   await field("Password").fill("chloe");
   await page.getByRole("button", { name: "Save" }).click();
   await page.locator(".tree-row", { hasText: /cache$/ }).first().waitFor();

@@ -1,6 +1,7 @@
 // Server Monitor polling (P-F7): no polls while its tab is hidden, a poll on
 // coming back, and no overlapping polls when the server answers slowly.
 import { chromium } from "playwright";
+import { MYSQL } from "./lib/db.mjs";
 const out = process.argv[2];
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1400, height: 880 } });
@@ -38,7 +39,7 @@ await step("open the monitor", async () => {
   await page.locator(".type-card").filter({ has: page.locator(`span:text-is("MySQL")`) }).click();
   await field("Connection Name").fill("Local MySQL");
   await field("Host").fill("127.0.0.1");
-  await field("Port").fill("33306");
+  await field("Port").fill(MYSQL);
   await field("User Name").fill("root");
   await field("Password").fill("chloe");
   await page.getByRole("button", { name: "Save" }).click();

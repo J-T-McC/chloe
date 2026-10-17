@@ -15,6 +15,7 @@ import (
 	"chloe/internal/core"
 	"chloe/internal/driver"
 	"chloe/internal/model"
+	"chloe/internal/testdb"
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -285,11 +286,11 @@ func TestBIZonedFilterUsesIndex(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			driverName, dsn := "mysql", "root:chloe@tcp(127.0.0.1:33306)/shop"
+			driverName, dsn := "mysql", fmt.Sprintf("root:chloe@tcp(127.0.0.1:%d)/shop", testdb.MySQL)
 			table, cols := "bi_tz_idx", "(id INT PRIMARY KEY, at %s, v INT)"
 			ts := []string{"DATETIME", "TIMESTAMP"}
 			if e.conn.Type == model.PostgreSQL {
-				driverName, dsn, table = "pgx", "postgres://postgres:chloe@127.0.0.1:55432/postgres", "shop.bi_tz_idx"
+				driverName, dsn, table = "pgx", fmt.Sprintf("postgres://postgres:chloe@127.0.0.1:%d/postgres", testdb.Postgres), "shop.bi_tz_idx"
 				ts = []string{"timestamp", "timestamptz"}
 			}
 			db, err := sql.Open(driverName, dsn)

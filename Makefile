@@ -21,8 +21,8 @@ server:         ## browser build -> bin/Chloe-server (used by e2e)
 bindings:       ## regenerate frontend bindings after changing a service
 	$(WAILS) task common:generate:bindings
 
-db:             ## start the Docker databases
-	docker compose up -d
+db:             ## start and seed the Docker databases (CHLOE_DB_SLOT=N for a separate set)
+	testdata/db.sh
 
 test:           ## Go unit tests (SQLite included, no Docker)
 	$(WAILS) task test

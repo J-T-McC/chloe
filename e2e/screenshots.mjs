@@ -2,6 +2,7 @@
 import { chromium } from "playwright";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { MONGO, MYSQL, PG, REDIS } from "./lib/db.mjs";
 
 const out = process.argv[2];
 const browser = await chromium.launch();
@@ -24,10 +25,10 @@ const row = (text) => page.locator(".tree-row", { hasText: text });
 
 await page.goto(process.env.BASE ?? "http://localhost:8080/");
 for (const [label, type, port, user] of [
-  ["MySQL", "MySQL", "33306", "root"],
-  ["PostgreSQL", "PostgreSQL", "55432", "postgres"],
-  ["MongoDB", "MongoDB", "37017", "root"],
-  ["Redis", "Redis", "63790", ""],
+  ["MySQL", "MySQL", MYSQL, "root"],
+  ["PostgreSQL", "PostgreSQL", PG, "postgres"],
+  ["MongoDB", "MongoDB", MONGO, "root"],
+  ["Redis", "Redis", REDIS, ""],
 ]) {
   await step(`create ${label}`, async () => {
     await page.getByRole("button", { name: "Connection" }).first().click();

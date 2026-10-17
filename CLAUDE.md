@@ -21,7 +21,8 @@ make dev                               # hot reload
 make build                             # desktop app -> bin/Chloe
 make install                           # signed Chloe.app -> /Applications (quits a running copy)
 make server                            # browser build on :8080 -> bin/Chloe-server (used by e2e; needs CHLOE_SECRETS=memory; CHLOE_E2E_PORT moves e2e off 8080)
-make db                                # MySQL :33306, Postgres :55432, Redis :63790, MongoDB :37017 (root), sshd :2222 (password "chloe")
+make db                                # start + seed MySQL :33306, Postgres :55432, Redis :63790, MongoDB :37017 (root), sshd :2222 (password "chloe")
+CHLOE_DB_SLOT=N make db               # a separate set on ports +N*10 (chloe-mysql-N…); pass the same CHLOE_DB_SLOT to test-it, e2e and CHLOE_IT=1 go test
 make test                              # unit tests plus SQLite (no Docker needed)
 make test-it                           # start and seed the Docker databases, run integration tests
 make test-frontend                     # type check and frontend unit tests

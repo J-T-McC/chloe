@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"chloe/internal/model"
+	"chloe/internal/testdb"
 	"chloe/internal/tunnel"
 )
 
@@ -60,7 +61,7 @@ func open(t *testing.T) *Client {
 	if os.Getenv("CHLOE_IT") == "" {
 		t.Skip("set CHLOE_IT=1 to run integration tests")
 	}
-	c, err := Open(context.Background(), model.Connection{Type: model.Redis, Host: "127.0.0.1", Port: 63790, Password: "chloe"}, tunnel.NewDirect())
+	c, err := Open(context.Background(), model.Connection{Type: model.Redis, Host: "127.0.0.1", Port: testdb.Redis, Password: "chloe"}, tunnel.NewDirect())
 	if err != nil {
 		t.Fatal(err)
 	}

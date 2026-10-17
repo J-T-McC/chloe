@@ -15,6 +15,7 @@ import (
 	"chloe/internal/core"
 	"chloe/internal/model"
 	"chloe/internal/store"
+	"chloe/internal/testdb"
 )
 
 // The test's own database, so other packages' tests don't see it.
@@ -29,7 +30,7 @@ func setupMongo(t *testing.T, access store.MCPConnAccess, caps store.MCPCapabili
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := st.Save(model.Connection{Name: "docs", Type: model.MongoDB, Host: "127.0.0.1", Port: 37017, User: "root", Password: "chloe", SavePassword: true})
+	c, err := st.Save(model.Connection{Name: "docs", Type: model.MongoDB, Host: "127.0.0.1", Port: testdb.Mongo, User: "root", Password: "chloe", SavePassword: true})
 	if err != nil {
 		t.Fatal(err)
 	}

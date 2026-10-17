@@ -11,6 +11,7 @@ set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
 out="$root/e2e/.tester"
 cd "$root"
+. testdata/slot.sh
 [ -d e2e/node_modules ] || (cd e2e && npm install --silent && npx playwright install chromium)
 port="${CHLOE_E2E_PORT:-8080}"
 lsof -a -ti "tcp:$port" -sTCP:LISTEN -c Chloe | xargs kill 2>/dev/null || true
@@ -37,10 +38,10 @@ INSERT INTO room_events SELECT i, 1 + i % 420,
   strftime('%Y-%m-%d %H:%M:%S', '2026-09-10', '+' || (i * 11 % 3500000) || ' seconds') FROM n;
 SQL
 if [ -n "$TESTER_REDIS" ]; then
-  docker exec -i chloe-redis redis-cli -a chloe --no-auth-warning < testdata/seed_redis.txt >/dev/null
+  docker exec -i "$REDIS_C" redis-cli -a chloe --no-auth-warning < testdata/seed_redis.txt >/dev/null
 fi
 if [ -n "$TESTER_MONGO" ]; then
-  docker exec -i chloe-mongo mongosh -u root -p chloe --quiet < testdata/seed_mongo.js >/dev/null
+  docker exec -i "$MONGO_C" mongosh -u root -p chloe --quiet < testdata/seed_mongo.js >/dev/null
 fi
 # CHLOE_E2E_PORT moves the server off 8080 when something else holds it.
 export WAILS_SERVER_PORT="$port" BASE="http://localhost:$port/"

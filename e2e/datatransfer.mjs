@@ -1,6 +1,7 @@
 // Data Transfer wizard: MySQL shop → a new PostgreSQL schema, created through Options;
 // objects, summary, progress log, the result in the tree, and profiles.
 import { chromium } from "playwright";
+import { MYSQL, PG } from "./lib/db.mjs";
 
 const out = process.argv[2];
 const browser = await chromium.launch();
@@ -30,8 +31,8 @@ await page.goto(process.env.BASE ?? "http://localhost:8080/");
 await page.waitForTimeout(600);
 
 for (const [label, type, port, user] of [
-  ["Local MySQL", "MySQL", "33306", "root"],
-  ["Local Postgres", "PostgreSQL", "55432", "postgres"],
+  ["Local MySQL", "MySQL", MYSQL, "root"],
+  ["Local Postgres", "PostgreSQL", PG, "postgres"],
 ]) {
   await step(`create ${label}`, async () => {
     await page.getByRole("button", { name: "Connection" }).first().click();

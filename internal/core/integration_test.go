@@ -1,9 +1,8 @@
 package core_test
 
 // Integration tests against live databases. Start them with:
-//   docker run -d --name chloe-mysql -e MYSQL_ROOT_PASSWORD=chloe -p 33306:3306 mysql:8.4
-//   docker run -d --name chloe-pg -e POSTGRES_PASSWORD=chloe -p 55432:5432 postgres:17
-// load testdata/seed_*.sql, then run with CHLOE_IT=1 go test ./internal/core/
+//   testdata/db.sh (CHLOE_DB_SLOT=N for a separate set; see internal/testdb)
+// which also loads testdata/seed_*, then run with CHLOE_IT=1 go test ./internal/core/
 
 import (
 	"context"
@@ -20,6 +19,7 @@ import (
 	_ "chloe/internal/driver/sqlite"
 	"chloe/internal/model"
 	"chloe/internal/store"
+	"chloe/internal/testdb"
 	"chloe/internal/tunnel"
 )
 
@@ -31,8 +31,8 @@ type engine struct {
 
 func engines() []engine {
 	return []engine{
-		{model.Connection{Name: "mysql", Type: model.MySQL, Host: "127.0.0.1", Port: 33306, User: "root", Password: "chloe", SavePassword: true}, "shop", ""},
-		{model.Connection{Name: "pg", Type: model.PostgreSQL, Host: "127.0.0.1", Port: 55432, User: "postgres", Password: "chloe", SavePassword: true}, "postgres", "shop"},
+		{model.Connection{Name: "mysql", Type: model.MySQL, Host: "127.0.0.1", Port: testdb.MySQL, User: "root", Password: "chloe", SavePassword: true}, "shop", ""},
+		{model.Connection{Name: "pg", Type: model.PostgreSQL, Host: "127.0.0.1", Port: testdb.Postgres, User: "postgres", Password: "chloe", SavePassword: true}, "postgres", "shop"},
 	}
 }
 
@@ -341,8 +341,8 @@ func TestIntegrationSSHTunnel(t *testing.T) {
 	t.Cleanup(func() { tunnel.ConfirmHostKey = nil })
 	key, _ := filepath.Abs("../../testdata/sshd/id_ed25519")
 	auths := []model.SSHConfig{
-		{Enabled: true, Host: "127.0.0.1", Port: 2222, User: "tunnel", Auth: model.SSHPassword, Password: "chloe", SavePassword: true},
-		{Enabled: true, Host: "127.0.0.1", Port: 2222, User: "tunnel", Auth: model.SSHPublicKey, PrivateKeyPath: key, SavePassword: true},
+		{Enabled: true, Host: "127.0.0.1", Port: testdb.SSH, User: "tunnel", Auth: model.SSHPassword, Password: "chloe", SavePassword: true},
+		{Enabled: true, Host: "127.0.0.1", Port: testdb.SSH, User: "tunnel", Auth: model.SSHPublicKey, PrivateKeyPath: key, SavePassword: true},
 	}
 	targets := map[model.DBType]struct {
 		host string
@@ -380,7 +380,7 @@ func TestIntegrationSSHTunnel(t *testing.T) {
 		m := core.NewManager(st, nil, core.DefaultSettings)
 		c := engines()[1].conn
 		c.Host = "postgres"
-		c.SSH = model.SSHConfig{Enabled: true, Host: "127.0.0.1", Port: 2222, User: "tunnel", Auth: model.SSHPassword, Password: "nope"}
+		c.SSH = model.SSHConfig{Enabled: true, Host: "127.0.0.1", Port: testdb.SSH, User: "tunnel", Auth: model.SSHPassword, Password: "nope"}
 		_, err := m.TestConnection(context.Background(), c)
 		if err == nil || !strings.Contains(err.Error(), "ssh") {
 			t.Fatalf("expected ssh auth error, got %v", err)
