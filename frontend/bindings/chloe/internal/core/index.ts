@@ -36,6 +36,8 @@ export type {
     ImportRequest,
     Job,
     MaintainResult,
+    PasteResult,
+    PasteTarget,
     RedisConsoleResult,
     ResultEdit,
     ResultPatch,

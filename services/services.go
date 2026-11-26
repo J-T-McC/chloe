@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"os"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -366,6 +367,11 @@ func (s *DesignService) TableActionSQL(connID string, ref model.ObjectRef, actio
 
 func (s *DesignService) RunTableAction(ctx context.Context, connID string, ref model.ObjectRef, action core.TableAction, newName string) core.ApplyResult {
 	return s.M.RunTableAction(ctx, connID, ref, action, newName)
+}
+
+// PasteTables copies tables into target, each named <table>_copy_<date>_<time> for the current time.
+func (s *DesignService) PasteTables(ctx context.Context, connID string, tables []model.ObjectRef, target core.PasteTarget) ([]core.PasteResult, error) {
+	return s.M.PasteTables(ctx, connID, tables, target, time.Now())
 }
 
 func (s *DesignService) Maintain(ctx context.Context, connID string, refs []model.ObjectRef, op core.MaintainOp) ([]core.MaintainResult, error) {

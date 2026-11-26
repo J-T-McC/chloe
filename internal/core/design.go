@@ -265,44 +265,55 @@ func sqliteTableAction(c driver.Conn, ref model.ObjectRef, action TableAction, n
 	case ActionRename:
 		return []string{"ALTER TABLE " + tbl + " RENAME TO " + d.QuoteIdent(newName)}, nil
 	case ActionDuplicate, ActionCopy:
-		t, err := c.LoadDesign(context.Background(), ref)
-		if err != nil {
-			return nil, err
-		}
-		// Index and trigger names are unique per database, so the copy's get the new table name.
-		rename := func(n string) string {
-			if strings.Contains(n, ref.Name) {
-				return strings.ReplaceAll(n, ref.Name, newName)
-			}
-			return newName + "_" + n
-		}
-		t.Name, t.OrigName = newName, ""
-		for i := range t.Indexes {
-			t.Indexes[i].Name = rename(t.Indexes[i].Name)
-		}
-		for i := range t.Triggers {
-			t.Triggers[i].Name = rename(t.Triggers[i].Name)
-		}
-		out, err := c.DesignGenerator().Create(t)
-		if err != nil {
-			return nil, err
-		}
-		if action == ActionCopy {
-			var cols []string
-			for _, col := range t.Columns {
-				if col.GeneratedExpr == "" {
-					cols = append(cols, d.QuoteIdent(col.Name))
-				}
-			}
-			list := strings.Join(cols, ", ")
-			target := d.Qualified(model.ObjectRef{Database: ref.Database, Name: newName})
-			// Rows go in before the triggers are created, so copying doesn't fire them.
-			n := 1 + len(t.Indexes)
-			out = slices.Insert(out, n, fmt.Sprintf("INSERT INTO %s (%s) SELECT %s FROM %s", target, list, list, tbl))
-		}
-		return out, nil
+		return sqliteCopySQL(c, ref, ref.Database, newName, action == ActionCopy)
 	}
 	return nil, fmt.Errorf("unknown table action %q", action)
+}
+
+// sqliteCopySQL rebuilds ref from its design as newName in database db, with
+// its rows when withRows is set.
+func sqliteCopySQL(c driver.Conn, ref model.ObjectRef, db, newName string, withRows bool) ([]string, error) {
+	d := c.Dialect()
+	t, err := c.LoadDesign(context.Background(), ref)
+	if err != nil {
+		return nil, err
+	}
+	// Index and trigger names are unique per database, so the copy's get the new table name.
+	rename := func(n string) string {
+		if strings.Contains(n, ref.Name) {
+			return strings.ReplaceAll(n, ref.Name, newName)
+		}
+		return newName + "_" + n
+	}
+	t.Name, t.OrigName = newName, ""
+	if db != ref.Database { // Duplicate keeps the database the design names
+
+		t.Database = db
+	}
+	for i := range t.Indexes {
+		t.Indexes[i].Name = rename(t.Indexes[i].Name)
+	}
+	for i := range t.Triggers {
+		t.Triggers[i].Name = rename(t.Triggers[i].Name)
+	}
+	out, err := c.DesignGenerator().Create(t)
+	if err != nil {
+		return nil, err
+	}
+	if withRows {
+		var cols []string
+		for _, col := range t.Columns {
+			if col.GeneratedExpr == "" {
+				cols = append(cols, d.QuoteIdent(col.Name))
+			}
+		}
+		list := strings.Join(cols, ", ")
+		target := d.Qualified(model.ObjectRef{Database: db, Name: newName})
+		// Rows go in before the triggers are created, so copying doesn't fire them.
+		n := 1 + len(t.Indexes)
+		out = slices.Insert(out, n, fmt.Sprintf("INSERT INTO %s (%s) SELECT %s FROM %s", target, list, list, d.Qualified(ref)))
+	}
+	return out, nil
 }
 
 // RunTableAction executes a table operation.
