@@ -21,6 +21,10 @@ Sources: decoded main-window, connection-tree, object-list, information-pane, DD
   selects and segmented buttons work there); a button closes it, as do Escape and clicking away. When the tabs don't
   fit, the tab bar scrolls and a **⌄** button at its end lists every tab (the active one ticked); the active tab is
   scrolled into view. `e2e/toolbars.mjs` checks every toolbar at 1200, 900 and 700 px.
+- **Window header**: any empty spot in the header (the toolbar row included, not just the strip above it) drags the
+  window, and double-clicking it does what macOS is set to under Desktop & Dock → "Double-click a window's title bar
+  to": zoom (again to restore), minimise, or nothing. Its buttons and the » menu don't. `e2e/titlebar.mjs` checks
+  which double-clicks reach the native window.
 - **File menu**: New Connection ▸ (per DB type), New Query, Open File (⌘O), Open Recent ▸ Clear, Import Connections…, Export Connections…, Close Window (⇧⌘W), Close Tab (⌘W).
 - **View menu**: Navigation Pane ▸ Show (⌘1), **Flatten Connection**, **Show Only Active Objects** (hide unopened connections/DBs), Show Filter On Top. Information Pane ▸ Show, General (⌘2). Objects ▸ **Detail** (list style), ER Diagram, **Flatten Object List**, Choose Columns…, Show Hidden Items. Show Status Bar, Show Toolbar, Enter Focus Mode, Full Screen.
 
