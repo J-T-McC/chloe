@@ -71,6 +71,13 @@ export function Meta(connID: string, database: string): $CancellablePromise<desi
 }
 
 /**
+ * PasteTables copies tables into target, each named <table>_copy_<date>_<time> for the current time.
+ */
+export function PasteTables(connID: string, tables: model$0.ObjectRef[] | null, target: core$0.PasteTarget): $CancellablePromise<core$0.PasteResult[] | null> {
+    return $Call.ByID(3390142640, connID, tables, target);
+}
+
+/**
  * Preview returns the SQL a save would run. old is nil for a new table.
  */
 export function Preview(connID: string, old: design$0.Table | null, table: design$0.Table): $CancellablePromise<core$0.DesignPreview> {

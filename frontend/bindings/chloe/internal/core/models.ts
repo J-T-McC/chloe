@@ -484,6 +484,32 @@ export interface MaintainResult {
 }
 
 /**
+ * PasteResult is one copied table's outcome.
+ */
+export interface PasteResult {
+    "source": model$0.ObjectRef;
+
+    /**
+     * the copy's name, also set when it failed
+     */
+    "name": string;
+    "error"?: string;
+
+    /**
+     * the copy exists; with Error: created without its rows
+     */
+    "created": boolean;
+}
+
+/**
+ * PasteTarget is the database or schema a paste creates its copies in.
+ */
+export interface PasteTarget {
+    "database": string;
+    "schema"?: string;
+}
+
+/**
  * RedisConsoleResult is the output of one console command.
  */
 export interface RedisConsoleResult {
