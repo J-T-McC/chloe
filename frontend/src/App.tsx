@@ -116,7 +116,6 @@ export default function App() {
   return (
     <div className="app">
       <header className="titlebar">
-        <div className="titlebar-drag" />
         <Toolbar className="main-toolbar">
           <ToolButton icon={<Plug size={20} />} label="Connection" onClick={() => useApp.getState().editConnection("new")} />
           <ToolButton

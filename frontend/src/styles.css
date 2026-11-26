@@ -224,6 +224,10 @@ button.icon {
 
 .titlebar {
   position: relative;
+  /* All of the header drags the window, and double-clicking it zooms or minimises
+     as macOS is set to (the Wails runtime reads this property); buttons opt out
+     with no-drag. */
+  --wails-draggable: drag;
   height: 64px;
   flex: none;
   background: var(--panel);
@@ -231,12 +235,6 @@ button.icon {
   display: flex;
   align-items: flex-end;
   padding-left: 84px; /* traffic lights */
-}
-
-.titlebar-drag {
-  position: absolute;
-  inset: 0;
-  --wails-draggable: drag;
 }
 
 .main-toolbar {
